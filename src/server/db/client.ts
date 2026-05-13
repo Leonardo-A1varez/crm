@@ -10,17 +10,15 @@
  * Defense-in-depth: si UI bug llama a service_role, todo el filtro RLS se bypassa
  * = data exfiltration silenciosa. La regla ESLint detiene el import antes de runtime.
  *
- * Real wireup: Slice 1 sub-paso 7.3 instalará `@supabase/supabase-js` + `gen types` →
- * reemplaza el placeholder `AppClient = unknown` por `SupabaseClient<Database>`.
+ * Pre-Slice 3: RLS policies aún no escritas → authed client retorna 0 rows para
+ * mayoría queries. Service-role obligatorio mientras tanto. Ver docs/security-threat-model.md.
  */
 
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { env } from "@/lib/env";
+import type { Database } from "./types.gen";
 
-// Placeholder hasta `supabase gen types` (Slice 1 sub-paso 7.3).
-// Reemplazar por: `import type { SupabaseClient } from "@supabase/supabase-js";`
-// `import type { Database } from "./types.gen";`
-// `export type AppClient = SupabaseClient<Database>;`
-export type AppClient = unknown;
+export type AppClient = SupabaseClient<Database>;
 
 export interface DbClientsConfig {
   url: string;
@@ -29,24 +27,65 @@ export interface DbClientsConfig {
 }
 
 export interface DbClientFactory {
+  /**
+   * Service-role bypass RLS. Solo workflows/repos backend.
+   * NUNCA expone en código UI/Server Actions (ESLint enforce).
+   */
   serviceRole(): AppClient;
+
+  /**
+   * Authed client con JWT user. Sujeto a RLS policies.
+   * Para Server Components / Server Actions / API routes user-scoped.
+   */
   authed(accessToken: string): AppClient;
 }
 
-const STUB_MSG =
-  "Slice 1 sub-paso 7.3 pendiente: install @supabase/supabase-js + gen types + reemplazar stub";
+const SUPABASE_OPTIONS = {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false,
+    detectSessionInUrl: false,
+  },
+  db: {
+    schema: "public" as const,
+  },
+} as const;
 
 /**
  * Factory pura — recibe config (test inyectable). Usar `defaultDbClientFactory()`
  * para singleton runtime que lee env validado.
+ *
+ * Singletons internos: 1 instancia service-role reusada (connection pool Supabase
+ * client maneja conexiones). 1 nueva instancia authed per request (carry JWT).
  */
-export function makeDbClientFactory(_cfg: DbClientsConfig): DbClientFactory {
+export function makeDbClientFactory(cfg: DbClientsConfig): DbClientFactory {
+  let serviceRoleSingleton: AppClient | null = null;
+
   return {
     serviceRole() {
-      throw new Error(`makeDbClientFactory.serviceRole: ${STUB_MSG}`);
+      if (serviceRoleSingleton === null) {
+        serviceRoleSingleton = createClient<Database>(cfg.url, cfg.serviceRoleKey, {
+          ...SUPABASE_OPTIONS,
+          global: {
+            headers: {
+              "x-client-info": "crm-service-role",
+            },
+          },
+        });
+      }
+      return serviceRoleSingleton;
     },
-    authed(_accessToken: string) {
-      throw new Error(`makeDbClientFactory.authed: ${STUB_MSG}`);
+
+    authed(accessToken: string) {
+      return createClient<Database>(cfg.url, cfg.anonKey, {
+        ...SUPABASE_OPTIONS,
+        global: {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "x-client-info": "crm-authed",
+          },
+        },
+      });
     },
   };
 }

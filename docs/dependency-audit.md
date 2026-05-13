@@ -4,12 +4,13 @@
 
 ## Pinned versions críticas
 
-| Pkg                  | Version          | Razón                                                                           |
-| -------------------- | ---------------- | ------------------------------------------------------------------------------- |
-| `inngest`            | **exact 4.4.0**  | API cambios entre v3/v4. Pin manual hasta verify v5+ compat.                    |
-| `zod`                | **exact 4.4.3**  | v4 introdujo breaking changes API. Vercel AI SDK confirma compat.               |
-| `@upstash/ratelimit` | **exact 2.0.8**  | B3 rate limiter webhook Meta. v2 estable. Pin para reproducibilidad CI.         |
-| `@upstash/redis`     | **exact 1.38.0** | B3 Redis REST client. Pin para evitar breaking changes en upgrade major futuro. |
+| Pkg                     | Version           | Razón                                                                              |
+| ----------------------- | ----------------- | ---------------------------------------------------------------------------------- |
+| `inngest`               | **exact 4.4.0**   | API cambios entre v3/v4. Pin manual hasta verify v5+ compat.                       |
+| `zod`                   | **exact 4.4.3**   | v4 introdujo breaking changes API. Vercel AI SDK confirma compat.                  |
+| `@upstash/ratelimit`    | **exact 2.0.8**   | B3 rate limiter webhook Meta. v2 estable. Pin para reproducibilidad CI.            |
+| `@upstash/redis`        | **exact 1.38.0**  | B3 Redis REST client. Pin para evitar breaking changes en upgrade major futuro.    |
+| `@supabase/supabase-js` | **exact 2.105.4** | Slice 1 7.3 DB client. Pin para reproducibilidad CI + estabilidad type generation. |
 
 ## Overrides
 
@@ -30,6 +31,7 @@ inngest                4.4.0    (current = latest)
 zod                    4.4.3    (current = latest)
 @upstash/ratelimit     2.0.8    (current = latest, B3 added)
 @upstash/redis         1.38.0   (current = latest, B3 added)
+@supabase/supabase-js  2.105.4  (current = latest, Slice 1 7.3 added)
 lucide-react           1.14.0   (current = latest)
 ai                     6.0.180  (no instalado todavía — Slice 1 7.5)
 @ai-sdk/openai         3.0.63   (no instalado todavía — Slice 1 7.5)
