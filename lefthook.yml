@@ -1,0 +1,31 @@
+# Pre-commit + commit-msg + pre-push hooks (lefthook).
+# Install: `npm install` runs `prepare` script → `lefthook install`.
+# Override (emergencia): `git commit --no-verify` (auditado — no usar de rutina).
+# Docs: https://lefthook.dev/configuration/
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: typecheck
+      run: npm run typecheck
+      tags: quality
+    - name: lint-staged
+      run: npx lint-staged
+      tags: quality
+      stage_fixed: true
+    - name: tests-related
+      run: npx vitest related {staged_files} --run --reporter=dot --passWithNoTests
+      glob: "{src,tests}/**/*.{ts,tsx}"
+      tags: quality
+
+commit-msg:
+  jobs:
+    - name: commitlint
+      run: npx --no-install commitlint --edit {1}
+      tags: quality
+
+pre-push:
+  jobs:
+    - name: full-test
+      run: npm test
+      tags: quality

@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // Tests acceden arrays determinísticamente post-seed (expect.toHaveLength(N) implícito).
+    // `noUncheckedIndexedAccess` añade fricción sin valor net. Resto strict aplica igual.
+    "noUncheckedIndexedAccess": false
+  },
+  "include": ["tests/**/*.ts", "tests/**/*.tsx", "src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules", "coverage", ".next"]
+}

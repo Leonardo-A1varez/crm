@@ -1,0 +1,172 @@
+import { describe, expect, test, beforeEach } from "vitest";
+import type { LeadsRepository, LeadInsert } from "@/server/repositories/leads.repo";
+
+const baseInsert: LeadInsert = {
+  nombre: "Juan Pérez",
+  telefono: "+595981000111",
+  email: null,
+  direccion: null,
+  vehiculo_marca: "Toyota",
+  vehiculo_modelo: "Corolla",
+  vehiculo_anio: 2015,
+  vehiculo_motor: null,
+  empresa_id: null,
+  canal_origen: "wa",
+  meta_user_ids: { wa: "wa_111" },
+};
+
+export function runLeadsContract(makeRepo: () => LeadsRepository) {
+  describe("LeadsRepository contract", () => {
+    let repo: LeadsRepository;
+
+    beforeEach(() => {
+      repo = makeRepo();
+    });
+
+    test("create assigns id + timestamps + persists", async () => {
+      const lead = await repo.create(baseInsert);
+
+      expect(lead.id).toBeTypeOf("string");
+      expect(lead.id.length).toBeGreaterThan(0);
+      expect(lead.created_at).toBeInstanceOf(Date);
+      expect(lead.updated_at).toBeInstanceOf(Date);
+      expect(lead.nombre).toBe(baseInsert.nombre);
+      expect(lead.telefono).toBe(baseInsert.telefono);
+
+      const fetched = await repo.findById(lead.id);
+      expect(fetched).toEqual(lead);
+    });
+
+    test("create rejects duplicate telefono", async () => {
+      await repo.create(baseInsert);
+      await expect(repo.create(baseInsert)).rejects.toThrow(/telefono/i);
+    });
+
+    test("findById returns null when missing", async () => {
+      expect(await repo.findById("missing-id")).toBeNull();
+    });
+
+    test("findByTelefono matches exact value", async () => {
+      const created = await repo.create(baseInsert);
+      const found = await repo.findByTelefono(baseInsert.telefono);
+      expect(found?.id).toBe(created.id);
+      expect(await repo.findByTelefono("+595999999999")).toBeNull();
+    });
+
+    test("findByMetaUserId matches canal-specific id", async () => {
+      const wa = await repo.create({
+        ...baseInsert,
+        telefono: "+595981000001",
+        meta_user_ids: { wa: "wa_001" },
+      });
+      const ig = await repo.create({
+        ...baseInsert,
+        telefono: "+595981000002",
+        canal_origen: "ig",
+        meta_user_ids: { ig: "ig_002" },
+      });
+
+      expect((await repo.findByMetaUserId("wa", "wa_001"))?.id).toBe(wa.id);
+      expect((await repo.findByMetaUserId("ig", "ig_002"))?.id).toBe(ig.id);
+      expect(await repo.findByMetaUserId("wa", "ig_002")).toBeNull();
+      expect(await repo.findByMetaUserId("fb", "wa_001")).toBeNull();
+    });
+
+    test("update applies patch + bumps updated_at + preserves id/created_at", async () => {
+      const created = await repo.create(baseInsert);
+      const beforeUpdated = created.updated_at.getTime();
+
+      await new Promise((r) => setTimeout(r, 5));
+      const patched = await repo.update(created.id, { nombre: "Juan Modificado" });
+
+      expect(patched.id).toBe(created.id);
+      expect(patched.created_at).toEqual(created.created_at);
+      expect(patched.nombre).toBe("Juan Modificado");
+      expect(patched.updated_at.getTime()).toBeGreaterThan(beforeUpdated);
+    });
+
+    test("update throws when id missing", async () => {
+      await expect(repo.update("missing", { nombre: "x" })).rejects.toThrow();
+    });
+
+    test("list returns all when no filter", async () => {
+      await repo.create(baseInsert);
+      await repo.create({ ...baseInsert, telefono: "+595981000222" });
+      const all = await repo.list();
+      expect(all).toHaveLength(2);
+    });
+
+    test("list filters by q against nombre/telefono substring", async () => {
+      await repo.create({ ...baseInsert, nombre: "Ana López", telefono: "+595981000010" });
+      await repo.create({ ...baseInsert, nombre: "Beto Sosa", telefono: "+595981000020" });
+      const ana = await repo.list({ q: "ana" });
+      expect(ana).toHaveLength(1);
+      expect(ana[0].nombre).toBe("Ana López");
+      const tel = await repo.list({ q: "000020" });
+      expect(tel).toHaveLength(1);
+      expect(tel[0].nombre).toBe("Beto Sosa");
+    });
+
+    test("list respects limit + offset", async () => {
+      for (let i = 0; i < 5; i++) {
+        await repo.create({ ...baseInsert, telefono: `+5959810001${i}${i}` });
+      }
+      const page1 = await repo.list({ limit: 2, offset: 0 });
+      const page2 = await repo.list({ limit: 2, offset: 2 });
+      expect(page1).toHaveLength(2);
+      expect(page2).toHaveLength(2);
+      expect(page1[0].id).not.toBe(page2[0].id);
+    });
+
+    test("mergeInto fusiona meta_user_ids del src en dst y borra src", async () => {
+      const dst = await repo.create({
+        ...baseInsert,
+        telefono: "+595981000300",
+        meta_user_ids: { wa: "wa_300" },
+      });
+      const src = await repo.create({
+        ...baseInsert,
+        telefono: "+595981000400",
+        canal_origen: "ig",
+        meta_user_ids: { ig: "ig_400" },
+      });
+
+      const merged = await repo.mergeInto(src.id, dst.id);
+
+      expect(merged.id).toBe(dst.id);
+      expect(merged.meta_user_ids).toEqual({ wa: "wa_300", ig: "ig_400" });
+      expect(await repo.findById(src.id)).toBeNull();
+    });
+
+    test("mergeInto throws when src or dst missing", async () => {
+      const dst = await repo.create(baseInsert);
+      await expect(repo.mergeInto("missing", dst.id)).rejects.toThrow();
+      await expect(repo.mergeInto(dst.id, "missing")).rejects.toThrow();
+    });
+
+    test("meta_user_ids no comparte ref con storage (defense vs caller mutation)", async () => {
+      const lead = await repo.create(baseInsert);
+      // Mutar el meta_user_ids retornado no debe afectar storage interno.
+      lead.meta_user_ids.wa = "MUTADO";
+      lead.meta_user_ids.ig = "INJECTADO";
+
+      const refetch = await repo.findById(lead.id);
+      expect(refetch?.meta_user_ids.wa).toBe("wa_111");
+      expect(refetch?.meta_user_ids.ig).toBeUndefined();
+    });
+
+    test("input meta_user_ids no compartido con storage (defense vs input mutation post-create)", async () => {
+      const meta = { wa: "wa_seed" };
+      const lead = await repo.create({
+        ...baseInsert,
+        telefono: "+595981000999",
+        meta_user_ids: meta,
+      });
+      // Mutar el input post-create no debe afectar storage.
+      meta.wa = "MUTADO_INPUT";
+
+      const refetch = await repo.findById(lead.id);
+      expect(refetch?.meta_user_ids.wa).toBe("wa_seed");
+    });
+  });
+}

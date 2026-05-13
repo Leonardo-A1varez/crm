@@ -1,0 +1,15 @@
+node_modules
+.next
+out
+build
+coverage
+.cache
+.turbo
+*.tsbuildinfo
+next-env.d.ts
+package-lock.json
+supabase/.branches
+supabase/.temp
+.vercel
+.inngest
+src/server/db/types.gen.ts
