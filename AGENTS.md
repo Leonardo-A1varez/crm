@@ -64,26 +64,26 @@ Diferenciadores: **sin kanban manual** (auto-stage), **Lead Twin**, **reglas IF/
 
 ## 2. Estado actual
 
-**Fase actual:** `Pre-Slice 1 Industrial Hardening (Camino B+) COMPLETA → Slice 1 next`
-**Sub-paso actual:** B+R completa. **Pre-Slice 1 Industrial Hardening B0-B6 + B+R done (7/7).**
-**Última acción completada:** **B+R — Re-baseline tests + commits**. Full CI verde: typecheck 0 errors, lint 0 errors, format clean, **423/423 tests pass** (was 394 pre-B+, +29 tests outbox+rate-limit+summarizer threshold), coverage statements 88.69% / branches 84.57% / functions 84.09% / lines 89.93% (todos sobre threshold 80/75/80/80). Camino B+ ajustado covered 16/47 issues HIGH del audit profundo: business spec lock + migration fixes + outbox at-least-once + security headers + rate limiter Upstash + RLS CI gate + threat model + perf tuning + observability foundation + business continuity. 31 issues LOW/MEDIUM diferidos post-pilot launch (documented data-model.md + threat-model.md known issues).
-**Siguiente sub-paso:** **Slice 1 sub-paso 7.1** — Install Supabase CLI (scoop) + `supabase init` + crear proyecto(s) + link + `npm run db:push` (14 migrations) + `supabase db advisors` + `supabase gen types`.
+**Fase actual:** `Slice 1 — Real DB + LLM + Meta sandbox (en progreso)`
+**Sub-paso actual:** **7.4 piloto leads COMPLETO** (1 de 14 repos). 13 repos restantes para Supabase impl.
+**Última acción completada:** **Slice 1 sub-paso 7.4 piloto SupabaseLeadsRepository**. Creado `src/server/repositories/leads.supabase.repo.ts` implementando `LeadsRepository` interface via `@supabase/supabase-js@2.105.4`. Helper `src/server/db/postgrest-errors.ts` (mapping 23505/42501/23502/23514 → DomainError). Integration test infrastructure en `tests/integration/`: `setup.ts` (makeTestSupabaseClient + cleanupTestDb DELETE-CASCADE-safe) + `leads.supabase.test.ts` (usa runLeadsContract reusable). `vitest.integration.config.ts` separate config sequential exec con `loadEnv` para `.env.local`. `package.json` script `test:integration` real. `.env.local.example` documenta `SUPABASE_TEST_URL` + `SUPABASE_TEST_SERVICE_KEY`. `.gitignore` allow `.env.local.example` tracking. **432/432 unit tests pass** (+9 db-client-factory). Typecheck 0 errors. Lint clean. Format clean. 4 commits conventional. **PENDIENTE USUARIO:** verificar integration tests funcionan localmente (requiere setear env vars `.env.local` per `docs/next-session.md`).
+**Siguiente sub-paso:** **Slice 1 sub-paso 7.4 continuación** — Replicar pattern SupabaseLeadsRepository a 13 repos restantes (conversations, messages, productos, intents, reglas, tags, users, lead-session, tool-executions, admin-audit, merge-candidates, reactivation-dispatches, event-outbox) + integration tests cada uno via runXContract. Ver `docs/next-session.md` para resume instructions step-by-step.
 
 ### Tabla de progreso
 
-| Fase                                                       | Estado       | Notas                                                                                                                                                                                                                          |
-| ---------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 0-6 — Foundation mock-first                                | 🟢 completo  | Bootstrap → workflows. 236/236 tests pre-REPAIR. Ver `docs/changelog.md`.                                                                                                                                                      |
-| REPAIR R1-R12                                              | 🟢 completo  | 11 migrations, +135 tests, error taxonomy + idempotency + audit                                                                                                                                                                |
-| Pre-Slice docs (failure-modes/idempotency/cost-budget)     | 🟢 completo  | Brief design docs                                                                                                                                                                                                              |
-| **Pre-Slice 1 hardening A1-A10 (Camino A+)**               | 🟢 completo  | 13 migrations + error taxonomy + CI + lefthook + zod env + tsconfig strict++ + ESLint boundaries + Prettier + docs split + dep audit                                                                                           |
-| **Pre-Slice 1 Industrial Hardening B0-B6+B+R (Camino B+)** | 🟢 completo  | Business spec lock + migration timestamps + outbox B2 + security headers + Upstash rate limit + RLS CI gate + threat model + perf tuning + SLO + runbooks + backup strategy. 16 issues HIGH del audit profundo. 423/423 tests. |
-| **Slice 1 — Real DB + LLM + Meta sandbox**                 | 🟡 next      | Supabase + AI SDK + Meta + serve endpoint                                                                                                                                                                                      |
-| **Slice 2 — UI + Realtime + Server Actions**               | ⚪ pendiente | Inbox + Lead Twin panel + Server Actions                                                                                                                                                                                       |
-| **Slice 3 — Auth + RLS audited**                           | ⚪ pendiente | Policies + STRIDE walkthrough                                                                                                                                                                                                  |
-| **Slice 4 — Cron real + hardening + launch**               | ⚪ pendiente | Soft launch monitoreado                                                                                                                                                                                                        |
+| Fase                                                       | Estado         | Notas                                                                                                                                                                                                                          |
+| ---------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0-6 — Foundation mock-first                                | 🟢 completo    | Bootstrap → workflows. 236/236 tests pre-REPAIR. Ver `docs/changelog.md`.                                                                                                                                                      |
+| REPAIR R1-R12                                              | 🟢 completo    | 11 migrations, +135 tests, error taxonomy + idempotency + audit                                                                                                                                                                |
+| Pre-Slice docs (failure-modes/idempotency/cost-budget)     | 🟢 completo    | Brief design docs                                                                                                                                                                                                              |
+| **Pre-Slice 1 hardening A1-A10 (Camino A+)**               | 🟢 completo    | 13 migrations + error taxonomy + CI + lefthook + zod env + tsconfig strict++ + ESLint boundaries + Prettier + docs split + dep audit                                                                                           |
+| **Pre-Slice 1 Industrial Hardening B0-B6+B+R (Camino B+)** | 🟢 completo    | Business spec lock + migration timestamps + outbox B2 + security headers + Upstash rate limit + RLS CI gate + threat model + perf tuning + SLO + runbooks + backup strategy. 16 issues HIGH del audit profundo. 423/423 tests. |
+| **Slice 1 — Real DB + LLM + Meta sandbox**                 | 🟡 en progreso | 7.1+7.2 Supabase setup + 15 migrations applied ✅. 7.3 DB client wireup ✅. 7.4 leads piloto ✅ (13 repos restantes). 7.5+ pendiente.                                                                                          |
+| **Slice 2 — UI + Realtime + Server Actions**               | ⚪ pendiente   | Inbox + Lead Twin panel + Server Actions                                                                                                                                                                                       |
+| **Slice 3 — Auth + RLS audited**                           | ⚪ pendiente   | Policies + STRIDE walkthrough                                                                                                                                                                                                  |
+| **Slice 4 — Cron real + hardening + launch**               | ⚪ pendiente   | Soft launch monitoreado                                                                                                                                                                                                        |
 
-**Métricas actuales:** 423/423 tests pass · coverage statements 88.69% / branches 84.57% / functions 84.09% / lines 89.93% · 0 typecheck errors · 0 lint errors · format clean · CI verde.
+**Métricas actuales:** 432/432 unit tests pass · 14 integration tests SupabaseLeadsRepository (pending verify usuario local) · 0 typecheck errors · 0 lint errors · format clean · CI verde · 4 commits conventional history.
 
 > **Cuando completes una acción, actualiza la tabla + "Última acción completada".**
 
@@ -360,10 +360,11 @@ Lista cerrada. No re-abrir sin pedido explícito.
 
 1. Lee `README.md` (product overview).
 2. Lee este `AGENTS.md` completo (reglas + estado).
-3. `docs/changelog.md` para histórico detallado si necesitas contexto fases pasadas.
-4. `docs/architecture.md`, `docs/data-model.md`, `docs/idempotency.md`, `docs/failure-modes.md`, `docs/cost-budget.md`, `docs/workflows.md` para diseño.
-5. Si código no concuerda con doc, preguntar antes de actuar.
-6. Continuar desde "Siguiente sub-paso" §2.
+3. **Lee `docs/next-session.md` para resume instructions step-by-step + acción pendiente usuario.**
+4. `docs/changelog.md` para histórico detallado si necesitas contexto fases pasadas.
+5. `docs/architecture.md`, `docs/data-model.md`, `docs/idempotency.md`, `docs/failure-modes.md`, `docs/cost-budget.md`, `docs/workflows.md`, `docs/security-threat-model.md`, `docs/database-tuning.md`, `docs/slo.md`, `docs/backup-strategy.md`, `docs/business-plan.md`, `docs/meta-platform-limits.md`, `docs/data-retention.md` para diseño + business + ops.
+6. Si código no concuerda con doc, preguntar antes de actuar.
+7. Continuar desde "Siguiente sub-paso" §2 o seguir guía `docs/next-session.md`.
 
 ---
 

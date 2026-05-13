@@ -4,6 +4,142 @@
 
 ---
 
+## Slice 1 sub-pasos 7.1-7.4 piloto — 2026-05-13
+
+### 7.1 — Supabase setup + 15 migrations
+
+- Install Supabase CLI v2.98.2 via scoop.
+- `supabase init` regenera `config.toml` proper (project_id="crm", db.major_version=17, db.pooler.pool_mode="transaction").
+- Crear proyecto `crm-dev` en Supabase Cloud (region `us-east-2`, free tier).
+- `supabase login` + `supabase link --project-ref=edlranjncwpxkyllopfa`.
+- Fix bug B1: `COMMENT ON TABLE ... ||` string concat no soportado Postgres. Convertido a single-string literal en migrations 01 + 14.
+- `supabase db push` aplica 14 migrations. Migration 15 nueva `20260512000015_fix_function_search_path.sql` fix advisor WARN.
+- Re-run `db push` aplica migration 15. Advisors clean except `pg_trgm` extension WARN (defer Slice 4 documented threat-model).
+- Validación: `supabase migration list --linked` muestra 15/15 aplicadas.
+
+### 7.2 — config.toml audit
+
+Auto-generated por `supabase init`. Auditado: defaults sanos, sin secrets hardcoded.
+
+### 7.3 — DB client real wireup
+
+- Install `@supabase/supabase-js@2.105.4` (pinned exact).
+- `src/server/db/client.ts` reemplaza stub:
+  - `AppClient = SupabaseClient<Database>`.
+  - `serviceRole()` singleton bypass RLS.
+  - `authed(jwt)` per-request con Bearer JWT.
+- `tests/unit/db-client-factory.test.ts` 9 tests (singleton, isolation, reset).
+- Pre-Slice 3: service-role obligatorio (RLS policies aún no escritas).
+
+### 7.4 piloto — SupabaseLeadsRepository
+
+- `src/server/repositories/leads.supabase.repo.ts` implementa `LeadsRepository` via Supabase JS.
+- `src/server/db/postgrest-errors.ts` mapping 23505/42501/23502/23514 → DomainError.
+- Integration test infrastructure (`tests/integration/`):
+  - `setup.ts` makeTestSupabaseClient + cleanupTestDb (DELETE CASCADE-safe).
+  - `leads.supabase.test.ts` usa `runLeadsContract(makeRepo)` reusable.
+- `vitest.integration.config.ts` separate config + `loadEnv` para `.env.local` + sequential exec.
+- `package.json` script `test:integration` ahora ejecuta vitest real.
+- `.env.local.example` documenta `SUPABASE_TEST_URL` + `SUPABASE_TEST_SERVICE_KEY`.
+- `.gitignore` allow `.env.local.example` tracking (template, no secrets).
+- Pattern establecido para 13 repos restantes (sub-pasos 7.4.X siguientes).
+
+### Métricas post sesión 2026-05-13
+
+- 432/432 unit tests pass (+9 db-client-factory tests).
+- 14 integration tests SupabaseLeadsRepository (pending verify usuario local).
+- 0 typecheck errors. 0 lint errors. Format clean.
+- 16 deps prod (+@supabase/supabase-js).
+- 15 migrations aplicadas Supabase `crm-dev`.
+- 4 commits conventional history (initial foundation + 7.1-7.2 + 7.3 + 7.4 piloto).
+
+---
+
+## Pre-Slice 1 Industrial Hardening (Camino B+) — 2026-05-13
+
+Plan re-shape post-A10 sesión 2026-05-13. Audit profundo detectó 47 issues across 10 categorías (product, stack, data model, security, performance, observability, testing, DX, architecture, business continuity). Camino B+ ajustado cubre 16 HIGH priority issues, 31 LOW/MEDIUM diferidos post-pilot.
+
+### B0 — Lock business spec Pilot tier Latam
+
+- Update `AGENTS.md §1` Resumen ejecutivo: white-label self-hosted per cliente, target Latam aftermarket parts (Brasil/México/Argentina/Chile/Colombia/Perú).
+- Update `AGENTS.md §3` Decisiones Producto: tiers pilot/mediana/grande.
+- Crear `docs/business-plan.md`: TAM $47-60B Latam + SAM 300-500 empresas + SOM Y3 30-80 clientes + ICP + competitive landscape + pricing.
+- Crear `docs/meta-platform-limits.md`: WhatsApp tiers/quality/24h-window + Instagram DM tags + Messenger OTN + error codes 131xxx/132xxx + pricing per país.
+- Crear `docs/data-retention.md`: compliance 6 países (LGPD/Ley 25.326/LFPDPPP/Chile 21.719/Colombia 1581/Perú 29.733) + right-to-erasure design + sub-processors disclosure + audit log obligatorio.
+
+### B1 — Migration fixes pre-apply
+
+- Rename 13 migrations a timestamp format `YYYYMMDDHHMMSS_<name>.sql` (Supabase CLI v2+ standard).
+- `tags.color` CHECK regex hex `^#[0-9a-fA-F]{6}$` + default `#888888`.
+- `empresas` table COMMENT documenta single-org constraint (keep, no DROP).
+- C.1 `leads.telefono` split diferido post-pilot (documented data-model.md known issue).
+
+### B2 — Outbox pattern + EventBus
+
+- Migration 14 `20260512000014_event_outbox.sql` con `event_outbox` table + partial index pending + RLS enabled.
+- `src/server/repositories/event-outbox.repo.ts` interface + Noop + InMemory + 9 contract tests.
+- `src/server/services/event-bus.service.ts` `DefaultEventBusService.publish` optimistic direct dispatch + outbox fallback.
+- `src/inngest/functions/dispatch-outbox-events.cron.ts` cron `*/1 * * * *` + manual trigger.
+- Update `architecture.md` + `idempotency.md` + `workflows.md` + AGENTS.md inventory.
+- 11 tests nuevos (6 contract + 4 service + 6 handler cron via passthrough step + factory).
+
+### B3 — Security baseline
+
+- Install `@upstash/ratelimit@2.0.8` + `@upstash/redis@1.38.0` (pinned exact).
+- `src/lib/rate-limit/index.ts` interface + NoopRateLimiter + UpstashRateLimiter + makeRateLimiterFromEnv factory.
+- 6 tests rate-limit unit.
+- `next.config.ts` reemplazado por security headers strict: CSP (script-src self + Supabase/Meta/OpenAI), HSTS preload 2y, X-Frame-Options DENY, Referrer-Policy strict-origin, Permissions-Policy (no camera/mic/geo), X-Content-Type-Options nosniff.
+- `scripts/verify-rls-policies.sh` CI gate: count `CREATE POLICY` ≥ `MIN_RLS_POLICIES` env (pre-Slice 3 = 0).
+- `.github/workflows/ci.yml` agrega job `security` con `verify-rls-policies.sh`.
+- Crear `docs/security-threat-model.md` STRIDE per componente + OWASP top 10 coverage + known issues `pg_trgm` deferred.
+- Update `docs/dependency-audit.md` con Upstash entries pinned.
+- Update `src/lib/env.ts` zod schema con UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN optional.
+- Update `.env.local.example` Upstash section.
+
+### B4 — Performance baseline
+
+- Crear `docs/database-tuning.md`: pgBouncer transaction mode + autovacuum hints per table + query plan baselines + Inngest concurrency keys + read replicas Mid-market.
+- `src/inngest/functions/on-message-received.ts` agregar `concurrency: { key: "event.data.parsed.meta_user_id", limit: 1 }` race protection.
+- `src/server/services/conversation-summarizer.service.ts` agregar `DEFAULT_SUMMARY_THRESHOLD = 20` + `shouldSummarize(totalTurns)` helper + threshold configurable constructor.
+- 3 tests nuevos summarizer threshold.
+
+### B5 — Observability foundation
+
+- Crear `docs/slo.md` SLI catalog (availability, latency, correctness, cost) + SLO targets pilot tier (webhook uptime 99.5%, webhook→reply P95 <3s, LLM classify P95 <1s, etc.) + alert thresholds critical/warn/info.
+- Decision alert canal: Slack default (free tier 10K msgs/mes).
+- Crear `docs/runbooks/cost-spike.md` LLM cost spike runbook.
+- Crear `docs/runbooks/llm-down.md` LLM provider outage runbook + failover criteria.
+- Crear `docs/runbooks/meta-rate-limit.md` Meta API rate limit / quality drop runbook.
+
+### B6 — Business continuity
+
+- Crear `docs/backup-strategy.md`: RPO 1h / RTO 4h pilot tier + Supabase Pro PITR + custom S3 weekly snapshots + restore procedures + drill cadence + multi-region DR Mid-market+.
+
+### B+R — Re-baseline
+
+- `npm run ci` end-to-end verde: typecheck 0 errors, lint 0 errors (boundaries deprecation warnings preexisting), format clean, **423/423 tests pass**.
+- Coverage: statements 88.69% / branches 84.57% / functions 84.09% / lines 89.93% (todos sobre threshold 80/75/80/80).
+- Update `AGENTS.md` §2 estado actual + inventory (migrations 14, Inngest 9 functions, repos 14, services 11) + tabla progreso.
+
+### Cuando NO se hizo (deferred)
+
+31 issues LOW/MEDIUM diferidos post-pilot launch:
+
+- A.1 (PRD complete), A.2 (user research kanban), A.4 (foto-to-SKU v2), A.5 (reactivation A/B).
+- B.1 (Realtime persistent path), B.2 (Inngest alternatives matrix), B.3 (AI SDK thin wrap), B.4 (Realtime channel cap), B.5 (shadcn/Tailwind v4 pin).
+- C.2 (extras jsonb audit), C.3 (audit_log global), C.6 (merge heurística pg_trgm), C.7 (partitioning), C.8 (autovacuum runtime tuning).
+- D.2 (service-role rotation), D.6 (2FA admin Slice 3), D.7 (STRIDE walkthrough completo Slice 3).
+- E.1 (EXPLAIN ANALYZE Slice 1 7.4), E.2 (lock monitoring), E.3 (pgBouncer config Slice 1 7.7).
+- F.1 (OTel tracing), F.2 (SLO ops review), F.3 (runbooks complete), F.4 (alert canal wireup Slice 1 7.7).
+- G.2 (mutation testing), G.3 (property-based), G.4 (load testing Slice 4).
+- H.1-H.5 (DX polish).
+- I.1 (feature-based folders Slice 2), I.2 (RLS dual-mode), I.3 (event versioning), I.4 (CQRS).
+- J.2 (multi-region DR), J.4 (postmortem template generic).
+
+Listed en `docs/security-threat-model.md` + `docs/data-model.md` + relevant docs como known issues / technical debt.
+
+---
+
 ## Pre-Slice 1 hardening (Camino A+) — 2026-05-12
 
 Plan re-shape post-REPAIR. Objetivo: foundation enterprise-grade antes de wireup real (Slice 1). 10 sub-pasos, infra + DX + tooling.
