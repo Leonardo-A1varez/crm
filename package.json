@@ -15,7 +15,7 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
-    "test:integration": "echo \"Slice 1 sub-paso 7.4: contract tests vs Supabase preview branch\"",
+    "test:integration": "vitest run -c vitest.integration.config.ts",
     "db:push": "supabase db push --linked",
     "db:gen-types": "supabase gen types typescript --linked > src/server/db/types.gen.ts",
     "db:advisors": "supabase db advisors",

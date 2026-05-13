@@ -7,6 +7,10 @@ export default defineConfig({
     setupFiles: ["./tests/setup.ts"],
     globals: true,
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx", "src/**/*.test.ts"],
+    exclude: [
+      "**/node_modules/**",
+      "tests/integration/**", // Slice 1 7.4+: requieren Supabase real (npm run test:integration)
+    ],
     coverage: {
       provider: "v8",
       reporter: ["text", "text-summary", "html", "json-summary", "lcov"],
