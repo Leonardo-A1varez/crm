@@ -72,7 +72,8 @@ Diferenciadores: **sin kanban manual** (auto-stage), **Lead Twin**, **reglas IF/
 1. Crear `.env.local` con credenciales del viejo `crm-dev` `edlranjncwpxkyllopfa` (NO del proyecto duplicado).
 2. Correr `npm run test:integration` y reportar output (verde o rojo).
 3. Borrar proyecto Supabase duplicado `xwcsovqhyclvdpoacgfh` del dashboard.
-   **Siguiente sub-paso:** **Slice 1 sub-paso 7.4 continuación** — Replicar pattern SupabaseLeadsRepository a 13 repos restantes (tags, productos, users, intents, reglas, conversations, messages, lead-session, tool-executions, admin-audit, merge-candidates, reactivation-dispatches, event-outbox) + integration tests cada uno via runXContract. 1 repo por commit. Ver `docs/next-session.md` para resume instructions step-by-step.
+
+**Siguiente sub-paso:** **Slice 1 sub-paso 7.4 continuación** — Replicar pattern SupabaseLeadsRepository a 13 repos restantes (tags, productos, users, intents, reglas, conversations, messages, lead-session, tool-executions, admin-audit, merge-candidates, reactivation-dispatches, event-outbox) + integration tests cada uno via runXContract. 1 repo por commit. Ver `docs/next-session.md` para resume instructions step-by-step.
 
 ### Tabla de progreso
 
