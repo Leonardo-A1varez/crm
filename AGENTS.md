@@ -65,9 +65,14 @@ Diferenciadores: **sin kanban manual** (auto-stage), **Lead Twin**, **reglas IF/
 ## 2. Estado actual
 
 **Fase actual:** `Slice 1 — Real DB + LLM + Meta sandbox (en progreso)`
-**Sub-paso actual:** **7.4 piloto leads COMPLETO** (1 de 14 repos). 13 repos restantes para Supabase impl.
-**Última acción completada:** **Slice 1 sub-paso 7.4 piloto SupabaseLeadsRepository**. Creado `src/server/repositories/leads.supabase.repo.ts` implementando `LeadsRepository` interface via `@supabase/supabase-js@2.105.4`. Helper `src/server/db/postgrest-errors.ts` (mapping 23505/42501/23502/23514 → DomainError). Integration test infrastructure en `tests/integration/`: `setup.ts` (makeTestSupabaseClient + cleanupTestDb DELETE-CASCADE-safe) + `leads.supabase.test.ts` (usa runLeadsContract reusable). `vitest.integration.config.ts` separate config sequential exec con `loadEnv` para `.env.local`. `package.json` script `test:integration` real. `.env.local.example` documenta `SUPABASE_TEST_URL` + `SUPABASE_TEST_SERVICE_KEY`. `.gitignore` allow `.env.local.example` tracking. **432/432 unit tests pass** (+9 db-client-factory). Typecheck 0 errors. Lint clean. Format clean. 4 commits conventional. **PENDIENTE USUARIO:** verificar integration tests funcionan localmente (requiere setear env vars `.env.local` per `docs/next-session.md`).
-**Siguiente sub-paso:** **Slice 1 sub-paso 7.4 continuación** — Replicar pattern SupabaseLeadsRepository a 13 repos restantes (conversations, messages, productos, intents, reglas, tags, users, lead-session, tool-executions, admin-audit, merge-candidates, reactivation-dispatches, event-outbox) + integration tests cada uno via runXContract. Ver `docs/next-session.md` para resume instructions step-by-step.
+**Sub-paso actual:** **7.4 piloto leads COMPLETO** (1 de 14 repos). 13 repos restantes para Supabase impl. **Bloqueado por verificación integration tests usuario** (`.env.local` sin setear).
+**Última acción completada (sesión 2026-05-14):** Commit `369d708 fix(test): vitest integration config carga .env.local via loadEnv`. Refactor `vitest.integration.config.ts` a callback `defineConfig(({ mode }) => ...)` para invocar `loadEnv` y exponer `SUPABASE_TEST_URL` + `SUPABASE_TEST_SERVICE_KEY` al runner sin prefix `VITE_*`. Hooks pre-commit todos verdes. **Incidente paralelo:** usuario creó proyecto Supabase duplicado `xwcsovqhyclvdpoacgfh` por error y pegó su `sb_secret_*` en chat; secret ya rotado, decisión confirmada de descartar proyecto duplicado y seguir con `crm-dev` `edlranjncwpxkyllopfa` (15 migrations aplicadas + CLI linked). Pendiente usuario: borrar `xwcsovqhyclvdpoacgfh` del dashboard.
+**PENDIENTE USUARIO antes de continuar:**
+
+1. Crear `.env.local` con credenciales del viejo `crm-dev` `edlranjncwpxkyllopfa` (NO del proyecto duplicado).
+2. Correr `npm run test:integration` y reportar output (verde o rojo).
+3. Borrar proyecto Supabase duplicado `xwcsovqhyclvdpoacgfh` del dashboard.
+   **Siguiente sub-paso:** **Slice 1 sub-paso 7.4 continuación** — Replicar pattern SupabaseLeadsRepository a 13 repos restantes (tags, productos, users, intents, reglas, conversations, messages, lead-session, tool-executions, admin-audit, merge-candidates, reactivation-dispatches, event-outbox) + integration tests cada uno via runXContract. 1 repo por commit. Ver `docs/next-session.md` para resume instructions step-by-step.
 
 ### Tabla de progreso
 
@@ -83,7 +88,7 @@ Diferenciadores: **sin kanban manual** (auto-stage), **Lead Twin**, **reglas IF/
 | **Slice 3 — Auth + RLS audited**                           | ⚪ pendiente   | Policies + STRIDE walkthrough                                                                                                                                                                                                  |
 | **Slice 4 — Cron real + hardening + launch**               | ⚪ pendiente   | Soft launch monitoreado                                                                                                                                                                                                        |
 
-**Métricas actuales:** 432/432 unit tests pass · 14 integration tests SupabaseLeadsRepository (pending verify usuario local) · 0 typecheck errors · 0 lint errors · format clean · CI verde · 4 commits conventional history.
+**Métricas actuales:** 432/432 unit tests pass · 14 integration tests SupabaseLeadsRepository (pending verify usuario local) · 0 typecheck errors · 0 lint errors · format clean · CI verde · 5 commits conventional history (último: `369d708 fix(test): vitest integration config carga .env.local via loadEnv`).
 
 > **Cuando completes una acción, actualiza la tabla + "Última acción completada".**
 

@@ -4,6 +4,32 @@
 
 ---
 
+## Slice 1 sub-paso 7.4 follow-up — 2026-05-14
+
+### Fix vitest integration config
+
+- Commit `369d708 fix(test): vitest integration config carga .env.local via loadEnv`.
+- Razón: Vitest no auto-carga `.env.local` como Next.js. `loadEnv(mode, cwd, "")` del vite/config expone `SUPABASE_TEST_URL` + `SUPABASE_TEST_SERVICE_KEY` al test runner sin prefix `VITE_*`.
+- Estructura del config refactorizada a callback `defineConfig(({ mode }) => ({...}))` para acceder al mode.
+- Hooks pre-commit verdes (typecheck + eslint + prettier + commitlint).
+
+### Incidente — proyecto Supabase duplicado por error usuario
+
+- Usuario creó proyecto Supabase secundario `xwcsovqhyclvdpoacgfh` (org `ootqtdmvehhflwgnyfql`, region West US, nombre default "pruevaservicios.efecto@gmail.com's Project") el 2026-05-14 03:41 UTC por error.
+- Confusión al copiar credenciales: pegó `sb_secret_*` del proyecto nuevo en chat asistente (NO el del viejo crm-dev).
+- Mitigación: usuario rotó `sb_secret_*` del proyecto nuevo. Secret comprometido invalidado.
+- Decisión: descartar proyecto nuevo, seguir con `crm-dev` (`edlranjncwpxkyllopfa`, us-east-2) que ya tiene 15 migrations aplicadas + CLI linked.
+- Pendiente usuario: borrar `xwcsovqhyclvdpoacgfh` desde dashboard (free tier 2 slots, ocupa uno innecesariamente).
+- Aprendizaje: comunicación de credenciales en chat es riesgo. Recordatorio explícito en `docs/next-session.md` próxima sesión: secrets directo a `.env.local`, jamás pegar en chat.
+
+### Estado integration tests piloto leads
+
+- `.env.local` SIGUE PENDIENTE setup por usuario (acción que estaba pendiente pre-pausa 2026-05-13 sigue pendiente).
+- Decisión confirmada: usar credenciales del viejo `crm-dev` `edlranjncwpxkyllopfa` (NO las del proyecto nuevo rotado).
+- Sin `.env.local` verificado, no se procede a replicar pattern a 13 repos restantes (riesgo: propagar bug del pilot 13 veces).
+
+---
+
 ## Slice 1 sub-pasos 7.1-7.4 piloto — 2026-05-13
 
 ### 7.1 — Supabase setup + 15 migrations
