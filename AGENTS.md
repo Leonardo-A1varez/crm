@@ -108,7 +108,7 @@ Plan original (Fases 7-14) reemplazado por **4 slices verticales** + **Pre-Slice
 
 Lo que está LISTO en repo, agrupado por capa:
 
-**Migraciones SQL** (15, `supabase/migrations/`. **14 primeras aplicadas a Supabase crm-dev. Migración 15 pendiente push (fix advisor).** Renombradas B1 a timestamp format `YYYYMMDDHHMMSS_<name>.sql` Supabase CLI v2+ standard):
+**Migraciones SQL** (15, `supabase/migrations/`. **15/15 aplicadas a Supabase crm-dev (verificado `supabase migration list --linked` 2026-05-14).** Renombradas B1 a timestamp format `YYYYMMDDHHMMSS_<name>.sql` Supabase CLI v2+ standard):
 
 ```
 20260512000001_init.sql                       extensions + enums + empresas/usuarios/leads/productos/lead_session + COMMENT empresas single-org
