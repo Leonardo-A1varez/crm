@@ -2,6 +2,7 @@ import { ConflictError, NotFoundError } from "@/lib/errors";
 import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import type { Database } from "@/server/db/types.gen";
+import { isUuid } from "@/server/db/uuid";
 import type { Canal } from "@/types/domain";
 import type { Lead, MetaUserIds, UUID } from "@/types/entities";
 import type { LeadInsert, LeadListFilter, LeadUpdate, LeadsRepository } from "./leads.repo";
@@ -56,6 +57,7 @@ export class SupabaseLeadsRepository implements LeadsRepository {
   }
 
   async findById(id: UUID): Promise<Lead | null> {
+    if (!isUuid(id)) return null;
     const { data, error } = await this.db.from("leads").select().eq("id", id).maybeSingle();
     if (error) throw mapPostgrestError(error, { resource: "lead" });
     return data ? mapRow(data) : null;
