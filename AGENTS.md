@@ -65,13 +65,11 @@ Diferenciadores: **sin kanban manual** (auto-stage), **Lead Twin**, **reglas IF/
 ## 2. Estado actual
 
 **Fase actual:** `Slice 1 — Real DB + LLM + Meta sandbox (en progreso)`
-**Sub-paso actual:** **7.4 piloto leads COMPLETO + VERIFICADO integration tests 14/14 verde** (1 de 14 repos). 13 repos restantes para Supabase impl. **Bloqueador nuevo:** repo SIN remoto configurado → backup remoto pendiente (anti-patrón disciplina: 6+ commits + 15 migrations + docs sin respaldo).
-**Última acción completada (sesión 2026-05-14 tarde):** 3 commits secuenciales: `74f2f53 fix(test): import loadEnv desde vite no vitest/config` (fix bug commit anterior `369d708` que importaba `loadEnv` de `vitest/config` cuando vive en `vite`), `adb5a43 fix(repos): findById Supabase devuelve null para UUID malformado` (helper `src/server/db/uuid.ts` + early-return `findById` para matchear contract InMemory + 7 unit tests), `ecdd9ad docs(agents): corrige estado mig15 aplicada` (verificado `supabase migration list --linked` 15/15). Integration tests `SupabaseLeadsRepository` 14/14 verde contra Supabase real `crm-dev`. CI verde: 439 unit tests + 14 integration. Coverage 83.17/76.05/82.64/85.06. **Duplicado `xwcsovqhyclvdpoacgfh` borrado por usuario.**
-**PENDIENTE USUARIO antes de continuar:**
+**Sub-paso actual:** **7.4 COMPLETO 14/14 repos Supabase impl + integration tests 154/154 verde contra crm-dev.** Repo remoto GitHub configurado (`Leonardo-A1varez/crm` privado). Migration 16 aplicada (`server_now()` RPC helper). 7.5 siguiente.
+**Última acción completada (sesión 2026-05-14/15):** 14 repos Supabase replicando pattern leads piloto: leads, tags, productos, users, intents, reglas, conversations, messages, lead-session, tool-executions, admin-audit, merge-candidates, reactivation-dispatches, event-outbox. Cada uno = 1 commit conventional + push. Contract pattern fixtures inyectables para FKs (default strings preserva InMemory tests). Helper `src/server/db/server-time.ts` + migration `20260514000016_repo_helpers.sql` con SQL function `public.server_now()` para timestamp server-side (fix clock skew JS↔PG). 16 migrations aplicadas a `crm-dev` (verificado `supabase migration list --linked`). 439 unit + 154 integration verde. ESLint warnings deprecation `boundaries/element-types` pre-existentes (no errors).
+**PENDIENTE USUARIO antes de continuar:** ninguno (backup remoto + 14 repos done).
 
-1. Crear repo privado en GitHub (o GitLab/Bitbucket) llamado `crm` SIN README/gitignore/license, copiar URL clone, pasar al asistente para `git remote add origin <url>` + `git push -u origin master`. Razón: backup remoto + punto restore antes empezar 13 repos restantes.
-
-**Siguiente sub-paso:** **Slice 1 sub-paso 7.4 continuación** — Tras backup remoto, replicar pattern SupabaseLeadsRepository a 13 repos restantes (orden complejidad creciente: tags, productos, users, intents, reglas, conversations, messages, lead-session, tool-executions, admin-audit, merge-candidates, reactivation-dispatches, event-outbox) + integration tests cada uno via runXContract. 1 repo por commit. Aplicar fix UUID malformado (early-return null si `!isUuid(id)`) en cada `findById` Supabase. Ver `docs/next-session.md` para resume instructions step-by-step.
+**Siguiente sub-paso:** **Slice 1 sub-paso 7.5** — Instalar Vercel AI SDK (`ai@6.0.180` + `@ai-sdk/openai@3.0.63`) + implementar 5 LLM real impls (intent-classifier, twin-extractor, ai-agent, conversation-summarizer, lead-merge-detector). Ver `docs/next-session.md` para detalle.
 
 ### Tabla de progreso
 
@@ -82,12 +80,12 @@ Diferenciadores: **sin kanban manual** (auto-stage), **Lead Twin**, **reglas IF/
 | Pre-Slice docs (failure-modes/idempotency/cost-budget)     | 🟢 completo    | Brief design docs                                                                                                                                                                                                              |
 | **Pre-Slice 1 hardening A1-A10 (Camino A+)**               | 🟢 completo    | 13 migrations + error taxonomy + CI + lefthook + zod env + tsconfig strict++ + ESLint boundaries + Prettier + docs split + dep audit                                                                                           |
 | **Pre-Slice 1 Industrial Hardening B0-B6+B+R (Camino B+)** | 🟢 completo    | Business spec lock + migration timestamps + outbox B2 + security headers + Upstash rate limit + RLS CI gate + threat model + perf tuning + SLO + runbooks + backup strategy. 16 issues HIGH del audit profundo. 423/423 tests. |
-| **Slice 1 — Real DB + LLM + Meta sandbox**                 | 🟡 en progreso | 7.1+7.2 Supabase setup + 15 migrations applied ✅. 7.3 DB client wireup ✅. 7.4 leads piloto ✅ + integration 14/14 verde ✅ (13 repos restantes). 7.5+ pendiente.                                                             |
+| **Slice 1 — Real DB + LLM + Meta sandbox**                 | 🟡 en progreso | 7.1+7.2 Supabase setup + 16 migrations applied ✅. 7.3 DB client wireup ✅. 7.4 14/14 repos Supabase ✅ + integration 154/154 verde ✅. 7.5+ pendiente.                                                                        |
 | **Slice 2 — UI + Realtime + Server Actions**               | ⚪ pendiente   | Inbox + Lead Twin panel + Server Actions                                                                                                                                                                                       |
 | **Slice 3 — Auth + RLS audited**                           | ⚪ pendiente   | Policies + STRIDE walkthrough                                                                                                                                                                                                  |
 | **Slice 4 — Cron real + hardening + launch**               | ⚪ pendiente   | Soft launch monitoreado                                                                                                                                                                                                        |
 
-**Métricas actuales:** 439/439 unit tests pass · 14/14 integration tests `SupabaseLeadsRepository` verde contra Supabase real · 0 typecheck errors · 0 lint errors · format clean · CI verde · coverage 83.17/76.05/82.64/85.06 · 8 commits conventional history (último: `ecdd9ad docs(agents): corrige estado mig15 aplicada`) · **SIN remoto git configurado**.
+**Métricas actuales:** 439/439 unit tests pass · 154/154 integration tests verde contra Supabase real (14 repos: leads 14 · tags 14 · productos 15 · users 8 · intents 8 · reglas 12 · conversations 14 · messages 14 · lead-session 14 · tool-executions 5 · admin-audit 8 · merge-candidates 11 · reactivation-dispatches 8 · event-outbox 9) · 0 typecheck errors · 0 lint errors (warnings boundaries/element-types deprecation pre-existentes) · format clean · 26 commits conventional history (último: `73337f6 feat(repos): Slice 1 7.4 SupabaseEventOutboxRepository — 14/14 COMPLETE`) · **remoto `https://github.com/Leonardo-A1varez/crm.git` configurado (privado, master sync)**.
 
 > **Cuando completes una acción, actualiza la tabla + "Última acción completada".**
 
@@ -106,7 +104,7 @@ Plan original (Fases 7-14) reemplazado por **4 slices verticales** + **Pre-Slice
 
 Lo que está LISTO en repo, agrupado por capa:
 
-**Migraciones SQL** (15, `supabase/migrations/`. **15/15 aplicadas a Supabase crm-dev (verificado `supabase migration list --linked` 2026-05-14).** Renombradas B1 a timestamp format `YYYYMMDDHHMMSS_<name>.sql` Supabase CLI v2+ standard):
+**Migraciones SQL** (16, `supabase/migrations/`. **16/16 aplicadas a Supabase crm-dev (verificado `supabase migration list --linked` 2026-05-15).** Renombradas B1 a timestamp format `YYYYMMDDHHMMSS_<name>.sql` Supabase CLI v2+ standard):
 
 ```
 20260512000001_init.sql                       extensions + enums + empresas/usuarios/leads/productos/lead_session + COMMENT empresas single-org
@@ -124,15 +122,18 @@ Lo que está LISTO en repo, agrupado por capa:
 20260512000013_reactivation_dispatches.sql (A2) tabla cooldown enforcement
 20260512000014_event_outbox.sql          (B2)  transactional outbox at-least-once delivery
 20260512000015_fix_function_search_path.sql    fix advisor WARN search_path 4 helpers públicas
+20260514000016_repo_helpers.sql               server_now() RPC helper para timestamp server-side (fix clock skew JS↔PG)
 ```
 
-**Repositorios** (`src/server/repositories/`, interface + InMemory impl + contract tests reusables):
+**Repositorios** (`src/server/repositories/`, interface + InMemory impl + Supabase impl + contract tests reusables):
 
 ```
 leads · lead-session · conversations · messages · productos · intents · rules
 tags · users · tool-executions · admin-audit · merge-candidates · reactivation-dispatches
 event-outbox (B2)
 ```
+
+**Todos 14 con Supabase impl** (`<name>.supabase.repo.ts`) + integration test (`tests/integration/<name>.supabase.test.ts`) + contract reusable (`tests/repositories/<name>.contract.ts`) con fixtures inyectables para FKs (default strings preserva InMemory tests). Pattern detalle → commits Slice 1 7.4 (`91e711d`..`73337f6`).
 
 **Servicios** (`src/server/services/`, interface + Default impl + DI):
 
@@ -165,7 +166,10 @@ observability/logger.ts           Logger interface + Noop/Console + child bindin
 observability/cost-tracker.ts     CostTracker + daily cap + InMemory impl
 feature-flags.ts                  FeatureFlags + Static/AllEnabled + 3 flags catálogo
 server/lock/session-lock.ts       SessionLock + InMemory impl
-server/db/client.ts               DbClientFactory stub (real Slice 1 sub-paso 7.3)
+server/db/client.ts               DbClientFactory real (Slice 1 sub-paso 7.3) — service-role + authed
+server/db/uuid.ts                 isUuid(v) helper para early-return en findById Supabase
+server/db/server-time.ts          serverNowIso(db) RPC helper (Slice 1 7.4) — fix clock skew
+server/db/postgrest-errors.ts     mapPostgrestError 23505/23503/23502/23514/42501/PGRST301 → DomainError
 ```
 
 **Tooling + DX**:
