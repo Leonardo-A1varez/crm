@@ -1,6 +1,7 @@
 import { ConflictError, NotFoundError } from "@/lib/errors";
 import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
+import { serverNowIso } from "@/server/db/server-time";
 import type { Database } from "@/server/db/types.gen";
 import { isUuid } from "@/server/db/uuid";
 import type { Canal } from "@/types/domain";
@@ -87,7 +88,7 @@ export class SupabaseLeadsRepository implements LeadsRepository {
 
   async update(id: UUID, patch: LeadUpdate): Promise<Lead> {
     const updatePayload: LeadDbUpdate = {
-      updated_at: new Date().toISOString(),
+      updated_at: await serverNowIso(this.db),
     };
     if (patch.nombre !== undefined) updatePayload.nombre = patch.nombre;
     if (patch.telefono !== undefined) updatePayload.telefono = patch.telefono;

@@ -1,6 +1,7 @@
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
+import { serverNowIso } from "@/server/db/server-time";
 import type { Database } from "@/server/db/types.gen";
 import { isUuid } from "@/server/db/uuid";
 import type { CompatibilidadEntry, Producto, UUID } from "@/types/entities";
@@ -63,7 +64,7 @@ export class SupabaseProductsRepository implements ProductsRepository {
 
   async update(id: UUID, patch: ProductoUpdate): Promise<Producto> {
     const updatePayload: ProductoDbUpdate = {
-      updated_at: new Date().toISOString(),
+      updated_at: await serverNowIso(this.db),
     };
     // codigo_interno no presente en ProductoUpdate (Update<..., "codigo_interno">). Defense
     // explícita: no mapear ni siquiera si caller bypass type system.
@@ -129,7 +130,7 @@ export class SupabaseProductsRepository implements ProductsRepository {
       seen.add(item.codigo_interno);
     }
 
-    const now = new Date().toISOString();
+    const now = await serverNowIso(this.db);
     const rows = items.map((item) => ({
       ...toDbInsert(item),
       updated_at: now,

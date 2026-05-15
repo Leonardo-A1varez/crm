@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -808,6 +808,7 @@ export type Database = {
       }
       is_admin: { Args: never; Returns: boolean }
       is_vendedor: { Args: never; Returns: boolean }
+      server_now: { Args: never; Returns: string }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
     }
