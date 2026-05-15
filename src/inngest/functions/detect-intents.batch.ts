@@ -6,29 +6,19 @@ import type { ConversationsRepository } from "@/server/repositories/conversation
 import type { IntentsRepository } from "@/server/repositories/intents.repo";
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
-import type { LeadSession, UUID } from "@/types/entities";
+import type {
+  BatchSessionInput,
+  DetectedIntent,
+  IntentBatchDetectorInput,
+  IntentBatchDetectorLLM,
+} from "@/server/services/intent-batch-detector.service";
+import type { LeadSession } from "@/types/entities";
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
-export interface DetectedIntent {
-  nombre: string;
-  descripcion: string;
-  ejemplos: string[];
-}
-
-export interface BatchSessionInput {
-  sessionId: UUID;
-  leadId: UUID;
-  messages: string[];
-}
-
-export interface IntentBatchDetectorInput {
-  sessions: BatchSessionInput[];
-}
-
-export interface IntentBatchDetectorLLM {
-  detect(input: IntentBatchDetectorInput): Promise<DetectedIntent[]>;
-}
+// Re-export interfaces para callers que históricamente importaban desde acá.
+// Owner real ahora vive en `server-services` (boundaries enforce).
+export type { BatchSessionInput, DetectedIntent, IntentBatchDetectorInput, IntentBatchDetectorLLM };
 
 export interface DetectIntentsBatchDeps {
   sessions: LeadSessionRepository;
