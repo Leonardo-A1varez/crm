@@ -3,8 +3,37 @@ import type {
   LeadSessionInsert,
   LeadSessionRepository,
 } from "@/server/repositories/lead-session.repo";
+import type { UUID } from "@/types/entities";
 
-function baseInsert(leadId = "lead-1"): LeadSessionInsert {
+export interface LeadSessionContractFixtures {
+  leadIds: {
+    one: UUID;
+    X: UUID;
+    Y: UUID;
+    A: UUID;
+    two: UUID;
+    three: UUID;
+    none: UUID;
+  };
+}
+
+const DEFAULT_FIXTURES: LeadSessionContractFixtures = {
+  leadIds: {
+    one: "lead-1",
+    X: "lead-X",
+    Y: "lead-Y",
+    A: "lead-A",
+    two: "lead-2",
+    three: "lead-3",
+    none: "lead-none",
+  },
+};
+
+export type LeadSessionContractFixturesArg =
+  | LeadSessionContractFixtures
+  | (() => LeadSessionContractFixtures);
+
+function baseInsert(leadId: UUID): LeadSessionInsert {
   return {
     lead_id: leadId,
     current_stage: "nuevo",
@@ -23,16 +52,21 @@ function baseInsert(leadId = "lead-1"): LeadSessionInsert {
   };
 }
 
-export function runLeadSessionContract(makeRepo: () => LeadSessionRepository) {
+export function runLeadSessionContract(
+  makeRepo: () => LeadSessionRepository,
+  fixturesArg: LeadSessionContractFixturesArg = DEFAULT_FIXTURES,
+) {
   describe("LeadSessionRepository contract", () => {
     let repo: LeadSessionRepository;
+    let fixtures: LeadSessionContractFixtures;
 
     beforeEach(() => {
       repo = makeRepo();
+      fixtures = typeof fixturesArg === "function" ? fixturesArg() : fixturesArg;
     });
 
     test("create asigna id + started_at + closed_at null", async () => {
-      const s = await repo.create(baseInsert());
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
       expect(s.id).toBeTypeOf("string");
       expect(s.started_at).toBeInstanceOf(Date);
       expect(s.closed_at).toBeNull();
@@ -43,32 +77,32 @@ export function runLeadSessionContract(makeRepo: () => LeadSessionRepository) {
     });
 
     test("create rechaza segunda sesión activa para el mismo lead", async () => {
-      await repo.create(baseInsert("lead-X"));
-      await expect(repo.create(baseInsert("lead-X"))).rejects.toThrow(/activ/i);
+      await repo.create(baseInsert(fixtures.leadIds.X));
+      await expect(repo.create(baseInsert(fixtures.leadIds.X))).rejects.toThrow(/activ/i);
     });
 
     test("create permite nueva sesión cuando la anterior fue cerrada", async () => {
-      const first = await repo.create(baseInsert("lead-Y"));
+      const first = await repo.create(baseInsert(fixtures.leadIds.Y));
       await repo.close(first.id, { resultado: "perdido", motivo_perdida: "precio" });
-      const second = await repo.create(baseInsert("lead-Y"));
+      const second = await repo.create(baseInsert(fixtures.leadIds.Y));
       expect(second.id).not.toBe(first.id);
     });
 
     test("findActiveByLeadId devuelve solo la sesión con resultado null", async () => {
-      const a = await repo.create(baseInsert("lead-A"));
+      const a = await repo.create(baseInsert(fixtures.leadIds.A));
       await repo.close(a.id, { resultado: "exito" });
-      const b = await repo.create(baseInsert("lead-A"));
+      const b = await repo.create(baseInsert(fixtures.leadIds.A));
 
-      const active = await repo.findActiveByLeadId("lead-A");
+      const active = await repo.findActiveByLeadId(fixtures.leadIds.A);
       expect(active?.id).toBe(b.id);
     });
 
     test("findActiveByLeadId devuelve null cuando no hay activa", async () => {
-      expect(await repo.findActiveByLeadId("lead-none")).toBeNull();
+      expect(await repo.findActiveByLeadId(fixtures.leadIds.none)).toBeNull();
     });
 
     test("update aplica patch + preserva id/lead_id/started_at/resultado", async () => {
-      const s = await repo.create(baseInsert());
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
       const patched = await repo.update(s.id, {
         current_stage: "cotizado",
         precio_cotizado: 150000,
@@ -86,7 +120,7 @@ export function runLeadSessionContract(makeRepo: () => LeadSessionRepository) {
     });
 
     test("close setea resultado + closed_at + motivo_perdida", async () => {
-      const s = await repo.create(baseInsert());
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
       const closed = await repo.close(s.id, {
         resultado: "perdido",
         motivo_perdida: "stock",
@@ -97,7 +131,7 @@ export function runLeadSessionContract(makeRepo: () => LeadSessionRepository) {
     });
 
     test("close de éxito sin motivo_perdida queda null", async () => {
-      const s = await repo.create(baseInsert());
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
       const closed = await repo.close(s.id, { resultado: "exito" });
       expect(closed.resultado).toBe("exito");
       expect(closed.motivo_perdida).toBeNull();
@@ -105,7 +139,7 @@ export function runLeadSessionContract(makeRepo: () => LeadSessionRepository) {
     });
 
     test("close con resultado/motivo distinto sobre sesión cerrada lanza IllegalStateError", async () => {
-      const s = await repo.create(baseInsert());
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
       await repo.close(s.id, { resultado: "exito" });
       await expect(repo.close(s.id, { resultado: "perdido" })).rejects.toMatchObject({
         code: "ILLEGAL_STATE",
@@ -114,7 +148,7 @@ export function runLeadSessionContract(makeRepo: () => LeadSessionRepository) {
     });
 
     test("close idempotente: mismo resultado retorna sesión existente sin throw", async () => {
-      const s = await repo.create(baseInsert());
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
       const first = await repo.close(s.id, { resultado: "exito" });
       const second = await repo.close(s.id, { resultado: "exito" });
       expect(second.id).toBe(first.id);
@@ -123,7 +157,7 @@ export function runLeadSessionContract(makeRepo: () => LeadSessionRepository) {
     });
 
     test("close idempotente: mismo resultado + mismo motivo_perdida retorna existing", async () => {
-      const s = await repo.create(baseInsert());
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
       const first = await repo.close(s.id, {
         resultado: "perdido",
         motivo_perdida: "precio",
@@ -138,7 +172,7 @@ export function runLeadSessionContract(makeRepo: () => LeadSessionRepository) {
     });
 
     test("close con motivo distinto sobre sesión cerrada lanza IllegalStateError", async () => {
-      const s = await repo.create(baseInsert());
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
       await repo.close(s.id, { resultado: "perdido", motivo_perdida: "precio" });
       await expect(
         repo.close(s.id, { resultado: "perdido", motivo_perdida: "stock" }),
@@ -146,10 +180,10 @@ export function runLeadSessionContract(makeRepo: () => LeadSessionRepository) {
     });
 
     test("listClosedBefore retorna sesiones cerradas cuyo closed_at < fecha", async () => {
-      const s1 = await repo.create(baseInsert("lead-1"));
-      const s2 = await repo.create(baseInsert("lead-2"));
+      const s1 = await repo.create(baseInsert(fixtures.leadIds.one));
+      const s2 = await repo.create(baseInsert(fixtures.leadIds.two));
       // s3 nunca se cierra → no debe aparecer.
-      await repo.create(baseInsert("lead-3"));
+      await repo.create(baseInsert(fixtures.leadIds.three));
 
       await repo.close(s1.id, { resultado: "exito" });
       await repo.close(s2.id, { resultado: "perdido", motivo_perdida: "precio" });
