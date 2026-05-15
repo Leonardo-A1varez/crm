@@ -65,11 +65,20 @@ Diferenciadores: **sin kanban manual** (auto-stage), **Lead Twin**, **reglas IF/
 ## 2. Estado actual
 
 **Fase actual:** `Slice 1 — Real DB + LLM + Meta sandbox (en progreso)`
-**Sub-paso actual:** **7.4 COMPLETO 14/14 repos Supabase impl + integration tests 154/154 verde contra crm-dev.** Repo remoto GitHub configurado (`Leonardo-A1varez/crm` privado). Migration 16 aplicada (`server_now()` RPC helper). 7.5 siguiente.
-**Última acción completada (sesión 2026-05-14/15):** 14 repos Supabase replicando pattern leads piloto: leads, tags, productos, users, intents, reglas, conversations, messages, lead-session, tool-executions, admin-audit, merge-candidates, reactivation-dispatches, event-outbox. Cada uno = 1 commit conventional + push. Contract pattern fixtures inyectables para FKs (default strings preserva InMemory tests). Helper `src/server/db/server-time.ts` + migration `20260514000016_repo_helpers.sql` con SQL function `public.server_now()` para timestamp server-side (fix clock skew JS↔PG). 16 migrations aplicadas a `crm-dev` (verificado `supabase migration list --linked`). 439 unit + 154 integration verde. ESLint warnings deprecation `boundaries/element-types` pre-existentes (no errors).
-**PENDIENTE USUARIO antes de continuar:** ninguno (backup remoto + 14 repos done).
+**Sub-paso actual:** **7.5 COMPLETO 5/5 LLM impls reales OpenAI + 466/466 unit tests verde.** Restantes: 7.6 Meta Cloud API real + 7.7-7.10 observability + Inngest serve + webhook + E2E smoke.
+**Última acción completada (sesión 2026-05-15):** 5 LLM impls reales OpenAI vía AI SDK v6 (`ai@6.0.180` + `@ai-sdk/openai@3.0.63`):
 
-**Siguiente sub-paso:** **Slice 1 sub-paso 7.5** — Instalar Vercel AI SDK (`ai@6.0.180` + `@ai-sdk/openai@3.0.63`) + implementar 5 LLM real impls (intent-classifier, twin-extractor, ai-agent, conversation-summarizer, lead-merge-detector). Ver `docs/next-session.md` para detalle.
+- `OpenAiIntentClassifierLLM` (generateObject + IntentClassificationSchema)
+- `OpenAiTwinExtractorLLM` (generateObject + LeadTwinUpdateSchema)
+- `OpenAiConversationSummarizerLLM` (generateText, texto libre)
+- `OpenAiIntentBatchDetectorLLM` (generateObject + wrapper schema)
+- `OpenAiAgentLLM` (generateText + tool calling buscar_repuesto)
+
+Infra: `src/server/services/llm/pricing.ts` (4 modelos OpenAI USD/1M tokens), `cost-tracker-bridge.ts` (extract usage + record vía existing `CostTracker`). Boundary refactor: interfaces de intent-batch-detector extraídas a `src/server/services/intent-batch-detector.service.ts` (server-services NO puede importar de inngest). lead-merge-detector NO migrado a LLM (heurística determinista). 7 commits Slice 1 7.5. ESLint warnings deprecation pre-existentes.
+
+**PENDIENTE USUARIO antes de continuar:** ninguno (5 LLMs + infra commiteado, push sync).
+
+**Siguiente sub-paso:** **Slice 1 sub-paso 7.6** — Meta Cloud API real con HMAC signature verify en webhook + send/recv real (WhatsApp Business + IG + FB Messenger). Después 7.7 observability + 7.8 Inngest serve + 7.9 webhook + 7.10 E2E smoke.
 
 ### Tabla de progreso
 
@@ -80,12 +89,12 @@ Diferenciadores: **sin kanban manual** (auto-stage), **Lead Twin**, **reglas IF/
 | Pre-Slice docs (failure-modes/idempotency/cost-budget)     | 🟢 completo    | Brief design docs                                                                                                                                                                                                              |
 | **Pre-Slice 1 hardening A1-A10 (Camino A+)**               | 🟢 completo    | 13 migrations + error taxonomy + CI + lefthook + zod env + tsconfig strict++ + ESLint boundaries + Prettier + docs split + dep audit                                                                                           |
 | **Pre-Slice 1 Industrial Hardening B0-B6+B+R (Camino B+)** | 🟢 completo    | Business spec lock + migration timestamps + outbox B2 + security headers + Upstash rate limit + RLS CI gate + threat model + perf tuning + SLO + runbooks + backup strategy. 16 issues HIGH del audit profundo. 423/423 tests. |
-| **Slice 1 — Real DB + LLM + Meta sandbox**                 | 🟡 en progreso | 7.1+7.2 Supabase setup + 16 migrations applied ✅. 7.3 DB client wireup ✅. 7.4 14/14 repos Supabase ✅ + integration 154/154 verde ✅. 7.5+ pendiente.                                                                        |
+| **Slice 1 — Real DB + LLM + Meta sandbox**                 | 🟡 en progreso | 7.1+7.2 Supabase setup + 16 migrations ✅. 7.3 DB client ✅. 7.4 14/14 repos + 154 integration ✅. 7.5 5/5 LLM OpenAI impls ✅. 7.6+ pendiente.                                                                                |
 | **Slice 2 — UI + Realtime + Server Actions**               | ⚪ pendiente   | Inbox + Lead Twin panel + Server Actions                                                                                                                                                                                       |
 | **Slice 3 — Auth + RLS audited**                           | ⚪ pendiente   | Policies + STRIDE walkthrough                                                                                                                                                                                                  |
 | **Slice 4 — Cron real + hardening + launch**               | ⚪ pendiente   | Soft launch monitoreado                                                                                                                                                                                                        |
 
-**Métricas actuales:** 439/439 unit tests pass · 154/154 integration tests verde contra Supabase real (14 repos: leads 14 · tags 14 · productos 15 · users 8 · intents 8 · reglas 12 · conversations 14 · messages 14 · lead-session 14 · tool-executions 5 · admin-audit 8 · merge-candidates 11 · reactivation-dispatches 8 · event-outbox 9) · 0 typecheck errors · 0 lint errors (warnings boundaries/element-types deprecation pre-existentes) · format clean · 26 commits conventional history (último: `73337f6 feat(repos): Slice 1 7.4 SupabaseEventOutboxRepository — 14/14 COMPLETE`) · **remoto `https://github.com/Leonardo-A1varez/crm.git` configurado (privado, master sync)**.
+**Métricas actuales:** 466/466 unit tests pass (439 pre-7.5 + 27 LLM impls + bridge) · 154/154 integration tests verde contra Supabase real · 0 typecheck errors · 0 lint errors (warnings boundaries/element-types deprecation pre-existentes) · format clean · 34 commits conventional history (último: `0db4e07 feat(llm): Slice 1 7.5 OpenAiAgentLLM — 5/5 LLMs COMPLETE`) · **remoto `https://github.com/Leonardo-A1varez/crm.git` configurado (privado, master sync)**.
 
 > **Cuando completes una acción, actualiza la tabla + "Última acción completada".**
 
@@ -140,8 +149,22 @@ event-outbox (B2)
 ```
 catalog-matcher · intent-classifier · rule-engine · twin-extractor · handoff
 meta-api · ai-agent · conversation-summarizer · admin-audit · lead-merge-detector
-event-bus (B2)
+event-bus (B2) · intent-batch-detector (interface only — handler en inngest/)
 ```
+
+**LLM real impls** (`src/server/services/llm/`, OpenAI vía AI SDK v6):
+
+```
+openai-intent-classifier        generateObject + IntentClassificationSchema
+openai-twin-extractor           generateObject + LeadTwinUpdateSchema
+openai-conversation-summarizer  generateText (texto libre, threshold 20 turns)
+openai-intent-batch-detector    generateObject + wrapper schema array intents
+openai-ai-agent                 generateText + tool calling buscar_repuesto
+pricing.ts                      4 modelos USD/1M tokens (gpt-4o-mini default)
+cost-tracker-bridge.ts          extract usage + record CostTracker
+```
+
+Wireup DI factory (env-based real vs mock) → pendiente Slice 1 7.7+ junto con observability.
 
 **Inngest functions** (`src/inngest/functions/`, 9 total):
 
