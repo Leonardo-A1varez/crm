@@ -27,6 +27,8 @@ export interface LeadSessionRepository {
   findById(id: UUID): Promise<LeadSession | null>;
   // Sesión activa = resultado IS NULL. Máx 1 por lead (partial unique).
   findActiveByLeadId(leadId: UUID): Promise<LeadSession | null>;
+  // Todas sesiones activas (resultado IS NULL). Inbox listing.
+  listActive(): Promise<LeadSession[]>;
   update(id: UUID, patch: LeadSessionUpdate): Promise<LeadSession>;
   close(id: UUID, input: CloseInput): Promise<LeadSession>;
   listClosedBefore(date: Date): Promise<LeadSession[]>;
@@ -71,6 +73,14 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
       if (s.lead_id === leadId && s.resultado === null) return cloneSession(s);
     }
     return null;
+  }
+
+  async listActive(): Promise<LeadSession[]> {
+    const out: LeadSession[] = [];
+    for (const s of this.store.values()) {
+      if (s.resultado === null) out.push(cloneSession(s));
+    }
+    return out;
   }
 
   async update(id: UUID, patch: LeadSessionUpdate): Promise<LeadSession> {

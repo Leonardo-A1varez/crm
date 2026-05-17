@@ -173,6 +173,16 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
     if (error) throw mapPostgrestError(error, { resource: "lead_session" });
     return (data ?? []).map(mapRow);
   }
+
+  async listActive(): Promise<LeadSession[]> {
+    const { data, error } = await this.db
+      .from("lead_session")
+      .select()
+      .is("resultado", null)
+      .order("started_at", { ascending: false });
+    if (error) throw mapPostgrestError(error, { resource: "lead_session" });
+    return (data ?? []).map(mapRow);
+  }
 }
 
 interface LeadSessionRow {

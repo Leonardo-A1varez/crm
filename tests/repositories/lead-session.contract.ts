@@ -179,6 +179,19 @@ export function runLeadSessionContract(
       ).rejects.toMatchObject({ code: "ILLEGAL_STATE" });
     });
 
+    test("listActive retorna solo sesiones con resultado IS NULL", async () => {
+      const sActive = await repo.create(baseInsert(fixtures.leadIds.one));
+      const sClosed = await repo.create(baseInsert(fixtures.leadIds.two));
+      await repo.close(sClosed.id, { resultado: "exito" });
+      const sActive2 = await repo.create(baseInsert(fixtures.leadIds.three));
+
+      const out = await repo.listActive();
+      const ids = out.map((s) => s.id).sort();
+      expect(ids).toContain(sActive.id);
+      expect(ids).toContain(sActive2.id);
+      expect(ids).not.toContain(sClosed.id);
+    });
+
     test("listClosedBefore retorna sesiones cerradas cuyo closed_at < fecha", async () => {
       const s1 = await repo.create(baseInsert(fixtures.leadIds.one));
       const s2 = await repo.create(baseInsert(fixtures.leadIds.two));
