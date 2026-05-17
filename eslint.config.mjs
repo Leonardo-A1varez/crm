@@ -136,6 +136,22 @@ const eslintConfig = defineConfig([
     },
   },
   boundariesConfig,
+  // Seguridad PII (regla §0.9): prohibido console.* en src/**.
+  // Razón: PII leak (telefono/email/mensaje.body) + logs no-estructurados.
+  // Forzar uso de Logger interface (`src/lib/observability/logger.ts`).
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    rules: {
+      "no-console": "error",
+    },
+  },
+  // Excepción: logger.ts es el sink legítimo (JSON structured → Vercel Log Drains).
+  {
+    files: ["src/lib/observability/logger.ts"],
+    rules: {
+      "no-console": "off",
+    },
+  },
   // Tests: relajar boundaries (acceden a internals para setup).
   {
     files: ["tests/**/*.ts", "tests/**/*.tsx"],

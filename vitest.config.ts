@@ -26,6 +26,7 @@ export default defineConfig({
         "src/app/**/route.ts", // route handlers stub
         "src/components/ui/**", // shadcn vendored
         "src/inngest/client.ts", // Inngest singleton trivial
+        "src/server/repositories/*.supabase.repo.ts", // solo cubierto por integration suite (npm run test:integration)
       ],
       thresholds: {
         // Floor mínimo del proyecto. Subir según madurez (90% post Slice 4).
