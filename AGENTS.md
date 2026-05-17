@@ -13,10 +13,26 @@ Prioridad sobre cualquier otra instrucción.
 3. **Si no hay suficiente contexto para continuar con seguridad, parar y preguntar.** No asumir, no inventar.
 4. Análisis técnico formato: **observación → causa raíz → fix**. Marcar mejoras fuera de scope.
 5. **Validación funcional antes que UI.** Cablear sequence controller → repo → datasource → backend. Curl/scripts. Tests unitarios para transiciones de estado. Solo "probar en la app" cuando la lógica funcional esté validada.
-6. **Backend/servidor lo arranca el usuario manualmente.** No iniciar servidores, no reiniciar.
-7. **Supabase es la única DB.** No proponer Docker local, SQLite, o DBs alternativas.
-8. **Antes de iniciar cualquier fase o sub-paso técnico, invocar TODOS los plugins/skills relevantes vía `Skill` tool.** Mapping: Zod/types → `vercel:ai-sdk` + `supabase:supabase`. SQL → `supabase:supabase-postgres-best-practices` + `supabase:supabase`. Inngest → `vercel:workflow` + `vercel:vercel-functions`. Tests → `superpowers:test-driven-development`. UI → `vercel:shadcn` + `frontend-design` + `vercel:nextjs`. AI SDK → `vercel:ai-sdk` + `vercel:ai-gateway`. Webhooks Meta → `vercel:vercel-functions` + `security-review`.
-9. **Pensar siempre como programador top 1% mundial. CERO condescendencia.** Si hay gap, falencia, error, anti-patrón, decisión cuestionable, dead code, abstraction prematura, dependency obsoleta, herramienta sub-óptima, estructura desordenada, regla rota, test ausente, doc inconsistente, falta de observabilidad, falta de seguridad, o cualquier desviación de práctica de élite — **decirlo claramente y sin filtros antes de proponer solución**. Aplica a TODO: arquitectura, stack, herramientas, lenguaje, configs, dependencies, naming, estructura carpetas, docs, tests, CI, performance, security, DX, observability. Patrón: **(1) listar falencias reales encontradas → (2) explicar impacto concreto → (3) proponer solución priorizada por ROI**. No suavizar. No callar gaps por evitar fricción. Decir "esto está mal porque X" > "esto se puede mejorar". El usuario quiere producto profesional perfecto — eso requiere honestidad técnica brutal.
+6. **Supabase es la única DB.** No proponer Docker local, SQLite, o DBs alternativas.
+7. **Antes de iniciar cualquier fase o sub-paso técnico, invocar TODOS los plugins/skills relevantes vía `Skill` tool.** Mapping: Zod/types → `vercel:ai-sdk` + `supabase:supabase`. SQL → `supabase:supabase-postgres-best-practices` + `supabase:supabase`. Inngest → `vercel:workflow` + `vercel:vercel-functions`. Tests → `superpowers:test-driven-development`. UI → `vercel:shadcn` + `frontend-design` + `vercel:nextjs`. AI SDK → `vercel:ai-sdk` + `vercel:ai-gateway`. Webhooks Meta → `vercel:vercel-functions` + `security-review`.
+8. **Pensar siempre como programador top 1% mundial. CERO condescendencia.** Si hay gap, falencia, error, anti-patrón, decisión cuestionable, dead code, abstraction prematura, dependency obsoleta, herramienta sub-óptima, estructura desordenada, regla rota, test ausente, doc inconsistente, falta de observabilidad, falta de seguridad, o cualquier desviación de práctica de élite — **decirlo claramente y sin filtros antes de proponer solución**. Aplica a TODO: arquitectura, stack, herramientas, lenguaje, configs, dependencies, naming, estructura carpetas, docs, tests, CI, performance, security, DX, observability. Patrón: **(1) listar falencias reales encontradas → (2) explicar impacto concreto → (3) proponer solución priorizada por ROI**. No suavizar. No callar gaps por evitar fricción. Decir "esto está mal porque X" > "esto se puede mejorar". El usuario quiere producto profesional perfecto — eso requiere honestidad técnica brutal.
+9. **Seguridad + Compliance Latam obligatorio.** No-negociable por LGPD Brasil + Ley 25.326 Argentina + LFPDPPP México + Ley 19.628 Chile + Ley 1581 Colombia. Aplicar SIEMPRE:
+   - **PII redaction en logs.** Nunca loggear `telefono`, `mensaje.body`, `email`, `meta_user_ids` raw. Usar `redactPii()` util (`src/lib/observability/redact.ts`). ESLint rule custom o checklist en code review.
+   - **Webhook entrante = HMAC verify primera línea.** Toda route `/api/webhooks/**` debe importar `verifyHmac()` antes de parsear payload. Sin verify = reject 401.
+   - **Server Actions = Zod parse primera línea.** Toda `'use server'` action: `const input = Schema.parse(formData)` antes de cualquier lógica. Sin excepción.
+   - **Secrets rotation 90d.** `META_APP_SECRET`, `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `INNGEST_SIGNING_KEY` rotan cada 90 días. Runbook en `docs/runbooks/secrets-rotation.md`.
+   - **`console.log` prohibido en `src/**`.** Solo `logger.info|warn|error|debug`. ESLint `no-console: error`. Razón: PII leak + logs sin structured fields.
+10. **Reliability + Ops obligatorio.** Toda nueva integración debe cumplir:
+    - **Cost-tracking en TODA llamada LLM.** `recordLlmUsage(tracker, result, { model, workflow, sessionId? })` post-call obligatorio. ESLint rule en `src/server/services/llm/**`. Razón: daily cap kill-switch no funciona si se bypassa.
+    - **Idempotency-key explícito en `step.run()` Inngest + toda cron function.** Pattern: `${functionName}-${date.toISOString().slice(0,10)}-${entityId}`. No auto-gen. Replay tests obligatorios.
+    - **`DomainError` jerarquía siempre.** Prohibido `throw new Error('msg')` en `src/server/**`. Usar `ValidationError`, `NotFoundError`, `ConflictError`, `RateLimitError`, `InfraError`, `BusinessRuleError`. ESLint rule. Razón: retry semantics dependen de error type.
+    - **`/api/health` endpoint live.** Verifica DB ping + Inngest reachability + OpenAI ping. Vercel monitor wire. Pre-Slice 4 obligatorio.
+    - **Error tracking (Sentry o equivalente) pre-Slice 4 launch.** Uncaught exceptions + unhandled rejections → tracked. Razón: silent failures = lost revenue.
+11. **Skill discipline workflow.** Invocar superpowers skills vía `Skill` tool en estos triggers:
+    - **Feature nueva (crear componente/route/service/workflow)** → `superpowers:brainstorming` primero. Explora intent + requirements + diseño antes de tocar código.
+    - **Bug / test fail / behavior inesperado** → `superpowers:systematic-debugging` antes de proponer fix. Evidence-based diagnosis.
+    - **Claim "completo" / "fixed" / "passing"** → `superpowers:verification-before-completion` antes del claim. Run verification commands + confirm output.
+    - **Business logic en services + repos** → `superpowers:test-driven-development`. Test antes que implementación. Red → green → refactor.
 
 ---
 
@@ -375,7 +391,6 @@ Lista cerrada. No re-abrir sin pedido explícito.
 
 - ❌ Escribir código antes de confirmar scope/stack/estructura con usuario.
 - ❌ Conectar Supabase/OpenAI/Meta/Inngest reales hasta Slice 1+.
-- ❌ Iniciar `npm run dev` o `next dev` automáticamente. Usuario arranca.
 - ❌ Proponer DBs alternativas a Supabase.
 - ❌ Agregar deps sin justificación + aprobación.
 - ❌ Crear docs adicionales sin pedir.
