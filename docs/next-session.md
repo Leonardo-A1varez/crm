@@ -1,6 +1,6 @@
 # Cómo retomar la sesión
 
-> Última pausa: 2026-05-16 cont. **Slice 1 7.7.A + 7.8 COMPLETO**: LLM Factory env-based (LLM_MODE=real|mock + 5 InMemory mocks) + Inngest serve wireup `/api/webhooks/inngest` (bootstrap 11 repos + 8 services + 5 LLMs + 4 callbacks). 569 unit + 154 integration verde, coverage 89.4/83.54/86.73/90.48 > threshold. Siguiente: **Slice 1 sub-paso 7.9** — Webhook `/api/webhooks/meta` (HMAC verify + parse-webhook + emit `meta/message.received`). Util HMAC + parser ya existen.
+> Última pausa: 2026-05-16 final. **Slice 1 funcionalmente COMPLETO** (7.1-7.10 pipeline end-to-end). 587 unit + 154 integration verde, coverage 89.4/83.54/86.73/90.48 > threshold. Siguiente sesión: **Slice 2 UI** (inbox + Lead Twin + Server Actions) o **7.7.B PinoLogger** (observability prod-grade, pre-Slice 4 launch). Pendientes no-blocker: 7.7.B/C/D observability + Path B smoke (full E2E).
 
 ---
 
@@ -37,32 +37,37 @@
 
 ## Cómo continuar (próxima sesión)
 
-### Opción A — Slice 1 7.9 Webhook `/api/webhooks/meta` (recomendado)
+### Opción A — Slice 2 UI + Realtime + Server Actions (recomendado)
+
+Slice 1 funcional cerrado. Slice 2 desbloqueado.
 
 Decirle al asistente:
 
-> Arrancá Slice 1 sub-paso 7.9 — webhook route `/api/webhooks/meta` con HMAC verify primera línea + parse-webhook + emit Inngest event `meta/message.received`. Skill `security-review` pre-merge obligatorio (regla §0.9.2 HMAC enforce). GET handshake `hub.mode=subscribe` + `hub.verify_token` check.
+> Arrancá Slice 2 — UI inbox estilo WhatsApp Web + Lead Twin panel + Server Actions. Stack: Next.js 16 App Router + RSC + shadcn/ui + Tailwind v4 + Supabase Realtime. Empezar con scaffolding `(panel)` route group + inbox list + conversation view + Lead Twin sidebar. Server Actions `'use server'` con Zod parse primera línea (regla §0.9.3).
 
 El asistente hará:
 
-1. Leer `src/lib/meta/verify-signature.ts` (HMAC SHA-256 + timing-safe ya existe).
-2. Leer `src/lib/meta/parse-webhook.ts` (parser WA/IG/FB → `ParsedMessage[]` ya existe).
-3. Crear `src/app/api/webhooks/meta/route.ts`:
-   - GET handler: handshake `hub.mode=subscribe` + `hub.verify_token === env.META_VERIFY_TOKEN` → 200 `hub.challenge`. Else 403.
-   - POST handler: rawBody read (Request.text() pre JSON.parse) + `verifyMetaSignature(rawBody, header, env.META_APP_SECRET)` → 401 si fail. Parse → emit per ParsedMessage. 200 inmediato.
-4. Upstash rate-limit (B3 ya existe `src/lib/rate-limit/`) — fail-open en dev (NoopRateLimiter).
-5. Tests: GET handshake OK/403, POST HMAC fail 401, POST OK emit, POST multi-message batch.
-6. 1 commit `feat(webhooks): Slice 1 7.9 /api/webhooks/meta route (HMAC + parse + emit)`.
+1. Invocar skills `vercel:shadcn` + `frontend-design` + `vercel:nextjs` (rule §0.7 mapping UI).
+2. Leer scaffold actual `src/app/(panel)/` + `src/components/inbox/` (mock data probable).
+3. Brainstorm via `superpowers:brainstorming` (rule §0.11 feature nueva).
+4. Diseño data flow: Server Components fetch repos directos vs Server Actions vs Realtime subscriptions.
+5. Implementar inbox list view + conversation view + Lead Twin panel (3 vistas separables).
+6. Tests UI con axe-core a11y (regla §0.9 LGPD Brasil Ley 13.146 inclusión).
+7. Múltiples commits incrementales.
 
 ### Opción B — Slice 1 7.7.B PinoLogger producción
 
-> Continuá 7.7.B — PinoLogger wrapper + factory `getLogger(env)`. NODE_ENV=production → Pino, else → ConsoleLogger. Aplica `redactPii` mismo lugar. Hook Vercel Log Drains JSON.
+> Continuá 7.7.B — PinoLogger wrapper + factory `getLogger(env)`. NODE_ENV=production → Pino, else → ConsoleLogger. Aplica `redactPii` mismo lugar. Hook Vercel Log Drains JSON. Pre-Slice 4 launch obligatorio.
 
-### Opción C — Slice 1 7.10 E2E smoke (skip a launch path)
+### Opción C — Slice 1 7.10 Path B full E2E smoke
 
-> Smoke test manual: lead via WA sandbox → webhook /api/webhooks/meta recibe → Inngest pipeline corre con LLM_MODE=mock → mock response sale via metaApi.sendOutbound. Validar `purgeSession` + `sendReactivation` stubs no rompen.
+> Extender 7.10 a Path B — webhook → emit → invocar directamente `onMessageReceivedHandler` con InMemory bootstrap + spy metaClient. Asserts: lead creado en repo + sesión activa + mock LLM response generado + `metaApi.sendOutbound` capturado + idempotency replay (mismo meta_message_id → no duplicate).
 
-### Opción D — Atacar issues LOW/MEDIUM del audit B+
+### Opción D — Slice 1 7.7.C OTel SDK + spans
+
+> Continuá 7.7.C — `@vercel/otel` install + spans `webhook.meta.received`, `inngest.<function>.step`, `llm.<workflow>.generate`, `db.<repo>.<op>`. Vercel native exporter auto-detect.
+
+### Opción E — Atacar issues LOW/MEDIUM del audit B+
 
 Ver `docs/security-threat-model.md`, `docs/data-model.md`, `docs/database-tuning.md` known issues.
 
@@ -119,6 +124,9 @@ supabase gen types typescript --linked | Out-File -Encoding utf8 src/server/db/t
 ## Historial de commits (últimos 15)
 
 ```
+d886fed test(smoke): Slice 1 7.10 E2E inbound recv loop (Path A minimal)
+62f8fbf feat(webhooks): Slice 1 7.9 /api/webhooks/meta route (HMAC + parse + emit)
+ddccb19 docs(agents,next-session): Slice 1 7.7.A + 7.8 COMPLETO + drift fix
 ce3d24d feat(inngest): Slice 1 7.8 serve route wireup + bootstrap (DI factories)
 ef6e60d feat(llm): Slice 1 7.7.A LLM Factory env-based (LLM_MODE selector)
 2faa4f9 docs(agents,next-session): Slice 1 7.6 COMPLETE + quick wins §0.9 PII
@@ -131,9 +139,6 @@ c36a5be feat(observability): redactPii util + wireup ConsoleLogger (regla §0.9.
 f0955a4 docs(agents): Slice 1 7.5 COMPLETO 5/5 LLM impls + infra
 0db4e07 feat(llm): Slice 1 7.5 OpenAiAgentLLM — 5/5 LLMs COMPLETE
 139cfa0 feat(llm): Slice 1 7.5 OpenAiIntentBatchDetectorLLM + interface refactor
-3612a90 feat(llm): Slice 1 7.5 OpenAiConversationSummarizerLLM
-526fea4 feat(llm): Slice 1 7.5 OpenAiTwinExtractorLLM
-00e366e feat(llm): Slice 1 7.5 OpenAiIntentClassifierLLM
 ```
 
 ---

@@ -80,8 +80,8 @@ Diferenciadores: **sin kanban manual** (auto-stage), **Lead Twin**, **reglas IF/
 
 ## 2. Estado actual
 
-**Fase actual:** `Slice 1 — Real DB + LLM + Meta sandbox (en progreso)`
-**Sub-paso actual:** **7.7.A + 7.8 COMPLETO LLM Factory env-based + Inngest serve wireup. 569/569 unit tests verde.** Restantes: 7.7.B PinoLogger + 7.7.C OTel + 7.7.D Sentry + 7.9 Webhook Meta + 7.10 E2E smoke.
+**Fase actual:** `Slice 1 — Real DB + LLM + Meta sandbox (funcionalmente COMPLETO)`
+**Sub-paso actual:** **7.10 COMPLETO smoke. Slice 1 pipeline end-to-end funcional.** 587/587 unit tests verde. Pendientes no-blocker: 7.7.B PinoLogger + 7.7.C OTel + 7.7.D Sentry (observability prod-grade, ConsoleLogger JSON ya activo).
 **Última acción completada (sesión 2026-05-16 cont.):** 2 sub-pasos en serie sobre la base 7.6 —
 
 C. **Slice 1 7.7.A LLM Factory env-based** (`ef6e60d`):
@@ -122,27 +122,43 @@ B. **Quick wins regla §0.9** (Seguridad + Compliance Latam):
 - Vitest `coverage.exclude` agrega `src/server/repositories/*.supabase.repo.ts` (solo cubiertos en integration suite). Coverage global pre-existente 59.96% → post-fix 88.99%.
 - 64 tests nuevos (55 redact + 9 logger PII redaction runtime).
 
-9 commits sesión: `91e5138 docs(agents)` (reglas oro 9-11), `c36a5be feat(observability)` (redactPii + wireup), `7b3bfb0 chore(eslint+vitest)` (no-console + exclude supabase coverage), `ad7f254 feat(meta 7.6 IG/FB)`, `6e56a2d docs(meta-webhook-payloads)`, `2faa4f9 docs(agents,next-session)`, `ef6e60d feat(llm 7.7.A)`, `ce3d24d feat(inngest 7.8)`.
+F. **Slice 1 7.9 Webhook /api/webhooks/meta** (`62f8fbf`):
+
+- Reemplaza stub 501 con handler real GET handshake + POST inbound (HMAC + rate-limit + parse + emit).
+- Factory pattern `makeMetaWebhookHandlers(deps)` para DI tests + singleton runtime default env-based.
+- Pipeline POST: rate-limit per IP (Upstash o Noop) → rawBody `req.text()` PRE JSON.parse → `verifyMetaSignature(rawBody, X-Hub-Signature-256, META_APP_SECRET)` → JSON.parse → `parseMetaWebhook` → emit `meta/message.received` per ParsedMessage → 200 OK.
+- ESLint boundary exception scoped a este file (app/ → inngest/client).
+- Security review manual (skill failed git ref): findings minor no-blocker.
+- 12 tests (GET handshake + POST HMAC + happy path + multi-message + rate-limit).
+
+G. **Slice 1 7.10 E2E smoke Path A** (`d886fed`):
+
+- `tests/smoke/smoke-bootstrap.ts` — `makeSmokeBundle()` construye CrmInngestDeps con InMemory\* repos (11) + LLM_MODE=mock factory + spy metaClient + spy inngest.
+- `tests/smoke/inbound-recv-loop.smoke.test.ts` — 6 tests: bootstrap survives, makeCrmInngestFunctions(smokeDeps) retorna 9 funcs, LLM bundle es InMemory\*, signed WA payload POST → emit shape, signed IG payload POST → emit canal=ig.
+- Path A minimal — catch interface drift InMemory ↔ Supabase ↔ Service deps.
+- Path B (full E2E handler invocation directa) + Path C (manual Meta sandbox runbook) diferidos.
+
+10 commits sesión: `91e5138 docs(agents)` reglas 9-11, `c36a5be feat(observability)` redactPii, `7b3bfb0 chore(eslint+vitest)`, `ad7f254 feat(meta 7.6 IG/FB)`, `6e56a2d docs(meta-payloads)`, `2faa4f9 docs(agents,next-session)`, `ef6e60d feat(llm 7.7.A)`, `ce3d24d feat(inngest 7.8)`, `ddccb19 docs(agents,next-session)`, `62f8fbf feat(webhooks 7.9)`, `d886fed test(smoke 7.10)`.
 
 **PENDIENTE USUARIO antes de continuar:** ninguno (todo commiteado + pusheado sync remoto).
 
-**Siguiente sub-paso:** **Slice 1 sub-paso 7.9** — Webhook `/api/webhooks/meta` (HMAC verify + parse-webhook + emit `meta/message.received` Inngest event). Util HMAC + parser ya existen (`src/lib/meta/`). Skill `security-review` pre-merge obligatorio. Después 7.7.B PinoLogger + 7.7.C OTel + 7.7.D Sentry + 7.10 E2E smoke.
+**Siguiente sub-paso:** **Slice 2 UI** o **7.7.B PinoLogger** (observability prod-grade). Slice 1 funcionalmente cerrado. 7.7.B/C/D pre-Slice 4 launch obligatorio. Slice 2 desbloqueado (UI inbox + Lead Twin panel + Server Actions).
 
 ### Tabla de progreso
 
-| Fase                                                       | Estado         | Notas                                                                                                                                                                                                                          |
-| ---------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 0-6 — Foundation mock-first                                | 🟢 completo    | Bootstrap → workflows. 236/236 tests pre-REPAIR. Ver `docs/changelog.md`.                                                                                                                                                      |
-| REPAIR R1-R12                                              | 🟢 completo    | 11 migrations, +135 tests, error taxonomy + idempotency + audit                                                                                                                                                                |
-| Pre-Slice docs (failure-modes/idempotency/cost-budget)     | 🟢 completo    | Brief design docs                                                                                                                                                                                                              |
-| **Pre-Slice 1 hardening A1-A10 (Camino A+)**               | 🟢 completo    | 13 migrations + error taxonomy + CI + lefthook + zod env + tsconfig strict++ + ESLint boundaries + Prettier + docs split + dep audit                                                                                           |
-| **Pre-Slice 1 Industrial Hardening B0-B6+B+R (Camino B+)** | 🟢 completo    | Business spec lock + migration timestamps + outbox B2 + security headers + Upstash rate limit + RLS CI gate + threat model + perf tuning + SLO + runbooks + backup strategy. 16 issues HIGH del audit profundo. 423/423 tests. |
-| **Slice 1 — Real DB + LLM + Meta sandbox**                 | 🟡 en progreso | 7.1-7.6 ✅. 7.7.A LLM factory env-based ✅. 7.8 Inngest serve wireup ✅. 7.7.B Pino + 7.7.C OTel + 7.7.D Sentry + 7.9 webhook + 7.10 E2E smoke pendientes.                                                                     |
-| **Slice 2 — UI + Realtime + Server Actions**               | ⚪ pendiente   | Inbox + Lead Twin panel + Server Actions                                                                                                                                                                                       |
-| **Slice 3 — Auth + RLS audited**                           | ⚪ pendiente   | Policies + STRIDE walkthrough                                                                                                                                                                                                  |
-| **Slice 4 — Cron real + hardening + launch**               | ⚪ pendiente   | Soft launch monitoreado                                                                                                                                                                                                        |
+| Fase                                                       | Estado       | Notas                                                                                                                                                                                                                          |
+| ---------------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0-6 — Foundation mock-first                                | 🟢 completo  | Bootstrap → workflows. 236/236 tests pre-REPAIR. Ver `docs/changelog.md`.                                                                                                                                                      |
+| REPAIR R1-R12                                              | 🟢 completo  | 11 migrations, +135 tests, error taxonomy + idempotency + audit                                                                                                                                                                |
+| Pre-Slice docs (failure-modes/idempotency/cost-budget)     | 🟢 completo  | Brief design docs                                                                                                                                                                                                              |
+| **Pre-Slice 1 hardening A1-A10 (Camino A+)**               | 🟢 completo  | 13 migrations + error taxonomy + CI + lefthook + zod env + tsconfig strict++ + ESLint boundaries + Prettier + docs split + dep audit                                                                                           |
+| **Pre-Slice 1 Industrial Hardening B0-B6+B+R (Camino B+)** | 🟢 completo  | Business spec lock + migration timestamps + outbox B2 + security headers + Upstash rate limit + RLS CI gate + threat model + perf tuning + SLO + runbooks + backup strategy. 16 issues HIGH del audit profundo. 423/423 tests. |
+| **Slice 1 — Real DB + LLM + Meta sandbox**                 | 🟢 funcional | 7.1-7.6 ✅. 7.7.A LLM factory ✅. 7.8 Inngest serve ✅. 7.9 webhook Meta ✅. 7.10 E2E smoke Path A ✅. 7.7.B Pino + 7.7.C OTel + 7.7.D Sentry pendientes (pre-Slice 4 launch).                                                 |
+| **Slice 2 — UI + Realtime + Server Actions**               | ⚪ pendiente | Inbox + Lead Twin panel + Server Actions                                                                                                                                                                                       |
+| **Slice 3 — Auth + RLS audited**                           | ⚪ pendiente | Policies + STRIDE walkthrough                                                                                                                                                                                                  |
+| **Slice 4 — Cron real + hardening + launch**               | ⚪ pendiente | Soft launch monitoreado                                                                                                                                                                                                        |
 
-**Métricas actuales:** 569/569 unit tests pass (548 pre-7.7.A + 12 factory + 9 bootstrap) · 154/154 integration tests verde contra Supabase real · 0 typecheck errors · 0 lint errors (warnings boundaries/element-types deprecation pre-existentes) · format clean · coverage 89.4/83.54/86.73/90.48 > threshold 80/75/80/80 · 43 commits conventional history (último: `ce3d24d feat(inngest): Slice 1 7.8 serve route wireup + bootstrap (DI factories)`) · **remoto `https://github.com/Leonardo-A1varez/crm.git` configurado (privado, master sync)**.
+**Métricas actuales:** 587/587 unit tests pass (569 pre-7.9/7.10 + 12 webhook route + 6 smoke) · 154/154 integration tests verde contra Supabase real · 0 typecheck errors · 0 lint errors (warnings boundaries/element-types deprecation pre-existentes) · format clean · coverage 89.4/83.54/86.73/90.48 > threshold 80/75/80/80 · 46 commits conventional history (último: `d886fed test(smoke): Slice 1 7.10 E2E inbound recv loop (Path A minimal)`) · **remoto `https://github.com/Leonardo-A1varez/crm.git` configurado (privado, master sync)**.
 
 > **Cuando completes una acción, actualiza la tabla + "Última acción completada".**
 
