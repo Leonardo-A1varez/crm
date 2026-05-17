@@ -81,20 +81,31 @@ Diferenciadores: **sin kanban manual** (auto-stage), **Lead Twin**, **reglas IF/
 ## 2. Estado actual
 
 **Fase actual:** `Slice 1 — Real DB + LLM + Meta sandbox (en progreso)`
-**Sub-paso actual:** **7.5 COMPLETO 5/5 LLM impls reales OpenAI + 466/466 unit tests verde.** Restantes: 7.6 Meta Cloud API real + 7.7-7.10 observability + Inngest serve + webhook + E2E smoke.
-**Última acción completada (sesión 2026-05-15):** 5 LLM impls reales OpenAI vía AI SDK v6 (`ai@6.0.180` + `@ai-sdk/openai@3.0.63`):
+**Sub-paso actual:** **7.6 COMPLETO Meta Cloud API real (WA + IG + FB Messenger) + 548/548 unit tests verde + reglas oro 9-11 + redactPii wireup runtime.** Restantes: 7.7 observability + DI wireup + 7.8 Inngest serve + 7.9 Webhook Meta + 7.10 E2E smoke.
+**Última acción completada (sesión 2026-05-16):** 2 frentes en paralelo —
 
-- `OpenAiIntentClassifierLLM` (generateObject + IntentClassificationSchema)
-- `OpenAiTwinExtractorLLM` (generateObject + LeadTwinUpdateSchema)
-- `OpenAiConversationSummarizerLLM` (generateText, texto libre)
-- `OpenAiIntentBatchDetectorLLM` (generateObject + wrapper schema)
-- `OpenAiAgentLLM` (generateText + tool calling buscar_repuesto)
+A. **Slice 1 7.6 IG + FB Messenger send** (completa 7.6 tras `46234e8` WA real):
 
-Infra: `src/server/services/llm/pricing.ts` (4 modelos OpenAI USD/1M tokens), `cost-tracker-bridge.ts` (extract usage + record vía existing `CostTracker`). Boundary refactor: interfaces de intent-batch-detector extraídas a `src/server/services/intent-batch-detector.service.ts` (server-services NO puede importar de inngest). lead-merge-detector NO migrado a LLM (heurística determinista). 7 commits Slice 1 7.5. ESLint warnings deprecation pre-existentes.
+- `GraphApiMetaClient` refactor: `sendText()` despacha por canal con exhaustiveness check (`never`). `sendMessenger(input, canal)` factoriza shape Messenger Platform común IG+FB (`POST /{page-id}/messages` + body `{ recipient: { id }, message: { text } }`).
+- Env vars opcionales: `META_IG_PAGE_ID`, `META_IG_ACCESS_TOKEN`, `META_FB_PAGE_ID`, `META_FB_PAGE_ACCESS_TOKEN`. Pilot WA-only puede arrancar sin estos; canal sin config → `ValidationError` fail-fast con `envHint`.
+- 24h messaging window IG/FB documentada (`code 10`); MESSAGE_TAG workaround diferido v2.
+- Error mapping reusa `throwMappedGraphError` (429/401/403/400/5xx unificado).
+- 12 tests nuevos (refactor WA + IG suite + FB suite = 19/19 total).
+- Doc `docs/meta-webhook-payloads.md` (golden samples WA/IG/FB inbound + outbound + error envelope + codes referencia + rate limits cross-platform).
 
-**PENDIENTE USUARIO antes de continuar:** ninguno (5 LLMs + infra commiteado, push sync).
+B. **Quick wins regla §0.9** (Seguridad + Compliance Latam):
 
-**Siguiente sub-paso:** **Slice 1 sub-paso 7.6** — Meta Cloud API real con HMAC signature verify en webhook + send/recv real (WhatsApp Business + IG + FB Messenger). Después 7.7 observability + 7.8 Inngest serve + 7.9 webhook + 7.10 E2E smoke.
+- `redactPii(input, extraKeys?)` util — `src/lib/observability/redact.ts`. Deep walker key-based, case-insensitive snake/camel, immutable, cycle-safe (WeakSet ancestors con delete subtree-exit). Keys default derivadas del schema real (16 migrations + `types/entities.ts`): contact (telefono/phone/email/direccion/address), identity (nombre/name/ruc*nit unifica RUC/NIT/CUIT/RFC/CPF/CNPJ), content free-text (body/text/content/mensaje/message/consulta/bloqueador), meta IDs (meta_user_ids/meta_message_id), storage (comprobante_pago_url), secrets (access_token/password/api_key/secret). `vehiculo*\*` NO redact (aislado no PII).
+- `ConsoleLogger.emit()` aplica `redactPii()` sobre merged bindings+ctx pre-stringify → Vercel Log Drains nunca reciben PII raw. Estructurales (level/msg/time) intactos.
+- ESLint `no-console: 'error'` global en `src/**` + override `src/lib/observability/logger.ts` (sink legítimo). Force `Logger` interface inyectable.
+- Vitest `coverage.exclude` agrega `src/server/repositories/*.supabase.repo.ts` (solo cubiertos en integration suite). Coverage global pre-existente 59.96% → post-fix 88.99%.
+- 64 tests nuevos (55 redact + 9 logger PII redaction runtime).
+
+5 commits sesión: `docs(agents)`, `feat(observability)`, `chore(eslint+vitest)`, `feat(meta 7.6 IG/FB)`, `docs(meta-webhook-payloads)`. Más `91e5138 docs(agents)` (drop rule 6 + reglas oro 9-11 Seguridad/Reliability/Skill discipline).
+
+**PENDIENTE USUARIO antes de continuar:** ninguno (7.6 commiteado + pusheado sync remoto).
+
+**Siguiente sub-paso:** **Slice 1 sub-paso 7.7** — Observability + DI wireup: OTel traces básico + Logger producción (Pino + Vercel Log Drains hook) + LLM factory env-based (real vs mock) + Sentry-equivalente uncaught tracking. Después 7.8 Inngest serve `/api/inngest` + 7.9 Webhook `/api/webhooks/meta` (HMAC verify + emit Inngest event) + 7.10 E2E smoke.
 
 ### Tabla de progreso
 
@@ -105,12 +116,12 @@ Infra: `src/server/services/llm/pricing.ts` (4 modelos OpenAI USD/1M tokens), `c
 | Pre-Slice docs (failure-modes/idempotency/cost-budget)     | 🟢 completo    | Brief design docs                                                                                                                                                                                                              |
 | **Pre-Slice 1 hardening A1-A10 (Camino A+)**               | 🟢 completo    | 13 migrations + error taxonomy + CI + lefthook + zod env + tsconfig strict++ + ESLint boundaries + Prettier + docs split + dep audit                                                                                           |
 | **Pre-Slice 1 Industrial Hardening B0-B6+B+R (Camino B+)** | 🟢 completo    | Business spec lock + migration timestamps + outbox B2 + security headers + Upstash rate limit + RLS CI gate + threat model + perf tuning + SLO + runbooks + backup strategy. 16 issues HIGH del audit profundo. 423/423 tests. |
-| **Slice 1 — Real DB + LLM + Meta sandbox**                 | 🟡 en progreso | 7.1+7.2 Supabase setup + 16 migrations ✅. 7.3 DB client ✅. 7.4 14/14 repos + 154 integration ✅. 7.5 5/5 LLM OpenAI impls ✅. 7.6+ pendiente.                                                                                |
+| **Slice 1 — Real DB + LLM + Meta sandbox**                 | 🟡 en progreso | 7.1+7.2 Supabase setup + 16 migrations ✅. 7.3 DB client ✅. 7.4 14/14 repos + 154 integration ✅. 7.5 5/5 LLM OpenAI impls ✅. 7.6 Meta Cloud API WA+IG+FB Messenger ✅. 7.7-7.10 pendiente.                                  |
 | **Slice 2 — UI + Realtime + Server Actions**               | ⚪ pendiente   | Inbox + Lead Twin panel + Server Actions                                                                                                                                                                                       |
 | **Slice 3 — Auth + RLS audited**                           | ⚪ pendiente   | Policies + STRIDE walkthrough                                                                                                                                                                                                  |
 | **Slice 4 — Cron real + hardening + launch**               | ⚪ pendiente   | Soft launch monitoreado                                                                                                                                                                                                        |
 
-**Métricas actuales:** 466/466 unit tests pass (439 pre-7.5 + 27 LLM impls + bridge) · 154/154 integration tests verde contra Supabase real · 0 typecheck errors · 0 lint errors (warnings boundaries/element-types deprecation pre-existentes) · format clean · 34 commits conventional history (último: `0db4e07 feat(llm): Slice 1 7.5 OpenAiAgentLLM — 5/5 LLMs COMPLETE`) · **remoto `https://github.com/Leonardo-A1varez/crm.git` configurado (privado, master sync)**.
+**Métricas actuales:** 548/548 unit tests pass (475 pre-sesión + 55 redact + 9 logger PII + 12 Meta IG/FB - 3 reemplazos stub) · 154/154 integration tests verde contra Supabase real · 0 typecheck errors · 0 lint errors (warnings boundaries/element-types deprecation pre-existentes) · format clean · coverage 88.99/83.27/86.18/90.07 > threshold 80/75/80/80 (post-fix exclude supabase.repo.ts unit) · 40 commits conventional history (último: `6e56a2d docs(meta): webhook payloads + outbound shapes WA/IG/FB`) · **remoto `https://github.com/Leonardo-A1varez/crm.git` configurado (privado, master sync)**.
 
 > **Cuando completes una acción, actualiza la tabla + "Última acción completada".**
 
