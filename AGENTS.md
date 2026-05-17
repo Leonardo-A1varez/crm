@@ -81,8 +81,29 @@ Diferenciadores: **sin kanban manual** (auto-stage), **Lead Twin**, **reglas IF/
 ## 2. Estado actual
 
 **Fase actual:** `Slice 1 — Real DB + LLM + Meta sandbox (en progreso)`
-**Sub-paso actual:** **7.6 COMPLETO Meta Cloud API real (WA + IG + FB Messenger) + 548/548 unit tests verde + reglas oro 9-11 + redactPii wireup runtime.** Restantes: 7.7 observability + DI wireup + 7.8 Inngest serve + 7.9 Webhook Meta + 7.10 E2E smoke.
-**Última acción completada (sesión 2026-05-16):** 2 frentes en paralelo —
+**Sub-paso actual:** **7.7.A + 7.8 COMPLETO LLM Factory env-based + Inngest serve wireup. 569/569 unit tests verde.** Restantes: 7.7.B PinoLogger + 7.7.C OTel + 7.7.D Sentry + 7.9 Webhook Meta + 7.10 E2E smoke.
+**Última acción completada (sesión 2026-05-16 cont.):** 2 sub-pasos en serie sobre la base 7.6 —
+
+C. **Slice 1 7.7.A LLM Factory env-based** (`ef6e60d`):
+
+- `LLM_MODE` env var (`real|mock`) selector. testEnvSchema default `mock`.
+- `makeLlmFactory(cfg)` retorna `LlmBundle` (5 LLMs: intentClassifier, twinExtractor, conversationSummarizer, intentBatchDetector, agent).
+- Mock impls: `InMemory*LLM` (5 archivos nuevos). Deterministic responses, NO usar prod — factory enforce solo bajo `LLM_MODE=mock`.
+- Real impls: `OpenAi*LLM` existing wireados con `createOpenAI({apiKey})` + default model `gpt-4o-mini`.
+- 12 tests factory + selector + class names verify.
+
+D. **Slice 1 7.8 Inngest serve route wireup** (`ce3d24d`):
+
+- `src/inngest/bootstrap.ts` — `makeInngestDeps(cfg)` wirea 11 Supabase repos + 8 Default services + LlmBundle + GraphApiMetaClient + 4 callbacks. Punto único construcción.
+- `src/inngest/callbacks/emit.ts` — wrappers `inngest.send` (EmittedEvent union + PublishedEvent genérico outbox).
+- `src/inngest/callbacks/purge-session.ts` — STUB log-only. `LeadSessionRepository.delete` pendiente Slice 4.
+- `src/inngest/callbacks/send-reactivation.ts` — STUB log-only. Real impl (lookup lead + conversation + session + template per motivo + metaApi.sendOutbound) diferido Slice 4.
+- `src/app/api/webhooks/inngest/route.ts` — `serve()` con 9 functions reales. Lazy init module-scope (1× per cold start).
+- 9 tests bootstrap (shape, selector, callbacks).
+
+**A + B (sesión inicial 2026-05-16):** 7.6 IG/FB + quick wins regla §0.9 (redactPii + ESLint no-console + vitest exclude supabase repos coverage). Detalle en commits previos.
+
+E. **6 commits adicionales esta sesión:**
 
 A. **Slice 1 7.6 IG + FB Messenger send** (completa 7.6 tras `46234e8` WA real):
 
@@ -101,11 +122,11 @@ B. **Quick wins regla §0.9** (Seguridad + Compliance Latam):
 - Vitest `coverage.exclude` agrega `src/server/repositories/*.supabase.repo.ts` (solo cubiertos en integration suite). Coverage global pre-existente 59.96% → post-fix 88.99%.
 - 64 tests nuevos (55 redact + 9 logger PII redaction runtime).
 
-5 commits sesión: `docs(agents)`, `feat(observability)`, `chore(eslint+vitest)`, `feat(meta 7.6 IG/FB)`, `docs(meta-webhook-payloads)`. Más `91e5138 docs(agents)` (drop rule 6 + reglas oro 9-11 Seguridad/Reliability/Skill discipline).
+9 commits sesión: `91e5138 docs(agents)` (reglas oro 9-11), `c36a5be feat(observability)` (redactPii + wireup), `7b3bfb0 chore(eslint+vitest)` (no-console + exclude supabase coverage), `ad7f254 feat(meta 7.6 IG/FB)`, `6e56a2d docs(meta-webhook-payloads)`, `2faa4f9 docs(agents,next-session)`, `ef6e60d feat(llm 7.7.A)`, `ce3d24d feat(inngest 7.8)`.
 
-**PENDIENTE USUARIO antes de continuar:** ninguno (7.6 commiteado + pusheado sync remoto).
+**PENDIENTE USUARIO antes de continuar:** ninguno (todo commiteado + pusheado sync remoto).
 
-**Siguiente sub-paso:** **Slice 1 sub-paso 7.7** — Observability + DI wireup: OTel traces básico + Logger producción (Pino + Vercel Log Drains hook) + LLM factory env-based (real vs mock) + Sentry-equivalente uncaught tracking. Después 7.8 Inngest serve `/api/inngest` + 7.9 Webhook `/api/webhooks/meta` (HMAC verify + emit Inngest event) + 7.10 E2E smoke.
+**Siguiente sub-paso:** **Slice 1 sub-paso 7.9** — Webhook `/api/webhooks/meta` (HMAC verify + parse-webhook + emit `meta/message.received` Inngest event). Util HMAC + parser ya existen (`src/lib/meta/`). Skill `security-review` pre-merge obligatorio. Después 7.7.B PinoLogger + 7.7.C OTel + 7.7.D Sentry + 7.10 E2E smoke.
 
 ### Tabla de progreso
 
@@ -116,12 +137,12 @@ B. **Quick wins regla §0.9** (Seguridad + Compliance Latam):
 | Pre-Slice docs (failure-modes/idempotency/cost-budget)     | 🟢 completo    | Brief design docs                                                                                                                                                                                                              |
 | **Pre-Slice 1 hardening A1-A10 (Camino A+)**               | 🟢 completo    | 13 migrations + error taxonomy + CI + lefthook + zod env + tsconfig strict++ + ESLint boundaries + Prettier + docs split + dep audit                                                                                           |
 | **Pre-Slice 1 Industrial Hardening B0-B6+B+R (Camino B+)** | 🟢 completo    | Business spec lock + migration timestamps + outbox B2 + security headers + Upstash rate limit + RLS CI gate + threat model + perf tuning + SLO + runbooks + backup strategy. 16 issues HIGH del audit profundo. 423/423 tests. |
-| **Slice 1 — Real DB + LLM + Meta sandbox**                 | 🟡 en progreso | 7.1+7.2 Supabase setup + 16 migrations ✅. 7.3 DB client ✅. 7.4 14/14 repos + 154 integration ✅. 7.5 5/5 LLM OpenAI impls ✅. 7.6 Meta Cloud API WA+IG+FB Messenger ✅. 7.7-7.10 pendiente.                                  |
+| **Slice 1 — Real DB + LLM + Meta sandbox**                 | 🟡 en progreso | 7.1-7.6 ✅. 7.7.A LLM factory env-based ✅. 7.8 Inngest serve wireup ✅. 7.7.B Pino + 7.7.C OTel + 7.7.D Sentry + 7.9 webhook + 7.10 E2E smoke pendientes.                                                                     |
 | **Slice 2 — UI + Realtime + Server Actions**               | ⚪ pendiente   | Inbox + Lead Twin panel + Server Actions                                                                                                                                                                                       |
 | **Slice 3 — Auth + RLS audited**                           | ⚪ pendiente   | Policies + STRIDE walkthrough                                                                                                                                                                                                  |
 | **Slice 4 — Cron real + hardening + launch**               | ⚪ pendiente   | Soft launch monitoreado                                                                                                                                                                                                        |
 
-**Métricas actuales:** 548/548 unit tests pass (475 pre-sesión + 55 redact + 9 logger PII + 12 Meta IG/FB - 3 reemplazos stub) · 154/154 integration tests verde contra Supabase real · 0 typecheck errors · 0 lint errors (warnings boundaries/element-types deprecation pre-existentes) · format clean · coverage 88.99/83.27/86.18/90.07 > threshold 80/75/80/80 (post-fix exclude supabase.repo.ts unit) · 40 commits conventional history (último: `6e56a2d docs(meta): webhook payloads + outbound shapes WA/IG/FB`) · **remoto `https://github.com/Leonardo-A1varez/crm.git` configurado (privado, master sync)**.
+**Métricas actuales:** 569/569 unit tests pass (548 pre-7.7.A + 12 factory + 9 bootstrap) · 154/154 integration tests verde contra Supabase real · 0 typecheck errors · 0 lint errors (warnings boundaries/element-types deprecation pre-existentes) · format clean · coverage 89.4/83.54/86.73/90.48 > threshold 80/75/80/80 · 43 commits conventional history (último: `ce3d24d feat(inngest): Slice 1 7.8 serve route wireup + bootstrap (DI factories)`) · **remoto `https://github.com/Leonardo-A1varez/crm.git` configurado (privado, master sync)**.
 
 > **Cuando completes una acción, actualiza la tabla + "Última acción completada".**
 

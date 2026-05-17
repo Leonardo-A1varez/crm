@@ -1,6 +1,6 @@
 # Cómo retomar la sesión
 
-> Última pausa: 2026-05-16. **Slice 1 sub-paso 7.6 COMPLETO**: Meta Cloud API real (WA + IG + FB Messenger send) + quick wins regla §0.9 PII (redactPii util + wireup ConsoleLogger + ESLint no-console). 548 unit tests + 154 integration verde, coverage 88.99/83.27/86.18/90.07 > threshold. Siguiente: **Slice 1 sub-paso 7.7** — Observability + DI wireup (OTel + Pino + Logger producción + LLM factory env-based + Sentry-equivalente).
+> Última pausa: 2026-05-16 cont. **Slice 1 7.7.A + 7.8 COMPLETO**: LLM Factory env-based (LLM_MODE=real|mock + 5 InMemory mocks) + Inngest serve wireup `/api/webhooks/inngest` (bootstrap 11 repos + 8 services + 5 LLMs + 4 callbacks). 569 unit + 154 integration verde, coverage 89.4/83.54/86.73/90.48 > threshold. Siguiente: **Slice 1 sub-paso 7.9** — Webhook `/api/webhooks/meta` (HMAC verify + parse-webhook + emit `meta/message.received`). Util HMAC + parser ya existen.
 
 ---
 
@@ -23,49 +23,44 @@
 | Slice 1 7.4 14/14 repos Supabase impl          | ✅ Completo  | leads · tags · productos · users · intents · reglas · conversations · messages · lead-session · tool-executions · admin-audit · merge-candidates · reactivation-dispatches · event-outbox. 154 integration verde. |
 | Backup remoto git                              | ✅ Completo  | `https://github.com/Leonardo-A1varez/crm.git` privado, master sync                                                                                                                                                |
 | Slice 1 7.5 AI SDK + 5 LLM impls reales        | ✅ Completo  | OpenAI vía `ai@6.0.180` + `@ai-sdk/openai@3.0.63`. intent-classifier · twin-extractor · conversation-summarizer · intent-batch-detector · ai-agent. Infra pricing + cost-tracker bridge. 27 unit tests LLM.       |
-| Slice 1 7.6 Meta Cloud API real                | ✅ Completo  | WA real (`46234e8`) + IG + FB Messenger (`ad7f254`). Env opcionales `META_IG_*` + `META_FB_*`. 24h messaging window doc. 19/19 unit tests. Doc `docs/meta-webhook-payloads.md` golden samples.                    |
-| Reglas oro 9-11 + quick wins §0.9 PII          | ✅ Completo  | `redactPii` util + wireup `ConsoleLogger` (runtime enforcement) + ESLint `no-console` + override logger.ts + vitest exclude supabase repos (fix coverage threshold 59.96→88.99).                                  |
-| Slice 1 7.7 Observability + DI wireup          | 🟡 Siguiente | OTel traces + Logger producción (Pino + Vercel Log Drains hook) + LLM factory env-based real vs mock + Sentry-equivalente uncaught tracking                                                                       |
-| Slice 1 7.8 Inngest serve                      | ⚪ Pendiente | Mount handlers en `/api/inngest` route + register events                                                                                                                                                          |
-| Slice 1 7.9 Webhook Meta route                 | ⚪ Pendiente | `/api/webhooks/meta` con HMAC + emit `message.received`. Util HMAC + parser ya existen (`src/lib/meta/`). Skill `security-review` invocar pre-merge.                                                              |
+| Slice 1 7.6 Meta Cloud API real                | ✅ Completo  | WA real (`46234e8`) + IG + FB Messenger (`ad7f254`). Env opcionales `META_IG_*` + `META_FB_*`. 19/19 unit tests. Doc `docs/meta-webhook-payloads.md`.                                                             |
+| Reglas oro 9-11 + quick wins §0.9 PII          | ✅ Completo  | `redactPii` util + wireup `ConsoleLogger` runtime + ESLint `no-console` + vitest exclude supabase repos (fix coverage 59.96→88.99).                                                                               |
+| Slice 1 7.7.A LLM Factory env-based            | ✅ Completo  | `LLM_MODE=real\|mock` selector. `makeLlmFactory` retorna `LlmBundle` (5 LLMs). 5 `InMemory*LLM` mocks deterministic. `ef6e60d`. 12 tests.                                                                         |
+| Slice 1 7.8 Inngest serve wireup               | ✅ Completo  | Bootstrap `makeInngestDeps` wirea 11 repos + 8 services + LlmBundle + GraphApiMetaClient + 4 callbacks. `/api/webhooks/inngest` mounta 9 functions. `ce3d24d`. 9 tests bootstrap.                                 |
+| Slice 1 7.7.B PinoLogger (producción)          | ⚪ Pendiente | Pino wrapper + Vercel Log Drains hook + factory `getLogger(env)`. Mantiene `redactPii` mismo pattern.                                                                                                             |
+| Slice 1 7.7.C OTel SDK + spans                 | ⚪ Pendiente | `@vercel/otel` + custom spans webhook/inngest/llm/db.                                                                                                                                                             |
+| Slice 1 7.7.D Sentry uncaught tracking         | ⚪ Pendiente | `@sentry/nextjs` config client + server + edge.                                                                                                                                                                   |
+| Slice 1 7.9 Webhook Meta route                 | 🟡 Siguiente | `/api/webhooks/meta` con HMAC verify + parse + emit `meta/message.received`. Util HMAC + parser ya existen (`src/lib/meta/`). Skill `security-review` pre-merge.                                                  |
 | Slice 1 7.10 E2E smoke                         | ⚪ Pendiente | Lead manual → response real → close session. Sandbox Meta.                                                                                                                                                        |
 
 ---
 
 ## Cómo continuar (próxima sesión)
 
-### Opción A — Slice 1 7.7 Observability + DI wireup (recomendado)
+### Opción A — Slice 1 7.9 Webhook `/api/webhooks/meta` (recomendado)
 
 Decirle al asistente:
 
-> Arrancá Slice 1 sub-paso 7.7 — wireup DI factories para que services reciban LLM impls reales en prod (env-based) y mocks en tests + Logger Pino producción + OTel traces básico + Sentry-equivalente uncaught tracking.
+> Arrancá Slice 1 sub-paso 7.9 — webhook route `/api/webhooks/meta` con HMAC verify primera línea + parse-webhook + emit Inngest event `meta/message.received`. Skill `security-review` pre-merge obligatorio (regla §0.9.2 HMAC enforce). GET handshake `hub.mode=subscribe` + `hub.verify_token` check.
 
 El asistente hará:
 
-1. Leer factories existentes (`src/inngest/functions-factory.ts`, `db-client-factory`, etc).
-2. Crear LLM factory env-based: si `OPENAI_API_KEY` presente → real impl, else → mock (tests). Aplicar a 5 LLMs + ai-agent.
-3. Crear `PinoLogger` wrapper en `src/lib/observability/` con hook Vercel Log Drains. Mantener `redactPii` runtime wireup (ya existe en `ConsoleLogger`). Factory `getLogger(env)`.
-4. OTel SDK setup minimal: traces context propagation en webhook → Inngest → services. Skip metrics + logs (Pino cubre logs). Spans: `webhook.meta.received`, `inngest.<function>.step`, `llm.<workflow>.generate`, `db.<repo>.<op>`.
-5. Sentry o equivalente: `@sentry/nextjs` install + config. Capture uncaught + unhandled rejections. Skip user feedback widget.
-6. Tests: factory selection logic, PinoLogger JSON shape, OTel span emit (mock exporter).
-7. Doc `docs/observability.md` (logger contract + cost-tracker + OTel spans + Sentry).
-8. 3-4 commits: factory wireup, Pino, OTel, Sentry.
+1. Leer `src/lib/meta/verify-signature.ts` (HMAC SHA-256 + timing-safe ya existe).
+2. Leer `src/lib/meta/parse-webhook.ts` (parser WA/IG/FB → `ParsedMessage[]` ya existe).
+3. Crear `src/app/api/webhooks/meta/route.ts`:
+   - GET handler: handshake `hub.mode=subscribe` + `hub.verify_token === env.META_VERIFY_TOKEN` → 200 `hub.challenge`. Else 403.
+   - POST handler: rawBody read (Request.text() pre JSON.parse) + `verifyMetaSignature(rawBody, header, env.META_APP_SECRET)` → 401 si fail. Parse → emit per ParsedMessage. 200 inmediato.
+4. Upstash rate-limit (B3 ya existe `src/lib/rate-limit/`) — fail-open en dev (NoopRateLimiter).
+5. Tests: GET handshake OK/403, POST HMAC fail 401, POST OK emit, POST multi-message batch.
+6. 1 commit `feat(webhooks): Slice 1 7.9 /api/webhooks/meta route (HMAC + parse + emit)`.
 
-### Opción B — Slice 1 7.9 Webhook `/api/webhooks/meta` (skip 7.7-7.8)
+### Opción B — Slice 1 7.7.B PinoLogger producción
 
-Decirle al asistente:
+> Continuá 7.7.B — PinoLogger wrapper + factory `getLogger(env)`. NODE_ENV=production → Pino, else → ConsoleLogger. Aplica `redactPii` mismo lugar. Hook Vercel Log Drains JSON.
 
-> Saltá 7.7-7.8 y arrancá 7.9 — webhook route `/api/webhooks/meta` con HMAC verify + parse + emit Inngest event `message.received`. Skill `security-review` pre-merge obligatorio (regla §0.9.2 HMAC enforce).
+### Opción C — Slice 1 7.10 E2E smoke (skip a launch path)
 
-**Razón:** util HMAC + parser ya existen (`src/lib/meta/verify-signature.ts` + `parse-webhook.ts`). 7.6 client ya completo. Webhook cierra loop end-to-end recv. Después 7.7-7.8-7.10 en bulk.
-
-**Riesgo:** sin 7.7 observability, debugging prod ciego. Pilot WA-only no críticamente bloqueado.
-
-### Opción C — Slice 1 7.8 Inngest serve route
-
-Decirle al asistente:
-
-> Arrancá Slice 1 7.8 — mount handlers Inngest en `/api/inngest` route + register 9 functions existentes + verify dev server con `npm run inngest:dev`.
+> Smoke test manual: lead via WA sandbox → webhook /api/webhooks/meta recibe → Inngest pipeline corre con LLM_MODE=mock → mock response sale via metaApi.sendOutbound. Validar `purgeSession` + `sendReactivation` stubs no rompen.
 
 ### Opción D — Atacar issues LOW/MEDIUM del audit B+
 
@@ -124,6 +119,9 @@ supabase gen types typescript --linked | Out-File -Encoding utf8 src/server/db/t
 ## Historial de commits (últimos 15)
 
 ```
+ce3d24d feat(inngest): Slice 1 7.8 serve route wireup + bootstrap (DI factories)
+ef6e60d feat(llm): Slice 1 7.7.A LLM Factory env-based (LLM_MODE selector)
+2faa4f9 docs(agents,next-session): Slice 1 7.6 COMPLETE + quick wins §0.9 PII
 6e56a2d docs(meta): webhook payloads + outbound shapes WA/IG/FB
 ad7f254 feat(meta): Slice 1 7.6 IG + FB Messenger send (COMPLETE)
 7b3bfb0 chore(eslint,vitest): no-console rule + exclude supabase repos coverage
@@ -136,9 +134,6 @@ f0955a4 docs(agents): Slice 1 7.5 COMPLETO 5/5 LLM impls + infra
 3612a90 feat(llm): Slice 1 7.5 OpenAiConversationSummarizerLLM
 526fea4 feat(llm): Slice 1 7.5 OpenAiTwinExtractorLLM
 00e366e feat(llm): Slice 1 7.5 OpenAiIntentClassifierLLM
-200aff2 feat(llm): install AI SDK + cost-tracker bridge + OpenAI pricing
-4c6a804 docs(agents): Slice 1 7.4 COMPLETO 14/14 + 16 migrations + 154 integration
-73337f6 feat(repos): Slice 1 7.4 SupabaseEventOutboxRepository — 14/14 COMPLETE
 ```
 
 ---
