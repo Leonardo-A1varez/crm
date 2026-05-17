@@ -85,6 +85,81 @@ describe("ConsoleLogger", () => {
   });
 });
 
+describe("ConsoleLogger — PII redaction runtime (regla §0.9)", () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let errSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    errSpy.mockRestore();
+  });
+
+  function parse(call: unknown[]): Record<string, unknown> {
+    return JSON.parse(call[0] as string);
+  }
+
+  test("ctx con telefono redacted", () => {
+    new ConsoleLogger().info("event", { telefono: "+5491155550000", id: "1" });
+    const entry = parse(logSpy.mock.calls[0]);
+    expect(entry.telefono).toBe("[REDACTED]");
+    expect(entry.id).toBe("1");
+  });
+
+  test("ctx con email redacted", () => {
+    new ConsoleLogger().info("event", { email: "x@y.com" });
+    const entry = parse(logSpy.mock.calls[0]);
+    expect(entry.email).toBe("[REDACTED]");
+  });
+
+  test("bindings root con PII redacted", () => {
+    new ConsoleLogger({ email: "root@x.com" }).info("evt");
+    const entry = parse(logSpy.mock.calls[0]);
+    expect(entry.email).toBe("[REDACTED]");
+  });
+
+  test("child bindings nested PII redacted", () => {
+    const log = new ConsoleLogger().child({ lead: { telefono: "+1" } });
+    log.info("evt");
+    const entry = parse(logSpy.mock.calls[0]);
+    expect(entry.lead).toEqual({ telefono: "[REDACTED]" });
+  });
+
+  test("meta_user_ids redacted (jsonb cross-canal)", () => {
+    new ConsoleLogger().info("evt", { meta_user_ids: { wa: "+1", ig: "@u" } });
+    const entry = parse(logSpy.mock.calls[0]);
+    expect(entry.meta_user_ids).toBe("[REDACTED]");
+  });
+
+  test("level/time/msg estructurales NO redacted aunque msg contenga PII en texto", () => {
+    new ConsoleLogger().info("user with email x@y.com");
+    const entry = parse(logSpy.mock.calls[0]);
+    // msg key estructural — redactPii es key-based, "msg" no es PII key
+    expect(entry.msg).toBe("user with email x@y.com");
+    expect(entry.level).toBe("info");
+    expect(typeof entry.time).toBe("number");
+  });
+
+  test("ctx key 'message' (no 'msg') sí redacted", () => {
+    new ConsoleLogger().info("evt", { message: "user said hi" });
+    const entry = parse(logSpy.mock.calls[0]);
+    expect(entry.message).toBe("[REDACTED]");
+    expect(entry.msg).toBe("evt"); // estructural intacto
+  });
+
+  test("array de leads con PII redacted item-por-item", () => {
+    new ConsoleLogger().info("batch", {
+      leads: [{ telefono: "+1" }, { telefono: "+2" }],
+    });
+    const entry = parse(logSpy.mock.calls[0]);
+    expect(entry.leads).toEqual([{ telefono: "[REDACTED]" }, { telefono: "[REDACTED]" }]);
+  });
+});
+
 describe("Logger contract para spy en tests", () => {
   test("permite captura de calls via implementación custom", () => {
     const entries: Array<{ level: string; msg: string; ctx?: LogContext }> = [];

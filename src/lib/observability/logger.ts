@@ -2,8 +2,11 @@
 // Impls:
 // - NoopLogger: default tests. Silencioso.
 // - ConsoleLogger: JSON structured a console.log (info/debug) y console.error (warn/error).
+//   Aplica redactPii() runtime sobre bindings + ctx (regla §0.9 — PII compliance Latam).
 //   Vercel Log Drains parsean JSON nativo.
 // - PinoLogger (Fase 7): wrapper pino con Vercel Log Drains hook.
+import { redactPii } from "./redact";
+
 export type LogContext = Record<string, unknown>;
 
 export interface Logger {
@@ -48,12 +51,13 @@ export class ConsoleLogger implements Logger {
   }
 
   private emit(level: string, msg: string, ctx?: LogContext): void {
+    const merged = { ...this.bindings, ...(ctx ?? {}) };
+    const redacted = redactPii(merged) as LogContext;
     const entry = {
       level,
       msg,
       time: Date.now(),
-      ...this.bindings,
-      ...(ctx ?? {}),
+      ...redacted,
     };
     const line = JSON.stringify(entry);
     if (level === "error" || level === "warn") {
