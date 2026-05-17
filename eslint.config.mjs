@@ -167,6 +167,15 @@ const eslintConfig = defineConfig([
       "boundaries/element-types": "off",
     },
   },
+  // Webhook entrante Meta (Slice 1 7.9): app/ debe importar inngest/client
+  // para emit `meta/message.received` + lib/meta/* (HMAC + parser). Boundary
+  // exception scoped a este file solo.
+  {
+    files: ["src/app/api/webhooks/meta/route.ts"],
+    rules: {
+      "boundaries/element-types": "off",
+    },
+  },
   globalIgnores([".next/**", "out/**", "build/**", "coverage/**", "next-env.d.ts"]),
 ]);
 
