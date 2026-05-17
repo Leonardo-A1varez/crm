@@ -40,6 +40,14 @@ const envSchema = z.object({
   META_WHATSAPP_ACCESS_TOKEN: z.string().min(1),
   META_GRAPH_API_VERSION: z.string().regex(/^v\d+\.\d+$/, "esperado v<major>.<minor>"),
 
+  // Meta IG + FB Messenger (opcionales pilot — WA-only puede arrancar sin estos).
+  // Si missing, GraphApiMetaClient.sendText({canal:"ig"|"fb"}) throws ValidationError.
+  // Activar cuando empresa cliente conecte cuentas IG Business + FB Page.
+  META_IG_PAGE_ID: z.string().min(1).optional(),
+  META_IG_ACCESS_TOKEN: z.string().min(1).optional(),
+  META_FB_PAGE_ID: z.string().min(1).optional(),
+  META_FB_PAGE_ACCESS_TOKEN: z.string().min(1).optional(),
+
   // LLM cost guard (string, parseFloat downstream)
   LLM_DAILY_CAP_USD: z.coerce.number().positive(),
 
@@ -68,6 +76,10 @@ const testEnvSchema = envSchema.partial().transform(
     META_WHATSAPP_PHONE_NUMBER_ID: partial.META_WHATSAPP_PHONE_NUMBER_ID ?? "0",
     META_WHATSAPP_ACCESS_TOKEN: partial.META_WHATSAPP_ACCESS_TOKEN ?? "test-token",
     META_GRAPH_API_VERSION: partial.META_GRAPH_API_VERSION ?? "v21.0",
+    META_IG_PAGE_ID: partial.META_IG_PAGE_ID,
+    META_IG_ACCESS_TOKEN: partial.META_IG_ACCESS_TOKEN,
+    META_FB_PAGE_ID: partial.META_FB_PAGE_ID,
+    META_FB_PAGE_ACCESS_TOKEN: partial.META_FB_PAGE_ACCESS_TOKEN,
     LLM_DAILY_CAP_USD: partial.LLM_DAILY_CAP_USD ?? 10,
     UPSTASH_REDIS_REST_URL: partial.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: partial.UPSTASH_REDIS_REST_TOKEN,
