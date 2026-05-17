@@ -51,6 +51,12 @@ const envSchema = z.object({
   // LLM cost guard (string, parseFloat downstream)
   LLM_DAILY_CAP_USD: z.coerce.number().positive(),
 
+  // LLM mode selector (Slice 1 7.7.A — DI factory).
+  //   - "real"  → OpenAI impls (requiere OPENAI_API_KEY válida)
+  //   - "mock"  → InMemory impls (responses deterministic, sin tokens)
+  //   - default → "real" prod / "mock" tests (testEnvSchema)
+  LLM_MODE: z.enum(["real", "mock"]).default("real"),
+
   // Upstash Redis (B3 — rate limit webhook Meta + futuro cost-tracker prod)
   // Optional pilot tier dev; obligatorio prod (NoopRateLimiter en ausencia).
   UPSTASH_REDIS_REST_URL: z.string().url().optional(),
@@ -81,6 +87,7 @@ const testEnvSchema = envSchema.partial().transform(
     META_FB_PAGE_ID: partial.META_FB_PAGE_ID,
     META_FB_PAGE_ACCESS_TOKEN: partial.META_FB_PAGE_ACCESS_TOKEN,
     LLM_DAILY_CAP_USD: partial.LLM_DAILY_CAP_USD ?? 10,
+    LLM_MODE: partial.LLM_MODE ?? "mock",
     UPSTASH_REDIS_REST_URL: partial.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: partial.UPSTASH_REDIS_REST_TOKEN,
   }),
