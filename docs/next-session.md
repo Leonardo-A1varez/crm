@@ -1,6 +1,6 @@
 # Cómo retomar la sesión
 
-> Última pausa: 2026-05-16 final. **Slice 1 funcionalmente COMPLETO** (7.1-7.10 pipeline end-to-end). 587 unit + 154 integration verde, coverage 89.4/83.54/86.73/90.48 > threshold. Siguiente sesión: **Slice 2 UI** (inbox + Lead Twin + Server Actions) o **7.7.B PinoLogger** (observability prod-grade, pre-Slice 4 launch). Pendientes no-blocker: 7.7.B/C/D observability + Path B smoke (full E2E).
+> Última pausa: 2026-05-17. **Slice 2 8.1 inbox read-only list COMPLETO** end-to-end (backend `InboxService.listActiveLeads` + UI inbox/page RSC + SideNav + InboxList). 597 unit verde, coverage 87.71/80.8/84.69/88.77 > threshold. Falta validación manual browser + Slice 2 8.2 conversation view. Pendientes no-blocker: 7.7.B/C/D observability + Path B smoke (full E2E).
 
 ---
 
@@ -15,45 +15,60 @@
 
 ## Estado del trabajo
 
-| Sub-paso                                       | Estado       | Notas                                                                                                                                                                                                             |
-| ---------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| B0-B6 + B+R (Pre-Slice 1 Industrial Hardening) | ✅ Completo  | 4 docs + outbox + security headers + rate limiter + threat model + SLO + runbooks + backup                                                                                                                        |
-| Slice 1 7.1+7.2 Supabase setup + config        | ✅ Completo  | 16 migrations aplicadas a `crm-dev`                                                                                                                                                                               |
-| Slice 1 7.3 DB client wireup                   | ✅ Completo  | `src/server/db/client.ts` real                                                                                                                                                                                    |
-| Slice 1 7.4 14/14 repos Supabase impl          | ✅ Completo  | leads · tags · productos · users · intents · reglas · conversations · messages · lead-session · tool-executions · admin-audit · merge-candidates · reactivation-dispatches · event-outbox. 154 integration verde. |
-| Backup remoto git                              | ✅ Completo  | `https://github.com/Leonardo-A1varez/crm.git` privado, master sync                                                                                                                                                |
-| Slice 1 7.5 AI SDK + 5 LLM impls reales        | ✅ Completo  | OpenAI vía `ai@6.0.180` + `@ai-sdk/openai@3.0.63`. intent-classifier · twin-extractor · conversation-summarizer · intent-batch-detector · ai-agent. Infra pricing + cost-tracker bridge. 27 unit tests LLM.       |
-| Slice 1 7.6 Meta Cloud API real                | ✅ Completo  | WA real (`46234e8`) + IG + FB Messenger (`ad7f254`). Env opcionales `META_IG_*` + `META_FB_*`. 19/19 unit tests. Doc `docs/meta-webhook-payloads.md`.                                                             |
-| Reglas oro 9-11 + quick wins §0.9 PII          | ✅ Completo  | `redactPii` util + wireup `ConsoleLogger` runtime + ESLint `no-console` + vitest exclude supabase repos (fix coverage 59.96→88.99).                                                                               |
-| Slice 1 7.7.A LLM Factory env-based            | ✅ Completo  | `LLM_MODE=real\|mock` selector. `makeLlmFactory` retorna `LlmBundle` (5 LLMs). 5 `InMemory*LLM` mocks deterministic. `ef6e60d`. 12 tests.                                                                         |
-| Slice 1 7.8 Inngest serve wireup               | ✅ Completo  | Bootstrap `makeInngestDeps` wirea 11 repos + 8 services + LlmBundle + GraphApiMetaClient + 4 callbacks. `/api/webhooks/inngest` mounta 9 functions. `ce3d24d`. 9 tests bootstrap.                                 |
-| Slice 1 7.7.B PinoLogger (producción)          | ⚪ Pendiente | Pino wrapper + Vercel Log Drains hook + factory `getLogger(env)`. Mantiene `redactPii` mismo pattern.                                                                                                             |
-| Slice 1 7.7.C OTel SDK + spans                 | ⚪ Pendiente | `@vercel/otel` + custom spans webhook/inngest/llm/db.                                                                                                                                                             |
-| Slice 1 7.7.D Sentry uncaught tracking         | ⚪ Pendiente | `@sentry/nextjs` config client + server + edge.                                                                                                                                                                   |
-| Slice 1 7.9 Webhook Meta route                 | 🟡 Siguiente | `/api/webhooks/meta` con HMAC verify + parse + emit `meta/message.received`. Util HMAC + parser ya existen (`src/lib/meta/`). Skill `security-review` pre-merge.                                                  |
-| Slice 1 7.10 E2E smoke                         | ⚪ Pendiente | Lead manual → response real → close session. Sandbox Meta.                                                                                                                                                        |
+| Sub-paso                                       | Estado       | Notas                                                                                                                                                                                                                                                                                                                                     |
+| ---------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B0-B6 + B+R (Pre-Slice 1 Industrial Hardening) | ✅ Completo  | 4 docs + outbox + security headers + rate limiter + threat model + SLO + runbooks + backup                                                                                                                                                                                                                                                |
+| Slice 1 7.1+7.2 Supabase setup + config        | ✅ Completo  | 16 migrations aplicadas a `crm-dev`                                                                                                                                                                                                                                                                                                       |
+| Slice 1 7.3 DB client wireup                   | ✅ Completo  | `src/server/db/client.ts` real                                                                                                                                                                                                                                                                                                            |
+| Slice 1 7.4 14/14 repos Supabase impl          | ✅ Completo  | leads · tags · productos · users · intents · reglas · conversations · messages · lead-session · tool-executions · admin-audit · merge-candidates · reactivation-dispatches · event-outbox. 154 integration verde.                                                                                                                         |
+| Backup remoto git                              | ✅ Completo  | `https://github.com/Leonardo-A1varez/crm.git` privado, master sync                                                                                                                                                                                                                                                                        |
+| Slice 1 7.5 AI SDK + 5 LLM impls reales        | ✅ Completo  | OpenAI vía `ai@6.0.180` + `@ai-sdk/openai@3.0.63`. intent-classifier · twin-extractor · conversation-summarizer · intent-batch-detector · ai-agent. Infra pricing + cost-tracker bridge. 27 unit tests LLM.                                                                                                                               |
+| Slice 1 7.6 Meta Cloud API real                | ✅ Completo  | WA real (`46234e8`) + IG + FB Messenger (`ad7f254`). Env opcionales `META_IG_*` + `META_FB_*`. 19/19 unit tests. Doc `docs/meta-webhook-payloads.md`.                                                                                                                                                                                     |
+| Reglas oro 9-11 + quick wins §0.9 PII          | ✅ Completo  | `redactPii` util + wireup `ConsoleLogger` runtime + ESLint `no-console` + vitest exclude supabase repos (fix coverage 59.96→88.99).                                                                                                                                                                                                       |
+| Slice 1 7.7.A LLM Factory env-based            | ✅ Completo  | `LLM_MODE=real\|mock` selector. `makeLlmFactory` retorna `LlmBundle` (5 LLMs). 5 `InMemory*LLM` mocks deterministic. `ef6e60d`. 12 tests.                                                                                                                                                                                                 |
+| Slice 1 7.8 Inngest serve wireup               | ✅ Completo  | Bootstrap `makeInngestDeps` wirea 11 repos + 8 services + LlmBundle + GraphApiMetaClient + 4 callbacks. `/api/webhooks/inngest` mounta 9 functions. `ce3d24d`. 9 tests bootstrap.                                                                                                                                                         |
+| Slice 1 7.7.B PinoLogger (producción)          | ⚪ Pendiente | Pino wrapper + Vercel Log Drains hook + factory `getLogger(env)`. Mantiene `redactPii` mismo pattern.                                                                                                                                                                                                                                     |
+| Slice 1 7.7.C OTel SDK + spans                 | ⚪ Pendiente | `@vercel/otel` + custom spans webhook/inngest/llm/db.                                                                                                                                                                                                                                                                                     |
+| Slice 1 7.7.D Sentry uncaught tracking         | ⚪ Pendiente | `@sentry/nextjs` config client + server + edge.                                                                                                                                                                                                                                                                                           |
+| Slice 1 7.9 Webhook Meta route                 | ✅ Completo  | `/api/webhooks/meta` HMAC verify + parse + emit `meta/message.received`. 12 tests. `62f8fbf`.                                                                                                                                                                                                                                             |
+| Slice 1 7.10 E2E smoke Path A                  | ✅ Completo  | InMemory bootstrap + signed payload assertions. 6 tests. `d886fed`.                                                                                                                                                                                                                                                                       |
+| **Slice 2 8.1 inbox read-only list**           | ✅ Completo  | Backend `InboxService.listActiveLeads` orquesta leads+sessions+convs+messages. UI: PanelLayout+SideNav 7 items + inbox/page RSC fetch + InboxList+InboxListItem (canal dots wa/ig/fb, stage badge, ultima_actividad relativa) + EmptyState + loading.tsx. 12 commits `11b9e78..f04f382`. 597 unit verde, coverage 87.71/80.8/84.69/88.77. |
+| Slice 2 8.2 conversation view                  | 🟡 Siguiente | `/inbox/[leadId]` RSC fetch lead+session+messages+convs → ConversationHeader+ChatThread+MessageBubble+ChannelIcons+RelativeTime. InboxService.getConversation(leadId).                                                                                                                                                                    |
 
 ---
 
 ## Cómo continuar (próxima sesión)
 
-### Opción A — Slice 2 UI + Realtime + Server Actions (recomendado)
+### Opción A — Slice 2 8.2 Conversation view (recomendado)
 
-Slice 1 funcional cerrado. Slice 2 desbloqueado.
+Slice 2 8.1 inbox list COMPLETO (12 commits, 597 unit verde, coverage 87.71/80.8/84.69/88.77). Siguiente sub-paso atómico per plan `docs/superpowers/plans/2026-05-17-slice2-81-inbox-list.md` y spec `docs/superpowers/specs/2026-05-17-slice2-ui-core-design.md` §7:
 
-Decirle al asistente:
-
-> Arrancá Slice 2 — UI inbox estilo WhatsApp Web + Lead Twin panel + Server Actions. Stack: Next.js 16 App Router + RSC + shadcn/ui + Tailwind v4 + Supabase Realtime. Empezar con scaffolding `(panel)` route group + inbox list + conversation view + Lead Twin sidebar. Server Actions `'use server'` con Zod parse primera línea (regla §0.9.3).
+> Continuá Slice 2 8.2 — `/inbox/[leadId]` RSC fetch lead+session+conversations+messages → ConversationHeader (lead.nombre + ChannelIcons + StageBadge + acciones placeholder) + ChatThread (ScrollArea + MessageBubble[] auto-scroll fin) + MessageBubble (in/out alignment + body + timestamp + delivery status) + ChannelIcons (WA/IG/FB SVG con activo grande/vinculados chico) + RelativeTime client. Agregar método `InboxService.getConversation(leadId): Promise<ConversationView>` orquestador. Sin Server Actions todavía (8.4).
 
 El asistente hará:
 
-1. Invocar skills `vercel:shadcn` + `frontend-design` + `vercel:nextjs` (rule §0.7 mapping UI).
-2. Leer scaffold actual `src/app/(panel)/` + `src/components/inbox/` (mock data probable).
-3. Brainstorm via `superpowers:brainstorming` (rule §0.11 feature nueva).
-4. Diseño data flow: Server Components fetch repos directos vs Server Actions vs Realtime subscriptions.
-5. Implementar inbox list view + conversation view + Lead Twin panel (3 vistas separables).
-6. Tests UI con axe-core a11y (regla §0.9 LGPD Brasil Ley 13.146 inclusión).
-7. Múltiples commits incrementales.
+1. Skills cargadas (`vercel:nextjs` + `vercel:shadcn` + `frontend-design`) — recargar si sesión nueva.
+2. TDD service first: getConversation + 4-6 tests InMemory.
+3. Bootstrap factory ya existe (`getInboxService`) — agregar método si necesita o reusar instance.
+4. Components nuevos en `src/components/inbox/` siguiendo pattern InboxListItem (server por default, client solo cuando necesite interactividad).
+5. ConversationHeader: server. RelativeTime: client (auto-refresh 30s).
+6. Commits incrementales (1 per task), pausa regla §5 o batch si user pide.
+
+### Opción B — Slice 2 8.3 Lead Twin panel
+
+> Sub-paso 8.3 — TwinPanel server component render `lead_session.extras` jsonb + StageBadge color-coded + TwinEmptyState. Integrar dentro de `/inbox/[leadId]` page layout (right sidebar 320px). Sin Server Actions todavía.
+
+### Opción C — Slice 2 8.4-8.5 Server Actions write path
+
+> Sub-pasos 8.4 + 8.5 combinados — MessageInput client + send-message.action + HandoffToggle + CloseSessionButton + toggle-handoff.action + close-session.action. Zod parse línea 1 (regla §0.9.3). Validar manual: enviar mensaje real outbound Meta + pausar IA + cerrar sesión.
+
+### Opción D — Slice 1 7.7.B PinoLogger producción
+
+> Continuá 7.7.B — PinoLogger wrapper + factory `getLogger(env)`. NODE_ENV=production → Pino, else → ConsoleLogger. Aplica `redactPii` mismo lugar. Hook Vercel Log Drains JSON. Pre-Slice 4 launch obligatorio.
+
+### Opción E — Validación manual browser 8.1
+
+> Antes de seguir, validar `/inbox` en browser local. `npm run dev` puerto 3001 → ver SideNav 7 items + EmptyState (DB vacía) o lista poblada (insertar fixture SQL en spec §11 plan). Confirmar que no rompió antes de seguir 8.2.
 
 ### Opción B — Slice 1 7.7.B PinoLogger producción
 
@@ -77,7 +92,7 @@ Ver `docs/security-threat-model.md`, `docs/data-model.md`, `docs/database-tuning
 
 Decile al iniciar la sesión:
 
-> Leé `AGENTS.md`, `docs/next-session.md` y `docs/changelog.md`. Confirmá estado y continuemos con [opción A/B/C/D].
+> Leé `AGENTS.md`, `docs/next-session.md`, `docs/superpowers/specs/2026-05-17-slice2-ui-core-design.md` y `docs/superpowers/plans/2026-05-17-slice2-81-inbox-list.md`. Confirmá estado Slice 2 8.1 completo y continuemos con [opción A/B/C/D/E].
 
 ---
 
