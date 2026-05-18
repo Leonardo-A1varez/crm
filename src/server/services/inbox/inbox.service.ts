@@ -1,24 +1,6 @@
-import type { Canal, CurrentStage, Direction } from "@/types/domain";
-import type { UUID } from "@/types/entities";
+import type { InboxItem } from "@/types/inbox";
 
-/**
- * Item de inbox: lead con sesión activa + último mensaje + canales vinculados.
- * Forma derivada — no es entity DB. La orquestación vive en `DefaultInboxService`.
- */
-export interface InboxItem {
-  leadId: UUID;
-  sessionId: UUID;
-  nombre: string;
-  currentStage: CurrentStage;
-  iaPausada: boolean;
-  ultimaActividad: Date;
-  ultimoMensaje: {
-    body: string;
-    direction: Direction;
-    createdAt: Date;
-  } | null;
-  canales: Canal[];
-}
+export type { InboxItem };
 
 export interface InboxService {
   /**
