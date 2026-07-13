@@ -189,18 +189,18 @@ tests/unit/server/services/inbox/
 
 ### Server Components (RSC)
 
-| Componente           | Props                                            | Responsabilidad                                                                 |
-| -------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------- |
-| `PanelLayout`        | `{ children }`                                   | Sidebar fijo + main scroll                                                      |
-| `InboxList`          | `{ items: InboxListItem[] }`                     | `<ScrollArea>` + map items                                                      |
-| `InboxListItem`      | `{ lead, lastMessage, currentStage, canales[] }` | `<Link>` a `/inbox/[leadId]` + preview                                          |
-| `ConversationHeader` | `{ lead, session, canales }`                     | Nombre + ChannelIcons + StageBadge + HandoffToggle + CloseSessionButton         |
-| `ChatThread`         | `{ messages, canalActivo }`                      | `<ScrollArea>` + map bubbles + auto-scroll fin                                  |
-| `MessageBubble`      | `{ message }`                                    | In/out alignment + body + timestamp + delivery status                           |
-| `ChannelIcons`       | `{ activos[], activoActual? }`                   | Íconos SVG (WA verde, IG morado, FB azul). Grande = activo, chicos = vinculados |
-| `TwinPanel`          | `{ leadSession }`                                | Card con TwinField[] dinámico según `extras` jsonb                              |
-| `StageBadge`         | `{ stage: CurrentStageEnum }`                    | Badge color-coded                                                               |
-| `EmptyState`         | `{ title, description, icon? }`                  | Reusable empty UI                                                               |
+| Componente           | Props                                            | Responsabilidad                                                                                                                    |
+| -------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `PanelLayout`        | `{ children }`                                   | Sidebar fijo + main scroll                                                                                                         |
+| `InboxList`          | `{ items: InboxListItem[] }`                     | `<ScrollArea>` + map items                                                                                                         |
+| `InboxListItem`      | `{ lead, lastMessage, currentStage, canales[] }` | `<Link>` a `/inbox/[leadId]` + preview                                                                                             |
+| `ConversationHeader` | `{ lead, session, canales }`                     | Nombre + ChannelIcons + StageBadge + HandoffToggle + CloseSessionButton                                                            |
+| `ChatThread`         | `{ messages }`                                   | Div `flex-col-reverse` + array invertido = bottom-anchored sin JS (impl 8.2; reemplaza ScrollArea+auto-scroll del diseño original) |
+| `MessageBubble`      | `{ message }`                                    | In/out alignment + body + timestamp + delivery status                                                                              |
+| `ChannelIcons`       | `{ activos[], activoActual? }`                   | Íconos SVG (WA verde, IG morado, FB azul). Grande = activo, chicos = vinculados                                                    |
+| `TwinPanel`          | `{ leadSession }`                                | Card con TwinField[] dinámico según `extras` jsonb                                                                                 |
+| `StageBadge`         | `{ stage: CurrentStageEnum }`                    | Badge color-coded                                                                                                                  |
+| `EmptyState`         | `{ title, description, icon? }`                  | Reusable empty UI                                                                                                                  |
 
 ### Client Components
 

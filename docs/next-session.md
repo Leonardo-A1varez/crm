@@ -41,9 +41,9 @@
 
 ## Cómo continuar (próxima sesión)
 
-### Paso 0 — Restore Supabase (BLOQUEANTE, manual usuario)
+### Paso 0 — ~~Restore Supabase~~ RESUELTO 2026-07-13
 
-> Dashboard https://supabase.com/dashboard/project/edlranjncwpxkyllopfa → **Restore project** (~2-5 min). Después: `npm run test:integration` (esperado 157 verde, incluye 3 nuevos listBySessionId).
+> Proyecto migrado a cuenta main: nuevo `crm-dev` ref `emubzkouwvuzlrtsgorx`. 16 migrations pusheadas, `.env.local` actualizado (keys formato nuevo `sb_publishable_`/`sb_secret_`), CLI re-linkeado. Ver sección "Conexión Supabase actual".
 
 ### Opción A — Validación browser 8.1 + 8.2 (recomendado post-restore)
 
@@ -134,13 +134,13 @@ d15fbfa feat(ui): InboxList server component reemplaza stub
 
 ## Conexión Supabase actual (referencia)
 
-- Proyecto: `crm-dev`
-- Region: East US (Ohio) `us-east-2`
-- Reference ID: `edlranjncwpxkyllopfa`
-- Postgres 17, Plan Free, Linked CLI ✅
-- **Status: INACTIVE desde ~2026-05-25 (free tier auto-pause). RESTORE PENDIENTE — dashboard → Restore project. Free tier borra pausados ~90d.**
-- Migrations aplicadas: 16/16
-- Advisors clean: ✅ (re-verificar post-restore)
+- Proyecto: `crm-dev` (**NUEVO 2026-07-13** — recreado en cuenta main; el viejo `edlranjncwpxkyllopfa` quedó INACTIVE en cuenta vieja y se auto-borra ~90d, sin data valiosa)
+- Reference ID: `emubzkouwvuzlrtsgorx`
+- Org: `ufmftdzojedsyujtsjqx` (misma que Genuino_app — límite free: 2 proyectos activos por org)
+- Postgres 17, Plan Free, Linked CLI ✅ (token CLI = cuenta main desde 2026-07-13)
+- Migrations aplicadas: 16/16 (push 2026-07-13, types.gen.ts idéntico verificado)
+- ⚠️ Free tier auto-pausa tras ~1 semana idle — mismo riesgo que mató al anterior. Mitigación pendiente: keepalive cron (GitHub Action ping semanal) o upgrade Pro.
+- ⚠️ Latencia REST residencial 0.4-1s/req → integration timeouts 120s + retry 1 (`vitest.integration.config.ts`)
 - Remoto git: `https://github.com/Leonardo-A1varez/crm.git` (privado, master sync)
 
 ---
