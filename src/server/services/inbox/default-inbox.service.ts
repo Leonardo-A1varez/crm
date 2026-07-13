@@ -1,10 +1,14 @@
+import { NotFoundError } from "@/lib/errors";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { Canal } from "@/types/domain";
-import type { Mensaje } from "@/types/entities";
-import type { InboxItem, InboxService } from "./inbox.service";
+import type { Conversacion, Mensaje, UUID } from "@/types/entities";
+import type { ConversationView, InboxItem, InboxService } from "./inbox.service";
+
+// Cap thread: sesiones cortas (5-15 msgs); 200 cubre outliers sin paginar.
+const CONVERSATION_MESSAGES_LIMIT = 200;
 
 export interface DefaultInboxServiceDeps {
   leads: LeadsRepository;
@@ -60,5 +64,35 @@ export class DefaultInboxService implements InboxService {
 
     items.sort((a, b) => b.ultimaActividad.getTime() - a.ultimaActividad.getTime());
     return items;
+  }
+
+  async getConversation(leadId: UUID): Promise<ConversationView> {
+    const lead = await this.deps.leads.findById(leadId);
+    if (!lead) {
+      throw new NotFoundError(`lead no encontrado: ${leadId}`, "lead", leadId);
+    }
+
+    const session = await this.deps.sessions.findActiveByLeadId(leadId);
+    const convs = await this.deps.convs.findByLeadId(leadId);
+    const canales: Canal[] = Array.from(new Set(convs.map((c) => c.canal)));
+
+    let masReciente: Conversacion | null = null;
+    for (const conv of convs) {
+      if (
+        !masReciente ||
+        conv.ultima_actividad_at.getTime() > masReciente.ultima_actividad_at.getTime()
+      ) {
+        masReciente = conv;
+      }
+    }
+    const canalActivo: Canal = masReciente?.canal ?? lead.canal_origen;
+
+    const messages = session
+      ? await this.deps.messages.listBySessionId(session.id, {
+          limit: CONVERSATION_MESSAGES_LIMIT,
+        })
+      : [];
+
+    return { lead, session, messages, canales, canalActivo };
   }
 }
