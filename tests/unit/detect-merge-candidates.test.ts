@@ -50,7 +50,10 @@ describe("detectMergeCandidatesPerLeadHandler", () => {
   test("no dup en BD: no proposals, no recorded", async () => {
     const lead = await seedLead(leads, "Juan Perez", "wa", "549110");
 
-    const result = await detectMergeCandidatesPerLeadHandler({ leadId: lead.id }, { detector });
+    const result = await detectMergeCandidatesPerLeadHandler(
+      { leadId: lead.id },
+      { detector, now: () => NOW },
+    );
 
     expect(result.proposed).toBe(0);
     expect(result.recorded).toBe(0);
@@ -60,7 +63,10 @@ describe("detectMergeCandidatesPerLeadHandler", () => {
     const leadWa = await seedLead(leads, "Juan Perez", "wa", "549110");
     await seedLead(leads, "Juan Perez", "ig", "ig_user_1");
 
-    const result = await detectMergeCandidatesPerLeadHandler({ leadId: leadWa.id }, { detector });
+    const result = await detectMergeCandidatesPerLeadHandler(
+      { leadId: leadWa.id },
+      { detector, now: () => NOW },
+    );
 
     expect(result.proposed).toBe(1);
     expect(result.recorded).toBe(1);
@@ -79,7 +85,10 @@ describe("detectMergeCandidatesPerLeadHandler", () => {
       reasons: ["nombre_exacto", "canales_distintos"],
     });
 
-    const result = await detectMergeCandidatesPerLeadHandler({ leadId: leadWa.id }, { detector });
+    const result = await detectMergeCandidatesPerLeadHandler(
+      { leadId: leadWa.id },
+      { detector, now: () => NOW },
+    );
 
     expect(result.proposed).toBe(0);
     expect(result.recorded).toBe(0);

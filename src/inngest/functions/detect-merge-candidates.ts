@@ -12,6 +12,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface DetectMergeCandidatesPerLeadDeps {
   detector: LeadMergeDetectorService;
+  // Clock inyectable para tests deterministas (paridad con handler global).
+  now?: () => Date;
   logger?: Logger;
 }
 
@@ -41,7 +43,10 @@ export async function detectMergeCandidatesPerLeadHandler(
   });
   logger.info("scan-start");
 
-  const proposals = await deps.detector.findCandidatesFor({ leadId: input.leadId });
+  const proposals = await deps.detector.findCandidatesFor({
+    leadId: input.leadId,
+    now: deps.now,
+  });
   let recorded = 0;
   for (const p of proposals) {
     const created = await deps.detector.recordCandidate(p);
