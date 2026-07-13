@@ -41,25 +41,41 @@ async function seedFixtures(c: TestClient): Promise<MessagesContractFixtures> {
     B: crypto.randomUUID(),
   };
   const leadSessionId = crypto.randomUUID();
+  // Sesión alt en OTRO lead: constraint lead_session_unique_activa_idx permite
+  // 1 sola sesión activa por lead.
+  const leadIdAlt = crypto.randomUUID();
+  const leadSessionIdAlt = crypto.randomUUID();
 
-  // 1 lead parent.
-  const { error: leadErr } = await c.from("leads").insert({
-    id: leadId,
-    nombre: "Messages Fixture Lead",
-    telefono: `+7${leadId.replace(/-/g, "").slice(0, 12)}`,
-    vehiculo_marca: "Toyota",
-    vehiculo_modelo: "Corolla",
-    vehiculo_anio: 2020,
-    canal_origen: "wa",
-    meta_user_ids: {},
-  });
-  if (leadErr) throw new Error(`seed lead: ${leadErr.message}`);
+  // 2 leads parent (main + alt para listBySessionId isolation).
+  const { error: leadErr } = await c.from("leads").insert([
+    {
+      id: leadId,
+      nombre: "Messages Fixture Lead",
+      telefono: `+7${leadId.replace(/-/g, "").slice(0, 12)}`,
+      vehiculo_marca: "Toyota",
+      vehiculo_modelo: "Corolla",
+      vehiculo_anio: 2020,
+      canal_origen: "wa",
+      meta_user_ids: {},
+    },
+    {
+      id: leadIdAlt,
+      nombre: "Messages Fixture Lead Alt",
+      telefono: `+7${leadIdAlt.replace(/-/g, "").slice(0, 12)}`,
+      vehiculo_marca: "Toyota",
+      vehiculo_modelo: "Hilux",
+      vehiculo_anio: 2021,
+      canal_origen: "wa",
+      meta_user_ids: {},
+    },
+  ]);
+  if (leadErr) throw new Error(`seed leads: ${leadErr.message}`);
 
-  // 1 lead_session parent.
-  const { error: sessErr } = await c.from("lead_session").insert({
-    id: leadSessionId,
-    lead_id: leadId,
-  });
+  // 1 lead_session por lead.
+  const { error: sessErr } = await c.from("lead_session").insert([
+    { id: leadSessionId, lead_id: leadId },
+    { id: leadSessionIdAlt, lead_id: leadIdAlt },
+  ]);
   if (sessErr) throw new Error(`seed lead_session: ${sessErr.message}`);
 
   // 3 conversaciones distintas (mismo lead, distinto canal_thread_id para satisfacer
@@ -75,5 +91,5 @@ async function seedFixtures(c: TestClient): Promise<MessagesContractFixtures> {
   const { error: convErr } = await c.from("conversaciones").insert(convRows);
   if (convErr) throw new Error(`seed conversaciones: ${convErr.message}`);
 
-  return { conversacionIds, leadSessionId };
+  return { conversacionIds, leadSessionId, leadSessionIdAlt };
 }

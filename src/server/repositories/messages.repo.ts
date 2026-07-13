@@ -10,6 +10,11 @@ export interface ListByConversacionFilter {
   before?: Date;
 }
 
+export interface ListBySessionFilter {
+  // Conserva los N más recientes (el thread muestra el final de la conversación).
+  limit?: number;
+}
+
 const DEFAULT_LIMIT = 50;
 
 // Deep clone defensivo de metadata (jsonb arbitrario). Garantiza parity con Supabase.
@@ -26,6 +31,9 @@ export interface MessagesRepository {
   findByIdempotencyKey(key: string): Promise<Mensaje | null>;
   // Timeline inbox: orden created_at DESC. limit default 50.
   listByConversacion(conversacionId: UUID, filter?: ListByConversacionFilter): Promise<Mensaje[]>;
+  // Thread de la sesión cruzando conversaciones (multi-canal). Orden ASC
+  // (viejo→nuevo); con limit conserva los N más recientes.
+  listBySessionId(sessionId: UUID, filter?: ListBySessionFilter): Promise<Mensaje[]>;
 }
 
 export class InMemoryMessagesRepository implements MessagesRepository {
@@ -99,5 +107,12 @@ export class InMemoryMessagesRepository implements MessagesRepository {
     }
     rows.sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
     return rows.slice(0, limit).map(cloneMensaje);
+  }
+
+  async listBySessionId(sessionId: UUID, filter: ListBySessionFilter = {}): Promise<Mensaje[]> {
+    const limit = filter.limit ?? DEFAULT_LIMIT;
+    const rows = Array.from(this.store.values()).filter((m) => m.lead_session_id === sessionId);
+    rows.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
+    return rows.slice(-limit).map(cloneMensaje);
   }
 }

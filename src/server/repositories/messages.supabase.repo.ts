@@ -4,7 +4,12 @@ import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { isUuid } from "@/server/db/uuid";
 import type { Direction, Sender, TipoMensaje } from "@/types/domain";
 import type { Mensaje, MensajeMetadata, UUID } from "@/types/entities";
-import type { ListByConversacionFilter, MensajeInsert, MessagesRepository } from "./messages.repo";
+import type {
+  ListByConversacionFilter,
+  ListBySessionFilter,
+  MensajeInsert,
+  MessagesRepository,
+} from "./messages.repo";
 
 const DEFAULT_LIMIT = 50;
 
@@ -117,6 +122,20 @@ export class SupabaseMessagesRepository implements MessagesRepository {
     const { data, error } = await query;
     if (error) throw mapPostgrestError(error, { resource: "mensaje" });
     return (data ?? []).map(mapRow);
+  }
+
+  async listBySessionId(sessionId: UUID, filter: ListBySessionFilter = {}): Promise<Mensaje[]> {
+    if (!isUuid(sessionId)) return [];
+    const limit = filter.limit ?? DEFAULT_LIMIT;
+    // DESC + limit trae los N más recientes; reverse → ASC para el thread.
+    const { data, error } = await this.db
+      .from("mensajes")
+      .select()
+      .eq("lead_session_id", sessionId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (error) throw mapPostgrestError(error, { resource: "mensaje" });
+    return (data ?? []).map(mapRow).reverse();
   }
 }
 

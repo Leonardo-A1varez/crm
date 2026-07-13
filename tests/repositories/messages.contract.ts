@@ -5,11 +5,15 @@ import type { UUID } from "@/types/entities";
 export interface MessagesContractFixtures {
   conversacionIds: { one: UUID; A: UUID; B: UUID };
   leadSessionId: UUID;
+  // Sesión de OTRO lead (constraint 1 activa por lead). Para asserts de
+  // aislamiento en listBySessionId.
+  leadSessionIdAlt: UUID;
 }
 
 const DEFAULT_FIXTURES: MessagesContractFixtures = {
   conversacionIds: { one: "conv-1", A: "conv-A", B: "conv-B" },
   leadSessionId: "session-1",
+  leadSessionIdAlt: "session-2",
 };
 
 export type MessagesContractFixturesArg =
@@ -176,6 +180,61 @@ export function runMessagesContract(
       const a = await repo.create(baseInsert(fixtures, { meta_message_id: null }));
       const b = await repo.create(baseInsert(fixtures, { meta_message_id: null }));
       expect(a.id).not.toBe(b.id);
+    });
+
+    // listBySessionId — thread cronológico de la sesión (Slice 2 8.2).
+    // ASC (viejo→nuevo) porque el ChatThread renderiza directo sin reverse.
+    test("listBySessionId devuelve mensajes de la sesión ASC cruzando conversaciones", async () => {
+      const m1 = await repo.create(
+        baseInsert(fixtures, {
+          conversacion_id: fixtures.conversacionIds.A,
+          meta_message_id: "sess_1",
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 5));
+      const m2 = await repo.create(
+        baseInsert(fixtures, {
+          conversacion_id: fixtures.conversacionIds.B,
+          meta_message_id: "sess_2",
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 5));
+      const m3 = await repo.create(
+        baseInsert(fixtures, {
+          conversacion_id: fixtures.conversacionIds.A,
+          meta_message_id: "sess_3",
+        }),
+      );
+
+      const list = await repo.listBySessionId(fixtures.leadSessionId);
+      expect(list.map((m) => m.id)).toEqual([m1.id, m2.id, m3.id]);
+    });
+
+    test("listBySessionId filtra por lead_session_id", async () => {
+      await repo.create(baseInsert(fixtures, { meta_message_id: "own_1" }));
+      await repo.create(
+        baseInsert(fixtures, {
+          lead_session_id: fixtures.leadSessionIdAlt,
+          meta_message_id: "alien_1",
+        }),
+      );
+
+      const list = await repo.listBySessionId(fixtures.leadSessionId);
+      expect(list).toHaveLength(1);
+      expect(list[0]?.lead_session_id).toBe(fixtures.leadSessionId);
+    });
+
+    test("listBySessionId con limit conserva los N más recientes en orden ASC", async () => {
+      const ids: string[] = [];
+      for (let i = 0; i < 4; i++) {
+        const m = await repo.create(baseInsert(fixtures, { meta_message_id: `recent_${i}` }));
+        ids.push(m.id);
+        await new Promise((r) => setTimeout(r, 5));
+      }
+
+      const list = await repo.listBySessionId(fixtures.leadSessionId, { limit: 2 });
+      // Últimos 2 creados, en ASC.
+      expect(list.map((m) => m.id)).toEqual([ids[2], ids[3]]);
     });
   });
 }
