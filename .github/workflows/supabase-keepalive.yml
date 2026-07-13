@@ -21,6 +21,10 @@ jobs:
     steps:
       - name: Ping REST (select 1 lead)
         run: |
+          if [ -z "${{ secrets.SUPABASE_URL }}" ] || [ -z "${{ secrets.SUPABASE_ANON_KEY }}" ]; then
+            echo "Secrets SUPABASE_URL / SUPABASE_ANON_KEY faltan — repo Settings → Secrets and variables → Actions (repository secrets, nombres exactos)."
+            exit 1
+          fi
           code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
             -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
