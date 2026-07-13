@@ -28,8 +28,12 @@ export default defineConfig(({ mode }) => {
       include: ["tests/integration/**/*.test.ts"],
       exclude: ["**/node_modules/**"],
       fileParallelism: false, // sequential, single DB shared
-      testTimeout: 30_000,
-      hookTimeout: 30_000,
+      // Remote DB sobre red residencial: roundtrips 0.4-1s. Tests con 60
+      // inserts secuenciales superan 30s. retry 1 absorbe `fetch failed`
+      // transitorios de undici.
+      testTimeout: 120_000,
+      hookTimeout: 120_000,
+      retry: 1,
       env: {
         SUPABASE_TEST_URL: env["SUPABASE_TEST_URL"] ?? "",
         SUPABASE_TEST_SERVICE_KEY: env["SUPABASE_TEST_SERVICE_KEY"] ?? "",
