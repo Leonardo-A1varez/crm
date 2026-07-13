@@ -1,0 +1,32 @@
+# Keepalive Supabase free tier: proyectos sin actividad ~7 días se pausan
+# (así murió el crm-dev original, 2026-05). Ping 2x/semana via REST = actividad DB.
+#
+# Secrets requeridos (repo Settings → Secrets and variables → Actions):
+#   SUPABASE_URL       https://<ref>.supabase.co
+#   SUPABASE_ANON_KEY  publishable key (sb_publishable_...)
+#
+# Nota: GitHub deshabilita crons en repos sin commits por 60 días — si el
+# repo entra en pausa larga, re-habilitar manualmente en Actions tab.
+name: supabase-keepalive
+
+on:
+  schedule:
+    - cron: "0 9 * * 1,4" # lunes y jueves 09:00 UTC
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping REST (select 1 lead)
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/leads?select=id&limit=1")
+          echo "HTTP $code"
+          if [ "$code" != "200" ]; then
+            echo "Keepalive falló — verificar proyecto pausado o secrets desactualizados."
+            exit 1
+          fi
