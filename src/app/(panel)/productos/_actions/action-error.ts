@@ -22,7 +22,19 @@ export function toActionError(e: unknown, accion: string): { ok: false; error: s
     return { ok: false, error: "Producto no encontrado. Refrescá la página." };
   }
   if (e instanceof ValidationError) {
-    // Accionable para el operador. Sin secrets.
+    // Con cause = origen DB (mapPostgrestError, codes 23502/23514): el mensaje
+    // trae detalle crudo de Postgres (constraint/columna) — no exponer al toast,
+    // solo loguear server-side. Sin cause = mensaje de dominio curado a mano
+    // (ej. CSV inválido, canal sin configurar): accionable para el operador,
+    // pasa tal cual.
+    if (e.cause !== undefined) {
+      logger.warn("validacion DB rechazo escritura productos", {
+        accion,
+        code: e.code,
+        error: e.message,
+      });
+      return { ok: false, error: "Datos inválidos: revisá precio y stock (deben ser ≥ 0)." };
+    }
     return { ok: false, error: e.message };
   }
   if (e instanceof PermissionDeniedError) {

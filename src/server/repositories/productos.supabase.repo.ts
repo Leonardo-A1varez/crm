@@ -1,4 +1,4 @@
-import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
+import { ConflictError, NotFoundError, PermissionDeniedError, ValidationError } from "@/lib/errors";
 import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { serverNowIso } from "@/server/db/server-time";
@@ -89,6 +89,13 @@ export class SupabaseProductsRepository implements ProductsRepository {
 
     if (error) throw mapPostgrestError(error, { resource: "producto" });
     if (data === null) {
+      // 0 filas sin error SQL: id inexistente O fila filtrada por RLS UPDATE
+      // (using() filtra silencioso, no lanza 42501). SELECT sí es visible para
+      // ambos roles → si existe, fue RLS: permiso denegado, no not-found.
+      const visible = await this.findById(id);
+      if (visible) {
+        throw new PermissionDeniedError(`update de producto denegado por RLS: ${id}`);
+      }
       throw new NotFoundError(`producto no encontrado: ${id}`, "producto", id);
     }
     return mapRow(data);
