@@ -6,8 +6,31 @@ import {
   InMemoryMessagesRepository,
   type MensajeInsert,
 } from "@/server/repositories/messages.repo";
+import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultInboxService } from "@/server/services/inbox/default-inbox.service";
+import { DefaultMetaApiService } from "@/server/services/meta-api.service";
 import type { Lead, LeadSession, UUID } from "@/types/entities";
+
+// Read path no toca Meta; client jamás debería invocarse en esta suite.
+function makeReadOnlyDeps(
+  leads: InMemoryLeadsRepository,
+  sessions: InMemoryLeadSessionRepository,
+  convs: InMemoryConversationsRepository,
+  messages: InMemoryMessagesRepository,
+) {
+  return {
+    leads,
+    sessions,
+    convs,
+    messages,
+    metaApi: new DefaultMetaApiService(convs, messages, {
+      sendText: async () => {
+        throw new Error("sendText no debe invocarse en read path");
+      },
+    }),
+    handoff: new DefaultHandoffService(sessions),
+  };
+}
 
 async function makeLead(
   repo: InMemoryLeadsRepository,
@@ -84,7 +107,7 @@ describe("DefaultInboxService.listActiveLeads", () => {
     sessions = new InMemoryLeadSessionRepository();
     convs = new InMemoryConversationsRepository();
     messages = new InMemoryMessagesRepository();
-    svc = new DefaultInboxService({ leads, sessions, convs, messages });
+    svc = new DefaultInboxService(makeReadOnlyDeps(leads, sessions, convs, messages));
   });
 
   test("returns empty array when no active sessions", async () => {
@@ -310,7 +333,7 @@ describe("DefaultInboxService.getConversation", () => {
     sessions = new InMemoryLeadSessionRepository();
     convs = new InMemoryConversationsRepository();
     messages = new InMemoryMessagesRepository();
-    svc = new DefaultInboxService({ leads, sessions, convs, messages });
+    svc = new DefaultInboxService(makeReadOnlyDeps(leads, sessions, convs, messages));
   });
 
   test("happy path: lead + sesión activa + mensajes ASC cross-conv + canalActivo por actividad", async () => {

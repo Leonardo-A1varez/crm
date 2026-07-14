@@ -23,6 +23,13 @@ export interface InboxItem {
 }
 
 /**
+ * Resultado serializable de Server Actions inbox (8.4-8.5). Vive en types/
+ * porque client components (components/) tipan la prop action y las actions
+ * (app/) construyen el valor — boundaries no permite components→app.
+ */
+export type ActionResult = { ok: true } | { ok: false; error: string };
+
+/**
  * Vista completa de conversación por lead (Slice 2 8.2). Producida por
  * `InboxService.getConversation`. `session` null cuando no hay sesión activa
  * (URL stale post-cierre); en ese caso `messages` vacío.
