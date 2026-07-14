@@ -32,6 +32,9 @@ export interface LeadSessionRepository {
   update(id: UUID, patch: LeadSessionUpdate): Promise<LeadSession>;
   close(id: UUID, input: CloseInput): Promise<LeadSession>;
   listClosedBefore(date: Date): Promise<LeadSession[]>;
+  // Purge cron (Slice 4). CASCADE borra mensajes + rule_executions.
+  // Id inexistente = no-op (replay-safe para retries Inngest).
+  delete(id: UUID): Promise<void>;
 }
 
 // Deep clone defensivo para extras (jsonb arbitrario LLM-extracted).
@@ -133,5 +136,9 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
       if (s.closed_at && s.closed_at < date) out.push(cloneSession(s));
     }
     return out;
+  }
+
+  async delete(id: UUID): Promise<void> {
+    this.store.delete(id);
   }
 }

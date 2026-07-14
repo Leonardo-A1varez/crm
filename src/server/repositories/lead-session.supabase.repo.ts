@@ -183,6 +183,14 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
     if (error) throw mapPostgrestError(error, { resource: "lead_session" });
     return (data ?? []).map(mapRow);
   }
+
+  async delete(id: UUID): Promise<void> {
+    // Id inexistente = 0 rows sin error → no-op replay-safe. isUuid evita
+    // roundtrip con ids no-uuid (mismo early-return que findById).
+    if (!isUuid(id)) return;
+    const { error } = await this.db.from("lead_session").delete().eq("id", id);
+    if (error) throw mapPostgrestError(error, { resource: "lead_session" });
+  }
 }
 
 interface LeadSessionRow {

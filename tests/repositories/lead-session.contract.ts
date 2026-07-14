@@ -210,5 +210,18 @@ export function runLeadSessionContract(
       const nothing = await repo.listClosedBefore(pastCutoff);
       expect(nothing).toEqual([]);
     });
+
+    test("delete borra la sesión (findById null post-delete)", async () => {
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
+      await repo.close(s.id, { resultado: "perdido", motivo_perdida: "no_responde" });
+
+      await repo.delete(s.id);
+
+      expect(await repo.findById(s.id)).toBeNull();
+    });
+
+    test("delete de id inexistente es no-op (replay-safe, sin throw)", async () => {
+      await expect(repo.delete(crypto.randomUUID())).resolves.toBeUndefined();
+    });
   });
 }
