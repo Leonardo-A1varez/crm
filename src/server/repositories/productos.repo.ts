@@ -98,6 +98,11 @@ export class InMemoryProductsRepository implements ProductsRepository {
     if (filter.activo !== undefined) {
       rows = rows.filter((p) => p.activo === filter.activo);
     }
+    // Orden estable nombre + codigo_interno (paridad con ORDER BY de Supabase impl).
+    rows.sort(
+      (a, b) =>
+        a.nombre.localeCompare(b.nombre) || a.codigo_interno.localeCompare(b.codigo_interno),
+    );
     const offset = filter.offset ?? 0;
     const limit = filter.limit ?? rows.length;
     return rows.slice(offset, offset + limit).map(cloneProducto);

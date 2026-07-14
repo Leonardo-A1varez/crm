@@ -95,7 +95,11 @@ export class SupabaseProductsRepository implements ProductsRepository {
   }
 
   async list(filter: ProductoListFilter = {}): Promise<Producto[]> {
-    let query = this.db.from("productos").select();
+    let query = this.db
+      .from("productos")
+      .select()
+      .order("nombre", { ascending: true })
+      .order("codigo_interno", { ascending: true });
 
     if (filter.q) {
       const q = `%${filter.q}%`;

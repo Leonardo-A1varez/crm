@@ -111,6 +111,15 @@ export function runProductosContract(makeRepo: () => ProductsRepository) {
       expect(page1[0].id).not.toBe(page2[0].id);
     });
 
+    test("list ordena por nombre asc con tiebreak codigo_interno", async () => {
+      await repo.create(baseInsert({ codigo_interno: "Z-9", nombre: "Zapata" }));
+      await repo.create(baseInsert({ codigo_interno: "A-2", nombre: "Amortiguador" }));
+      await repo.create(baseInsert({ codigo_interno: "A-1", nombre: "Amortiguador" }));
+
+      const all = await repo.list();
+      expect(all.map((p) => p.codigo_interno)).toEqual(["A-1", "A-2", "Z-9"]);
+    });
+
     test("bulkUpsert crea cuando no existen", async () => {
       const items = [
         baseInsert({ codigo_interno: "B-1" }),
