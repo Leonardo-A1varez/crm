@@ -1,5 +1,9 @@
 import { describe, expect, test, beforeEach } from "vitest";
-import type { ProductoInsert, ProductsRepository } from "@/server/repositories/productos.repo";
+import type {
+  ProductoBulkUpsertItem,
+  ProductoInsert,
+  ProductsRepository,
+} from "@/server/repositories/productos.repo";
 
 function baseInsert(overrides: Partial<ProductoInsert> = {}): ProductoInsert {
   return {
@@ -13,6 +17,19 @@ function baseInsert(overrides: Partial<ProductoInsert> = {}): ProductoInsert {
     stock: 12,
     imagen_url: null,
     activo: true,
+    ...overrides,
+  };
+}
+
+function bulkItem(overrides: Partial<ProductoBulkUpsertItem> = {}): ProductoBulkUpsertItem {
+  return {
+    codigo_interno: "B-1",
+    sku_proveedor: null,
+    nombre: "Bulk item",
+    descripcion: null,
+    categoria: null,
+    precio: 100,
+    stock: 1,
     ...overrides,
   };
 }
@@ -122,8 +139,8 @@ export function runProductosContract(makeRepo: () => ProductsRepository) {
 
     test("bulkUpsert crea cuando no existen", async () => {
       const items = [
-        baseInsert({ codigo_interno: "B-1" }),
-        baseInsert({ codigo_interno: "B-2", nombre: "Otro" }),
+        bulkItem({ codigo_interno: "B-1" }),
+        bulkItem({ codigo_interno: "B-2", nombre: "Otro" }),
       ];
       const result = await repo.bulkUpsert(items);
       expect(result).toHaveLength(2);
@@ -135,7 +152,7 @@ export function runProductosContract(makeRepo: () => ProductsRepository) {
     test("bulkUpsert actualiza existentes manteniendo id + created_at", async () => {
       const original = await repo.create(baseInsert({ codigo_interno: "U-1", precio: 100 }));
       const result = await repo.bulkUpsert([
-        baseInsert({ codigo_interno: "U-1", precio: 200, stock: 50 }),
+        bulkItem({ codigo_interno: "U-1", precio: 200, stock: 50 }),
       ]);
       expect(result[0].id).toBe(original.id);
       expect(result[0].created_at).toEqual(original.created_at);
@@ -146,9 +163,9 @@ export function runProductosContract(makeRepo: () => ProductsRepository) {
     test("bulkUpsert mezcla creates + updates preservando orden input", async () => {
       await repo.create(baseInsert({ codigo_interno: "MIX-EXIST", precio: 100 }));
       const result = await repo.bulkUpsert([
-        baseInsert({ codigo_interno: "MIX-NEW-1" }),
-        baseInsert({ codigo_interno: "MIX-EXIST", precio: 999 }),
-        baseInsert({ codigo_interno: "MIX-NEW-2" }),
+        bulkItem({ codigo_interno: "MIX-NEW-1" }),
+        bulkItem({ codigo_interno: "MIX-EXIST", precio: 999 }),
+        bulkItem({ codigo_interno: "MIX-NEW-2" }),
       ]);
       expect(result.map((r) => r.codigo_interno)).toEqual(["MIX-NEW-1", "MIX-EXIST", "MIX-NEW-2"]);
       expect(result[1].precio).toBe(999);
@@ -157,14 +174,40 @@ export function runProductosContract(makeRepo: () => ProductsRepository) {
     test("bulkUpsert throws si hay codigo_interno duplicado en el input", async () => {
       await expect(
         repo.bulkUpsert([
-          baseInsert({ codigo_interno: "DUP" }),
-          baseInsert({ codigo_interno: "DUP", precio: 500 }),
+          bulkItem({ codigo_interno: "DUP" }),
+          bulkItem({ codigo_interno: "DUP", precio: 500 }),
         ]),
       ).rejects.toThrow(/dup/i);
     });
 
     test("bulkUpsert con array vacío devuelve []", async () => {
       expect(await repo.bulkUpsert([])).toEqual([]);
+    });
+
+    test("bulkUpsert insert aplica defaults (activo true, compatibilidad [], imagen null)", async () => {
+      const result = await repo.bulkUpsert([bulkItem({ codigo_interno: "DEF-1" })]);
+      expect(result[0]?.activo).toBe(true);
+      expect(result[0]?.compatibilidad).toEqual([]);
+      expect(result[0]?.imagen_url).toBeNull();
+    });
+
+    test("bulkUpsert update preserva compatibilidad + imagen_url + activo", async () => {
+      const original = await repo.create(
+        baseInsert({
+          codigo_interno: "PRES-1",
+          compatibilidad: [
+            { marca: "Toyota", modelo: "Hilux", anio_desde: 2016, anio_hasta: 2020 },
+          ],
+          imagen_url: "https://example.com/p.jpg",
+          activo: false,
+        }),
+      );
+      const result = await repo.bulkUpsert([bulkItem({ codigo_interno: "PRES-1", precio: 777 })]);
+      expect(result[0]?.id).toBe(original.id);
+      expect(result[0]?.precio).toBe(777);
+      expect(result[0]?.compatibilidad).toEqual(original.compatibilidad);
+      expect(result[0]?.imagen_url).toBe("https://example.com/p.jpg");
+      expect(result[0]?.activo).toBe(false);
     });
   });
 }

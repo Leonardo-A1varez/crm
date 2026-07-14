@@ -89,11 +89,8 @@ describe("Repos/services throw clases DomainError", () => {
       nombre: "x",
       descripcion: null,
       categoria: null,
-      compatibilidad: [],
       precio: 1,
       stock: 0,
-      imagen_url: null,
-      activo: true,
     };
     await expect(repo.bulkUpsert([item, item])).rejects.toBeInstanceOf(ValidationError);
   });

@@ -8,6 +8,14 @@ export type ProductoUpdate = Update<
   "id" | "created_at" | "updated_at" | "codigo_interno"
 >;
 
+// Item de upsert masivo con scope CSV import: solo las columnas del archivo.
+// Update NO toca compatibilidad / imagen_url / activo (se preservan); insert
+// usa defaults (compatibilidad [], imagen_url null, activo true).
+export type ProductoBulkUpsertItem = Omit<
+  ProductoInsert,
+  "compatibilidad" | "imagen_url" | "activo"
+>;
+
 export interface ProductoListFilter {
   q?: string;
   activo?: boolean;
@@ -21,9 +29,9 @@ export interface ProductsRepository {
   findByCodigoInterno(codigo: string): Promise<Producto | null>;
   update(id: UUID, patch: ProductoUpdate): Promise<Producto>;
   list(filter?: ProductoListFilter): Promise<Producto[]>;
-  // Upsert masivo por codigo_interno. Throws si hay codigo_interno duplicado en el input.
-  // Preserva orden del input en el array de retorno.
-  bulkUpsert(items: ProductoInsert[]): Promise<Producto[]>;
+  // Upsert masivo por codigo_interno (import CSV). Throws si hay codigo_interno
+  // duplicado en el input. Preserva orden del input en el array de retorno.
+  bulkUpsert(items: ProductoBulkUpsertItem[]): Promise<Producto[]>;
 }
 
 // Deep clone defensivo de compatibilidad (jsonb array) para evitar mutación cruzada de refs.
@@ -108,7 +116,7 @@ export class InMemoryProductsRepository implements ProductsRepository {
     return rows.slice(offset, offset + limit).map(cloneProducto);
   }
 
-  async bulkUpsert(items: ProductoInsert[]): Promise<Producto[]> {
+  async bulkUpsert(items: ProductoBulkUpsertItem[]): Promise<Producto[]> {
     if (items.length === 0) return [];
 
     const seen = new Set<string>();
@@ -127,7 +135,12 @@ export class InMemoryProductsRepository implements ProductsRepository {
         const updated = await this.update(existing.id, rest);
         result.push(updated);
       } else {
-        const created = await this.create(item);
+        const created = await this.create({
+          ...item,
+          compatibilidad: [],
+          imagen_url: null,
+          activo: true,
+        });
         result.push(created);
       }
     }

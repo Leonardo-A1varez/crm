@@ -6,6 +6,7 @@ import type { Database } from "@/server/db/types.gen";
 import { isUuid } from "@/server/db/uuid";
 import type { CompatibilidadEntry, Producto, UUID } from "@/types/entities";
 import type {
+  ProductoBulkUpsertItem,
   ProductoInsert,
   ProductoListFilter,
   ProductoUpdate,
@@ -129,7 +130,7 @@ export class SupabaseProductsRepository implements ProductsRepository {
     return (data ?? []).map(mapRow);
   }
 
-  async bulkUpsert(items: ProductoInsert[]): Promise<Producto[]> {
+  async bulkUpsert(items: ProductoBulkUpsertItem[]): Promise<Producto[]> {
     if (items.length === 0) return [];
 
     // Dedup input (throws antes de tocar DB — fail-fast, mismo contract que InMemory).
@@ -142,14 +143,24 @@ export class SupabaseProductsRepository implements ProductsRepository {
     }
 
     const now = await serverNowIso(this.db);
+    // Solo columnas CSV: el SET del ON CONFLICT se arma con las keys del payload,
+    // así compatibilidad/imagen_url/activo quedan intactas en updates.
     const rows = items.map((item) => ({
-      ...toDbInsert(item),
+      codigo_interno: item.codigo_interno,
+      sku_proveedor: item.sku_proveedor,
+      nombre: item.nombre,
+      descripcion: item.descripcion,
+      categoria: item.categoria,
+      precio: item.precio,
+      stock: item.stock,
       updated_at: now,
     }));
 
+    // defaultToNull:false → columnas omitidas toman DEFAULT en el INSERT
+    // (compatibilidad '[]', activo true) en vez de null (violaría NOT NULL).
     const { data, error } = await this.db
       .from("productos")
-      .upsert(rows, { onConflict: "codigo_interno" })
+      .upsert(rows, { onConflict: "codigo_interno", defaultToNull: false })
       .select();
 
     if (error) throw mapPostgrestError(error, { resource: "producto" });
@@ -162,7 +173,11 @@ export class SupabaseProductsRepository implements ProductsRepository {
     return items.map((item) => {
       const row = byCodigo.get(item.codigo_interno);
       if (!row) {
-        throw new Error(
+        // Fila ausente en la respuesta sin error SQL: la fila fue insertada o
+        // actualizada (por eso no hubo error), pero no vino en el RETURNING —
+        // mismo caso que update() con data===null: la política RLS SELECT la
+        // filtra para este rol. No hay NotFoundError posible acá (la fila existe).
+        throw new PermissionDeniedError(
           `bulkUpsert: row missing en respuesta para codigo_interno=${item.codigo_interno}`,
         );
       }
