@@ -142,7 +142,7 @@ G. **Slice 1 7.10 E2E smoke Path A** (`d886fed`):
 
 **PENDIENTE USUARIO antes de continuar:** ninguno (todo commiteado + pusheado sync remoto).
 
-**Siguiente sub-paso:** **Slice 4b — deploy + soft launch** (requiere del usuario: creds reales META/OPENAI/INNGEST/UPSTASH en `.env.local`, cuenta Vercel, cuenta Sentry free, número WhatsApp Business). Alternativa mientras: vistas Slice 2 9-12. Pendiente manual: dashboard → Advisors (CLI 403 free tier).
+**Siguiente sub-paso:** **Slice 4b — deploy + soft launch** (requiere del usuario: creds reales META/OPENAI/INNGEST/UPSTASH en `.env.local`, cuenta Vercel, cuenta Sentry free, número WhatsApp Business) **o vistas 9-12 (spec aprobado: `docs/superpowers/specs/2026-07-14-slice2-vistas-9-12-design.md` → writing-plans → fase 9 Productos)**. Pendiente manual: dashboard → Advisors (CLI 403 free tier).
 
 ### Tabla de progreso
 

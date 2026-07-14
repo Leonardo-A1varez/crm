@@ -1,6 +1,6 @@
 # Cómo retomar la sesión
 
-> Última pausa: 2026-07-14 (cont. 2). **Slice 4a Hardening COMPLETO** (mismo día que Slice 3 completo). Pino+getLogger · Sentry env-gated · OTel+withSpan · `/api/health` (curl 200 degraded ✅) · CostTracker Upstash (fix kill-switch serverless) · purge real con storage cleanup · reactivación real con templates por motivo. 666 unit verdes; migrations 18/18. **Usuario dev local: `admin-dev@crm.local` / `dev-admin-2026!` (solo crm-dev).** Siguiente: **Slice 4b deploy+launch (checklist Opción A)** o vistas Slice 2 9-12. **Pendiente manual: dashboard → Advisors (CLI 403 free tier).**
+> Última pausa: 2026-07-14 (fin de sesión). **Slice 4a COMPLETO + spec vistas 9-12 aprobado** (`docs/superpowers/specs/2026-07-14-slice2-vistas-9-12-design.md` — diseño listo, falta plan+ejecución). 666 unit verdes; migrations 18/18. **Usuario dev local: `admin-dev@crm.local` / `dev-admin-2026!` (solo crm-dev).** Siguiente: **Opción B vistas 9-12 (plan → fase 9 Productos)** o **Opción A Slice 4b deploy+launch (checklist)**. **Pendiente manual: dashboard → Advisors (CLI 403 free tier).**
 
 ---
 
@@ -43,6 +43,7 @@
 | **Slice 3 Auth + RLS (9.1-9.4)**                | ✅ Completo          | 9.1 @supabase/ssr + login/logout + proxy gate (validado browser 6/6). 9.2 migration 43 policies + storage + `MIN_RLS_POLICIES=40` + suite RLS 11/11. 9.3 panel authed per-request (`makeInboxService`/`getInboxServiceForRequest`), smoke browser con RLS activo. 9.4 STRIDE + review 0 findings. Spec+plan en `docs/superpowers/`.           |
 | **Slice 4a — hardening pre-launch (10.1-10.7)** | ✅ Completo          | Pino paridad-redact · Sentry DSN-gated · OTel spans calientes · /api/health anon-ping · UpstashCostTracker (fallback dev) · repo.delete + purge storage-cleanup replay-safe · reactivación templates + skips bounced/cooldown. Spec+plan `docs/superpowers/*slice4a*`.                                                                        |
 | **Slice 4b — deploy + soft launch**             | 🟡 Siguiente         | Checklist Opción A. Bloqueado por acciones usuario (creds/cuentas).                                                                                                                                                                                                                                                                           |
+| **Slice 2 vistas 9-12 (spec)**                  | 🟡 Diseño aprobado   | Spec `2026-07-14-slice2-vistas-9-12-design.md`. Falta plan + ejecución (11 sub-pasos, ver Opción B).                                                                                                                                                                                                                                          |
 
 ---
 
@@ -61,9 +62,9 @@
 >
 > **Después, juntos:** validar send outbound real local → deploy preview → env vars Vercel → webhook Meta apuntando al deploy → smoke E2E real (mensaje WhatsApp entra y la IA responde) → `/api/health` = ok → monitor externo → templates Meta para reactivación → revisar Advisors + checklist threat model pre-launch → soft launch 10 leads.
 
-### Opción B — Vistas Slice 2 9-12 (leads/productos/intents-reglas/tags/métricas/ajustes)
+### Opción B — Vistas Slice 2 9-12 (spec YA aprobado; arrancar acá si no hay creds)
 
-> UI restante del panel sin dependencia de creds. Cada vista = spec corta + sub-pasos como 8.x.
+> Spec: `docs/superpowers/specs/2026-07-14-slice2-vistas-9-12-design.md`. Diseño aprobado 2026-07-14: orden ROI 9=Productos (CRUD+import CSV papaparse) → 10=Leads (detalle+merge review) → 11=Intents+Reglas → 12=Tags+Métricas+Ajustes. Próximo paso: `superpowers:writing-plans` sobre el spec → ejecutar fase 9 (sub-pasos 9.A lista, 9.B CRUD, 9.C import).
 
 ### Opción C — Slice 1 7.10 Path B full E2E smoke
 
