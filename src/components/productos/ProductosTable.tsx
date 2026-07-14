@@ -9,6 +9,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { ProductoRowActions } from "./ProductoRowActions";
+import type {
+  SetProductoActivoInput,
+  UpdateProductoInput,
+} from "@/lib/validation/productos.schema";
+import type { ActionResult } from "@/types/inbox";
 import type { Producto } from "@/types/entities";
 
 const precioFmt = new Intl.NumberFormat("es", {
@@ -16,7 +22,17 @@ const precioFmt = new Intl.NumberFormat("es", {
   maximumFractionDigits: 2,
 });
 
-export function ProductosTable({ productos }: { productos: Producto[] }) {
+export function ProductosTable({
+  productos,
+  isAdmin,
+  onUpdate,
+  onToggleActivo,
+}: {
+  productos: Producto[];
+  isAdmin: boolean;
+  onUpdate: (input: UpdateProductoInput) => Promise<ActionResult>;
+  onToggleActivo: (input: SetProductoActivoInput) => Promise<ActionResult>;
+}) {
   if (productos.length === 0) {
     return (
       <EmptyState
@@ -37,6 +53,7 @@ export function ProductosTable({ productos }: { productos: Producto[] }) {
           <TableHead className="text-right">Precio</TableHead>
           <TableHead className="text-right">Stock</TableHead>
           <TableHead>Estado</TableHead>
+          {isAdmin ? <TableHead className="w-44 text-right">Acciones</TableHead> : null}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -61,6 +78,15 @@ export function ProductosTable({ productos }: { productos: Producto[] }) {
                 {p.activo ? "Activo" : "Inactivo"}
               </Badge>
             </TableCell>
+            {isAdmin ? (
+              <TableCell>
+                <ProductoRowActions
+                  producto={p}
+                  onUpdate={onUpdate}
+                  onToggleActivo={onToggleActivo}
+                />
+              </TableCell>
+            ) : null}
           </TableRow>
         ))}
       </TableBody>
