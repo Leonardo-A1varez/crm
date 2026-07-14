@@ -57,10 +57,14 @@ const envSchema = z.object({
   //   - default → "real" prod / "mock" tests (testEnvSchema)
   LLM_MODE: z.enum(["real", "mock"]).default("real"),
 
-  // Upstash Redis (B3 — rate limit webhook Meta + futuro cost-tracker prod)
+  // Upstash Redis (B3 — rate limit webhook Meta + cost-tracker prod 4a)
   // Optional pilot tier dev; obligatorio prod (NoopRateLimiter en ausencia).
   UPSTASH_REDIS_REST_URL: z.string().url().optional(),
   UPSTASH_REDIS_REST_TOKEN: z.string().min(1).optional(),
+
+  // Sentry (Slice 4a 10.2) — opcional: sin DSN queda disabled sin overhead.
+  SENTRY_DSN: z.string().url().optional(),
+  NEXT_PUBLIC_SENTRY_DSN: z.string().url().optional(),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;
@@ -90,6 +94,8 @@ const testEnvSchema = envSchema.partial().transform(
     LLM_MODE: partial.LLM_MODE ?? "mock",
     UPSTASH_REDIS_REST_URL: partial.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: partial.UPSTASH_REDIS_REST_TOKEN,
+    SENTRY_DSN: partial.SENTRY_DSN,
+    NEXT_PUBLIC_SENTRY_DSN: partial.NEXT_PUBLIC_SENTRY_DSN,
   }),
 );
 
