@@ -178,3 +178,9 @@ Root cause:
 Action:
 Prevention:
 ```
+
+---
+
+## Persistencia del tracker (Slice 4a, 2026-07-14)
+
+`UpstashCostTracker` (`INCRBYFLOAT cost:<YYYY-MM-DD>` + TTL 48h) reemplaza a `InMemoryCostTracker` en producción: el acumulado in-memory moría en cada cold start serverless y el daily cap jamás se alcanzaba (kill-switch decorativo). Sin creds `UPSTASH_REDIS_REST_*` reales el factory cae a InMemory con `logger.warn` — aceptable solo en dev.

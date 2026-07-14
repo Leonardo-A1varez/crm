@@ -213,3 +213,5 @@ Notas de auditoría:
 - DB dev compartida entre fixtures de browser y suite de integración: `cleanupTestDb` borra fixtures (aceptado en dev; JAMÁS apuntar tests a instancia con data real).
 
 - Review de seguridad del slice (2026-07-14): 0 findings explotables. Nota defensa-en-profundidad: el matcher del proxy excluye paths con punto (`.*\..*`) — un request tipo `/inbox/x.y` evita el gate de sesión, pero todo acceso a datos del panel usa el client authed por cookies (sin cookie = anon = RLS deny-all), así que no hay exposición. Si se agregan rutas que NO pasen por el client authed, revisar el matcher primero.
+
+- Delta Slice 4a (2026-07-14): Sentry env-gated con `beforeSend` que redacta PII y elimina `request.data`; spans OTel sin bodies ni teléfonos (solo ids/canal); `/api/health` público devuelve solo estados (sin mensajes de error crudos) y hace ping DB con client anon + grant mínimo a `server_now()`; purge real elimina media de Storage antes del delete (retención 29d efectiva, `docs/data-retention.md`); reactivación con skips auditables vía `reactivation_dispatches.status`.
