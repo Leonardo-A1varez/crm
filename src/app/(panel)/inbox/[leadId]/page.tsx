@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { ChatThread } from "@/components/inbox/ChatThread";
 import { ConversationHeader } from "@/components/inbox/ConversationHeader";
+import { TwinPanel } from "@/components/lead-twin/TwinPanel";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { NotFoundError } from "@/lib/errors";
 import { getInboxService } from "@/server/bootstrap/inbox-bootstrap";
@@ -32,15 +33,23 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
         canalActivo={view.canalActivo}
         ultimaActividadIso={ultimaActividadIso}
       />
-      <div className="flex-1 overflow-hidden">
-        {view.session ? (
-          <ChatThread messages={view.messages} />
-        ) : (
-          <EmptyState
-            title="Sin sesión activa"
-            description="La sesión de este lead fue cerrada. El historial se purga a los 29 días del cierre."
-          />
-        )}
+      <div className="flex flex-1 overflow-hidden">
+        <div className="flex-1 overflow-hidden">
+          {view.session ? (
+            <ChatThread messages={view.messages} />
+          ) : (
+            <EmptyState
+              title="Sin sesión activa"
+              description="La sesión de este lead fue cerrada. El historial se purga a los 29 días del cierre."
+            />
+          )}
+        </div>
+        <aside
+          aria-label="Lead Twin"
+          className="border-border w-80 shrink-0 overflow-y-auto border-l p-3 max-lg:hidden"
+        >
+          <TwinPanel session={view.session} />
+        </aside>
       </div>
       {/* MessageInput llega en 8.4 (Server Actions write path) */}
     </div>
