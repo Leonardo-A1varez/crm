@@ -2,7 +2,7 @@ import { ChannelTabs } from "@/components/inbox/ChannelTabs";
 import { InboxList } from "@/components/inbox/InboxList";
 import { RefreshPoller } from "@/components/shared/RefreshPoller";
 import { CanalSchema } from "@/lib/validation/schemas";
-import { getInboxService } from "@/server/bootstrap/inbox-bootstrap";
+import { getInboxServiceForRequest } from "@/server/bootstrap/inbox-bootstrap";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +16,8 @@ export default async function InboxPage({
   const canalParse = CanalSchema.safeParse(params.canal);
   const canal = canalParse.success ? canalParse.data : null;
 
-  const items = await getInboxService().listActiveLeads();
+  const svc = await getInboxServiceForRequest();
+  const items = await svc.listActiveLeads();
   const filtered = canal ? items.filter((i) => i.canales.includes(canal)) : items;
 
   return (

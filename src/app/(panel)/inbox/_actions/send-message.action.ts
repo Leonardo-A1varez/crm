@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { SendMessageSchema } from "@/lib/validation/inbox.schema";
-import { getInboxService } from "@/server/bootstrap/inbox-bootstrap";
+import { getInboxServiceForRequest } from "@/server/bootstrap/inbox-bootstrap";
 import { toActionError } from "./action-error";
 import type { ActionResult } from "@/types/inbox";
 
@@ -13,7 +13,8 @@ export async function sendMessageAction(raw: unknown): Promise<ActionResult> {
   }
 
   try {
-    await getInboxService().sendMessage({
+    const svc = await getInboxServiceForRequest();
+    await svc.sendMessage({
       leadId: parsed.data.leadId,
       sessionId: parsed.data.sessionId,
       canal: parsed.data.canal,

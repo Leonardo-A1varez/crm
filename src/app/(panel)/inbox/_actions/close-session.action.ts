@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { CloseSessionSchema } from "@/lib/validation/inbox.schema";
-import { getInboxService } from "@/server/bootstrap/inbox-bootstrap";
+import { getInboxServiceForRequest } from "@/server/bootstrap/inbox-bootstrap";
 import { toActionError } from "./action-error";
 import type { ActionResult } from "@/types/inbox";
 
@@ -13,7 +13,8 @@ export async function closeSessionAction(raw: unknown): Promise<ActionResult> {
   }
 
   try {
-    await getInboxService().closeSession({
+    const svc = await getInboxServiceForRequest();
+    await svc.closeSession({
       sessionId: parsed.data.sessionId,
       resultado: parsed.data.resultado,
       motivoPerdida: parsed.data.motivoPerdida ?? null,

@@ -8,7 +8,7 @@ import { TwinPanel } from "@/components/lead-twin/TwinPanel";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { RefreshPoller } from "@/components/shared/RefreshPoller";
 import { NotFoundError } from "@/lib/errors";
-import { getInboxService } from "@/server/bootstrap/inbox-bootstrap";
+import { getInboxServiceForRequest } from "@/server/bootstrap/inbox-bootstrap";
 import { closeSessionAction } from "../_actions/close-session.action";
 import { sendMessageAction } from "../_actions/send-message.action";
 import { toggleHandoffAction } from "../_actions/toggle-handoff.action";
@@ -21,7 +21,8 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
 
   let view: ConversationView;
   try {
-    view = await getInboxService().getConversation(leadId);
+    const svc = await getInboxServiceForRequest();
+    view = await svc.getConversation(leadId);
   } catch (e) {
     if (e instanceof NotFoundError) notFound();
     throw e;
