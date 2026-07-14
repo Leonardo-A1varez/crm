@@ -82,7 +82,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Verify RLS policies (B3)
-        # MIN_RLS_POLICIES=0 pre-Slice 3. Subir umbral post-Slice 3 policy completas.
+        # Slice 3 aplicó 43 policies; 40 deja margen sin permitir borrado masivo accidental.
         env:
-          MIN_RLS_POLICIES: 0
+          MIN_RLS_POLICIES: 40
         run: bash scripts/verify-rls-policies.sh
