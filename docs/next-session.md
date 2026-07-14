@@ -1,6 +1,6 @@
 # Cómo retomar la sesión
 
-> Última pausa: 2026-07-13. **Slice 2 8.2 conversation view COMPLETO (código).** Backend `listBySessionId` + `getConversation` + UI completa `/inbox/[leadId]`. 605 unit verde. Fix time bomb test merge-detector. **BLOQUEO: Supabase `crm-dev` INACTIVE (auto-pause free tier) — restore manual en dashboard requerido para browser validation 8.1+8.2 + integration tests (esperado 157). Deadline: free tier borra proyectos pausados ~90d (~fines agosto 2026).** Pendientes no-blocker: 7.7.B/C/D observability + Path B smoke.
+> Última pausa: 2026-07-13 (cont.). **Slice 2 8.3 Lead Twin panel COMPLETO + validado browser.** TwinPanel secciones condicionales + TwinEmptyState + StageBadge color-coded (reuso InboxListItem) + aside 320px + `(panel)/error.tsx` + fix XSS `safeHttpUrl` sobre comprobante. 605 unit verde, typecheck/lint/format limpios, Playwright contra Supabase real (fixture twin enriquecida vía script service-role). Commits `ed4a6da` + `5b1f5b3` + `6653be8` + docs. Pendientes no-blocker: 7.7.B/C/D observability + Path B smoke.
 
 ---
 
@@ -34,8 +34,9 @@
 | Slice 1 7.10 E2E smoke Path A                  | ✅ Completo          | InMemory bootstrap + signed payload assertions. 6 tests. `d886fed`.                                                                                                                                                                                                                                                                           |
 | **Slice 2 8.1 inbox read-only list**           | ✅ Completo          | Backend `InboxService.listActiveLeads` orquesta leads+sessions+convs+messages. UI: PanelLayout+SideNav 7 items + inbox/page RSC fetch + InboxList+InboxListItem (canal dots wa/ig/fb, stage badge, ultima_actividad relativa) + EmptyState + loading.tsx. 12 commits `11b9e78..f04f382`.                                                      |
 | **Slice 2 8.2 conversation view**              | ✅ Completo (código) | `MessagesRepository.listBySessionId` (ASC cross-conv) + `InboxService.getConversation` → `ConversationView`. UI: ChannelIcons SVG + MessageBubble + ChatThread (col-reverse) + RelativeTime + ConversationHeader + `[leadId]/page` RSC + loading. Commits `6712613..27dd5a7`. 605 unit verde. Browser validation gated por Supabase INACTIVE. |
-| Restore Supabase `crm-dev`                     | 🔴 BLOQUEANTE        | Dashboard → proyecto `edlranjncwpxkyllopfa` → Restore. Sin esto: no browser validation, no integration tests, y el proyecto se borra ~90d post-pausa.                                                                                                                                                                                         |
-| Slice 2 8.3 Lead Twin panel                    | 🟡 Siguiente         | TwinPanel server render `lead_session` campos + extras jsonb + StageBadge color-coded + TwinEmptyState. Sidebar derecha 320px en `/inbox/[leadId]`.                                                                                                                                                                                           |
+| ~~Restore Supabase~~ → migrado cuenta main     | ✅ Resuelto          | Nuevo `crm-dev` ref `emubzkouwvuzlrtsgorx`, 16/16 migrations, keepalive GitHub Action 2x/semana.                                                                                                                                                                                                                                              |
+| Slice 2 8.3 Lead Twin panel + error.tsx        | ✅ Completo          | TwinPanel (consulta/urgencia/cotización/bloqueador/pago/extras/context_summary condicionales) + TwinEmptyState + StageBadge 8 colores (reuso InboxListItem) + aside `w-80 max-lg:hidden` + `(panel)/error.tsx` digest + XSS guard `safeHttpUrl`. Validado Playwright browser 2026-07-13. Commits `ed4a6da..6653be8`.                          |
+| Slice 2 8.4-8.5 Server Actions write           | 🟡 Siguiente         | MessageInput + send-message.action + HandoffToggle + CloseSessionButton + toggle-handoff/close-session actions. Zod parse línea 1. Send outbound real requiere `META_*` reales (hoy `dev-placeholder`).                                                                                                                                       |
 
 ---
 
@@ -45,23 +46,15 @@
 
 > Proyecto migrado a cuenta main: nuevo `crm-dev` ref `emubzkouwvuzlrtsgorx`. 16 migrations pusheadas, `.env.local` actualizado (keys formato nuevo `sb_publishable_`/`sb_secret_`), CLI re-linkeado. Ver sección "Conexión Supabase actual".
 
-### Opción A — Validación browser 8.1 + 8.2 (recomendado post-restore)
+### Opción A — Slice 2 8.4-8.5 Server Actions write path (recomendado)
 
-> `npm run dev` (puerto 3001) → `/inbox`: SideNav 7 items + EmptyState (DB vacía) o lista poblada (fixture SQL spec §11). Click lead → `/inbox/[leadId]`: header (nombre + íconos canal + stage) + thread burbujas bottom-anchored. Lead inexistente → 404. Confirmar antes de 8.3.
+> Sub-pasos 8.4 + 8.5 — MessageInput client + send-message.action + HandoffToggle + CloseSessionButton + toggle-handoff.action + close-session.action. Zod parse línea 1 (regla §0.9.3). Validar manual: enviar mensaje real outbound Meta + pausar IA + cerrar sesión. **Requiere `META_*` reales en `.env.local` (hoy `dev-placeholder`) para validar send.**
 
-### Opción B — Slice 2 8.3 Lead Twin panel
-
-> Sub-paso 8.3 — TwinPanel server component render campos `lead_session` + `extras` jsonb + StageBadge color-coded + TwinEmptyState. Integrar en `/inbox/[leadId]` layout (right sidebar 320px). Sin Server Actions todavía.
-
-### Opción C — Slice 2 8.4-8.5 Server Actions write path
-
-> Sub-pasos 8.4 + 8.5 — MessageInput client + send-message.action + HandoffToggle + CloseSessionButton + toggle-handoff.action + close-session.action. Zod parse línea 1 (regla §0.9.3). Validar manual: enviar mensaje real outbound Meta + pausar IA + cerrar sesión.
-
-### Opción D — Slice 1 7.7.B PinoLogger producción
+### Opción B — Slice 1 7.7.B PinoLogger producción
 
 > Continuá 7.7.B — PinoLogger wrapper + factory `getLogger(env)`. NODE_ENV=production → Pino, else → ConsoleLogger. Aplica `redactPii` mismo lugar. Hook Vercel Log Drains JSON. Pre-Slice 4 launch obligatorio.
 
-### Opción E — Slice 1 7.10 Path B full E2E smoke
+### Opción C — Slice 1 7.10 Path B full E2E smoke
 
 > Extender 7.10 a Path B — webhook → emit → invocar directamente `onMessageReceivedHandler` con InMemory bootstrap + spy metaClient. Asserts: lead creado + sesión activa + mock LLM response + `metaApi.sendOutbound` capturado + idempotency replay.
 
@@ -71,7 +64,7 @@
 
 Decile al iniciar la sesión:
 
-> Leé `AGENTS.md`, `docs/next-session.md`, `docs/superpowers/specs/2026-05-17-slice2-ui-core-design.md` y `docs/superpowers/plans/2026-05-17-slice2-81-inbox-list.md`. Confirmá estado Slice 2 8.1 completo y continuemos con [opción A/B/C/D/E].
+> Leé `AGENTS.md`, `docs/next-session.md` y `docs/superpowers/specs/2026-05-17-slice2-ui-core-design.md`. Confirmá estado Slice 2 8.3 completo y continuemos con [opción A/B/C].
 
 ---
 
@@ -118,16 +111,16 @@ supabase gen types typescript --linked | Out-File -Encoding utf8 src/server/db/t
 ## Historial de commits (últimos 10)
 
 ```
+6653be8 feat(ui): Slice 2 8.3 error boundary (panel) con digest
+5b1f5b3 feat(ui): Slice 2 8.3 TwinPanel secciones + TwinEmptyState + aside
+ed4a6da feat(ui): Slice 2 8.3 StageBadge color-coded + reuso en InboxListItem
+d5839b8 ci(supabase): guard secrets faltantes en keepalive con mensaje claro
+e907e9f docs: Supabase migrado a cuenta main + 8.2 validado browser + drift spec
+79d5131 chore(ui): metadata real reemplaza Create Next App default
+25f3c7a ci(supabase): keepalive cron 2x/semana anti auto-pause free tier
+5f393ea chore(vitest): integration timeouts 120s + retry 1 (red residencial)
+1053dd2 docs(agents,next-session): Slice 2 8.2 COMPLETO codigo + bloqueo Supabase
 27dd5a7 feat(ui): Slice 2 8.2 inbox/[leadId] RSC fetch getConversation + loading
-22fca97 feat(ui): Slice 2 8.2 componentes conversación (bubbles + thread + header + icons)
-c8da21f feat(svc): InboxService.getConversation + ConversationView + 5 tests
-6712613 feat(repo): MessagesRepository.listBySessionId (thread ASC cross-conv) + 3 tests
-227a211 fix(inngest): clock inyectable en per-lead merge detector (time bomb test)
-b55d24f docs(agents,next-session): Slice 2 8.1 inbox read-only list COMPLETO
-f04f382 feat(ui): Slice 2 8.1 inbox/page RSC fetch + render
-6ef736e feat(ui): inbox loading.tsx skeleton (6 placeholder rows)
-4008226 chore(ui): delete ChatList stub (reemplazado por InboxList)
-d15fbfa feat(ui): InboxList server component reemplaza stub
 ```
 
 ---
