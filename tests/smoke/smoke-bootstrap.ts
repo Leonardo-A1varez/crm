@@ -151,7 +151,12 @@ export function makeSmokeBundle(): SmokeBundle {
   // ===== Callbacks =====
   const emit = makeEmitForOnMessageReceived(inngestClient);
   const inngestEmit = makeInngestEmitForOutbox(inngestClient);
-  const purgeSession = makePurgeSession(logger);
+  const purgeSession = makePurgeSession({
+    sessions,
+    messages,
+    removeMedia: async () => {},
+    logger,
+  });
   const sendReactivation = makeSendReactivation(logger);
 
   // ===== CrmInngestDeps wireup =====

@@ -135,7 +135,15 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   // ===== Callbacks =====
   const emit = makeEmitForOnMessageReceived(inngest);
   const inngestEmit = makeInngestEmitForOutbox(inngest);
-  const purgeSession = makePurgeSession(logger);
+  const purgeSession = makePurgeSession({
+    sessions,
+    messages,
+    removeMedia: async (paths) => {
+      const { error } = await db.storage.from("mensajes_media").remove(paths);
+      if (error) throw new Error(error.message);
+    },
+    logger: logger.child({ scope: "purge-session" }),
+  });
   const sendReactivation = makeSendReactivation(logger);
 
   // ===== CrmInngestDeps wireup (9 functions) =====

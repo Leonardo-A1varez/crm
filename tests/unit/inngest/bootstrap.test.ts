@@ -153,15 +153,15 @@ describe("makeInngestDeps — callbacks", () => {
     });
   });
 
-  test("purgeSession stub log-only (no throw)", async () => {
+  test("purgeSession real queda wireada (función construida)", () => {
+    // Ejecución real cubierta en purge-session-callback.test.ts (InMemory).
+    // Acá solo shape: FAKE_DB no soporta queries.
     const { deps } = makeInngestDeps({
       env: makeTestEnv(),
       db: FAKE_DB,
       inngest: FAKE_INNGEST,
     });
-    await expect(
-      deps.purgeOldSessions.purgeSession("00000000-0000-0000-0000-000000000001"),
-    ).resolves.toBeUndefined();
+    expect(typeof deps.purgeOldSessions.purgeSession).toBe("function");
   });
 
   test("sendReactivation stub log-only (no throw)", async () => {
