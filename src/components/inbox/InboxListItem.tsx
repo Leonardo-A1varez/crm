@@ -1,17 +1,7 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { StageBadge } from "@/components/lead-twin/StageBadge";
 import type { InboxItem } from "@/types/inbox";
-
-const STAGE_LABEL: Record<InboxItem["currentStage"], string> = {
-  nuevo: "Nuevo",
-  identificando: "Identificando",
-  cotizado: "Cotizado",
-  negociando: "Negociando",
-  esperando_pago: "Esperando pago",
-  cerrado: "Cerrado",
-  perdido: "Perdido",
-  requiere_humano: "Requiere humano",
-};
 
 const CANAL_DOT_CLASS: Record<"wa" | "ig" | "fb", string> = {
   wa: "bg-green-500",
@@ -59,9 +49,7 @@ export function InboxListItem({ item }: { item: InboxItem }) {
         </div>
       </div>
       <div className="mt-1.5 flex items-center gap-2">
-        <Badge variant="secondary" className="text-xs">
-          {STAGE_LABEL[item.currentStage]}
-        </Badge>
+        <StageBadge stage={item.currentStage} />
         {item.iaPausada ? (
           <Badge variant="outline" className="text-xs">
             IA pausada
