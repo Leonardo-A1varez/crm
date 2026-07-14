@@ -419,3 +419,63 @@ describe("DefaultInboxService.getConversation", () => {
     expect(view.messages.map((m) => m.id)).toEqual([own.id]);
   });
 });
+
+describe("DefaultInboxService.listActiveLeads edge cases (8.8)", () => {
+  let leads: InMemoryLeadsRepository;
+  let sessions: InMemoryLeadSessionRepository;
+  let convs: InMemoryConversationsRepository;
+  let messages: InMemoryMessagesRepository;
+  let svc: DefaultInboxService;
+
+  beforeEach(() => {
+    leads = new InMemoryLeadsRepository();
+    sessions = new InMemoryLeadSessionRepository();
+    convs = new InMemoryConversationsRepository();
+    messages = new InMemoryMessagesRepository();
+    svc = new DefaultInboxService(makeReadOnlyDeps(leads, sessions, convs, messages));
+  });
+
+  test("lead sin conversaciones: ultimaActividad cae a started_at de la sesión", async () => {
+    const lead = await makeLead(leads);
+    const session = await makeSession(sessions, lead.id);
+
+    const out = await svc.listActiveLeads();
+
+    expect(out).toHaveLength(1);
+    expect(out[0]?.ultimaActividad.getTime()).toBe(session.started_at.getTime());
+    expect(out[0]?.ultimoMensaje).toBeNull();
+    expect(out[0]?.canales).toEqual([]);
+  });
+
+  test("último mensaje gana cross-canal por timestamp, en ambos órdenes de iteración", async () => {
+    const lead = await makeLead(leads);
+    const session = await makeSession(sessions, lead.id);
+    // 3 convs: el mensaje del medio primero, el más nuevo segundo, el más
+    // viejo tercero → la comparación con lastMsg ya seteado ejercita
+    // reemplazo (true) y descarte (false).
+    const convWa = await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: "wa-1" });
+    const convIg = await convs.create({ lead_id: lead.id, canal: "ig", canal_thread_id: "ig-1" });
+    const convFb = await convs.create({ lead_id: lead.id, canal: "fb", canal_thread_id: "fb-1" });
+
+    await messages.create(msgInsert(convFb.id, session.id, { contenido: "viejo" }));
+    await new Promise((r) => setTimeout(r, 5));
+    await messages.create(msgInsert(convWa.id, session.id, { contenido: "medio" }));
+    await new Promise((r) => setTimeout(r, 5));
+    await messages.create(msgInsert(convIg.id, session.id, { contenido: "más nuevo" }));
+
+    const out = await svc.listActiveLeads();
+
+    expect(out[0]?.ultimoMensaje?.body).toBe("más nuevo");
+  });
+
+  test("mensaje con contenido null (media) produce body vacío", async () => {
+    const lead = await makeLead(leads);
+    const session = await makeSession(sessions, lead.id);
+    const conv = await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: "wa-1" });
+    await messages.create(msgInsert(conv.id, session.id, { tipo: "image", contenido: null }));
+
+    const out = await svc.listActiveLeads();
+
+    expect(out[0]?.ultimoMensaje?.body).toBe("");
+  });
+});
