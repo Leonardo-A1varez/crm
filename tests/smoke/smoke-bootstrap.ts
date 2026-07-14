@@ -157,7 +157,13 @@ export function makeSmokeBundle(): SmokeBundle {
     removeMedia: async () => {},
     logger,
   });
-  const sendReactivation = makeSendReactivation(logger);
+  const sendReactivation = makeSendReactivation({
+    leads,
+    sessions,
+    convs: conversations,
+    metaApi,
+    logger,
+  });
 
   // ===== CrmInngestDeps wireup =====
   const deps: CrmInngestDeps = {

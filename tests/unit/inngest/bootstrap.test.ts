@@ -164,18 +164,13 @@ describe("makeInngestDeps — callbacks", () => {
     expect(typeof deps.purgeOldSessions.purgeSession).toBe("function");
   });
 
-  test("sendReactivation stub log-only (no throw)", async () => {
+  test("sendReactivation real queda wireada (función construida)", () => {
+    // Ejecución real cubierta en send-reactivation-callback.test.ts (InMemory).
     const { deps } = makeInngestDeps({
       env: makeTestEnv(),
       db: FAKE_DB,
       inngest: FAKE_INNGEST,
     });
-    await expect(
-      deps.reactivationPredictor.sendReactivation({
-        sessionId: "00000000-0000-0000-0000-000000000001",
-        leadId: "00000000-0000-0000-0000-000000000002",
-        motivo: "precio",
-      }),
-    ).resolves.toBeUndefined();
+    expect(typeof deps.reactivationPredictor.sendReactivation).toBe("function");
   });
 });

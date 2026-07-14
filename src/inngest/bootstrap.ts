@@ -144,7 +144,13 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     },
     logger: logger.child({ scope: "purge-session" }),
   });
-  const sendReactivation = makeSendReactivation(logger);
+  const sendReactivation = makeSendReactivation({
+    leads,
+    sessions,
+    convs: conversations,
+    metaApi,
+    logger: logger.child({ scope: "send-reactivation" }),
+  });
 
   // ===== CrmInngestDeps wireup (9 functions) =====
   const deps: CrmInngestDeps = {
