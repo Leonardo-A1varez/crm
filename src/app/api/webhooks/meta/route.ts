@@ -21,7 +21,8 @@ import { inngest } from "@/inngest/client";
 import type { CrmInngestClient } from "@/inngest/client";
 import { parseMetaWebhook } from "@/lib/meta/parse-webhook";
 import { verifyMetaSignature } from "@/lib/meta/verify-signature";
-import { ConsoleLogger, type Logger } from "@/lib/observability/logger";
+import { getLogger } from "@/lib/observability/get-logger";
+import type { Logger } from "@/lib/observability/logger";
 import { makeRateLimiterFromEnv, type RateLimiter } from "@/lib/rate-limit";
 
 export interface MetaWebhookHandlersDeps {
@@ -118,7 +119,7 @@ const defaultDeps: MetaWebhookHandlersDeps = {
     window: "1 m",
     prefix: "meta-webhook",
   }),
-  logger: new ConsoleLogger({ app: "crm", scope: "webhook-meta" }),
+  logger: getLogger({ scope: "webhook-meta" }),
 };
 
 const handlers = makeMetaWebhookHandlers(defaultDeps);

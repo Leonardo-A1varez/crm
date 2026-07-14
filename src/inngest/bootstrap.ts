@@ -38,7 +38,8 @@ import { SupabaseRulesRepository } from "@/server/repositories/rules.supabase.re
 import { SupabaseToolExecutionsRepository } from "@/server/repositories/tool-executions.supabase.repo";
 
 import { InMemoryCostTracker } from "@/lib/observability/cost-tracker";
-import { ConsoleLogger, type Logger } from "@/lib/observability/logger";
+import { getLogger } from "@/lib/observability/get-logger";
+import type { Logger } from "@/lib/observability/logger";
 import { makeLlmFactory, type LlmBundle } from "@/server/services/llm/llm-factory";
 import { OPENAI_PRICING } from "@/server/services/llm/pricing";
 
@@ -71,7 +72,7 @@ export interface BootstrapResult {
  * con mocks distintos.
  */
 export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
-  const logger = cfg.logger ?? new ConsoleLogger({ app: "crm", scope: "inngest" });
+  const logger = cfg.logger ?? getLogger({ scope: "inngest" });
   const { env, db, inngest } = cfg;
 
   // ===== Repositories (single instance, share Supabase client) =====

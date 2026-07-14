@@ -5,10 +5,10 @@ import {
   PermissionDeniedError,
   ValidationError,
 } from "@/lib/errors";
-import { ConsoleLogger } from "@/lib/observability/logger";
+import { getLogger } from "@/lib/observability/get-logger";
 import type { ActionResult } from "@/types/inbox";
 
-const logger = new ConsoleLogger({ app: "crm", scope: "inbox-actions" });
+const logger = getLogger({ scope: "inbox-actions" });
 
 /**
  * Mapea errores de service a mensaje user-friendly para toast. El detalle
