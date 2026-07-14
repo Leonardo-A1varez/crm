@@ -37,7 +37,7 @@ import { SupabaseReactivationDispatchesRepository } from "@/server/repositories/
 import { SupabaseRulesRepository } from "@/server/repositories/rules.supabase.repo";
 import { SupabaseToolExecutionsRepository } from "@/server/repositories/tool-executions.supabase.repo";
 
-import { InMemoryCostTracker } from "@/lib/observability/cost-tracker";
+import { makeCostTracker } from "@/lib/observability/upstash-cost-tracker";
 import { getLogger } from "@/lib/observability/get-logger";
 import type { Logger } from "@/lib/observability/logger";
 import { makeLlmFactory, type LlmBundle } from "@/server/services/llm/llm-factory";
@@ -89,9 +89,13 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   const toolExecutions = new SupabaseToolExecutionsRepository(db);
 
   // ===== Infrastructure (cost tracker, LLM bundle) =====
-  const costTracker = new InMemoryCostTracker({
+  // Upstash con creds reales (persistente cross cold-start); fallback InMemory+warn dev.
+  const costTracker = makeCostTracker({
     pricing: OPENAI_PRICING,
     dailyCapUsd: env.LLM_DAILY_CAP_USD,
+    upstashUrl: env.UPSTASH_REDIS_REST_URL,
+    upstashToken: env.UPSTASH_REDIS_REST_TOKEN,
+    logger,
   });
 
   const llmBundle = makeLlmFactory({
