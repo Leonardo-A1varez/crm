@@ -1,6 +1,6 @@
 # Cómo retomar la sesión
 
-> Última pausa: 2026-07-14. **Slice 2 8.6 poller + 8.7 channel tabs COMPLETO + validado browser** (`442e046` + `8b6a5b3`). RefreshPoller 5s (skip tab oculta) en lista + conversación; ChannelTabs Links `?canal=` con safeParse. Validación: INSERT externo visible ≤5s sin F5, filtros wa/ig/fb/inválido OK. Antes en la misma sesión: 8.4-8.5 write path (`81a44ce..3322ae9` + fix security `ee7256b`). 629 unit verde. Pendientes no-blocker: 7.7.B/C/D observability + Path B smoke + 8.8 tests full. **Send real: falta `META_*` en `.env.local`.**
+> Última pausa: 2026-07-14. **Slice 2 core 8.1-8.8 COMPLETO.** Esta sesión: 8.4-8.5 write path (`81a44ce..3322ae9` + fix security `ee7256b`) + 8.6 poller (`442e046`) + 8.7 tabs (`8b6a5b3`) + 8.8 coverage inbox 100% branches (`eb3a0c4`), todo validado browser vs Supabase real. 632 unit verde. Siguiente: **Slice 3 Auth+RLS (recomendado)** o vistas 9-12 o 7.7.B Pino. **Send real: falta `META_*` en `.env.local`.**
 
 ---
 
@@ -39,7 +39,8 @@
 | Slice 2 8.4-8.5 Server Actions write           | ✅ Completo          | InboxService.sendMessage/toggleHandoff/closeSession (delegación, 24 tests TDD) + 3 actions `_actions/` Zod línea 1 + ActionResult + MessageInput/HandoffToggle/CloseSessionButton + Toaster + lang=es. Validado browser (fixture "María López" uuid RFC — zod 4 rechaza lead legacy `1111...`). Commits `81a44ce..3322ae9`.                   |
 | Slice 2 8.6 RefreshPoller                      | ✅ Completo          | 5s en `/inbox` + `/inbox/[leadId]`; skip `document.hidden` + re-sync visibilitychange. Validado: INSERT externo visible ≤5s sin F5. `442e046`.                                                                                                                                                                                                |
 | Slice 2 8.7 ChannelTabs                        | ✅ Completo          | Links server `?canal=wa\|ig\|fb` + filtro post-fetch `CanalSchema.safeParse` (inválido → todos). Validado browser. `8b6a5b3`.                                                                                                                                                                                                                 |
-| Slice 2 8.8 tests full InboxService            | 🟡 Siguiente         | Edge cases Default impl restantes. Coverage inbox service 100%.                                                                                                                                                                                                                                                                               |
+| Slice 2 8.8 tests full InboxService            | ✅ Completo          | +3 edge cases listActiveLeads (fallback started_at, cross-canal ambos órdenes, contenido null). 37/37 branches. `eb3a0c4`.                                                                                                                                                                                                                    |
+| **Slice 3 Auth + RLS**                         | 🟡 Siguiente         | Recomendado (bloqueante launch, spec §9). Alternativas: vistas Slice 2 9-12 o 7.7.B PinoLogger.                                                                                                                                                                                                                                               |
 
 ---
 
@@ -49,9 +50,9 @@
 
 > Proyecto migrado a cuenta main: nuevo `crm-dev` ref `emubzkouwvuzlrtsgorx`. 16 migrations pusheadas, `.env.local` actualizado (keys formato nuevo `sb_publishable_`/`sb_secret_`), CLI re-linkeado. Ver sección "Conexión Supabase actual".
 
-### Opción A — Slice 2 8.8 tests full InboxService (recomendado)
+### Opción A — Slice 3 Auth + RLS (recomendado)
 
-> Edge cases restantes del Default impl: `listActiveLeads` (lead borrado skip, orden ultima_actividad, fallback started_at), `getConversation` (dedup canales, canal activo por actividad). Coverage inbox service → 100%. Cierra los sub-pasos 8.x core; después vistas 9-12 o Slice 3 Auth+RLS.
+> Bloqueante launch (spec §9: URLs públicas sin auth). Scope: Supabase Auth login + middleware panel + policies RLS por rol (admin RW todo; vendedor RW leads/sesiones/mensajes, R catálogo) + STRIDE walkthrough + swap service-role → authed client en bootstrap. Diseño §3 AGENTS "RLS (planificadas Slice 3)".
 
 ### Opción A' — Cargar `META_*` reales y validar send outbound
 
@@ -71,7 +72,7 @@
 
 Decile al iniciar la sesión:
 
-> Leé `AGENTS.md`, `docs/next-session.md` y `docs/superpowers/specs/2026-05-17-slice2-ui-core-design.md`. Confirmá estado Slice 2 8.7 completo y continuemos con [opción A/A'/B/C].
+> Leé `AGENTS.md`, `docs/next-session.md` y `docs/superpowers/specs/2026-05-17-slice2-ui-core-design.md`. Confirmá estado Slice 2 core 8.1-8.8 completo y continuemos con [opción A/A'/B/C].
 
 ---
 
@@ -118,6 +119,8 @@ supabase gen types typescript --linked | Out-File -Encoding utf8 src/server/db/t
 ## Historial de commits (últimos 10)
 
 ```
+eb3a0c4 test(svc): Slice 2 8.8 InboxService coverage 100% branches
+0c3e4aa docs(agents,next-session): Slice 2 8.6-8.7 completo validado browser
 8b6a5b3 feat(ui): Slice 2 8.7 ChannelTabs filtro por canal + poller en lista
 442e046 feat(ui): Slice 2 8.6 RefreshPoller 5s en conversacion
 ee7256b fix(security): toasts sin detalle interno en errores de action
@@ -126,8 +129,6 @@ ee7256b fix(security): toasts sin detalle interno en errores de action
 78856e1 feat(ui): Slice 2 8.4 MessageInput + Server Actions inbox
 81a44ce feat(svc): Slice 2 8.4-8.5 InboxService write methods + schemas
 0a86670 docs(agents,next-session): Slice 2 8.3 completo validado browser
-6653be8 feat(ui): Slice 2 8.3 error boundary (panel) con digest
-5b1f5b3 feat(ui): Slice 2 8.3 TwinPanel secciones + TwinEmptyState + aside
 ```
 
 ---
