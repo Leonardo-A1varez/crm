@@ -1,6 +1,6 @@
 # Cómo retomar la sesión
 
-> Última pausa: 2026-07-13 (cont. 2). **Slice 2 8.4-8.5 Server Actions write path COMPLETO + validado browser.** InboxService write (send/handoff/close delegando en services existentes) + 3 actions Zod línea 1 + MessageInput + HandoffToggle + CloseSessionButton + Toaster. 629 unit verde. Playwright vs Supabase real: send llegó a Graph API real (toast error token placeholder, sin persistir), pause/resume badge, close persistió `perdido/precio/closed_at` + redirect. Commits `81a44ce` + `78856e1` + `3322ae9` + docs. Pendientes no-blocker: 7.7.B/C/D observability + Path B smoke. **Send real: falta `META_*` en `.env.local`.**
+> Última pausa: 2026-07-14. **Slice 2 8.6 poller + 8.7 channel tabs COMPLETO + validado browser** (`442e046` + `8b6a5b3`). RefreshPoller 5s (skip tab oculta) en lista + conversación; ChannelTabs Links `?canal=` con safeParse. Validación: INSERT externo visible ≤5s sin F5, filtros wa/ig/fb/inválido OK. Antes en la misma sesión: 8.4-8.5 write path (`81a44ce..3322ae9` + fix security `ee7256b`). 629 unit verde. Pendientes no-blocker: 7.7.B/C/D observability + Path B smoke + 8.8 tests full. **Send real: falta `META_*` en `.env.local`.**
 
 ---
 
@@ -37,7 +37,9 @@
 | ~~Restore Supabase~~ → migrado cuenta main     | ✅ Resuelto          | Nuevo `crm-dev` ref `emubzkouwvuzlrtsgorx`, 16/16 migrations, keepalive GitHub Action 2x/semana.                                                                                                                                                                                                                                              |
 | Slice 2 8.3 Lead Twin panel + error.tsx        | ✅ Completo          | TwinPanel (consulta/urgencia/cotización/bloqueador/pago/extras/context_summary condicionales) + TwinEmptyState + StageBadge 8 colores (reuso InboxListItem) + aside `w-80 max-lg:hidden` + `(panel)/error.tsx` digest + XSS guard `safeHttpUrl`. Validado Playwright browser 2026-07-13. Commits `ed4a6da..6653be8`.                          |
 | Slice 2 8.4-8.5 Server Actions write           | ✅ Completo          | InboxService.sendMessage/toggleHandoff/closeSession (delegación, 24 tests TDD) + 3 actions `_actions/` Zod línea 1 + ActionResult + MessageInput/HandoffToggle/CloseSessionButton + Toaster + lang=es. Validado browser (fixture "María López" uuid RFC — zod 4 rechaza lead legacy `1111...`). Commits `81a44ce..3322ae9`.                   |
-| Slice 2 8.6 ConversationPoller                 | 🟡 Siguiente         | Client `useEffect` + `setInterval(router.refresh, 5000)` + cleanup. Validación: inbound webhook aparece ≤5s sin F5.                                                                                                                                                                                                                           |
+| Slice 2 8.6 RefreshPoller                      | ✅ Completo          | 5s en `/inbox` + `/inbox/[leadId]`; skip `document.hidden` + re-sync visibilitychange. Validado: INSERT externo visible ≤5s sin F5. `442e046`.                                                                                                                                                                                                |
+| Slice 2 8.7 ChannelTabs                        | ✅ Completo          | Links server `?canal=wa\|ig\|fb` + filtro post-fetch `CanalSchema.safeParse` (inválido → todos). Validado browser. `8b6a5b3`.                                                                                                                                                                                                                 |
+| Slice 2 8.8 tests full InboxService            | 🟡 Siguiente         | Edge cases Default impl restantes. Coverage inbox service 100%.                                                                                                                                                                                                                                                                               |
 
 ---
 
@@ -47,9 +49,9 @@
 
 > Proyecto migrado a cuenta main: nuevo `crm-dev` ref `emubzkouwvuzlrtsgorx`. 16 migrations pusheadas, `.env.local` actualizado (keys formato nuevo `sb_publishable_`/`sb_secret_`), CLI re-linkeado. Ver sección "Conexión Supabase actual".
 
-### Opción A — Slice 2 8.6 ConversationPoller + 8.7 ChannelTabs (recomendado)
+### Opción A — Slice 2 8.8 tests full InboxService (recomendado)
 
-> 8.6 — `<ConversationPoller intervalMs={5000}>` client en `/inbox/[leadId]`: `useEffect` + `setInterval(router.refresh)` + cleanup. 8.7 — ChannelTabs filter por search param `?canal=wa`. Validación 8.6 plena requiere webhook inbound (Meta sandbox o curl firmado local).
+> Edge cases restantes del Default impl: `listActiveLeads` (lead borrado skip, orden ultima_actividad, fallback started_at), `getConversation` (dedup canales, canal activo por actividad). Coverage inbox service → 100%. Cierra los sub-pasos 8.x core; después vistas 9-12 o Slice 3 Auth+RLS.
 
 ### Opción A' — Cargar `META_*` reales y validar send outbound
 
@@ -69,7 +71,7 @@
 
 Decile al iniciar la sesión:
 
-> Leé `AGENTS.md`, `docs/next-session.md` y `docs/superpowers/specs/2026-05-17-slice2-ui-core-design.md`. Confirmá estado Slice 2 8.5 completo y continuemos con [opción A/A'/B/C].
+> Leé `AGENTS.md`, `docs/next-session.md` y `docs/superpowers/specs/2026-05-17-slice2-ui-core-design.md`. Confirmá estado Slice 2 8.7 completo y continuemos con [opción A/A'/B/C].
 
 ---
 
@@ -116,16 +118,16 @@ supabase gen types typescript --linked | Out-File -Encoding utf8 src/server/db/t
 ## Historial de commits (últimos 10)
 
 ```
+8b6a5b3 feat(ui): Slice 2 8.7 ChannelTabs filtro por canal + poller en lista
+442e046 feat(ui): Slice 2 8.6 RefreshPoller 5s en conversacion
+ee7256b fix(security): toasts sin detalle interno en errores de action
+2828f33 docs(agents,next-session): Slice 2 8.4-8.5 completo validado browser
 3322ae9 feat(ui): Slice 2 8.5 HandoffToggle + CloseSessionButton + Toaster
 78856e1 feat(ui): Slice 2 8.4 MessageInput + Server Actions inbox
 81a44ce feat(svc): Slice 2 8.4-8.5 InboxService write methods + schemas
 0a86670 docs(agents,next-session): Slice 2 8.3 completo validado browser
 6653be8 feat(ui): Slice 2 8.3 error boundary (panel) con digest
 5b1f5b3 feat(ui): Slice 2 8.3 TwinPanel secciones + TwinEmptyState + aside
-ed4a6da feat(ui): Slice 2 8.3 StageBadge color-coded + reuso en InboxListItem
-d5839b8 ci(supabase): guard secrets faltantes en keepalive con mensaje claro
-e907e9f docs: Supabase migrado a cuenta main + 8.2 validado browser + drift spec
-79d5131 chore(ui): metadata real reemplaza Create Next App default
 ```
 
 ---
