@@ -27,6 +27,19 @@ export default defineConfig({
         "src/components/ui/**", // shadcn vendored
         "src/inngest/client.ts", // Inngest singleton trivial
         "src/server/repositories/*.supabase.repo.ts", // solo cubierto por integration suite (npm run test:integration)
+        // Slice 2-3: UI client + actions + glue auth — cubiertos por validación
+        // browser Playwright + suites de integración (RLS), no por unit (RTL
+        // diferido por spec Slice 2 §1). Re-evaluar al agregar RTL.
+        "src/components/inbox/**",
+        "src/components/lead-twin/**",
+        "src/components/shared/**",
+        "src/components/auth/**",
+        "src/app/**/_actions/**",
+        "src/app/**/error.tsx",
+        "src/app/**/loading.tsx",
+        "src/proxy.ts",
+        "src/server/auth/**",
+        "src/server/bootstrap/**",
       ],
       thresholds: {
         // Floor mínimo del proyecto. Subir según madurez (90% post Slice 4).

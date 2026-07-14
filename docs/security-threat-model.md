@@ -190,3 +190,26 @@ Pre-prod deploy checklist (cada client deployment self-hosted):
 - **Pre-launch (Slice 4):** penetration test third-party + DAST scan.
 - **Post-incident:** update este doc con learnings.
 - **Post Meta/Supabase/OpenAI major API changes:** review threat coverage.
+
+---
+
+## Estado post-Slice 3 (2026-07-14) — re-audit STRIDE
+
+Auth + RLS implementados (spec `docs/superpowers/specs/2026-07-14-slice3-auth-rls-design.md`). Verificado con suite `tests/integration/rls-policies.supabase.test.ts` (11 asserts matriz) + validación browser.
+
+| Amenaza                | Mitigación implementada                                                                                                                                                                                        | Gap restante                                                                                                    |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Spoofing               | Supabase Auth email+password; `auth.getUser()` server-side (JWT validado); `src/proxy.ts` gate de sesión; login sin enumeración de cuentas                                                                     | MFA (post-launch); rate-limit login = built-in Supabase Auth                                                    |
+| Tampering              | RLS por rol fail-closed (43 policies, `TO authenticated` + `is_admin()`/`is_vendedor()` desde `app_metadata`); HMAC primera línea webhooks; Zod línea 1 en actions; UPDATE con `USING`+`WITH CHECK`            | —                                                                                                               |
+| Repudiation            | `admin_actions` (R solo admin) + `tool_executions` (R ambos, W solo service-role)                                                                                                                              | Sentry (7.7.D) para trail de errores; `sender_user_id` en mensajes manuales (wire post-auth trivial, pendiente) |
+| Information disclosure | RLS; tablas infra deny-all para `authenticated` (`event_outbox`, `reactivation_dispatches`, `rule_executions`); `redactPii()` en logs; toasts curados (fix `ee7256b`); storage policies por bucket             | OTel spans sin PII (7.7.C)                                                                                      |
+| DoS                    | Rate limiter Upstash webhook Meta; Vercel edge; `LLM_DAILY_CAP_USD` kill-switch                                                                                                                                | Rate limit por usuario en panel (post-launch)                                                                   |
+| Elevation of privilege | Rol SOLO en `app_metadata` (jamás `user_metadata`); helpers `STABLE` fail-closed (sin rol → deny-all); service-role solo server (ESLint boundaries + zona `server-auth`); panel 100% authed client per-request | Revisión periódica de grants (runbook `secrets-rotation.md`)                                                    |
+
+Notas de auditoría:
+
+- `supabase db advisors` vía CLI devolvió 403 (privilegios del token free tier). Revisión manual pendiente en dashboard → Advisors. La suite de integración RLS es el gate funcional.
+- Usuario sin `app_metadata.rol` = deny-all silencioso (panel vacío). Comportamiento fail-closed correcto; runbook de alta en spec Slice 3 §6.
+- DB dev compartida entre fixtures de browser y suite de integración: `cleanupTestDb` borra fixtures (aceptado en dev; JAMÁS apuntar tests a instancia con data real).
+
+- Review de seguridad del slice (2026-07-14): 0 findings explotables. Nota defensa-en-profundidad: el matcher del proxy excluye paths con punto (`.*\..*`) — un request tipo `/inbox/x.y` evita el gate de sesión, pero todo acceso a datos del panel usa el client authed por cookies (sin cookie = anon = RLS deny-all), así que no hay exposición. Si se agregan rutas que NO pasen por el client authed, revisar el matcher primero.
