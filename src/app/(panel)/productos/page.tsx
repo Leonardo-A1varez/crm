@@ -8,9 +8,11 @@ export const dynamic = "force-dynamic";
 export default async function ProductosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string | string[] }>;
 }) {
-  const { q } = await searchParams;
+  const params = await searchParams;
+  // Param repetido (?q=a&q=b) o inválido → sin filtro, no error (patrón inbox).
+  const q = typeof params.q === "string" ? params.q : undefined;
   const svc = await getCatalogServiceForRequest();
   const productos = await svc.listProductos({ q });
 
