@@ -37,6 +37,8 @@ export default defineConfig(({ mode }) => {
       env: {
         SUPABASE_TEST_URL: env["SUPABASE_TEST_URL"] ?? "",
         SUPABASE_TEST_SERVICE_KEY: env["SUPABASE_TEST_SERVICE_KEY"] ?? "",
+        // Suite RLS (Slice 3): clients authed reales necesitan la anon key.
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: env["NEXT_PUBLIC_SUPABASE_ANON_KEY"] ?? "",
       },
     },
     resolve: {
