@@ -6,6 +6,7 @@ import { HandoffToggle } from "@/components/inbox/HandoffToggle";
 import { MessageInput } from "@/components/inbox/MessageInput";
 import { TwinPanel } from "@/components/lead-twin/TwinPanel";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { RefreshPoller } from "@/components/shared/RefreshPoller";
 import { NotFoundError } from "@/lib/errors";
 import { getInboxService } from "@/server/bootstrap/inbox-bootstrap";
 import { closeSessionAction } from "../_actions/close-session.action";
@@ -84,6 +85,7 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
           <TwinPanel session={view.session} />
         </aside>
       </div>
+      <RefreshPoller intervalMs={5000} />
     </div>
   );
 }
