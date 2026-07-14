@@ -7,7 +7,8 @@ import type { Lead, LeadSession } from "@/types/entities";
 
 /**
  * Header de conversación: nombre + canales + stage + última actividad.
- * Acciones (pausar IA, cerrar sesión) llegan en 8.5.
+ * `actions` = slot para HandoffToggle + CloseSessionButton (client comps
+ * montados desde el RSC page, que es quien importa las Server Actions).
  */
 export function ConversationHeader({
   lead,
@@ -15,12 +16,14 @@ export function ConversationHeader({
   canales,
   canalActivo,
   ultimaActividadIso,
+  actions,
 }: {
   lead: Lead;
   session: LeadSession | null;
   canales: Canal[];
   canalActivo: Canal;
   ultimaActividadIso: string | null;
+  actions?: React.ReactNode;
 }) {
   return (
     <header className="border-border flex items-center gap-3 border-b px-4 py-3">
@@ -51,7 +54,7 @@ export function ConversationHeader({
           ) : null}
         </p>
       </div>
-      {/* Placeholder acciones 8.5: HandoffToggle + CloseSessionButton */}
+      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
     </header>
   );
 }

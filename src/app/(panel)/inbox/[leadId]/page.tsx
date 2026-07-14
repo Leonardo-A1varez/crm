@@ -1,10 +1,16 @@
 import { notFound } from "next/navigation";
 import { ChatThread } from "@/components/inbox/ChatThread";
+import { CloseSessionButton } from "@/components/inbox/CloseSessionButton";
 import { ConversationHeader } from "@/components/inbox/ConversationHeader";
+import { HandoffToggle } from "@/components/inbox/HandoffToggle";
+import { MessageInput } from "@/components/inbox/MessageInput";
 import { TwinPanel } from "@/components/lead-twin/TwinPanel";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { NotFoundError } from "@/lib/errors";
 import { getInboxService } from "@/server/bootstrap/inbox-bootstrap";
+import { closeSessionAction } from "../_actions/close-session.action";
+import { sendMessageAction } from "../_actions/send-message.action";
+import { toggleHandoffAction } from "../_actions/toggle-handoff.action";
 import type { ConversationView } from "@/types/inbox";
 
 export const dynamic = "force-dynamic";
@@ -32,11 +38,38 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
         canales={view.canales}
         canalActivo={view.canalActivo}
         ultimaActividadIso={ultimaActividadIso}
+        actions={
+          view.session ? (
+            <>
+              <HandoffToggle
+                leadId={view.lead.id}
+                sessionId={view.session.id}
+                iaPausada={view.session.ia_pausada}
+                onToggle={toggleHandoffAction}
+              />
+              <CloseSessionButton
+                leadId={view.lead.id}
+                sessionId={view.session.id}
+                onClose={closeSessionAction}
+              />
+            </>
+          ) : null
+        }
       />
       <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 overflow-hidden">
+        <div className="flex flex-1 flex-col overflow-hidden">
           {view.session ? (
-            <ChatThread messages={view.messages} />
+            <>
+              <div className="flex-1 overflow-hidden">
+                <ChatThread messages={view.messages} />
+              </div>
+              <MessageInput
+                leadId={view.lead.id}
+                sessionId={view.session.id}
+                canal={view.canalActivo}
+                onSend={sendMessageAction}
+              />
+            </>
           ) : (
             <EmptyState
               title="Sin sesión activa"
@@ -51,7 +84,6 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
           <TwinPanel session={view.session} />
         </aside>
       </div>
-      {/* MessageInput llega en 8.4 (Server Actions write path) */}
     </div>
   );
 }
