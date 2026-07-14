@@ -22,6 +22,7 @@ import type { CrmInngestClient } from "@/inngest/client";
 import { parseMetaWebhook } from "@/lib/meta/parse-webhook";
 import { verifyMetaSignature } from "@/lib/meta/verify-signature";
 import { getLogger } from "@/lib/observability/get-logger";
+import { withSpan } from "@/lib/observability/tracing";
 import type { Logger } from "@/lib/observability/logger";
 import { makeRateLimiterFromEnv, type RateLimiter } from "@/lib/rate-limit";
 
@@ -124,4 +125,4 @@ const defaultDeps: MetaWebhookHandlersDeps = {
 
 const handlers = makeMetaWebhookHandlers(defaultDeps);
 export const GET = handlers.GET;
-export const POST = handlers.POST;
+export const POST = (req: Request) => withSpan("webhook.meta.post", {}, () => handlers.POST(req));

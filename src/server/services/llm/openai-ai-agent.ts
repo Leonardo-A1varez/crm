@@ -1,5 +1,6 @@
 import { generateText, stepCountIs, tool, type LanguageModel } from "ai";
 import type { CostTracker } from "@/lib/observability/cost-tracker";
+import { withSpan } from "@/lib/observability/tracing";
 import { BuscarRepuestoInputSchema } from "@/lib/validation/ai";
 import type {
   AgentLLM,
@@ -73,28 +74,33 @@ export class OpenAiAgentLLM implements AgentLLM {
       .map((line, i) => `[${i + 1}] ${line}`)
       .join("\n");
 
-    const result = await generateText({
-      model: this.cfg.model,
-      system: SYSTEM_PROMPT,
-      prompt: [
-        "Contexto:",
-        contextBlock,
-        "",
-        "Último turno conversación:",
-        conversationText,
-        "",
-        "Respondé al cliente (usá `buscar_repuesto` si necesitás chequear catálogo).",
-      ].join("\n"),
-      tools: {
-        buscar_repuesto: tool({
-          description:
-            "Busca repuestos en catálogo por texto + filtros opcionales marca/modelo/año. Devuelve matches con precio + stock.",
-          inputSchema: BuscarRepuestoInputSchema,
-          execute: async (args) => input.tools.buscar_repuesto(args),
+    const result = await withSpan(
+      "llm.ai-agent",
+      { model: this.cfg.modelName, sessionId: input.session.id },
+      () =>
+        generateText({
+          model: this.cfg.model,
+          system: SYSTEM_PROMPT,
+          prompt: [
+            "Contexto:",
+            contextBlock,
+            "",
+            "Último turno conversación:",
+            conversationText,
+            "",
+            "Respondé al cliente (usá `buscar_repuesto` si necesitás chequear catálogo).",
+          ].join("\n"),
+          tools: {
+            buscar_repuesto: tool({
+              description:
+                "Busca repuestos en catálogo por texto + filtros opcionales marca/modelo/año. Devuelve matches con precio + stock.",
+              inputSchema: BuscarRepuestoInputSchema,
+              execute: async (args) => input.tools.buscar_repuesto(args),
+            }),
+          },
+          stopWhen: stepCountIs(this.maxSteps),
         }),
-      },
-      stopWhen: stepCountIs(this.maxSteps),
-    });
+    );
 
     await recordLlmUsage(this.cfg.costTracker, result, {
       model: this.cfg.modelName,

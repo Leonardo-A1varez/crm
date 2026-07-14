@@ -1,4 +1,5 @@
 import { ConflictError, ValidationError } from "@/lib/errors";
+import { withSpan } from "@/lib/observability/tracing";
 import type {
   MetaApiClient,
   MetaSendResult,
@@ -77,12 +78,14 @@ export class GraphApiMetaClient implements MetaApiClient {
   }
 
   async sendText(input: MetaSendTextInput): Promise<MetaSendResult> {
-    if (input.canal === "wa") return this.sendWa(input);
-    if (input.canal === "ig") return this.sendMessenger(input, "ig");
-    if (input.canal === "fb") return this.sendMessenger(input, "fb");
-    // Exhaustiveness check (Canal enum: 'wa'|'ig'|'fb').
-    const _exhaustive: never = input.canal;
-    throw new ValidationError(`canal desconocido: ${String(_exhaustive)}`);
+    return withSpan("meta.sendText", { canal: input.canal }, async () => {
+      if (input.canal === "wa") return this.sendWa(input);
+      if (input.canal === "ig") return this.sendMessenger(input, "ig");
+      if (input.canal === "fb") return this.sendMessenger(input, "fb");
+      // Exhaustiveness check (Canal enum: 'wa'|'ig'|'fb').
+      const _exhaustive: never = input.canal;
+      throw new ValidationError(`canal desconocido: ${String(_exhaustive)}`);
+    });
   }
 
   private async sendWa(input: MetaSendTextInput): Promise<MetaSendResult> {
