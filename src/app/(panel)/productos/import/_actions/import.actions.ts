@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { ValidationError } from "@/lib/errors";
 import { getCatalogServiceForRequest } from "@/server/bootstrap/catalog-bootstrap";
 import { toActionError } from "../../_actions/action-error";
 import type { ImportConfirmActionResult, ImportPreviewActionResult } from "@/types/productos";
@@ -34,7 +33,6 @@ export async function previewImportCsvAction(
     const svc = await getCatalogServiceForRequest();
     return { ok: true, preview: svc.previewImport(csv) };
   } catch (e) {
-    if (e instanceof ValidationError) return { ok: false, error: e.message };
     return toActionError(e, "preview-import-csv");
   }
 }
@@ -51,7 +49,6 @@ export async function confirmImportCsvAction(
     revalidatePath("/productos");
     return { ok: true, result };
   } catch (e) {
-    if (e instanceof ValidationError) return { ok: false, error: e.message };
     return toActionError(e, "confirm-import-csv");
   }
 }

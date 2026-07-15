@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/button";
 import { ProductoFormDialog } from "./ProductoFormDialog";
 import type { ProductoFormValues } from "./ProductoFormDialog";
 import type { Producto } from "@/types/entities";
-import type { UpdateProductoInput } from "@/lib/validation/productos.schema";
-import type { SetProductoActivoInput } from "@/lib/validation/productos.schema";
+import type {
+  SetProductoActivoInput,
+  UpdateProductoInput,
+} from "@/lib/validation/productos.schema";
 import type { ActionResult } from "@/types/inbox";
 
 export function ProductoRowActions({
