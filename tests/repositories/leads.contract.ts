@@ -89,6 +89,15 @@ export function runLeadsContract(makeRepo: () => LeadsRepository) {
       await expect(repo.update("missing", { nombre: "x" })).rejects.toThrow();
     });
 
+    test("delete borra y es no-op si no existe (replay-safe)", async () => {
+      const l = await repo.create({ ...baseInsert, telefono: "+5491100000009" });
+      await repo.delete(l.id);
+      expect(await repo.findById(l.id)).toBeNull();
+      await expect(repo.delete(l.id)).resolves.toBeUndefined(); // replay
+      await expect(repo.delete(crypto.randomUUID())).resolves.toBeUndefined();
+      await expect(repo.delete("missing-id")).resolves.toBeUndefined(); // no-UUID no-op
+    });
+
     test("list returns all when no filter", async () => {
       await repo.create(baseInsert);
       await repo.create({ ...baseInsert, telefono: "+595981000222" });
@@ -116,32 +125,6 @@ export function runLeadsContract(makeRepo: () => LeadsRepository) {
       expect(page1).toHaveLength(2);
       expect(page2).toHaveLength(2);
       expect(page1[0].id).not.toBe(page2[0].id);
-    });
-
-    test("mergeInto fusiona meta_user_ids del src en dst y borra src", async () => {
-      const dst = await repo.create({
-        ...baseInsert,
-        telefono: "+595981000300",
-        meta_user_ids: { wa: "wa_300" },
-      });
-      const src = await repo.create({
-        ...baseInsert,
-        telefono: "+595981000400",
-        canal_origen: "ig",
-        meta_user_ids: { ig: "ig_400" },
-      });
-
-      const merged = await repo.mergeInto(src.id, dst.id);
-
-      expect(merged.id).toBe(dst.id);
-      expect(merged.meta_user_ids).toEqual({ wa: "wa_300", ig: "ig_400" });
-      expect(await repo.findById(src.id)).toBeNull();
-    });
-
-    test("mergeInto throws when src or dst missing", async () => {
-      const dst = await repo.create(baseInsert);
-      await expect(repo.mergeInto("missing", dst.id)).rejects.toThrow();
-      await expect(repo.mergeInto(dst.id, "missing")).rejects.toThrow();
     });
 
     test("meta_user_ids no comparte ref con storage (defense vs caller mutation)", async () => {

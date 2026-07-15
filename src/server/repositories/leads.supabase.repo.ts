@@ -1,4 +1,4 @@
-import { ConflictError, NotFoundError } from "@/lib/errors";
+import { ConflictError, NotFoundError, PermissionDeniedError } from "@/lib/errors";
 import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { ilikeContains } from "@/server/db/postgrest-like";
@@ -144,19 +144,18 @@ export class SupabaseLeadsRepository implements LeadsRepository {
     return (data ?? []).map(mapRow);
   }
 
-  async mergeInto(srcId: UUID, dstId: UUID): Promise<Lead> {
-    const src = await this.findById(srcId);
-    if (!src) throw new NotFoundError(`src no encontrado: ${srcId}`, "lead", srcId);
-    const dst = await this.findById(dstId);
-    if (!dst) throw new NotFoundError(`dst no encontrado: ${dstId}`, "lead", dstId);
-
-    const mergedMeta: MetaUserIds = { ...src.meta_user_ids, ...dst.meta_user_ids };
-    const merged = await this.update(dstId, { meta_user_ids: mergedMeta });
-
-    const { error: delError } = await this.db.from("leads").delete().eq("id", srcId);
-    if (delError) throw mapPostgrestError(delError, { resource: "lead" });
-
-    return merged;
+  async delete(id: UUID): Promise<void> {
+    if (!isUuid(id)) return;
+    const { data, error } = await this.db.from("leads").delete().eq("id", id).select();
+    if (error) throw mapPostgrestError(error, { resource: "lead" });
+    if ((data ?? []).length === 0) {
+      // 0 filas sin error: inexistente (ok, replay) O RLS DELETE filtró (vendedor).
+      // SELECT es visible para ambos roles → si existe, fue RLS.
+      const visible = await this.findById(id);
+      if (visible) {
+        throw new PermissionDeniedError(`delete de lead denegado por RLS: ${id}`);
+      }
+    }
   }
 }
 

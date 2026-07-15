@@ -19,8 +19,9 @@ export interface LeadsRepository {
   findByMetaUserId(canal: Canal, metaUserId: string): Promise<Lead | null>;
   update(id: UUID, patch: LeadUpdate): Promise<Lead>;
   list(filter?: LeadListFilter): Promise<Lead[]>;
-  // Merge: copia meta_user_ids del src al dst (dst gana en conflicto), borra src. Devuelve dst actualizado.
-  mergeInto(srcId: UUID, dstId: UUID): Promise<Lead>;
+  // Borra el lead (merge: perdedor post-reasignación). Id inexistente = no-op
+  // (replay-safe). FK CASCADE limpia merge_candidates del lead.
+  delete(id: UUID): Promise<void>;
 }
 
 const META_KEY_BY_CANAL: Record<Canal, keyof MetaUserIds> = {
@@ -110,19 +111,7 @@ export class InMemoryLeadsRepository implements LeadsRepository {
     return rows.slice(offset, offset + limit).map(cloneLead);
   }
 
-  async mergeInto(srcId: UUID, dstId: UUID): Promise<Lead> {
-    const src = this.store.get(srcId);
-    const dst = this.store.get(dstId);
-    if (!src) throw new NotFoundError(`src no encontrado: ${srcId}`, "lead", srcId);
-    if (!dst) throw new NotFoundError(`dst no encontrado: ${dstId}`, "lead", dstId);
-    const mergedMeta: MetaUserIds = { ...src.meta_user_ids, ...dst.meta_user_ids };
-    const merged: Lead = {
-      ...dst,
-      meta_user_ids: mergedMeta,
-      updated_at: new Date(),
-    };
-    this.store.set(dstId, merged);
-    this.store.delete(srcId);
-    return cloneLead(merged);
+  async delete(id: UUID): Promise<void> {
+    this.store.delete(id);
   }
 }
