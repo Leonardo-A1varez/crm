@@ -173,10 +173,10 @@ export class SupabaseProductsRepository implements ProductsRepository {
     return items.map((item) => {
       const row = byCodigo.get(item.codigo_interno);
       if (!row) {
-        // Fila ausente en la respuesta sin error SQL: la fila fue insertada o
-        // actualizada (por eso no hubo error), pero no vino en el RETURNING —
-        // mismo caso que update() con data===null: la política RLS SELECT la
-        // filtra para este rol. No hay NotFoundError posible acá (la fila existe).
+        // Inferencia (sin probe, a diferencia de update()): el upsert no lanzó
+        // error SQL → la fila se escribió; su ausencia en RETURNING solo puede
+        // ser filtrado RLS del SELECT implícito. Branch defensivo — con la
+        // policy actual (SELECT para ambos roles) no debería ocurrir.
         throw new PermissionDeniedError(
           `bulkUpsert: row missing en respuesta para codigo_interno=${item.codigo_interno}`,
         );
