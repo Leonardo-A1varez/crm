@@ -1,4 +1,5 @@
 import Form from "next/form";
+import Link from "next/link";
 import { ProductoFormDialog } from "@/components/productos/ProductoFormDialog";
 import { ProductosTable } from "@/components/productos/ProductosTable";
 import { Input } from "@/components/ui/input";
@@ -27,12 +28,20 @@ export default async function ProductosPage({
       <header className="border-border flex items-center justify-between gap-3 border-b px-4 py-3">
         <h1 className="text-lg font-semibold">Productos</h1>
         {isAdmin ? (
-          <ProductoFormDialog
-            title="Nuevo producto"
-            description="Alta manual de catálogo. Para volumen usá Importar CSV."
-            triggerLabel="Nuevo producto"
-            onSubmit={createProductoAction}
-          />
+          <div className="flex items-center gap-2">
+            <Link
+              href="/productos/import"
+              className="border-border hover:bg-accent inline-flex h-8 items-center rounded-md border px-3 text-sm"
+            >
+              Importar CSV
+            </Link>
+            <ProductoFormDialog
+              title="Nuevo producto"
+              description="Alta manual de catálogo. Para volumen usá Importar CSV."
+              triggerLabel="Nuevo producto"
+              onSubmit={createProductoAction}
+            />
+          </div>
         ) : null}
       </header>
       <div className="border-border border-b px-4 py-2">
