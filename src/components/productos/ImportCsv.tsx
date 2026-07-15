@@ -21,6 +21,10 @@ import type {
 
 const COLUMNAS = "codigo_interno,nombre,descripcion,categoria,precio,stock,sku_proveedor";
 
+// Server Actions bodySizeLimit default = 1MB: pre-check client-side porque
+// un archivo mayor es rechazado por Next ANTES de llegar a la action.
+const MAX_CSV_BYTES = 1_000_000;
+
 export function ImportCsv({
   onPreview,
   onConfirm,
@@ -39,6 +43,10 @@ export function ImportCsv({
       toast.error("Seleccioná un archivo CSV.");
       return null;
     }
+    if (file.size > MAX_CSV_BYTES) {
+      toast.error("Archivo muy grande (máx 1 MB). Partí el catálogo en varios CSV.");
+      return null;
+    }
     const fd = new FormData();
     fd.set("file", file);
     return fd;
@@ -48,13 +56,18 @@ export function ImportCsv({
     const fd = buildFormData();
     if (!fd) return;
     startTransition(async () => {
-      const r = await onPreview(fd);
-      if (!r.ok) {
-        toast.error(r.error);
-        setPreview(null);
-        return;
+      try {
+        const r = await onPreview(fd);
+        if (!r.ok) {
+          toast.error(r.error);
+          setPreview(null);
+          return;
+        }
+        setPreview(r.preview);
+      } catch {
+        // Falla de transporte (body limit, red): sin esto = unhandled rejection sin toast.
+        toast.error("No se pudo procesar el archivo. Verificá tamaño (máx 1 MB) y reintentá.");
       }
-      setPreview(r.preview);
     });
   };
 
@@ -62,16 +75,21 @@ export function ImportCsv({
     const fd = buildFormData();
     if (!fd) return;
     startTransition(async () => {
-      const r = await onConfirm(fd);
-      if (!r.ok) {
-        toast.error(r.error);
-        return;
+      try {
+        const r = await onConfirm(fd);
+        if (!r.ok) {
+          toast.error(r.error);
+          return;
+        }
+        toast.success(
+          `${r.result.importados} productos importados` +
+            (r.result.omitidos > 0 ? ` (${r.result.omitidos} filas omitidas)` : ""),
+        );
+        router.push("/productos");
+      } catch {
+        // Falla de transporte (body limit, red): sin esto = unhandled rejection sin toast.
+        toast.error("No se pudo procesar el archivo. Verificá tamaño (máx 1 MB) y reintentá.");
       }
-      toast.success(
-        `${r.result.importados} productos importados` +
-          (r.result.omitidos > 0 ? ` (${r.result.omitidos} filas omitidas)` : ""),
-      );
-      router.push("/productos");
     });
   };
 
