@@ -216,6 +216,11 @@ export function runLeadsContract(makeRepo: () => LeadsRepository) {
         telefono: "+549116660002",
         nombre: "Tel 100% Dos",
       });
+      await repo.create({
+        ...baseInsert,
+        telefono: "+549117770003",
+        nombre: "Tel 1005 Tres",
+      });
       const porTel = await repo.list({ q: "115550" });
       expect(porTel).toHaveLength(1);
       expect(porTel[0]?.nombre).toBe("Tel Uno");
