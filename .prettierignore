@@ -13,3 +13,4 @@ supabase/.temp
 .vercel
 .inngest
 src/server/db/types.gen.ts
+.superpowers

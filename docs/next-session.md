@@ -1,6 +1,6 @@
 # Cómo retomar la sesión
 
-> Última pausa: 2026-07-14 (fin de sesión). **Slice 4a COMPLETO + spec vistas 9-12 aprobado** (`docs/superpowers/specs/2026-07-14-slice2-vistas-9-12-design.md` — diseño listo, falta plan+ejecución). 666 unit verdes; migrations 18/18. **Usuario dev local: `admin-dev@crm.local` / `dev-admin-2026!` (solo crm-dev).** Siguiente: **Opción B vistas 9-12 (plan → fase 9 Productos)** o **Opción A Slice 4b deploy+launch (checklist)**. **Pendiente manual: dashboard → Advisors (CLI 403 free tier).**
+> Última pausa: 2026-07-15. **Fase 9 Productos COMPLETA** (subagent-driven: 19 commits `629c647..2d205d9`, cada task TDD + review + fixes; final whole-branch review verde con fixes aplicados). 709 unit verdes · integration productos 20/20 · browser fase 9: 25 checks Playwright contra Supabase real. **Usuario dev local: `admin-dev@crm.local` / `dev-admin-2026!` (solo crm-dev).** Siguiente: **Opción B fase 10 Leads (writing-plans sobre spec §Fase 10)** o **Opción A Slice 4b deploy+launch (checklist)**. **Local adelantado al remoto (pendiente push).** **Pendiente manual: dashboard → Advisors (CLI 403 free tier).**
 
 ---
 
@@ -43,7 +43,8 @@
 | **Slice 3 Auth + RLS (9.1-9.4)**                | ✅ Completo          | 9.1 @supabase/ssr + login/logout + proxy gate (validado browser 6/6). 9.2 migration 43 policies + storage + `MIN_RLS_POLICIES=40` + suite RLS 11/11. 9.3 panel authed per-request (`makeInboxService`/`getInboxServiceForRequest`), smoke browser con RLS activo. 9.4 STRIDE + review 0 findings. Spec+plan en `docs/superpowers/`.           |
 | **Slice 4a — hardening pre-launch (10.1-10.7)** | ✅ Completo          | Pino paridad-redact · Sentry DSN-gated · OTel spans calientes · /api/health anon-ping · UpstashCostTracker (fallback dev) · repo.delete + purge storage-cleanup replay-safe · reactivación templates + skips bounced/cooldown. Spec+plan `docs/superpowers/*slice4a*`.                                                                        |
 | **Slice 4b — deploy + soft launch**             | 🟡 Siguiente         | Checklist Opción A. Bloqueado por acciones usuario (creds/cuentas).                                                                                                                                                                                                                                                                           |
-| **Slice 2 vistas 9-12 (spec)**                  | 🟡 Diseño aprobado   | Spec `2026-07-14-slice2-vistas-9-12-design.md`. Falta plan + ejecución (11 sub-pasos, ver Opción B).                                                                                                                                                                                                                                          |
+| **Slice 2 fase 9 Productos (9.A/9.B/9.C)**      | ✅ Completo          | Lista+búsqueda (escape PostgREST `ilikeContains`) · CRUD admin rol-aware (`getCurrentRol`) · import CSV preview/confirm upsert CSV-safe idempotente. 19 commits `629c647..2d205d9`. Browser 14/14 + 11/11 ×2 · integration 20/20 · CI 709/709. Plan: `docs/superpowers/plans/2026-07-14-slice2-fase9-productos.md`.                           |
+| **Slice 2 vistas 10-12 (spec)**                 | 🟡 Diseño aprobado   | Spec `2026-07-14-slice2-vistas-9-12-design.md` §Fase 10-12. Falta plan + ejecución por fase (ver Opción B).                                                                                                                                                                                                                                   |
 
 ---
 
@@ -62,9 +63,18 @@
 >
 > **Después, juntos:** validar send outbound real local → deploy preview → env vars Vercel → webhook Meta apuntando al deploy → smoke E2E real (mensaje WhatsApp entra y la IA responde) → `/api/health` = ok → monitor externo → templates Meta para reactivación → revisar Advisors + checklist threat model pre-launch → soft launch 10 leads.
 
-### Opción B — Vistas Slice 2 9-12 (spec YA aprobado; arrancar acá si no hay creds)
+### Opción B — Vistas Slice 2 fase 10 Leads (fase 9 ya ✅; arrancar acá si no hay creds)
 
-> Spec: `docs/superpowers/specs/2026-07-14-slice2-vistas-9-12-design.md`. Diseño aprobado 2026-07-14: orden ROI 9=Productos (CRUD+import CSV papaparse) → 10=Leads (detalle+merge review) → 11=Intents+Reglas → 12=Tags+Métricas+Ajustes. Próximo paso: `superpowers:writing-plans` sobre el spec → ejecutar fase 9 (sub-pasos 9.A lista, 9.B CRUD, 9.C import).
+> Spec: `docs/superpowers/specs/2026-07-14-slice2-vistas-9-12-design.md` §Fase 10. Próximo paso: `superpowers:writing-plans` sobre el spec → ejecutar fase 10 (10.A lista, 10.B detalle+sesiones, 10.C merge review — verificar si existe MergeExecutorService; solo hay detector).
+>
+> **Backlog fase 10 (triage final review fase 9 — no dejar evaporar):**
+>
+> 1. **Primer item:** extraer `toActionError` compartido (productos ≈ inbox 90% dup) **y portar el cause-gate de ValidationError a inbox** (inbox tiene el leak que productos ya fixeó en `0318c48`).
+> 2. Reusar `ilikeContains` (`src/server/db/postgrest-like.ts`) para búsqueda leads — `leads.supabase.repo.ts` tiene el patrón `.or(ilike)` crudo latente.
+> 3. `InfraError` + fix `mapPostgrestError` default branch (lanza `Error` plano) — o Slice 4b hardening.
+> 4. Zod locale `es` (mensajes de error por fila CSV mezclan inglés) — cuando se toque UI import.
+> 5. Fase 12 a11y pass: aria-live preview import, `scope="col"` tablas, EmptyState distinga búsqueda-sin-resultados (repo-wide).
+> 6. Menores: `previewImport` devuelve `validos` completo al client (solo usa length) → `validosCount`; COLUMNAS/MAX_CSV_BYTES a const compartida en `src/lib/`; test spy `LIST_LIMIT`; índice `(nombre, codigo_interno)` si llega paginación real.
 
 ### Opción C — Slice 1 7.10 Path B full E2E smoke
 
@@ -76,7 +86,7 @@
 
 Decile al iniciar la sesión:
 
-> Leé `AGENTS.md`, `docs/next-session.md` y `docs/superpowers/specs/2026-07-14-slice4a-hardening-design.md`. Confirmá estado Slice 4a completo y continuemos con [opción A/B/C]. Para entrar al panel local: `admin-dev@crm.local` / `dev-admin-2026!`.
+> Leé `AGENTS.md` y `docs/next-session.md`. Confirmá estado fase 9 Productos completa y continuemos con [opción A deploy / opción B fase 10 Leads]. Para fase 10: `superpowers:writing-plans` sobre `docs/superpowers/specs/2026-07-14-slice2-vistas-9-12-design.md` §Fase 10 + backlog listado arriba. Para entrar al panel local: `admin-dev@crm.local` / `dev-admin-2026!`.
 
 ---
 
@@ -120,19 +130,28 @@ supabase gen types typescript --linked | Out-File -Encoding utf8 src/server/db/t
 
 ---
 
-## Historial de commits (últimos 10)
+## Historial de commits (fase 9 completa, más recientes primero)
 
 ```
-a7c882e feat(inngest): Slice 4a 10.7 reactivacion real templates por motivo
-eba1f48 feat(inngest): Slice 4a 10.6 purge real con storage cleanup
-d6f14f1 feat(repo): Slice 4a 10.6 LeadSessionRepository.delete idempotente
-93a3969 feat(obs): Slice 4a 10.5 CostTracker Upstash persistente + factory
-440f051 feat(ops): Slice 4a 10.4 /api/health + grant server_now anon
-7e9a89f feat(obs): Slice 4a 10.3 OTel registerOTel + withSpan puntos calientes
-33b3ef8 feat(obs): Slice 4a 10.2 Sentry env-gated + redact PII
-ea46c84 feat(obs): Slice 4a 10.1 PinoLogger + getLogger env-based
-4a05894 docs(plan): Slice 4a hardening plan 9 tasks
-35c83a6 docs(spec): Slice 4a hardening pre-launch design spec
+2d205d9 fix(catalog): bounds numericos zod alineados a DB en productos
+cf5b7ad fix(catalog): quita shortcut ValidationError en import actions
+eb64cce fix(repo): escapa q para or/ilike PostgREST en productos.list
+23cfb74 fix(ui): pre-check tamaño CSV + catch transporte en import
+853d132 feat(ui): fase 9.C import CSV productos + baja stub API route
+6ea4a83 fix(catalog): offset Quotes papaparse + tests guard y cause CSV
+535a401 feat(catalog): import CSV parse + preview + confirm con papaparse
+cbd75fd docs(repo): comment honesto en branch defensivo bulkUpsert
+b0c62e3 refactor(repo): bulkUpsert scope CSV preserva campos no importados
+3e43720 feat(ui): fase 9.B dialogs CRUD productos admin
+0318c48 fix(catalog): errores curados DB y permiso RLS en update productos
+9aed668 feat(catalog): CRUD productos schemas + service + server actions
+4e8875d fix(ui): normaliza param q repetido en /productos
+de83a8a feat(ui): fase 9.A lista productos con busqueda
+2d6f610 feat(catalog): CatalogService.listProductos + bootstrap per-request
+a240b6d feat(repo): productos.list ordena nombre + codigo_interno
+7b5632c docs(auth): caveat UI-only tambien en getCurrentRol
+5612297 feat(auth): rolFromUser + getCurrentRol para UI rol-aware
+629c647 docs(plan): fase 9 productos 10 tasks TDD
 ```
 
 ---
