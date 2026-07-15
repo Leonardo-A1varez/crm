@@ -65,7 +65,7 @@
 
 ### Opción B — Vistas Slice 2 fase 10 Leads (fase 9 ya ✅; arrancar acá si no hay creds)
 
-> Spec: `docs/superpowers/specs/2026-07-14-slice2-vistas-9-12-design.md` §Fase 10 + §5 (proceso). Próximo paso: **1) brainstorming → addendum contratos fase 10** (`_TEMPLATE-contratos-fase.md`; crítico: contrato de merge — estado final exacto, colisión de sesiones activas, merge `meta_user_ids`, destino del lead perdedor, audit) → **2) `superpowers:writing-plans`** → 3) ejecutar (10.A lista, 10.B detalle+sesiones, 10.C merge review — assumption a verificar: existe `DefaultLeadMergeDetectorService`, NO hay executor).
+> Spec: `2026-07-14-slice2-vistas-9-12-design.md` §Fase 10 + **addendum de contratos APROBADO: `2026-07-15-fase10-leads-contratos.md`** (merge = borrado físico con audit-first replay-safe, admin elige ganador, bloqueo doble-activa, fill-nulls, detector respeta rejected, candidate manual). Próximo paso directo: **`superpowers:writing-plans` sobre spec §Fase 10 + addendum** → ejecutar 10.A lista · 10.B detalle · 10.C merge backend · 10.D merge UI.
 >
 > **Backlog fase 10 (triage final review fase 9 — no dejar evaporar):**
 >
