@@ -192,4 +192,46 @@ describe("LeadMergeDetector.recordCandidate", () => {
     });
     expect(second).toBeNull();
   });
+
+  test("recordCandidate no re-propone par rechazado", async () => {
+    const a = await seedLead(leads, { nombre: "Juan", canal: "wa" });
+    const b = await seedLead(leads, { nombre: "Juan", canal: "ig" });
+
+    const created = await svc.recordCandidate({
+      src_lead_id: a.id,
+      dst_lead_id: b.id,
+      similarity_score: 0.7,
+      reasons: ["nombre_exacto"],
+    });
+    expect(created).not.toBeNull();
+    await candidates.resolve(created!.id, "rejected", null);
+    const second = await svc.recordCandidate({
+      src_lead_id: a.id,
+      dst_lead_id: b.id,
+      similarity_score: 0.7,
+      reasons: ["nombre_exacto"],
+    });
+    expect(second).toBeNull();
+  });
+
+  test("recordCandidate sí re-propone par superseded", async () => {
+    const a = await seedLead(leads, { nombre: "Juan", canal: "wa" });
+    const b = await seedLead(leads, { nombre: "Juan", canal: "ig" });
+
+    const created = await svc.recordCandidate({
+      src_lead_id: a.id,
+      dst_lead_id: b.id,
+      similarity_score: 0.7,
+      reasons: ["nombre_exacto"],
+    });
+    expect(created).not.toBeNull();
+    await candidates.resolve(created!.id, "superseded", null);
+    const second = await svc.recordCandidate({
+      src_lead_id: a.id,
+      dst_lead_id: b.id,
+      similarity_score: 0.7,
+      reasons: ["nombre_exacto"],
+    });
+    expect(second).not.toBeNull();
+  });
 });

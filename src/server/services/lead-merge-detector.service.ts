@@ -60,11 +60,12 @@ export class DefaultLeadMergeDetectorService implements LeadMergeDetectorService
   }
 
   async recordCandidate(proposal: CandidateProposal): Promise<MergeCandidate | null> {
-    const existing = await this.candidates.findPendingPair(
-      proposal.src_lead_id,
-      proposal.dst_lead_id,
-    );
-    if (existing) return null;
+    const existing = await this.candidates.findAnyPair(proposal.src_lead_id, proposal.dst_lead_id);
+    // pending = dedup; rejected = decisión humana, no insistir. approved no
+    // sobrevive (CASCADE al borrar el perdedor); superseded es re-proponible.
+    if (existing && (existing.status === "pending" || existing.status === "rejected")) {
+      return null;
+    }
     return this.candidates.create({
       src_lead_id: proposal.src_lead_id,
       dst_lead_id: proposal.dst_lead_id,
