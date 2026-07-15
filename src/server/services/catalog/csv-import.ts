@@ -34,9 +34,13 @@ export function parseProductosCsv(csvText: string): ImportPreview {
   const papaErroresPorFila = new Map<number, string[]>();
   for (const err of parsed.errors) {
     if (typeof err.row !== "number") continue;
-    const list = papaErroresPorFila.get(err.row) ?? [];
+    // papaparse indexa FieldMismatch relativo a parsed.data, pero Quotes usa el
+    // conteo crudo que incluye el header → normalizar a índice de datos.
+    const rowIdx = err.type === "Quotes" ? err.row - 1 : err.row;
+    if (rowIdx < 0) continue; // error en la línea de header
+    const list = papaErroresPorFila.get(rowIdx) ?? [];
     list.push(err.message);
-    papaErroresPorFila.set(err.row, list);
+    papaErroresPorFila.set(rowIdx, list);
   }
 
   const validos: CsvProductoRow[] = [];
@@ -44,7 +48,10 @@ export function parseProductosCsv(csvText: string): ImportPreview {
   const vistos = new Set<string>();
 
   parsed.data.forEach((raw, i) => {
-    const fila = i + 2; // header ocupa la línea 1
+    // header ocupa la línea 1. Limitación conocida: skipEmptyLines descuenta
+    // líneas en blanco intercaladas → fila puede correrse en ese caso raro
+    // (trailing blanks no afectan).
+    const fila = i + 2;
 
     const papaErrs = papaErroresPorFila.get(i);
     if (papaErrs) {

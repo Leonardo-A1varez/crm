@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
 import { DefaultCatalogService } from "@/server/services/catalog/default-catalog.service";
@@ -171,8 +171,13 @@ describe("DefaultCatalogService import CSV", () => {
   });
 
   test("confirmImport con 0 válidos no llama bulkUpsert y reporta 0", async () => {
+    // InMemoryProductsRepository.bulkUpsert([]) ya short-circuita, así que un assert
+    // solo sobre repo.list() pasaría igual sin el guard en confirmImport. El spy
+    // pinnea que el guard `validos.length > 0` existe y evita la llamada.
+    const spy = vi.spyOn(repo, "bulkUpsert");
     const result = await svc.confirmImport([HEADER, "B-1,Prod,,,x,1,"].join("\n"));
     expect(result).toEqual({ importados: 0, omitidos: 1 });
+    expect(spy).not.toHaveBeenCalled();
     expect(await repo.list()).toHaveLength(0);
   });
 

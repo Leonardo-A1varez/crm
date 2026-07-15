@@ -78,6 +78,24 @@ describe("parseProductosCsv", () => {
     expect(r.errores[0]?.errores.join(" ")).toMatch(/duplicado/);
   });
 
+  test("error 'Quotes' de papaparse (comillas malformadas) se atribuye a la fila que lo causó, no a la siguiente", () => {
+    // papaparse indexa los errores type:'FieldMismatch' relativo a parsed.data (ya sin
+    // header), pero type:'Quotes' (MissingQuotes/InvalidQuotes) usa el conteo crudo de
+    // filas INCLUYENDO el header. Fila 2 (índice 0) trae comillas malformadas que se
+    // resuelven dentro de la misma fila (no invaden fila 3): produce un único error
+    // Quotes con err.row=1 (crudo) que sin normalizar cae en el índice 1 → se
+    // atribuiría a fila 3 (bien formada) en vez de fila 2 (la realmente rota).
+    const csv = [HEADER, 'BAD-Q,"ab"cd",,,10,1,', "OK-1,Prod,,,100,1,"].join("\n");
+    const r = parseProductosCsv(csv);
+
+    expect(r.validos).toHaveLength(1);
+    expect(r.validos[0]?.codigo_interno).toBe("OK-1");
+
+    expect(r.errores).toHaveLength(1);
+    expect(r.errores[0]?.fila).toBe(2);
+    expect(r.errores[0]?.errores.join(" ")).toMatch(/quote/i);
+  });
+
   test("faltan headers requeridos → ValidationError", () => {
     expect(() => parseProductosCsv("codigo_interno,nombre\nX,Y")).toThrow(ValidationError);
     expect(() => parseProductosCsv("codigo_interno,nombre\nX,Y")).toThrow(
@@ -88,5 +106,18 @@ describe("parseProductosCsv", () => {
   test("CSV sin filas de datos → ValidationError", () => {
     expect(() => parseProductosCsv(HEADER)).toThrow(ValidationError);
     expect(() => parseProductosCsv("")).toThrow(ValidationError);
+  });
+
+  test("ValidationError estructural sin cause (contrato actions: cause = origen DB)", () => {
+    // Las actions downstream distinguen errores de origen DB por e.cause (commit
+    // 0318c48). El ValidationError estructural de parseProductosCsv es puramente de
+    // input del usuario, no de infraestructura: NO debe llevar cause.
+    try {
+      parseProductosCsv("");
+      expect.unreachable("debió lanzar");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ValidationError);
+      expect((e as ValidationError).cause).toBeUndefined();
+    }
   });
 });
