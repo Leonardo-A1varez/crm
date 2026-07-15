@@ -34,3 +34,18 @@ export const SetProductoActivoSchema = z.object({
   activo: z.boolean(),
 });
 export type SetProductoActivoInput = z.infer<typeof SetProductoActivoSchema>;
+
+// Celdas numéricas CSV llegan como string. "" → undefined para que el campo
+// requerido falle claro (Number("") === 0 sería un 0 silencioso — bug de datos).
+const csvNumberCell = (v: unknown) => (typeof v === "string" && v.trim() === "" ? undefined : v);
+
+/** Fila CSV import catálogo. Headers ya normalizados (trim + lowercase). */
+export const CsvProductoRowSchema = z.object({
+  codigo_interno: z.string().trim().min(1).max(64),
+  nombre: z.string().trim().min(1).max(200),
+  descripcion: emptyToNull(1000),
+  categoria: emptyToNull(100),
+  sku_proveedor: emptyToNull(100),
+  precio: z.preprocess(csvNumberCell, z.coerce.number().nonnegative().finite()),
+  stock: z.preprocess(csvNumberCell, z.coerce.number().int().nonnegative()),
+});

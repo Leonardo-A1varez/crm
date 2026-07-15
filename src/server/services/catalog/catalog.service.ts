@@ -1,4 +1,5 @@
 import type { Producto, UUID } from "@/types/entities";
+import type { ImportPreview, ImportResult } from "@/types/productos";
 
 export interface CatalogListInput {
   q?: string;
@@ -32,4 +33,10 @@ export interface CatalogService {
 
   /** Baja/alta lógica — catálogo referenciado por sesiones históricas, sin delete físico. */
   setProductoActivo(id: UUID, activo: boolean): Promise<Producto>;
+
+  /** Parse + validación por fila del CSV. Puro (no toca DB). ValidationError si estructura inválida. */
+  previewImport(csvText: string): ImportPreview;
+
+  /** Re-parsea y upserta solo filas válidas por codigo_interno; omite filas con error. */
+  confirmImport(csvText: string): Promise<ImportResult>;
 }

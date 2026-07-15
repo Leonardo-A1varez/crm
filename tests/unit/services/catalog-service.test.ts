@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "vitest";
-import { ConflictError, NotFoundError } from "@/lib/errors";
+import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
 import { DefaultCatalogService } from "@/server/services/catalog/default-catalog.service";
 import type { ProductoInsert } from "@/server/repositories/productos.repo";
@@ -130,5 +130,53 @@ describe("DefaultCatalogService CRUD", () => {
     const p = await repo.create(baseInsert({ codigo_interno: "T-1", activo: true }));
     const r = await svc.setProductoActivo(p.id, false);
     expect(r.activo).toBe(false);
+  });
+});
+
+describe("DefaultCatalogService import CSV", () => {
+  let repo: InMemoryProductsRepository;
+  let svc: DefaultCatalogService;
+
+  beforeEach(() => {
+    repo = new InMemoryProductsRepository();
+    svc = new DefaultCatalogService({ productos: repo });
+  });
+
+  const HEADER = "codigo_interno,nombre,descripcion,categoria,precio,stock,sku_proveedor";
+
+  test("previewImport no toca la DB", () => {
+    const preview = svc.previewImport([HEADER, "P-1,Prod,,,10,1,"].join("\n"));
+    expect(preview.validos).toHaveLength(1);
+    // ninguna escritura ocurrió
+    return expect(repo.list()).resolves.toHaveLength(0);
+  });
+
+  test("confirmImport upserta válidos y omite filas con error", async () => {
+    await repo.create(baseInsert({ codigo_interno: "EX-1", precio: 100, activo: false }));
+    const csv = [
+      HEADER,
+      "EX-1,Existente actualizado,,,250,9,",
+      "NEW-1,Nuevo,,,50,2,",
+      "BAD-1,Malo,,,gratis,1,",
+    ].join("\n");
+
+    const result = await svc.confirmImport(csv);
+    expect(result).toEqual({ importados: 2, omitidos: 1 });
+
+    const ex = await repo.findByCodigoInterno("EX-1");
+    expect(ex?.precio).toBe(250);
+    expect(ex?.activo).toBe(false); // preservado (Task 7)
+    expect(await repo.findByCodigoInterno("NEW-1")).not.toBeNull();
+    expect(await repo.findByCodigoInterno("BAD-1")).toBeNull();
+  });
+
+  test("confirmImport con 0 válidos no llama bulkUpsert y reporta 0", async () => {
+    const result = await svc.confirmImport([HEADER, "B-1,Prod,,,x,1,"].join("\n"));
+    expect(result).toEqual({ importados: 0, omitidos: 1 });
+    expect(await repo.list()).toHaveLength(0);
+  });
+
+  test("confirmImport CSV estructuralmente inválido propaga ValidationError", async () => {
+    await expect(svc.confirmImport("nope")).rejects.toBeInstanceOf(ValidationError);
   });
 });

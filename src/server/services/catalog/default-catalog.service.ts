@@ -1,5 +1,7 @@
 import type { ProductsRepository } from "@/server/repositories/productos.repo";
 import type { Producto, UUID } from "@/types/entities";
+import type { ImportPreview, ImportResult } from "@/types/productos";
+import { parseProductosCsv } from "./csv-import";
 import type {
   CatalogListInput,
   CatalogService,
@@ -37,5 +39,17 @@ export class DefaultCatalogService implements CatalogService {
 
   async setProductoActivo(id: UUID, activo: boolean): Promise<Producto> {
     return this.deps.productos.update(id, { activo });
+  }
+
+  previewImport(csvText: string): ImportPreview {
+    return parseProductosCsv(csvText);
+  }
+
+  async confirmImport(csvText: string): Promise<ImportResult> {
+    const preview = parseProductosCsv(csvText);
+    if (preview.validos.length > 0) {
+      await this.deps.productos.bulkUpsert(preview.validos);
+    }
+    return { importados: preview.validos.length, omitidos: preview.errores.length };
   }
 }
