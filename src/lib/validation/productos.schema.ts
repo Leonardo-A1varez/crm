@@ -19,8 +19,8 @@ export const CreateProductoSchema = z.object({
   descripcion: emptyToNull(1000),
   categoria: emptyToNull(100),
   sku_proveedor: emptyToNull(100),
-  precio: z.number().nonnegative().finite(),
-  stock: z.number().int().nonnegative(),
+  precio: z.number().nonnegative().finite().max(9_999_999_999.99),
+  stock: z.number().int().nonnegative().max(2_147_483_647),
 });
 export type CreateProductoInput = z.infer<typeof CreateProductoSchema>;
 
@@ -46,6 +46,9 @@ export const CsvProductoRowSchema = z.object({
   descripcion: emptyToNull(1000),
   categoria: emptyToNull(100),
   sku_proveedor: emptyToNull(100),
-  precio: z.preprocess(csvNumberCell, z.coerce.number().nonnegative().finite()),
-  stock: z.preprocess(csvNumberCell, z.coerce.number().int().nonnegative()),
+  precio: z.preprocess(
+    csvNumberCell,
+    z.coerce.number().nonnegative().finite().max(9_999_999_999.99),
+  ),
+  stock: z.preprocess(csvNumberCell, z.coerce.number().int().nonnegative().max(2_147_483_647)),
 });

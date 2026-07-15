@@ -69,6 +69,16 @@ describe("parseProductosCsv", () => {
     expect(r.errores.map((e) => e.fila)).toEqual([2, 3]);
   });
 
+  test("precio excede el límite numeric(12,2) de la DB → error por fila, no tumba el batch", () => {
+    const csv = [HEADER, "OK-1,Prod,,,100,1,", "BAD-5,Prod,,,99999999999,1,"].join("\n");
+    const r = parseProductosCsv(csv);
+    expect(r.validos).toHaveLength(1);
+    expect(r.validos[0]?.codigo_interno).toBe("OK-1");
+    expect(r.errores).toHaveLength(1);
+    expect(r.errores[0]?.fila).toBe(3);
+    expect(r.errores[0]?.errores.join(" ")).toMatch(/precio/);
+  });
+
   test("codigo_interno duplicado en archivo → segunda ocurrencia a errores", () => {
     const csv = [HEADER, "DUP-1,Prod A,,,10,1,", "DUP-1,Prod B,,,20,2,"].join("\n");
     const r = parseProductosCsv(csv);

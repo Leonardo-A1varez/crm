@@ -38,6 +38,11 @@ describe("CreateProductoSchema", () => {
   test("rechaza NaN en precio", () => {
     expect(CreateProductoSchema.safeParse({ ...base, precio: Number.NaN }).success).toBe(false);
   });
+
+  test("rechaza precio y stock que exceden los límites numéricos de la DB", () => {
+    expect(CreateProductoSchema.safeParse({ ...base, precio: 10_000_000_000 }).success).toBe(false);
+    expect(CreateProductoSchema.safeParse({ ...base, stock: 3_000_000_000 }).success).toBe(false);
+  });
 });
 
 describe("UpdateProductoSchema", () => {
