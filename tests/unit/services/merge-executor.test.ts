@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { InMemoryAdminAuditRepository } from "@/server/repositories/admin-audit.repo";
 import { InMemoryConversationsRepository } from "@/server/repositories/conversations.repo";
@@ -202,6 +202,130 @@ describe("DefaultMergeExecutorService.approveMerge", () => {
       }),
     ).rejects.toBeInstanceOf(ValidationError);
   });
+
+  test("orden de ejecución: audit → convs → sesiones → tags → campos → delete (regresión reordering)", async () => {
+    const { ganador, perdedor, cand } = await seedPair();
+    await convs.upsertByCanalThread("ig", "thread-orden", perdedor.id);
+    const tag = await tags.create({ nombre: "orden", color: "#00ff00", descripcion: null });
+    await tags.assignToLead(perdedor.id, tag.id, "manual");
+
+    // Spies creados DESPUÉS del pre-seed de assignToLead (arriba) a propósito:
+    // vi.spyOn no registra llamadas hechas antes de existir, así que
+    // invocationCallOrder[0] de spyAssign sólo puede ser la llamada interna del
+    // merge (paso 5) — sin necesidad de vi.clearAllMocks().
+    const spyAudit = vi.spyOn(auditRepo, "create");
+    const spyConvUpdate = vi.spyOn(convs, "update");
+    const spyReassign = vi.spyOn(sessions, "reassignLead");
+    const spyAssign = vi.spyOn(tags, "assignToLead");
+    const spyLeadUpdate = vi.spyOn(leads, "update");
+    const spyDelete = vi.spyOn(leads, "delete");
+
+    await svc.approveMerge({ candidateId: cand.id, keepLeadId: ganador.id, actorUserId: null });
+
+    const orden = [
+      spyAudit.mock.invocationCallOrder[0],
+      spyConvUpdate.mock.invocationCallOrder[0],
+      spyReassign.mock.invocationCallOrder[0],
+      spyAssign.mock.invocationCallOrder[0],
+      spyLeadUpdate.mock.invocationCallOrder[0],
+      spyDelete.mock.invocationCallOrder[0],
+    ];
+    // cada paso estrictamente después del anterior
+    for (let i = 1; i < orden.length; i++) {
+      expect(orden[i]).toBeGreaterThan(orden[i - 1]);
+    }
+  });
+
+  test("fill-nulls: perdedor rellena TODOS los huecos del ganador", async () => {
+    const ganador = await leads.create(
+      baseLead({
+        nombre: "G",
+        email: null,
+        direccion: null,
+        vehiculo_marca: "",
+        vehiculo_modelo: "",
+        vehiculo_anio: 0,
+        vehiculo_motor: null,
+        empresa_id: null,
+        meta_user_ids: {},
+      }),
+    );
+    const empresaId = crypto.randomUUID();
+    const perdedor = await leads.create(
+      baseLead({
+        nombre: "G",
+        email: "p@mail.com",
+        direccion: "Calle 123",
+        vehiculo_marca: "Ford",
+        vehiculo_modelo: "Ranger",
+        vehiculo_anio: 2020,
+        vehiculo_motor: "3.2 diesel",
+        empresa_id: empresaId,
+      }),
+    );
+    const cand = await candidates.create({
+      src_lead_id: perdedor.id,
+      dst_lead_id: ganador.id,
+      similarity_score: 1,
+      reasons: ["manual"],
+    });
+    await svc.approveMerge({ candidateId: cand.id, keepLeadId: ganador.id, actorUserId: null });
+    const g = await leads.findById(ganador.id);
+    expect(g).toMatchObject({
+      email: "p@mail.com",
+      direccion: "Calle 123",
+      vehiculo_marca: "Ford",
+      vehiculo_modelo: "Ranger",
+      vehiculo_anio: 2020,
+      vehiculo_motor: "3.2 diesel",
+      empresa_id: empresaId,
+    });
+  });
+
+  test("no-overwrite: ganador lleno queda intacto en TODOS los campos", async () => {
+    const empresaG = crypto.randomUUID();
+    const ganador = await leads.create(
+      baseLead({
+        nombre: "G",
+        email: "g@mail.com",
+        direccion: "Dir G",
+        vehiculo_marca: "Toyota",
+        vehiculo_modelo: "Hilux",
+        vehiculo_anio: 2019,
+        vehiculo_motor: "2.8",
+        empresa_id: empresaG,
+      }),
+    );
+    const perdedor = await leads.create(
+      baseLead({
+        nombre: "G",
+        email: "p@mail.com",
+        direccion: "Dir P",
+        vehiculo_marca: "Ford",
+        vehiculo_modelo: "Ranger",
+        vehiculo_anio: 2020,
+        vehiculo_motor: "3.2",
+        empresa_id: crypto.randomUUID(),
+      }),
+    );
+    const cand = await candidates.create({
+      src_lead_id: perdedor.id,
+      dst_lead_id: ganador.id,
+      similarity_score: 1,
+      reasons: ["manual"],
+    });
+    await svc.approveMerge({ candidateId: cand.id, keepLeadId: ganador.id, actorUserId: null });
+    const g = await leads.findById(ganador.id);
+    expect(g).toMatchObject({
+      email: "g@mail.com",
+      direccion: "Dir G",
+      vehiculo_marca: "Toyota",
+      vehiculo_modelo: "Hilux",
+      vehiculo_anio: 2019,
+      vehiculo_motor: "2.8",
+      empresa_id: empresaG,
+    });
+  });
 });
 
 describe("DefaultMergeExecutorService.rejectMerge / createManualCandidate", () => {
@@ -257,6 +381,12 @@ describe("DefaultMergeExecutorService.rejectMerge / createManualCandidate", () =
     ).rejects.toBeInstanceOf(ConflictError);
     await expect(
       svc.createManualCandidate({ leadId: a.id, otherLeadId: crypto.randomUUID() }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("rejectMerge candidate inexistente → NotFoundError", async () => {
+    await expect(
+      svc.rejectMerge({ candidateId: crypto.randomUUID(), actorUserId: null }),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
 });

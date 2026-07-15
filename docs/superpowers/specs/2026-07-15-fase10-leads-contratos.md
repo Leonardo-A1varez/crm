@@ -51,7 +51,7 @@
 **Orden de ejecución replay-safe** (cada paso no-op/tolerante si re-corre tras crash; re-approve completa el merge):
 
 1. **Validar:** candidate existe y está `pending` · ambos leads existen · **NO ambos con sesión activa** (invariante máx 1 activa/lead).
-2. **Audit PRIMERO:** `admin_actions` action `"lead_merge"`, payload = `{ candidate_id, ganador_id, perdedor: snapshot completo del Lead + tags asignados }`. Registro permanente (los candidates se autodestruyen por CASCADE en paso 7).
+2. **Audit PRIMERO:** `admin_actions` action `"lead.merge" (ADMIN_ACTIONS.LEAD_MERGE)`, payload = `{ candidate_id, ganador_id, perdedor: snapshot completo del Lead + tags asignados }`. Registro permanente (los candidates se autodestruyen por CASCADE en paso 7).
 3. **Conversaciones** del perdedor → `update(id, { lead_id: ganador })`. Colisión imposible por unique `(canal, canal_thread_id)`; si ocurriera → ConflictError aborta (re-ejecutable).
 4. **Sesiones** del perdedor → `LeadSessionRepository.reassignLead(perdedorId, ganadorId)` (método nuevo; mueve todas, incluida una activa — el paso 1 garantiza que el ganador no tiene otra).
 5. **Tags** del perdedor → `assignToLead(ganador, tagId, source original, assigned_by original)` por cada uno (idempotente; no hace falta remove — el perdedor se borra).

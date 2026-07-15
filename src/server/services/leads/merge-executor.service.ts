@@ -91,7 +91,8 @@ export class DefaultMergeExecutorService implements MergeExecutorService {
       this.deps.leads.findById(perdedorId),
     ]);
     if (!ganador || !perdedor) {
-      throw new NotFoundError("lead del par no encontrado", "lead", perdedorId);
+      const missingId = !ganador ? input.keepLeadId : perdedorId;
+      throw new NotFoundError("lead del par no encontrado", "lead", missingId);
     }
 
     const [activaGanador, activaPerdedor] = await Promise.all([
@@ -161,11 +162,8 @@ export class DefaultMergeExecutorService implements MergeExecutorService {
       this.deps.leads.findById(input.otherLeadId),
     ]);
     if (!a || !b) {
-      throw new NotFoundError(
-        "lead no encontrado para candidate manual",
-        "lead",
-        input.otherLeadId,
-      );
+      const missingId = !a ? input.leadId : input.otherLeadId;
+      throw new NotFoundError("lead no encontrado para candidate manual", "lead", missingId);
     }
     return this.deps.candidates.create({
       src_lead_id: input.leadId,
