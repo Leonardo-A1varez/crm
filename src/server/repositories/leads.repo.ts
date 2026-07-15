@@ -101,6 +101,10 @@ export class InMemoryLeadsRepository implements LeadsRepository {
         (l) => l.nombre.toLowerCase().includes(q) || l.telefono.toLowerCase().includes(q),
       );
     }
+    // Orden estable: updated_at DESC, id ASC para tiebreak
+    rows.sort(
+      (a, b) => b.updated_at.getTime() - a.updated_at.getTime() || a.id.localeCompare(b.id),
+    );
     const offset = filter.offset ?? 0;
     const limit = filter.limit ?? rows.length;
     return rows.slice(offset, offset + limit).map(cloneLead);

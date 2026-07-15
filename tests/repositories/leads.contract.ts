@@ -168,5 +168,60 @@ export function runLeadsContract(makeRepo: () => LeadsRepository) {
       const refetch = await repo.findById(lead.id);
       expect(refetch?.meta_user_ids.wa).toBe("wa_seed");
     });
+
+    test("list ordena por updated_at desc con tiebreak id asc", async () => {
+      const a = await repo.create({
+        ...baseInsert,
+        telefono: "+5491100000001",
+        nombre: "Ana",
+      });
+      await new Promise((r) => setTimeout(r, 5));
+      const b = await repo.create({
+        ...baseInsert,
+        telefono: "+5491100000002",
+        nombre: "Beto",
+      });
+      await new Promise((r) => setTimeout(r, 5));
+      await repo.update(b.id, { nombre: "Beto Actualizado" });
+
+      const all = await repo.list();
+      expect(all[0]?.id).toBe(b.id); // updated más reciente primero
+      expect(all[1]?.id).toBe(a.id);
+    });
+
+    test("list q trata coma y paréntesis como literales", async () => {
+      await repo.create({
+        ...baseInsert,
+        telefono: "+5491100000003",
+        nombre: "Perez, Juan (taller)",
+      });
+      await repo.create({
+        ...baseInsert,
+        telefono: "+5491100000004",
+        nombre: "Otra Persona",
+      });
+      const r = await repo.list({ q: "perez, juan (" });
+      expect(r).toHaveLength(1);
+      expect(r[0]?.telefono).toBe("+5491100000003");
+    });
+
+    test("list q matchea telefono parcial y % literal", async () => {
+      await repo.create({
+        ...baseInsert,
+        telefono: "+549115550001",
+        nombre: "Tel Uno",
+      });
+      await repo.create({
+        ...baseInsert,
+        telefono: "+549116660002",
+        nombre: "Tel 100% Dos",
+      });
+      const porTel = await repo.list({ q: "115550" });
+      expect(porTel).toHaveLength(1);
+      expect(porTel[0]?.nombre).toBe("Tel Uno");
+      const porPct = await repo.list({ q: "100%" });
+      expect(porPct).toHaveLength(1);
+      expect(porPct[0]?.nombre).toBe("Tel 100% Dos");
+    });
   });
 }

@@ -4,6 +4,7 @@ import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { serverNowIso } from "@/server/db/server-time";
 import type { Database } from "@/server/db/types.gen";
 import { isUuid } from "@/server/db/uuid";
+import { ilikeContains } from "@/server/db/postgrest-like";
 import type { Canal } from "@/types/domain";
 import type { Lead, MetaUserIds, UUID } from "@/types/entities";
 import type { LeadInsert, LeadListFilter, LeadUpdate, LeadsRepository } from "./leads.repo";
@@ -119,11 +120,15 @@ export class SupabaseLeadsRepository implements LeadsRepository {
   }
 
   async list(filter: LeadListFilter = {}): Promise<Lead[]> {
-    let query = this.db.from("leads").select();
+    let query = this.db
+      .from("leads")
+      .select()
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: true });
 
     if (filter.q) {
-      const q = `%${filter.q}%`;
-      query = query.or(`nombre.ilike.${q},telefono.ilike.${q}`);
+      const pat = ilikeContains(filter.q);
+      query = query.or(`nombre.ilike.${pat},telefono.ilike.${pat}`);
     }
 
     const offset = filter.offset ?? 0;
