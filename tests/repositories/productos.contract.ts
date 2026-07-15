@@ -117,6 +117,24 @@ export function runProductosContract(makeRepo: () => ProductsRepository) {
       expect(r[0].codigo_interno).toBe("FA-CIV-99");
     });
 
+    test("list q trata coma y paréntesis como literales (sin romper filtro)", async () => {
+      await repo.create(
+        baseInsert({ codigo_interno: "Q-1", nombre: "Pastilla, delantera (ceramica)" }),
+      );
+      await repo.create(baseInsert({ codigo_interno: "Q-2", nombre: "Otra cosa" }));
+      const r = await repo.list({ q: "pastilla, delantera (" });
+      expect(r).toHaveLength(1);
+      expect(r[0]?.codigo_interno).toBe("Q-1");
+    });
+
+    test("list q trata % y _ como literales (no wildcards)", async () => {
+      await repo.create(baseInsert({ codigo_interno: "W-1", nombre: "Descuento 10% real" }));
+      await repo.create(baseInsert({ codigo_interno: "W-2", nombre: "Descuento 10 grande" }));
+      const r = await repo.list({ q: "10%" });
+      expect(r).toHaveLength(1);
+      expect(r[0]?.codigo_interno).toBe("W-1");
+    });
+
     test("list respeta limit + offset", async () => {
       for (let i = 0; i < 5; i++) {
         await repo.create(baseInsert({ codigo_interno: `P-${i}` }));

@@ -1,6 +1,7 @@
 import { ConflictError, NotFoundError, PermissionDeniedError, ValidationError } from "@/lib/errors";
 import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
+import { ilikeContains } from "@/server/db/postgrest-like";
 import { serverNowIso } from "@/server/db/server-time";
 import type { Database } from "@/server/db/types.gen";
 import { isUuid } from "@/server/db/uuid";
@@ -110,8 +111,8 @@ export class SupabaseProductsRepository implements ProductsRepository {
       .order("codigo_interno", { ascending: true });
 
     if (filter.q) {
-      const q = `%${filter.q}%`;
-      query = query.or(`nombre.ilike.${q},codigo_interno.ilike.${q}`);
+      const pat = ilikeContains(filter.q);
+      query = query.or(`nombre.ilike.${pat},codigo_interno.ilike.${pat}`);
     }
     if (filter.activo !== undefined) {
       query = query.eq("activo", filter.activo);

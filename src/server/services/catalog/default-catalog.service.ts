@@ -20,7 +20,8 @@ export class DefaultCatalogService implements CatalogService {
   constructor(private readonly deps: DefaultCatalogServiceDeps) {}
 
   async listProductos(input: CatalogListInput = {}): Promise<Producto[]> {
-    const q = input.q?.trim();
+    // Cap defensivo: patrones absurdamente largos.
+    const q = input.q?.trim().slice(0, 100);
     return this.deps.productos.list({ q: q || undefined, limit: LIST_LIMIT });
   }
 
