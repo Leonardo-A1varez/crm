@@ -48,6 +48,18 @@
 
 Kanban, deals, export CSV, bulk actions, edición de leads (solo lectura + merge), charts en métricas, gestión de usuarios en ajustes (alta = dashboard Supabase per Slice 3), upload imágenes producto (bucket existe; UI diferida).
 
+## 5. Proceso por fase (adoptado 2026-07-15, retro fase 9)
+
+Este spec fija **decisiones de producto** (scope, orden, profundidad, out-of-scope) — sigue vigente. Lo que NO fija es **comportamiento observable** (semántica de filtros, efecto exacto de escrituras, errores por caso, invariantes): en fase 9, 3 de ~6 findings serios del review eran prevenibles con esos contratos.
+
+**Flujo por fase (10, 11, 12):**
+
+1. Brainstorming corto con el usuario → addendum `2026-XX-XX-faseN-<nombre>-contratos.md` usando `_TEMPLATE-contratos-fase.md` (assumptions verificadas + datos/orden/búsqueda + acciones con tabla de errores + estados + invariantes + criterios de aceptación ejecutables).
+2. `superpowers:writing-plans` sobre spec §fase + addendum.
+3. Ejecución subagent-driven con reviews por task + final whole-branch review.
+
+Fase 9 se ejecutó sin addendum (pre-adopción): ✅ completa 2026-07-15, plan `../plans/2026-07-14-slice2-fase9-productos.md`.
+
 ---
 
-**FIN SPEC.** Próximo paso al retomar: `superpowers:writing-plans` sobre este spec → ejecutar fase 9.
+**FIN SPEC.** Próximo paso al retomar: contratos fase 10 (paso 1 de §5) → `superpowers:writing-plans` → ejecutar fase 10.
