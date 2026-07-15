@@ -91,6 +91,17 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
     return data ? mapRow(data) : null;
   }
 
+  async listByLeadId(leadId: UUID): Promise<LeadSession[]> {
+    if (!isUuid(leadId)) return [];
+    const { data, error } = await this.db
+      .from("lead_session")
+      .select()
+      .eq("lead_id", leadId)
+      .order("started_at", { ascending: false });
+    if (error) throw mapPostgrestError(error, { resource: "lead_session" });
+    return (data ?? []).map(mapRow);
+  }
+
   async update(id: UUID, patch: LeadSessionUpdate): Promise<LeadSession> {
     const updatePayload: LeadSessionDbUpdate = {};
     // id, lead_id, started_at, closed_at, resultado, motivo_perdida NO mapeados
@@ -190,6 +201,16 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
     if (!isUuid(id)) return;
     const { error } = await this.db.from("lead_session").delete().eq("id", id);
     if (error) throw mapPostgrestError(error, { resource: "lead_session" });
+  }
+
+  async reassignLead(fromLeadId: UUID, toLeadId: UUID): Promise<number> {
+    const { data, error } = await this.db
+      .from("lead_session")
+      .update({ lead_id: toLeadId })
+      .eq("lead_id", fromLeadId)
+      .select();
+    if (error) throw mapPostgrestError(error, { resource: "lead_session" });
+    return (data ?? []).length;
   }
 }
 

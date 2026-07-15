@@ -223,5 +223,45 @@ export function runLeadSessionContract(
     test("delete de id inexistente es no-op (replay-safe, sin throw)", async () => {
       await expect(repo.delete(crypto.randomUUID())).resolves.toBeUndefined();
     });
+
+    test("listByLeadId devuelve todas las sesiones del lead started_at desc", async () => {
+      const leadA = fixtures.leadIds.A;
+      const leadB = fixtures.leadIds.X;
+      const s1 = await repo.create(baseInsert(leadA));
+      await repo.close(s1.id, { resultado: "perdido", motivo_perdida: "otro" });
+      await new Promise((r) => setTimeout(r, 5));
+      const s2 = await repo.create(baseInsert(leadA));
+      await repo.create(baseInsert(leadB)); // otro lead, no aparece
+
+      const r = await repo.listByLeadId(leadA);
+      expect(r.map((s) => s.id)).toEqual([s2.id, s1.id]);
+    });
+
+    test("listByLeadId lead sin sesiones → []", async () => {
+      const leadA = fixtures.leadIds.A;
+      expect(await repo.listByLeadId(leadA)).toEqual([]);
+    });
+
+    test("reassignLead mueve todas las sesiones y devuelve count", async () => {
+      const leadA = fixtures.leadIds.A;
+      const leadB = fixtures.leadIds.X;
+      const s1 = await repo.create(baseInsert(leadA));
+      await repo.close(s1.id, { resultado: "exito" });
+      const s2 = await repo.create(baseInsert(leadA)); // activa
+
+      const moved = await repo.reassignLead(leadA, leadB);
+      expect(moved).toBe(2);
+      expect(await repo.listByLeadId(leadA)).toEqual([]);
+      const enB = await repo.listByLeadId(leadB);
+      expect(enB.map((s) => s.id).sort()).toEqual([s1.id, s2.id].sort());
+      // la activa sigue activa bajo el nuevo lead
+      expect((await repo.findActiveByLeadId(leadB))?.id).toBe(s2.id);
+    });
+
+    test("reassignLead sin sesiones → 0 (replay-safe)", async () => {
+      const leadA = fixtures.leadIds.A;
+      const leadB = fixtures.leadIds.X;
+      expect(await repo.reassignLead(leadA, leadB)).toBe(0);
+    });
   });
 }

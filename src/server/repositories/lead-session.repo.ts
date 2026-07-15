@@ -29,12 +29,18 @@ export interface LeadSessionRepository {
   findActiveByLeadId(leadId: UUID): Promise<LeadSession | null>;
   // Todas sesiones activas (resultado IS NULL). Inbox listing.
   listActive(): Promise<LeadSession[]>;
+  // Todas las sesiones del lead (activa + cerradas), started_at DESC. Detalle /leads/[id].
+  listByLeadId(leadId: UUID): Promise<LeadSession[]>;
   update(id: UUID, patch: LeadSessionUpdate): Promise<LeadSession>;
   close(id: UUID, input: CloseInput): Promise<LeadSession>;
   listClosedBefore(date: Date): Promise<LeadSession[]>;
   // Purge cron (Slice 4). CASCADE borra mensajes + rule_executions.
   // Id inexistente = no-op (replay-safe para retries Inngest).
   delete(id: UUID): Promise<void>;
+  // Merge de leads: mueve TODAS las sesiones de `fromLeadId` a `toLeadId`.
+  // Devuelve count movidas; 0 = no-op (replay-safe). No usar fuera del merge —
+  // `update` sigue prohibiendo lead_id a propósito.
+  reassignLead(fromLeadId: UUID, toLeadId: UUID): Promise<number>;
 }
 
 // Deep clone defensivo para extras (jsonb arbitrario LLM-extracted).
@@ -84,6 +90,13 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
       if (s.resultado === null) out.push(cloneSession(s));
     }
     return out;
+  }
+
+  async listByLeadId(leadId: UUID): Promise<LeadSession[]> {
+    return Array.from(this.store.values())
+      .filter((s) => s.lead_id === leadId)
+      .sort((a, b) => b.started_at.getTime() - a.started_at.getTime())
+      .map(cloneSession);
   }
 
   async update(id: UUID, patch: LeadSessionUpdate): Promise<LeadSession> {
@@ -140,5 +153,15 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
 
   async delete(id: UUID): Promise<void> {
     this.store.delete(id);
+  }
+
+  async reassignLead(fromLeadId: UUID, toLeadId: UUID): Promise<number> {
+    let moved = 0;
+    for (const [id, s] of this.store) {
+      if (s.lead_id !== fromLeadId) continue;
+      this.store.set(id, { ...s, lead_id: toLeadId });
+      moved += 1;
+    }
+    return moved;
   }
 }
