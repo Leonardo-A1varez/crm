@@ -32,6 +32,7 @@ export function MarcarDuplicadoDialog({
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [items, setItems] = useState<LeadListItem[]>([]);
+  const [buscado, setBuscado] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const buscar = () => {
@@ -42,6 +43,7 @@ export function MarcarDuplicadoDialog({
         return;
       }
       setItems(r.items.filter((i) => i.leadId !== leadId));
+      setBuscado(true);
     });
   };
 
@@ -56,12 +58,23 @@ export function MarcarDuplicadoDialog({
       setOpen(false);
       setQ("");
       setItems([]);
+      setBuscado(false);
       router.refresh();
     });
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) {
+          setQ("");
+          setItems([]);
+          setBuscado(false);
+        }
+      }}
+    >
       <DialogTrigger render={<Button variant="outline" size="sm" />}>
         Marcar duplicado de…
       </DialogTrigger>
@@ -104,6 +117,8 @@ export function MarcarDuplicadoDialog({
               </li>
             ))}
           </ul>
+        ) : buscado && items.length === 0 ? (
+          <p className="text-muted-foreground text-sm">Sin resultados.</p>
         ) : null}
       </DialogContent>
     </Dialog>

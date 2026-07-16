@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { ChannelIcons } from "@/components/inbox/ChannelIcons";
+import { RelativeTime } from "@/components/shared/RelativeTime";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,18 +19,38 @@ import type { Lead, UUID } from "@/types/entities";
 import type { DuplicadoPendiente } from "@/types/leads";
 import type { ActionResult } from "@/types/inbox";
 
-function ResumenLead({
-  lead,
-  titulo,
-}: {
-  lead: Pick<Lead, "nombre" | "telefono">;
-  titulo: string;
-}) {
+type ResumenLeadFields = Pick<
+  Lead,
+  | "nombre"
+  | "telefono"
+  | "canal_origen"
+  | "meta_user_ids"
+  | "vehiculo_marca"
+  | "vehiculo_modelo"
+  | "vehiculo_anio"
+>;
+
+function ResumenLead({ lead, titulo }: { lead: ResumenLeadFields; titulo: string }) {
+  // Canal origen + canales vinculados con meta_user_ids presente (dedup) — igual a LeadFicha.
+  const canales = [lead.canal_origen];
+  for (const canal of ["wa", "ig", "fb"] as const) {
+    if (lead.meta_user_ids[canal] && !canales.includes(canal)) {
+      canales.push(canal);
+    }
+  }
+  const vehiculo = [lead.vehiculo_marca, lead.vehiculo_modelo, lead.vehiculo_anio || ""]
+    .map(String)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join(" ");
+
   return (
     <div className="flex flex-col gap-0.5 text-sm">
       <span className="text-muted-foreground text-xs">{titulo}</span>
       <span className="font-medium">{lead.nombre}</span>
       <span className="text-muted-foreground font-mono text-xs">{lead.telefono}</span>
+      <ChannelIcons activos={canales} activoActual={lead.canal_origen} />
+      <span className="text-muted-foreground text-xs">{vehiculo || "—"}</span>
     </div>
   );
 }
@@ -39,7 +61,7 @@ export function DuplicadosSection({
   onApprove,
   onReject,
 }: {
-  leadActual: Pick<Lead, "id" | "nombre" | "telefono">;
+  leadActual: Pick<Lead, "id"> & ResumenLeadFields;
   duplicados: DuplicadoPendiente[];
   onApprove: (input: { candidateId: UUID; keepLeadId: UUID }) => Promise<ActionResult>;
   onReject: (input: { candidateId: UUID }) => Promise<ActionResult>;
@@ -53,13 +75,14 @@ export function DuplicadosSection({
 
   const approve = (d: DuplicadoPendiente) => {
     const keepLeadId = keepPorCandidate[d.candidateId] ?? leadActual.id;
+    const nombreGanador = keepLeadId === leadActual.id ? leadActual.nombre : d.otherLead.nombre;
     startTransition(async () => {
       const r = await onApprove({ candidateId: d.candidateId, keepLeadId });
       if (!r.ok) {
         toast.error(r.error);
         return;
       }
-      toast.success("Leads fusionados — historia completa bajo el lead conservado.");
+      toast.success(`Leads fusionados — historia completa bajo ${nombreGanador}.`);
       if (keepLeadId === leadActual.id) router.refresh();
       else router.push(`/leads/${keepLeadId}`);
     });
@@ -90,7 +113,8 @@ export function DuplicadosSection({
                 <ResumenLead lead={d.otherLead} titulo="Posible duplicado" />
               </div>
               <p className="text-muted-foreground mt-2 text-xs">
-                Motivos: {d.reasons.join(", ")} · score {d.score}
+                Motivos: {d.reasons.join(", ")} · score {d.score} ·{" "}
+                <RelativeTime iso={new Date(d.createdAt).toISOString()} />
               </p>
               <fieldset className="mt-2 flex flex-col gap-1 text-sm" disabled={isPending}>
                 <legend className="text-muted-foreground text-xs">Conservar</legend>
