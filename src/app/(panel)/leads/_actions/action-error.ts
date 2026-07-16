@@ -15,6 +15,12 @@ export function toActionError(e: unknown, accion: string): { ok: false; error: s
     return { ok: false, error: "Este par ya fue resuelto o no existe. Refrescá la página." };
   }
   if (e instanceof NotFoundError) {
+    // merge_candidate inexistente: ya fue resuelto (approve/reject) o el par
+    // fue CASCADE-borrado (perdedor eliminado). Copy de contrato distinta a
+    // "lead no encontrado" — addendum §2.A fila 1.
+    if (e.resource === "merge_candidate") {
+      return { ok: false, error: "Este par ya fue resuelto o no existe. Refrescá la página." };
+    }
     return { ok: false, error: "Lead no encontrado. Refrescá la página." };
   }
   if (e instanceof ValidationError) {
