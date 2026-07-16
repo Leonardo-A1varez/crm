@@ -35,7 +35,7 @@
 
 ### `/leads/[id]`
 
-- **Ficha completa read-only** (edición de leads OUT — spec padre §4): nombre, teléfono, email, dirección, vehículo completo, canal origen, canales vinculados, tags asignados, created/updated.
+- **Ficha completa read-only** (edición de leads OUT — spec padre §4): nombre, teléfono, email, dirección, vehículo completo, canal origen, canales vinculados, tags asignados. ~~created/updated~~ (enmienda 2026-07-16: la UI shipped no los renderiza — desviación aceptada en review T9; re-agregar si un caso de uso lo pide).
 - **Sesiones históricas** (todas, `started_at DESC`): stage final · badge resultado (`exito`/`perdido`/activa) · motivo si perdido · fechas inicio/cierre. Sin count de mensajes v1 (query extra innecesaria).
 - **Sesión activa** → link prominente "Abrir conversación" a `/inbox/[id]`.
 - **Duplicados pendientes del lead:** por cada candidate `pending` que lo involucre: ficha resumida del otro lead (nombre, teléfono, canales, vehículo) + `reasons` + score + fecha + acciones admin (§2.A/B).

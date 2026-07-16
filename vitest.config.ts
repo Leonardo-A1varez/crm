@@ -34,6 +34,8 @@ export default defineConfig({
         "src/components/lead-twin/**",
         "src/components/shared/**",
         "src/components/auth/**",
+        "src/components/productos/**", // fase 9: validados browser Playwright
+        "src/components/leads/**", // fase 10: validados browser + E2E merge
         "src/app/**/_actions/**",
         "src/app/**/error.tsx",
         "src/app/**/loading.tsx",

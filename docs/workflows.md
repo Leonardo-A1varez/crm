@@ -147,7 +147,7 @@ Factory raíz: `makeCrmInngestFunctions(deps)` consolida las 6. `route.ts` lo us
 
 **Heurística (R12):** nombre exacto case-insensitive + canales distintos + window 7d + sin conflicto de vehículo (marca/modelo distintos descarta).
 
-**Resolve workflow:** admin UI (Slice 2) lista pending → approve/reject. Approve dispara `leads.mergeInto(src, dst)`.
+**Resolve workflow (fase 10):** admin UI `/leads/[id]` lista pending → approve/reject. Approve ejecuta `MergeExecutorService.approveMerge` (audit-first, replay-safe: audit → fill-nulls ganador → reassign sesiones/convs → delete perdedor con CASCADE de candidates). Reject marca `rejected` y el detector no re-propone el par (`findAnyPair`). `leads.mergeInto` fue eliminado en fase 10 T3.
 
 ### 6. `reactivation-predictor.cron`
 
