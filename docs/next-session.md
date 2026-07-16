@@ -1,6 +1,6 @@
 # Cómo retomar la sesión
 
-> Última pausa: 2026-07-15. **Fase 9 Productos COMPLETA** (subagent-driven: 19 commits `629c647..2d205d9`, cada task TDD + review + fixes; final whole-branch review verde con fixes aplicados). 709 unit verdes · integration productos 20/20 · browser fase 9: 25 checks Playwright contra Supabase real. **Usuario dev local: `admin-dev@crm.local` / `dev-admin-2026!` (solo crm-dev).** Siguiente: **Opción B fase 10 Leads (writing-plans sobre spec §Fase 10)** o **Opción A Slice 4b deploy+launch (checklist)**. **Local adelantado al remoto (pendiente push).** **Pendiente manual: dashboard → Advisors (CLI 403 free tier).**
+> Última pausa: 2026-07-16 (mitad de fase 10). **Fase 10 Leads: 9/11 tasks completas** (plan `docs/superpowers/plans/2026-07-15-slice2-fase10-leads.md`, ledger exacto en `.superpowers/sdd/progress.md`). T1-T9 ✅ con review · **T10 (merge UI): código+fixes commiteados, E2E 22/22 ×2, falta SOLO re-review** (package listo: `.superpowers/sdd/review-86e4086..1bacf84.diff`) · **T11 cierre pendiente** (CI + final whole-branch review base `ddb7e05` + docs). Unit 737/737 · integration leads 16/16 + lead-session 21/21 · browser 10.A/B 7/7 + E2E merge 22/22. **Users dev: `admin-dev@crm.local` / `dev-admin-2026!` · `vendedor-dev@crm.local` / `dev-vendedor-2026!`.** **⚠️ Footgun entorno: las suites de integration LIMPIAN `public.usuarios` → sin re-backfill, el merge muere en audit (FK) con toast engañoso "par ya resuelto". Fix: correr `.superpowers/sdd/scripts/seed-merge-e2e.js` (incluye ensure-usuarios) tras cualquier integration run.** Fase 9 ✅ previa (709→ commits `629c647..2d205d9`). **Pendiente manual: dashboard → Advisors.**
 
 ---
 
@@ -62,6 +62,12 @@
 > 2. Cuenta Vercel + proyecto linkeado.
 >
 > **Después, juntos:** validar send outbound real local → deploy preview → env vars Vercel → webhook Meta apuntando al deploy → smoke E2E real (mensaje WhatsApp entra y la IA responde) → `/api/health` = ok → monitor externo → templates Meta para reactivación → revisar Advisors + checklist threat model pre-launch → soft launch 10 leads.
+
+### Opción B-RETOMAR — Terminar fase 10 (2 pasos, ~30-45 min)
+
+> 1. **Re-review T10:** dispatch reviewer (sonnet) con brief `.superpowers/sdd/task-10-brief.md` + report `task-10-report.md` + package `review-86e4086..1bacf84.diff` — los 2 Important (card campos contrato + toast interpolado) ya están fixeados en `1bacf84` y validados E2E 22/22; pedir re-verdict.
+> 2. **T11 cierre:** `npm run ci` → final whole-branch review (base `ddb7e05`, modelo top, pasarle los Minors acumulados del ledger `.superpowers/sdd/progress.md` sección FASE 10) → fixes si pide → docs (AGENTS.md tabla+métricas+sub-paso · esta file · `docs/workflows.md` ~línea 150 aún menciona `mergeInto` eliminado · documentar footgun usuarios/integration) → commit + push.
+>    Contexto completo del pipeline: ledger `.superpowers/sdd/progress.md` (fuente de verdad, task por task con commits y findings).
 
 ### Opción B — Vistas Slice 2 fase 10 Leads (fase 9 ya ✅; arrancar acá si no hay creds)
 
