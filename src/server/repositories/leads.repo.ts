@@ -19,8 +19,10 @@ export interface LeadsRepository {
   findByMetaUserId(canal: Canal, metaUserId: string): Promise<Lead | null>;
   update(id: UUID, patch: LeadUpdate): Promise<Lead>;
   list(filter?: LeadListFilter): Promise<Lead[]>;
-  // Borra el lead (merge: perdedor post-reasignación). Id inexistente = no-op
-  // (replay-safe). FK CASCADE limpia merge_candidates del lead.
+  // Borra el lead (merge: perdedor post-reasignación). Id inexistente o
+  // no-UUID = no-op (replay-safe). FK CASCADE limpia merge_candidates del
+  // lead. Con cliente authed (vendedor), si RLS deniega el DELETE lanza
+  // PermissionDeniedError (distinguido de no-op vía SELECT posterior).
   delete(id: UUID): Promise<void>;
 }
 

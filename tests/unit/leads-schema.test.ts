@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   ApproveMergeSchema,
   CreateManualCandidateSchema,
+  RejectMergeSchema,
   SearchLeadsSchema,
 } from "@/lib/validation/leads.schema";
 
@@ -16,6 +17,12 @@ describe("leads schemas", () => {
     expect(ApproveMergeSchema.safeParse({ candidateId: "x", keepLeadId: uuidB }).success).toBe(
       false,
     );
+  });
+
+  test("RejectMergeSchema exige uuid válido", () => {
+    expect(RejectMergeSchema.safeParse({ candidateId: uuidA }).success).toBe(true);
+    expect(RejectMergeSchema.safeParse({ candidateId: "x" }).success).toBe(false);
+    expect(RejectMergeSchema.safeParse({}).success).toBe(false);
   });
 
   test("CreateManualCandidateSchema rechaza self-pair", () => {
