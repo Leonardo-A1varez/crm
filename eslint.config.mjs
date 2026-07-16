@@ -176,7 +176,14 @@ const eslintConfig = defineConfig([
       "boundaries/element-types": "off",
     },
   },
-  globalIgnores([".next/**", "out/**", "build/**", "coverage/**", "next-env.d.ts"]),
+  globalIgnores([
+    ".next/**",
+    "out/**",
+    "build/**",
+    "coverage/**",
+    "next-env.d.ts",
+    ".superpowers/**",
+  ]),
 ]);
 
 export default eslintConfig;
