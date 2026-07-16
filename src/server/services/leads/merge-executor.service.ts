@@ -81,7 +81,9 @@ export class DefaultMergeExecutorService implements MergeExecutorService {
       throw new ConflictError(`merge_candidate ya resuelto: ${candidate.id}`, "already_resolved");
     }
     if (input.keepLeadId !== candidate.src_lead_id && input.keepLeadId !== candidate.dst_lead_id) {
-      throw new ValidationError("keepLeadId no pertenece al par del candidate");
+      // keepLeadId no pertenece al par del candidate — solo alcanzable con request
+      // crafteado; mensaje curado porque ValidationError sin cause hace passthrough a toast.
+      throw new ValidationError("Datos inválidos. Refrescá la página.");
     }
     const perdedorId =
       input.keepLeadId === candidate.src_lead_id ? candidate.dst_lead_id : candidate.src_lead_id;

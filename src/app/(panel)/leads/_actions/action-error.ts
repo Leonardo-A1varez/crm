@@ -12,7 +12,7 @@ const logger = getLogger({ scope: "leads-actions" });
 /** Mapea errores de service a mensaje curado para toast (detalle técnico solo a logs). */
 export function toActionError(e: unknown, accion: string): { ok: false; error: string } {
   if (e instanceof ConflictError) {
-    return { ok: false, error: "Este par ya fue resuelto o ya existe. Refrescá la página." };
+    return { ok: false, error: "Este par ya fue resuelto o no existe. Refrescá la página." };
   }
   if (e instanceof NotFoundError) {
     return { ok: false, error: "Lead no encontrado. Refrescá la página." };

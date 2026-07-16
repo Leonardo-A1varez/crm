@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { ApproveMergeSchema } from "@/lib/validation/leads.schema";
-import { getCurrentRol } from "@/server/auth/guards";
+import { rolFromUser } from "@/server/auth/guards";
 import { getAuthenticatedUser } from "@/server/auth/supabase-ssr";
 import { getMergeExecutorForRequest } from "@/server/bootstrap/leads-bootstrap";
 import { toActionError } from "./action-error";
@@ -13,13 +13,14 @@ export async function approveMergeAction(raw: unknown): Promise<ActionResult> {
   if (!parsed.success) {
     return { ok: false, error: "Datos inválidos. Refrescá la página." };
   }
-  if ((await getCurrentRol()) !== "admin") {
+  // Un solo round-trip a Supabase Auth: el mismo user sirve para gate y actor.
+  const user = await getAuthenticatedUser();
+  if (rolFromUser(user) !== "admin") {
     return { ok: false, error: "Solo un admin puede fusionar leads." };
   }
 
   let ganadorId: string;
   try {
-    const user = await getAuthenticatedUser();
     const svc = await getMergeExecutorForRequest();
     const r = await svc.approveMerge({
       candidateId: parsed.data.candidateId,
