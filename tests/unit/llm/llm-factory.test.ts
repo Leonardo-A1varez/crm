@@ -1,7 +1,13 @@
 import { describe, expect, test } from "vitest";
+import { ValidationError } from "@/lib/errors";
 import { InMemoryCostTracker } from "@/lib/observability/cost-tracker";
-import { OPENAI_PRICING } from "@/server/services/llm/pricing";
-import { makeLlmFactory, type LlmFactoryConfig } from "@/server/services/llm/llm-factory";
+import { DEFAULT_OPENAI_MODEL, OPENAI_PRICING } from "@/server/services/llm/pricing";
+import {
+  LLM_WORKFLOWS,
+  makeLlmFactory,
+  resolveLlmModels,
+  type LlmFactoryConfig,
+} from "@/server/services/llm/llm-factory";
 import type { IntentClassifierLLM } from "@/server/services/intent-classifier.service";
 import type { TwinExtractorLLM } from "@/server/services/twin-extractor.service";
 import type { ConversationSummarizerLLM } from "@/server/services/conversation-summarizer.service";
@@ -122,8 +128,6 @@ describe("makeLlmFactory — real mode", () => {
   });
 
   test("modelName custom propaga (no override)", () => {
-    // gpt-4o existe en PricingTable. Si modelName desconocido, recordLlmUsage
-    // logea unknown-model pero no falla la construction.
     const bundle = makeLlmFactory({
       mode: "real",
       openaiApiKey: "sk-test",
@@ -131,6 +135,102 @@ describe("makeLlmFactory — real mode", () => {
       costTracker: new InMemoryCostTracker({ pricing: OPENAI_PRICING, dailyCapUsd: 10 }),
     });
     expect(bundle.intentClassifier).toBeDefined();
+  });
+
+  test("modelName sin pricing falla al construir (no en mitad del workflow)", () => {
+    expect(() =>
+      makeLlmFactory({
+        mode: "real",
+        openaiApiKey: "sk-test",
+        modelName: "gpt-inventado",
+        costTracker: new InMemoryCostTracker({ pricing: OPENAI_PRICING, dailyCapUsd: 10 }),
+      }),
+    ).toThrow(ValidationError);
+  });
+
+  test("override por workflow sin pricing tambien falla", () => {
+    expect(() =>
+      makeLlmFactory({
+        mode: "real",
+        openaiApiKey: "sk-test",
+        models: { agent: "gpt-inventado" },
+        costTracker: new InMemoryCostTracker({ pricing: OPENAI_PRICING, dailyCapUsd: 10 }),
+      }),
+    ).toThrow(/gpt-inventado/);
+  });
+
+  test("mock mode ignora los modelos (no valida pricing)", () => {
+    expect(() =>
+      makeLlmFactory({
+        mode: "mock",
+        modelName: "gpt-inventado",
+        models: { agent: "otro-inventado" },
+        costTracker: new InMemoryCostTracker({ pricing: OPENAI_PRICING, dailyCapUsd: 10 }),
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe("resolveLlmModels", () => {
+  test("sin default ni overrides, los 5 workflows usan DEFAULT_OPENAI_MODEL", () => {
+    const models = resolveLlmModels(undefined, {});
+    expect(Object.keys(models).sort()).toEqual([...LLM_WORKFLOWS].sort());
+    for (const workflow of LLM_WORKFLOWS) {
+      expect(models[workflow]).toBe(DEFAULT_OPENAI_MODEL);
+    }
+  });
+
+  test("default explicito aplica a los workflows sin override", () => {
+    const models = resolveLlmModels("gpt-4.1-mini", {});
+    for (const workflow of LLM_WORKFLOWS) {
+      expect(models[workflow]).toBe("gpt-4.1-mini");
+    }
+  });
+
+  test("override pisa solo su workflow, el resto hereda el default", () => {
+    const models = resolveLlmModels("gpt-4o-mini", { agent: "gpt-5-mini" });
+    expect(models.agent).toBe("gpt-5-mini");
+    expect(models.intentClassifier).toBe("gpt-4o-mini");
+    expect(models.twinExtractor).toBe("gpt-4o-mini");
+    expect(models.conversationSummarizer).toBe("gpt-4o-mini");
+    expect(models.intentBatchDetector).toBe("gpt-4o-mini");
+  });
+
+  test("override undefined se ignora (env var ausente hereda el default)", () => {
+    const models = resolveLlmModels("gpt-4o-mini", { agent: undefined });
+    expect(models.agent).toBe("gpt-4o-mini");
+  });
+
+  test("cada workflow puede tener modelo distinto", () => {
+    const models = resolveLlmModels("gpt-4o-mini", {
+      agent: "gpt-5-mini",
+      intentClassifier: "gpt-5-nano",
+      twinExtractor: "gpt-4.1-nano",
+    });
+    expect(models.agent).toBe("gpt-5-mini");
+    expect(models.intentClassifier).toBe("gpt-5-nano");
+    expect(models.twinExtractor).toBe("gpt-4.1-nano");
+    expect(models.conversationSummarizer).toBe("gpt-4o-mini");
+  });
+
+  test("modelo sin pricing lanza ValidationError nombrando el modelo", () => {
+    expect(() => resolveLlmModels("gpt-inventado", {})).toThrow(ValidationError);
+    expect(() => resolveLlmModels("gpt-inventado", {})).toThrow(/gpt-inventado/);
+  });
+
+  test("el error lista los modelos validos para que el fix sea obvio", () => {
+    expect(() => resolveLlmModels("gpt-inventado", {})).toThrow(/gpt-4o-mini/);
+  });
+
+  test("modelos desconocidos se reportan sin repetir", () => {
+    // Mismo modelo invalido en default + override: debe aparecer una sola vez.
+    try {
+      resolveLlmModels("gpt-inventado", { agent: "gpt-inventado" });
+      expect.unreachable("deberia haber lanzado");
+    } catch (err) {
+      const matches = String((err as Error).message).match(/gpt-inventado/g) ?? [];
+      expect(matches).toHaveLength(1);
+    }
   });
 });
 

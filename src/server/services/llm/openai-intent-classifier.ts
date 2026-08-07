@@ -6,6 +6,7 @@ import type {
   IntentClassifierLLM,
 } from "@/server/services/intent-classifier.service";
 import { recordLlmUsage } from "./cost-tracker-bridge";
+import { NON_STRICT_JSON_SCHEMA } from "./structured-output";
 
 export interface OpenAiIntentClassifierConfig {
   /** Language model (e.g., openai("gpt-4o-mini")). Inyectable para tests. */
@@ -51,6 +52,7 @@ export class OpenAiIntentClassifierLLM implements IntentClassifierLLM {
       schema: IntentClassificationSchema,
       system: SYSTEM_PROMPT,
       prompt: `Mensaje del lead: "${input.text}"\n\nCandidates:\n${candidatesText}`,
+      providerOptions: NON_STRICT_JSON_SCHEMA,
     });
 
     await recordLlmUsage(this.cfg.costTracker, result, {

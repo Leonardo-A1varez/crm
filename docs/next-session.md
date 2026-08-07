@@ -35,6 +35,19 @@ Las suites de integration **borran los usuarios dev de `public.usuarios`** (las 
 
 ---
 
+## Decisiones sesión 2026-07-16 (charla creds + plan deploy) — retomar desde acá
+
+Charla posterior al cierre de fase 10. Decisiones tomadas para Slice 4b:
+
+1. **LLM: OpenAI primero, NO Claude.** Código ya cableado a `@ai-sdk/openai` + pricing + cost-tracker calibrados a `gpt-4o-mini` ($0.15/$0.60 por M). Claude más barato (Haiku 4.5) cuesta ~7-8× más y requiere trabajo (dep `@ai-sdk/anthropic` + pricing.ts + factory). Claude queda como plan B solo si la key de OpenAI falla.
+2. **Key OpenAI "Sub Business" del usuario:** es una key de organización — funciona igual que cualquier `sk-...`, factura a esa org. **Pendiente usuario:** (a) verificar en platform.openai.com → Billing que la org tenga crédito, (b) confirmar permiso de uso si la org es de un tercero, (c) si no hay crédito → cargar $5 en cuenta propia (sobra para todo 4b + semanas de dev). **Aclarado: suscripción ChatGPT ≠ créditos API — son billing separados; la API necesita crédito propio prepago.**
+3. **Meta: número de prueba SÍ sirve para 4b, NO para soft launch.** Test number (app Meta → WhatsApp → API Setup): ideal para deploy + webhook + smoke E2E + health, pero solo mensajea hasta 5 destinatarios verificados. Para soft launch 10 leads reales: número real dedicado a Cloud API (sin WhatsApp app activo en ese número — si tiene, borrar esa cuenta primero) vinculado a un Meta Business. Sin verificar el business alcanza tier ~250 conversaciones/día — suficiente para soft launch; verificación después para escalar.
+4. **Plan acordado:** Slice 4b ahora con número de prueba + key OpenAI → validar toda la cadena → conseguir número real recién antes del soft launch. Nota: `.vercel/` ya existe en el repo (link a Vercel hecho); deploy no arrancó.
+
+**Primer paso al retomar:** usuario pone `OPENAI_API_KEY` + creds Meta del test number (`META_APP_SECRET/VERIFY_TOKEN/WHATSAPP_*`) directo en `.env.local` con notepad (jamás al chat) → validar key con llamada mínima → seguir checklist Opción A.
+
+---
+
 ## Cómo continuar (próxima sesión)
 
 ### Opción A — Slice 4b: deploy + soft launch (recomendado; checklist usuario primero)

@@ -101,6 +101,14 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   const llmBundle = makeLlmFactory({
     mode: env.LLM_MODE,
     openaiApiKey: env.OPENAI_API_KEY,
+    modelName: env.OPENAI_MODEL,
+    models: {
+      agent: env.OPENAI_MODEL_AGENT,
+      intentClassifier: env.OPENAI_MODEL_CLASSIFIER,
+      twinExtractor: env.OPENAI_MODEL_TWIN,
+      conversationSummarizer: env.OPENAI_MODEL_SUMMARIZER,
+      intentBatchDetector: env.OPENAI_MODEL_BATCH,
+    },
     costTracker,
   });
 

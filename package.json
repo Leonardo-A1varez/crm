@@ -20,7 +20,7 @@
     "db:gen-types": "supabase gen types typescript --linked > src/server/db/types.gen.ts",
     "db:advisors": "supabase db advisors",
     "db:reset": "supabase db reset --linked",
-    "inngest:dev": "npx --yes inngest-cli@latest dev",
+    "inngest:dev": "npx --yes inngest-cli@latest dev -u http://localhost:3001/api/webhooks/inngest",
     "analyze": "ANALYZE=true next build",
     "ci": "npm run typecheck && npm run lint && npm run format:check && npm run test:coverage",
     "prepare": "lefthook install || true"

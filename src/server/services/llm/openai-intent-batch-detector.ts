@@ -7,6 +7,7 @@ import type {
   IntentBatchDetectorLLM,
 } from "@/server/services/intent-batch-detector.service";
 import { recordLlmUsage } from "./cost-tracker-bridge";
+import { NON_STRICT_JSON_SCHEMA } from "./structured-output";
 
 export interface OpenAiIntentBatchDetectorConfig {
   model: LanguageModel;
@@ -72,6 +73,7 @@ export class OpenAiIntentBatchDetectorLLM implements IntentBatchDetectorLLM {
         "",
         'Devolvé `{ "intents": [...] }` con el array de intents detectados (puede estar vacío).',
       ].join("\n"),
+      providerOptions: NON_STRICT_JSON_SCHEMA,
     });
 
     await recordLlmUsage(this.cfg.costTracker, result, {

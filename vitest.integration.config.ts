@@ -39,6 +39,9 @@ export default defineConfig(({ mode }) => {
         SUPABASE_TEST_SERVICE_KEY: env["SUPABASE_TEST_SERVICE_KEY"] ?? "",
         // Suite RLS (Slice 3): clients authed reales necesitan la anon key.
         NEXT_PUBLIC_SUPABASE_ANON_KEY: env["NEXT_PUBLIC_SUPABASE_ANON_KEY"] ?? "",
+        // Suite de contrato schemas↔OpenAI: valida que los schemas Zod que
+        // mandamos sean aceptables para la API real. Sin key, esa suite skipea.
+        OPENAI_API_KEY: env["OPENAI_API_KEY"] ?? "",
       },
     },
     resolve: {

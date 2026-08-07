@@ -6,6 +6,7 @@ import type {
   TwinExtractorLLMInput,
 } from "@/server/services/twin-extractor.service";
 import { recordLlmUsage } from "./cost-tracker-bridge";
+import { NON_STRICT_JSON_SCHEMA } from "./structured-output";
 
 export interface OpenAiTwinExtractorConfig {
   model: LanguageModel;
@@ -71,6 +72,7 @@ export class OpenAiTwinExtractorLLM implements TwinExtractorLLM {
         "",
         "Devolvé el patch (solo campos a cambiar).",
       ].join("\n"),
+      providerOptions: NON_STRICT_JSON_SCHEMA,
     });
 
     await recordLlmUsage(this.cfg.costTracker, result, {

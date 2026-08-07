@@ -30,8 +30,26 @@ const envSchema = z.object({
   INNGEST_EVENT_KEY: z.string().min(1),
   INNGEST_SIGNING_KEY: z.string().min(1),
 
+  // Modo dev del SDK Inngest: rutea `inngest.send()` al dev server local
+  // (localhost:8288) en vez de Inngest Cloud. Valor "1" o la URL del dev server.
+  // NODE_ENV=development NO alcanza: con INNGEST_EVENT_KEY seteada el SDK asume
+  // cloud, y una key dummy da 401 → el webhook Meta responde 500 y Meta reintenta.
+  INNGEST_DEV: z.string().min(1).optional(),
+
   // OpenAI (vía Vercel AI SDK)
   OPENAI_API_KEY: z.string().min(1),
+
+  // Modelo OpenAI. `OPENAI_MODEL` aplica a los 5 LLM; los `_<WORKFLOW>` pisan
+  // ese default por workflow. Sin ninguno, cae a DEFAULT_OPENAI_MODEL.
+  // Todos deben existir en OPENAI_PRICING o `makeLlmFactory` falla al boot.
+  // Razón del split: el agente le habla al cliente y usa tool calling (justifica
+  // modelo bueno); clasificador y extractor llenan un schema (modelo barato).
+  OPENAI_MODEL: z.string().min(1).optional(),
+  OPENAI_MODEL_AGENT: z.string().min(1).optional(),
+  OPENAI_MODEL_CLASSIFIER: z.string().min(1).optional(),
+  OPENAI_MODEL_TWIN: z.string().min(1).optional(),
+  OPENAI_MODEL_SUMMARIZER: z.string().min(1).optional(),
+  OPENAI_MODEL_BATCH: z.string().min(1).optional(),
 
   // Meta Cloud API
   META_APP_SECRET: z.string().min(1),
@@ -80,7 +98,14 @@ const testEnvSchema = envSchema.partial().transform(
     SUPABASE_SERVICE_ROLE_KEY: partial.SUPABASE_SERVICE_ROLE_KEY ?? "test-service-role",
     INNGEST_EVENT_KEY: partial.INNGEST_EVENT_KEY ?? "test-event-key",
     INNGEST_SIGNING_KEY: partial.INNGEST_SIGNING_KEY ?? "test-signing-key",
+    INNGEST_DEV: partial.INNGEST_DEV,
     OPENAI_API_KEY: partial.OPENAI_API_KEY ?? "test-openai-key",
+    OPENAI_MODEL: partial.OPENAI_MODEL,
+    OPENAI_MODEL_AGENT: partial.OPENAI_MODEL_AGENT,
+    OPENAI_MODEL_CLASSIFIER: partial.OPENAI_MODEL_CLASSIFIER,
+    OPENAI_MODEL_TWIN: partial.OPENAI_MODEL_TWIN,
+    OPENAI_MODEL_SUMMARIZER: partial.OPENAI_MODEL_SUMMARIZER,
+    OPENAI_MODEL_BATCH: partial.OPENAI_MODEL_BATCH,
     META_APP_SECRET: partial.META_APP_SECRET ?? "test-meta-secret",
     META_VERIFY_TOKEN: partial.META_VERIFY_TOKEN ?? "test-verify",
     META_WHATSAPP_PHONE_NUMBER_ID: partial.META_WHATSAPP_PHONE_NUMBER_ID ?? "0",
@@ -99,11 +124,30 @@ const testEnvSchema = envSchema.partial().transform(
   }),
 );
 
+/**
+ * dotenv setea `""` para toda línea `KEY=` sin valor. Zod `.optional()` acepta
+ * `undefined` pero NO `""`, así que una var opcional simplemente declarada vacía
+ * en `.env.local` — que es como las deja `.env.local.example` — tumba el boot con
+ * un error que apunta al schema y no al archivo. Pasó con `UPSTASH_REDIS_REST_URL`
+ * el 2026-08-07: "Invalid URL" sobre una var documentada como opcional.
+ *
+ * Normalizar `"" → undefined` antes de parsear hace que "declarada vacía" y
+ * "ausente" signifiquen lo mismo, que es lo que espera cualquiera que edite el
+ * archivo. Las requeridas siguen fallando igual, con mensaje "Required".
+ */
+function stripEmpty(source: NodeJS.ProcessEnv): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(source)) {
+    out[key] = value === "" ? undefined : value;
+  }
+  return out;
+}
+
 function parseEnv(): AppEnv {
   if (isTest) {
-    return testEnvSchema.parse(process.env);
+    return testEnvSchema.parse(stripEmpty(process.env));
   }
-  const parsed = envSchema.safeParse(process.env);
+  const parsed = envSchema.safeParse(stripEmpty(process.env));
   if (!parsed.success) {
     const issues = parsed.error.issues
       .map((i) => `  - ${i.path.join(".")}: ${i.message}`)
