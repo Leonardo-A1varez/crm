@@ -1197,6 +1197,7 @@ Con `npm run dev` y sesión de `admin-dev@crm.local`, abrir cada una y contrasta
 
 | Ruta                             | Qué mirar                                                                                                                                            |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/login`                         | Fuera del grupo `(panel)`: no hereda el shell, es la ruta mas facil de olvidar. Formulario, inputs y boton legibles                                  |
 | `/inbox`                         | Lista legible sobre fondo oscuro; sin texto negro sobre negro                                                                                        |
 | `/inbox/[leadId]`                | Burbujas y panel del twin legibles                                                                                                                   |
 | `/leads`                         | **Tabla**: encabezados, filas y hover con contraste suficiente                                                                                       |
