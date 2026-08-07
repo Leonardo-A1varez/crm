@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { SideNav } from "@/components/shared/SideNav";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 import { getAuthenticatedUser } from "@/server/auth/supabase-ssr";
@@ -9,7 +10,8 @@ export default async function PanelLayout({ children }: { children: React.ReactN
   return (
     <div className="flex min-h-screen">
       <aside className="bg-sidebar text-sidebar-foreground border-sidebar-border flex w-56 flex-col border-r">
-        <div className="border-sidebar-border border-b p-4">
+        <div className="border-sidebar-border flex items-center gap-2 border-b p-4">
+          <Image src="/logo.png" alt="CRM Repuestos" width={28} height={28} className="rounded" />
           <span className="text-base font-semibold">CRM Repuestos</span>
         </div>
         <div className="flex-1">

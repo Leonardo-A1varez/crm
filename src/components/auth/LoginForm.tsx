@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -30,7 +31,10 @@ export function LoginForm({ onLogin }: { onLogin: (input: LoginInput) => Promise
 
   return (
     <form onSubmit={submit} className="flex w-80 flex-col gap-3">
-      <h1 className="text-lg font-semibold">CRM Repuestos</h1>
+      <div className="flex flex-col items-center gap-2">
+        <Image src="/logo.png" alt="CRM Repuestos" width={72} height={72} className="rounded-xl" />
+        <h1 className="text-lg font-semibold">CRM Repuestos</h1>
+      </div>
       <label className="flex flex-col gap-1 text-sm">
         <span className="text-muted-foreground text-xs">Email</span>
         <Input
