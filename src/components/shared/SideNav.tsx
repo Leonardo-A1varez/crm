@@ -55,8 +55,8 @@ export function SideNav({
         <span
           className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-[9px]"
           style={{
-            background: "linear-gradient(145deg,#FFC46B,#F08A1D)",
-            boxShadow: "0 4px 14px rgba(240,138,29,.28)",
+            background: "linear-gradient(145deg,var(--color-brand-hover),var(--color-brand-deep))",
+            boxShadow: "0 4px 14px color-mix(in srgb, var(--color-brand-deep) 28%, transparent)",
           }}
         >
           <SettingsSuggest className="text-brand-ink" size={19} strokeWidth={1.75} />
@@ -107,7 +107,9 @@ export function SideNav({
                 <span
                   aria-hidden
                   className="bg-brand absolute top-1/2 left-[-10px] h-[18px] w-[2.5px] -translate-y-1/2 rounded-r-[3px]"
-                  style={{ boxShadow: "0 0 10px rgba(255,175,58,.7)" }}
+                  style={{
+                    boxShadow: "0 0 10px color-mix(in srgb, var(--color-brand) 70%, transparent)",
+                  }}
                 />
               ) : null}
               <Icon className="shrink-0" size={18} strokeWidth={1.5} />

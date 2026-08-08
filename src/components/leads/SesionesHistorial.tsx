@@ -1,5 +1,5 @@
-import { StageBadge } from "@/components/lead-twin/StageBadge";
 import { RelativeTime } from "@/components/shared/RelativeTime";
+import { StageBadge } from "@/components/shared/StageBadge";
 import { Badge } from "@/components/ui/badge";
 import type { LeadSession } from "@/types/entities";
 

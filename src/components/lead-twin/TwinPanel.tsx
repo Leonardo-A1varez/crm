@@ -1,9 +1,9 @@
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { StageBadge } from "@/components/lead-twin/StageBadge";
 import { TwinEmptyState } from "@/components/lead-twin/TwinEmptyState";
 import { TwinField } from "@/components/lead-twin/TwinField";
 import { RelativeTime } from "@/components/shared/RelativeTime";
+import { StageBadge } from "@/components/shared/StageBadge";
 import type { MetodoPago, Urgencia } from "@/types/domain";
 import type { LeadSession } from "@/types/entities";
 
