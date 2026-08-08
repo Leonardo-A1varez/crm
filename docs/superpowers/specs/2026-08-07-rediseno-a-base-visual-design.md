@@ -1,6 +1,6 @@
 # Rediseño "sala de control" — Sub-proyecto A: base visual
 
-> Fecha: 2026-08-07 · Estado: aprobado, pendiente de plan
+> Fecha: 2026-08-07 · Estado: implementado (rama `rediseno-a-base-visual`, commits 88fd1cf..07696a5)
 > Handoff de origen: `Rediseño UI sala de control.zip` → `design_handoff_crm_control_room/`
 > Referencia principal: `CRM Repuestos v2.dc.html` + `README.md` del bundle
 
