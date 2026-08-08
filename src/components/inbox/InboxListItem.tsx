@@ -1,13 +1,8 @@
 import Link from "next/link";
+import { ChannelDot } from "@/components/shared/ChannelDot";
+import { StageBadge } from "@/components/shared/StageBadge";
 import { Badge } from "@/components/ui/badge";
-import { StageBadge } from "@/components/lead-twin/StageBadge";
 import type { InboxItem } from "@/types/inbox";
-
-const CANAL_DOT_CLASS: Record<"wa" | "ig" | "fb", string> = {
-  wa: "bg-green-500",
-  ig: "bg-pink-500",
-  fb: "bg-blue-500",
-};
 
 function formatRelative(date: Date): string {
   const diffMs = Date.now() - date.getTime();
@@ -40,11 +35,7 @@ export function InboxListItem({ item }: { item: InboxItem }) {
         </p>
         <div className="flex items-center gap-1">
           {item.canales.map((c) => (
-            <span
-              key={c}
-              aria-label={`Canal ${c}`}
-              className={`h-2 w-2 rounded-full ${CANAL_DOT_CLASS[c]}`}
-            />
+            <ChannelDot key={c} canal={c} size={8} />
           ))}
         </div>
       </div>

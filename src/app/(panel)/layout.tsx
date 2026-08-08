@@ -1,30 +1,21 @@
-import Image from "next/image";
 import { SideNav } from "@/components/shared/SideNav";
-import { LogoutButton } from "@/components/auth/LogoutButton";
+import { rolFromUser } from "@/server/auth/guards";
 import { getAuthenticatedUser } from "@/server/auth/supabase-ssr";
 import { logoutAction } from "./_actions/logout.action";
 
 export default async function PanelLayout({ children }: { children: React.ReactNode }) {
   const user = await getAuthenticatedUser();
+  const email = user?.email ?? "";
+  // split("@")[0] de un string vacío da "" (nunca null/undefined), así que ??
+  // no dispara el fallback: hace falta || para cubrir el caso sin email.
+  const nombre = email.split("@")[0] || "Usuario";
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="bg-sidebar text-sidebar-foreground border-sidebar-border flex w-56 flex-col border-r">
-        <div className="border-sidebar-border flex items-center gap-2 border-b p-4">
-          <Image src="/logo.png" alt="CRM Repuestos" width={28} height={28} className="rounded" />
-          <span className="text-base font-semibold">CRM Repuestos</span>
-        </div>
-        <div className="flex-1">
-          <SideNav />
-        </div>
-        <div className="border-sidebar-border border-t p-2">
-          {user?.email ? (
-            <p className="text-muted-foreground truncate px-3 pb-1 text-xs">{user.email}</p>
-          ) : null}
-          <LogoutButton onLogout={logoutAction} />
-        </div>
-      </aside>
-      <main className="flex-1 overflow-hidden">{children}</main>
+    // overflow-x-auto: por debajo de ~1164px el layout scrollea horizontal en
+    // vez de aplastarse. El diseño asume escritorio; no hay layout móvil.
+    <div className="bg-surface-root flex h-screen overflow-x-auto overflow-y-hidden">
+      <SideNav user={{ nombre, rol: rolFromUser(user) }} onLogout={logoutAction} />
+      <main className="min-w-0 flex-1 overflow-hidden">{children}</main>
     </div>
   );
 }

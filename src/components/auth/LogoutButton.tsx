@@ -2,7 +2,7 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut } from "lucide-react";
+import { Logout } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import type { ActionResult } from "@/types/inbox";
 
@@ -13,9 +13,11 @@ export function LogoutButton({ onLogout }: { onLogout: () => Promise<ActionResul
   return (
     <Button
       variant="ghost"
-      size="sm"
+      size="icon"
+      aria-label="Cerrar sesión"
+      title="Cerrar sesión"
       disabled={isPending}
-      className="w-full justify-start gap-3"
+      className="text-ink-dim hover:text-ink-primary h-7 w-7 shrink-0"
       onClick={() =>
         startTransition(async () => {
           await onLogout();
@@ -24,8 +26,7 @@ export function LogoutButton({ onLogout }: { onLogout: () => Promise<ActionResul
         })
       }
     >
-      <LogOut className="h-4 w-4" />
-      Cerrar sesión
+      <Logout size={17} />
     </Button>
   );
 }

@@ -1101,14 +1101,19 @@ import { logoutAction } from "./_actions/logout.action";
 export default async function PanelLayout({ children }: { children: React.ReactNode }) {
   const user = await getAuthenticatedUser();
   const email = user?.email ?? "";
-  const nombre = email.split("@")[0] ?? "Usuario";
+  // `||` y no `??`: "".split("@") devuelve [""], y `??` solo dispara con
+  // null/undefined, asi que con email vacio el fallback nunca se aplicaria.
+  const nombre = email.split("@")[0] || "Usuario";
 
   return (
     // overflow-x-auto: por debajo de ~1164px el layout scrollea horizontal en
     // vez de aplastarse. El diseño asume escritorio; no hay layout móvil.
     <div className="bg-surface-root flex h-screen overflow-x-auto overflow-y-hidden">
       <SideNav user={{ nombre, rol: rolFromUser(user) }} onLogout={logoutAction} />
-      <main className="flex min-w-0 flex-1 overflow-hidden">{children}</main>
+      {/* Sin `flex`: convertiria a <main> en contenedor flex de sus hijos y las
+          pantallas del panel dejarian de llenarlo. `min-w-0 flex-1` alcanza
+          para dimensionarlo como item flex de la fila externa. */}
+      <main className="min-w-0 flex-1 overflow-hidden">{children}</main>
     </div>
   );
 }
@@ -1197,6 +1202,7 @@ Con `npm run dev` y sesión de `admin-dev@crm.local`, abrir cada una y contrasta
 
 | Ruta                             | Qué mirar                                                                                                                                            |
 | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/login`                         | Fuera del grupo `(panel)`: no hereda el shell, es la ruta mas facil de olvidar. Formulario, inputs y boton legibles                                  |
 | `/inbox`                         | Lista legible sobre fondo oscuro; sin texto negro sobre negro                                                                                        |
 | `/inbox/[leadId]`                | Burbujas y panel del twin legibles                                                                                                                   |
 | `/leads`                         | **Tabla**: encabezados, filas y hover con contraste suficiente                                                                                       |

@@ -1,16 +1,5 @@
+import { canalColor, canalLabel } from "@/lib/ui/canal";
 import type { Canal } from "@/types/domain";
-
-const CANAL_LABEL: Record<Canal, string> = {
-  wa: "WhatsApp",
-  ig: "Instagram",
-  fb: "Facebook Messenger",
-};
-
-const CANAL_COLOR_CLASS: Record<Canal, string> = {
-  wa: "text-green-500",
-  ig: "text-pink-500",
-  fb: "text-blue-500",
-};
 
 function CanalGlyph({ canal, className }: { canal: Canal; className: string }) {
   switch (canal) {
@@ -52,9 +41,9 @@ export function ChannelIcons({
     <div className="flex items-center gap-1.5">
       {activoActual ? (
         <span
-          aria-label={`Canal activo: ${CANAL_LABEL[activoActual]}`}
-          title={CANAL_LABEL[activoActual]}
-          className={CANAL_COLOR_CLASS[activoActual]}
+          aria-label={`Canal activo: ${canalLabel(activoActual)}`}
+          title={canalLabel(activoActual)}
+          style={{ color: canalColor(activoActual) }}
         >
           <CanalGlyph canal={activoActual} className="h-5 w-5" />
         </span>
@@ -62,9 +51,10 @@ export function ChannelIcons({
       {vinculados.map((c) => (
         <span
           key={c}
-          aria-label={`Canal vinculado: ${CANAL_LABEL[c]}`}
-          title={CANAL_LABEL[c]}
-          className={`${CANAL_COLOR_CLASS[c]} opacity-50`}
+          aria-label={`Canal vinculado: ${canalLabel(c)}`}
+          title={canalLabel(c)}
+          className="opacity-50"
+          style={{ color: canalColor(c) }}
         >
           <CanalGlyph canal={c} className="h-3.5 w-3.5" />
         </span>

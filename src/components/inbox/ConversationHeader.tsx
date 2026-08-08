@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { ChannelIcons } from "@/components/inbox/ChannelIcons";
-import { StageBadge } from "@/components/lead-twin/StageBadge";
 import { RelativeTime } from "@/components/shared/RelativeTime";
+import { StageBadge } from "@/components/shared/StageBadge";
 import type { Canal } from "@/types/domain";
 import type { Lead, LeadSession } from "@/types/entities";
 
