@@ -30,12 +30,12 @@ Este spec cubre **solo A**. Cada sub-proyecto restante tendrá su propio ciclo s
 
 El documento de handoff asume un stack que no es el del repo. Al implementar, mandan estos hechos, no el handoff:
 
-| Handoff dice                              | Realidad del repo                                                        |
-| ----------------------------------------- | ------------------------------------------------------------------------ |
-| "Drizzle para datos"                      | No hay Drizzle. Repositorios sobre Supabase (`src/server/repositories/`) |
-| "Next.js 15"                              | Next **16.2.6** — el middleware se llama `proxy` (`src/proxy.ts`)        |
-| "Material Symbols Rounded"                | `lucide-react`, ya presente. Ver §4                                      |
-| "decidir si se elimina el theme switcher" | No existe switcher. No hay `next-themes` ni `ThemeProvider`              |
+| Handoff dice                              | Realidad del repo                                                                                                                                                    |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Drizzle para datos"                      | No hay Drizzle. Repositorios sobre Supabase (`src/server/repositories/`)                                                                                             |
+| "Next.js 15"                              | Next **16.2.6** — el middleware se llama `proxy` (`src/proxy.ts`)                                                                                                    |
+| "Material Symbols Rounded"                | `lucide-react`, ya presente. Ver §4                                                                                                                                  |
+| "decidir si se elimina el theme switcher" | No existe switcher. `next-themes` sí está en el repo (`src/components/ui/sonner.tsx` lo usa para `useTheme`), pero no hay `<ThemeProvider>` montado — nada lo activa |
 
 Hallazgos del schema relevantes para sub-proyectos posteriores, registrados acá para no re-descubrirlos:
 
@@ -104,7 +104,7 @@ Redefinir los tokens que ya consume `src/components/ui/**` es lo que hace que `B
 
 ### 3.2 Tokens propios del diseño
 
-Los que shadcn no tiene. Se declaran en `@theme inline` para que Tailwind genere utilidades (`bg-surface-panel`, `text-ink-dim`, `border-line-card`).
+Los que shadcn no tiene. Superficies, líneas, texto, marca y semánticos se declaran en `@theme inline` para que Tailwind genere utilidades (`bg-surface-panel`, `text-ink-dim`, `border-line-card`). Etapas y canales son la excepción: ver nota al final de esta sección.
 
 **Superficies**
 
@@ -135,6 +135,8 @@ Los que shadcn no tiene. Se declaran en `@theme inline` para que Tailwind genere
 
 **Canales:** WhatsApp `#25D366` · Instagram `#E1306C` · Messenger `#1877F2`
 
+> **Etapas y canales NO se declaran en `@theme inline`.** Viven como constantes TypeScript en `src/lib/ui/stage.ts` y `src/lib/ui/canal.ts` (`stageColor`/`stageLabel`/`stageBadgeBackground`, `canalColor`/`canalLabel`), consumidas con `style` inline por `StageBadge` y `ChannelDot` en `src/components/shared/`. Dos razones, no una omisión: (1) Tailwind genera utilidades a partir de valores estáticos en tiempo de build — no puede generar una clase `bg-{stage}` a partir de un `CurrentStage` que solo se conoce en runtime; (2) el fondo del badge de etapa necesita el color de la etapa compuesto al 13% de alpha (`stageBadgeBackground`), un valor derivado que una utilidad de Tailwind no expresa sin de todos modos recurrir a un `style` inline. Los hex de la tabla de arriba son el mismo valor que esas constantes — no hay divergencia de color, solo de mecanismo.
+
 ### 3.3 Formato: hex, no oklch
 
 El resto de `globals.css` usa oklch (default de shadcn). Los tokens de este spec van en **hex**.
@@ -154,7 +156,7 @@ Razón: el handoff define valores hex exactos y declara fidelidad alta. La únic
 
 Aplicar `dark` en el `<html>` de `src/app/layout.tsx`. El bloque `.dark` de `globals.css` pasa a llevar la paleta de §3.1.
 
-El bloque claro `:root` **queda intacto**. No estorba (lo pisa `.dark`), mantiene el contrato que esperan los componentes de shadcn, y deja abierta una variante clara futura sin trabajo de arqueología. No hay switcher que remover: el repo no tiene `next-themes` ni `ThemeProvider` — la clase `.dark` simplemente nunca se aplicaba, y por eso la app renderiza hoy la paleta clara.
+El bloque claro `:root` **queda intacto**. No estorba (lo pisa `.dark`), mantiene el contrato que esperan los componentes de shadcn, y deja abierta una variante clara futura sin trabajo de arqueología. No hay switcher que remover: el repo tiene `next-themes` como dependencia (lo usa `src/components/ui/sonner.tsx` para `useTheme`), pero no hay `<ThemeProvider>` montado en el árbol — sin él nada activa la clase `.dark` por sí solo, y por eso la app renderiza hoy la paleta clara.
 
 La tipografía **ya cumple**: `src/app/layout.tsx` carga Geist y Geist Mono con `next/font/google`, que las auto-hospeda en el build. Satisface el diseño y respeta la CSP estricta de B3 sin cambios.
 
