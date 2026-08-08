@@ -1,0 +1,19 @@
+# Normaliza finales de linea a LF en el working tree, sin importar el
+# core.autocrlf de cada maquina.
+#
+# Sin esto, en Windows (autocrlf=true) git materializa CRLF mientras
+# .prettierrc.json exige "endOfLine": "lf" — y `npm run ci` queda en rojo tras
+# cualquier clone o cambio de rama, sobre codigo que nadie toco. Quedaba
+# enmascarado porque lefthook corre `prettier --write` antes de cada commit.
+* text=auto eol=lf
+
+# Binarios: nunca tocar.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
