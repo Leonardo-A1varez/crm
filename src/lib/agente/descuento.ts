@@ -30,6 +30,25 @@ const BAJA_DE_PRECIO =
 const OFF = /\d{1,3}(?:[.,]\d{1,2})?\s*%\s*off\b/i;
 
 /**
+ * `X% mas/menos de <atributo>` describe una prestacion del producto, no un
+ * descuento: "te doy 20% mas de potencia", "te hago 20% menos de consumo".
+ * Se exceptua cuando el atributo es el precio —"15% menos del precio de
+ * lista"— que si es una oferta.
+ *
+ * Este veto existe porque el porcentaje puede ser objeto directo de un
+ * ofrecimiento sin ser un descuento: la diferencia no esta en el verbo sino en
+ * a que se aplica el numero.
+ */
+const PORCENTAJE_DE_ATRIBUTO =
+  /\d{1,3}(?:[.,]\d{1,2})?\s*%\s*(mas|menos|m[aá]s)\s+(de|del|en)\s+(?!precio|precios|lista|valor|costo)/i;
+
+/**
+ * "si el precio baja 20%", "cuando el precio baja 20%": habla de un movimiento
+ * hipotetico o futuro del precio, no de una oferta que el agente esta haciendo.
+ */
+const PRECIO_HIPOTETICO = /\b(si|cuando|cuanto|apenas)\s+(el\s+|los\s+)?precios?\s+(baja|bajan)\b/i;
+
+/**
  * Vetos: aunque haya senal de descuento cerca, esto no es un descuento
  * ofrecido. El IVA es el caso que importa — se nombra en casi toda respuesta
  * de precio. Plurales incluidos: `\bimpuesto\b` no matchea "impuestos".
@@ -77,6 +96,8 @@ export function excedeDescuento(texto: string, maximoPct: number): number | null
       OFF.test(contexto);
     if (!esDescuento) continue;
     if (NO_ES_DESCUENTO.test(contexto)) continue;
+    if (PORCENTAJE_DE_ATRIBUTO.test(contexto)) continue;
+    if (PRECIO_HIPOTETICO.test(contexto)) continue;
 
     if (mayor === null || valor > mayor) mayor = valor;
   }

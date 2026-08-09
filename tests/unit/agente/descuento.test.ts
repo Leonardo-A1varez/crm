@@ -187,3 +187,35 @@ describe("no dispara con precios en pasado", () => {
     ).toBeNull();
   });
 });
+
+describe("no dispara cuando el porcentaje describe una prestacion", () => {
+  test("mas de un atributo del producto", () => {
+    // "te doy 20% mas de potencia" es un argumento de venta, no una oferta.
+    expect(excedeDescuento("te doy 20% mas de potencia con este filtro de aire", 10)).toBeNull();
+    expect(excedeDescuento("te dejo un 15% mas de autonomia con esta bateria", 10)).toBeNull();
+    expect(
+      excedeDescuento("te doy un 30% mas de vida util en las pastillas de freno", 10),
+    ).toBeNull();
+    expect(excedeDescuento("te doy 25% mas de torque con este chip", 10)).toBeNull();
+  });
+
+  test("menos de un atributo del producto", () => {
+    expect(excedeDescuento("te hago 20% menos de consumo con este inyector", 10)).toBeNull();
+    expect(
+      excedeDescuento("te dejo 20% menos de vibracion con este soporte de motor", 10),
+    ).toBeNull();
+  });
+
+  test("pero menos del precio si es una oferta", () => {
+    expect(excedeDescuento("Te lo dejo en 15% menos del precio de lista.", 10)).toBe(15);
+  });
+});
+
+describe("no dispara con movimientos hipoteticos del precio", () => {
+  test("condicional y temporal", () => {
+    expect(excedeDescuento("si el precio baja 20% te aviso enseguida", 10)).toBeNull();
+    expect(
+      excedeDescuento("cuando el precio baja 20%, es por promocion de fabrica", 10),
+    ).toBeNull();
+  });
+});
