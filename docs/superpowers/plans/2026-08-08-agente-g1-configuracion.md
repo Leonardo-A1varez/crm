@@ -867,7 +867,7 @@ export function tieneAlgunRango(horario: Horario): boolean {
 - [ ] **Step 4: Correr el test para verificar que pasa**
 
 Run: `npx vitest run tests/unit/agente/horario.test.ts`
-Expected: PASS, 18 tests.
+Expected: PASS, 17 tests.
 
 - [ ] **Step 5: Commitear**
 
