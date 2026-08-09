@@ -90,3 +90,41 @@ describe("si dispara con descuentos reales", () => {
     expect(excedeDescuento("Te dejo un 5% off.", 0)).toBe(5);
   });
 });
+
+describe("el veto gana cuando hay senal de descuento y palabra vetada", () => {
+  test("IVA vetado aunque haya verbo de ofrecimiento cerca", () => {
+    // Sin este test, invertir el orden de las dos comprobaciones o borrar el
+    // veto pasaria desapercibido: los demas casos null llegan por ausencia de
+    // senal, no por veto.
+    expect(excedeDescuento("hacemos el 21% de IVA discriminado en la factura", 10)).toBeNull();
+  });
+
+  test("recargo vetado aunque se ofrezca", () => {
+    expect(excedeDescuento("te aplicamos un 15% de recargo por tarjeta", 10)).toBeNull();
+  });
+});
+
+describe("dispara con frases de recorte de precio sin la palabra descuento", () => {
+  test("clitico entre pronombre y verbo", () => {
+    expect(excedeDescuento("Te lo dejo en 15% menos del precio de lista.", 10)).toBe(15);
+  });
+
+  test("verbos de bajar precio", () => {
+    expect(excedeDescuento("Te bajo el precio un 15%.", 10)).toBe(15);
+    expect(excedeDescuento("Podemos bajarlo un 15%.", 10)).toBe(15);
+    expect(excedeDescuento("Restamos un 15% por pago anticipado.", 10)).toBe(15);
+    expect(excedeDescuento("Con este cupon el precio baja un 20%.", 10)).toBe(20);
+  });
+
+  test("mas barato anclado a palabra de precio", () => {
+    expect(excedeDescuento("Si pagas en efectivo te queda 20% mas barato.", 10)).toBe(20);
+  });
+});
+
+describe("no dispara con menos o mas sin contexto de precio", () => {
+  test("especificacion de producto con menos", () => {
+    // Sin el ancla de precio esto volveria a ser un falso positivo.
+    expect(excedeDescuento("el filtro nuevo tiene 30% menos de restriccion", 10)).toBeNull();
+    expect(excedeDescuento("pesa 20% menos que el original", 10)).toBeNull();
+  });
+});
