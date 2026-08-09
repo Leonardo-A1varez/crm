@@ -77,6 +77,93 @@ export type Database = {
           },
         ]
       }
+      agente_config: {
+        Row: {
+          activa: boolean
+          creada_por: string | null
+          created_at: string
+          descuento_max_pct: number
+          emojis: string
+          horario: Json
+          horario_timezone: string
+          id: string
+          instrucciones: string
+          largo: string
+          max_pasos_tool: number
+          modelo: string
+          nota: string | null
+          plantilla_fuera_horario: string
+          politica_tope: string
+          rollback_de: string | null
+          tono: string
+          tope_gasto_diario_usd: number
+          umbral_resumen_turnos: number
+          ventana_contexto_mensajes: number
+          version: number
+        }
+        Insert: {
+          activa?: boolean
+          creada_por?: string | null
+          created_at?: string
+          descuento_max_pct: number
+          emojis: string
+          horario: Json
+          horario_timezone: string
+          id?: string
+          instrucciones?: string
+          largo: string
+          max_pasos_tool: number
+          modelo: string
+          nota?: string | null
+          plantilla_fuera_horario?: string
+          politica_tope: string
+          rollback_de?: string | null
+          tono: string
+          tope_gasto_diario_usd: number
+          umbral_resumen_turnos: number
+          ventana_contexto_mensajes: number
+          version: number
+        }
+        Update: {
+          activa?: boolean
+          creada_por?: string | null
+          created_at?: string
+          descuento_max_pct?: number
+          emojis?: string
+          horario?: Json
+          horario_timezone?: string
+          id?: string
+          instrucciones?: string
+          largo?: string
+          max_pasos_tool?: number
+          modelo?: string
+          nota?: string | null
+          plantilla_fuera_horario?: string
+          politica_tope?: string
+          rollback_de?: string | null
+          tono?: string
+          tope_gasto_diario_usd?: number
+          umbral_resumen_turnos?: number
+          ventana_contexto_mensajes?: number
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agente_config_creada_por_fkey"
+            columns: ["creada_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agente_config_rollback_de_fkey"
+            columns: ["rollback_de"]
+            isOneToOne: false
+            referencedRelation: "agente_config"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       conversaciones: {
         Row: {
           canal: Database["public"]["Enums"]["canal_enum"]

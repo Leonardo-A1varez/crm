@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
 import { InMemoryConversationsRepository } from "@/server/repositories/conversations.repo";
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
@@ -12,13 +12,26 @@ import { DefaultRuleEngineService } from "@/server/services/rule-engine.service"
 import { DefaultCatalogMatcherService } from "@/server/services/catalog-matcher.service";
 import { DefaultAiAgentService } from "@/server/services/ai-agent.service";
 import {
+  StaticAgentConfigProvider,
+  type AgentConfigProvider,
+} from "@/server/services/agente/config-provider";
+import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
+import {
   onMessageReceivedHandler,
   type OnMessageReceivedDeps,
   type EmittedEvent,
 } from "@/inngest/functions/on-message-received";
 import type { ParsedMessage } from "@/lib/meta/parse-webhook";
+import { DIAS_SEMANA, type Horario } from "@/types/agente";
 import { FakeAgentLLM, FakeIntentClassifierLLM } from "../mocks/llm";
 import { FakeMetaApiClient } from "../mocks/meta";
+
+/** Horario sin ningun rango en ningun dia: `estaAbierto` da false siempre. */
+function horarioCerradoSiempre(): Horario {
+  const horario = {} as Horario;
+  for (const dia of DIAS_SEMANA) horario[dia] = [];
+  return horario;
+}
 
 function parsed(overrides: Partial<ParsedMessage> = {}): ParsedMessage {
   return {
@@ -34,7 +47,9 @@ function parsed(overrides: Partial<ParsedMessage> = {}): ParsedMessage {
   };
 }
 
-function makeDeps(): {
+function makeDeps(
+  configProvider: AgentConfigProvider = new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
+): {
   deps: OnMessageReceivedDeps;
   emitted: EmittedEvent[];
   metaClient: FakeMetaApiClient;
@@ -79,6 +94,7 @@ function makeDeps(): {
     metaApi,
     intentClassifier,
     aiAgent,
+    configProvider,
     emit,
   };
 
@@ -320,5 +336,78 @@ describe("onMessageReceivedHandler", () => {
     );
 
     expect(ctx.intentLLM.calls[0].text).toBe("");
+  });
+});
+
+describe("config del agente en el pipeline", () => {
+  test("la ventana de contexto sale de la config, no de una constante", async () => {
+    const local = makeDeps(
+      new StaticAgentConfigProvider({ ...CONFIG_DE_FABRICA, ventana_contexto_mensajes: 4 }),
+    );
+    const spy = vi.spyOn(local.messages, "listByConversacion");
+    local.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    local.agentLLM.enqueueText("ok");
+
+    await onMessageReceivedHandler({ parsed: parsed() }, local.deps);
+
+    expect(spy).toHaveBeenCalledWith(expect.any(String), { limit: 4 });
+  });
+
+  test("fuera de horario no invoca al LLM y responde la plantilla", async () => {
+    const local = makeDeps(
+      new StaticAgentConfigProvider({
+        ...CONFIG_DE_FABRICA,
+        horario: horarioCerradoSiempre(),
+        plantilla_fuera_horario: "Estamos cerrados, te respondemos manana.",
+      }),
+    );
+
+    await onMessageReceivedHandler({ parsed: parsed() }, local.deps);
+
+    expect(local.agentLLM.calls).toHaveLength(0);
+    expect(local.metaClient.calls.at(-1)?.text).toBe("Estamos cerrados, te respondemos manana.");
+  });
+
+  test("fuera de horario sin plantilla no responde nada", async () => {
+    const local = makeDeps(
+      new StaticAgentConfigProvider({
+        ...CONFIG_DE_FABRICA,
+        horario: horarioCerradoSiempre(),
+        plantilla_fuera_horario: "",
+      }),
+    );
+
+    await onMessageReceivedHandler({ parsed: parsed() }, local.deps);
+
+    expect(local.metaClient.calls).toHaveLength(0);
+  });
+
+  test("una respuesta que excede el descuento no se envia", async () => {
+    const local = makeDeps(
+      new StaticAgentConfigProvider({ ...CONFIG_DE_FABRICA, descuento_max_pct: 5 }),
+    );
+    const spy = vi.spyOn(local.sessions, "update");
+    local.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    local.agentLLM.enqueueText("Te hago un 20% de descuento.");
+
+    await onMessageReceivedHandler({ parsed: parsed() }, local.deps);
+
+    expect(local.metaClient.calls).toHaveLength(0);
+    expect(spy).toHaveBeenCalledWith(expect.any(String), {
+      current_stage: "requiere_humano",
+      ia_pausada: true,
+    });
+  });
+
+  test("una respuesta dentro del descuento se envia normal", async () => {
+    const local = makeDeps(
+      new StaticAgentConfigProvider({ ...CONFIG_DE_FABRICA, descuento_max_pct: 25 }),
+    );
+    local.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    local.agentLLM.enqueueText("Te hago un 20% de descuento.");
+
+    await onMessageReceivedHandler({ parsed: parsed() }, local.deps);
+
+    expect(local.metaClient.calls).toHaveLength(1);
   });
 });

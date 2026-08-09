@@ -36,12 +36,14 @@ import { SupabaseProductsRepository } from "@/server/repositories/productos.supa
 import { SupabaseReactivationDispatchesRepository } from "@/server/repositories/reactivation-dispatches.supabase.repo";
 import { SupabaseRulesRepository } from "@/server/repositories/rules.supabase.repo";
 import { SupabaseToolExecutionsRepository } from "@/server/repositories/tool-executions.supabase.repo";
+import { SupabaseAgenteConfigRepository } from "@/server/repositories/agente-config.supabase.repo";
 
 import { makeCostTracker } from "@/lib/observability/upstash-cost-tracker";
 import { getLogger } from "@/lib/observability/get-logger";
 import type { Logger } from "@/lib/observability/logger";
 import { makeLlmFactory, type LlmBundle } from "@/server/services/llm/llm-factory";
 import { OPENAI_PRICING } from "@/server/services/llm/pricing";
+import { CachedAgentConfigProvider } from "@/server/services/agente/config-provider";
 
 import type { AppEnv } from "@/lib/env";
 import type { AppClient } from "@/server/db/client";
@@ -98,17 +100,23 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     logger,
   });
 
+  // El agente lee su config de la DB en cada turno; los otros 4 LLM siguen por env.
+  const agenteConfigProvider = new CachedAgentConfigProvider(
+    new SupabaseAgenteConfigRepository(db),
+    logger,
+  );
+
   const llmBundle = makeLlmFactory({
     mode: env.LLM_MODE,
     openaiApiKey: env.OPENAI_API_KEY,
     modelName: env.OPENAI_MODEL,
     models: {
-      agent: env.OPENAI_MODEL_AGENT,
       intentClassifier: env.OPENAI_MODEL_CLASSIFIER,
       twinExtractor: env.OPENAI_MODEL_TWIN,
       conversationSummarizer: env.OPENAI_MODEL_SUMMARIZER,
       intentBatchDetector: env.OPENAI_MODEL_BATCH,
     },
+    configProvider: agenteConfigProvider,
     costTracker,
   });
 
@@ -170,6 +178,9 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       metaApi,
       intentClassifier,
       aiAgent,
+      // Misma instancia usada por el LlmBundle: un solo cache de 30s sirve a
+      // todo el pipeline en vez de duplicar lecturas a la DB.
+      configProvider: agenteConfigProvider,
       emit,
       logger,
     },

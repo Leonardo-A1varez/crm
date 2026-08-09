@@ -41,6 +41,8 @@ import { InMemoryCostTracker } from "@/lib/observability/cost-tracker";
 import { NoopLogger, type Logger } from "@/lib/observability/logger";
 import { makeLlmFactory } from "@/server/services/llm/llm-factory";
 import { OPENAI_PRICING } from "@/server/services/llm/pricing";
+import { StaticAgentConfigProvider } from "@/server/services/agente/config-provider";
+import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
 
 import type { CrmInngestClient } from "@/inngest/client";
 import type { CrmInngestDeps } from "@/inngest/functions";
@@ -175,6 +177,7 @@ export function makeSmokeBundle(): SmokeBundle {
       metaApi,
       intentClassifier,
       aiAgent,
+      configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
       emit,
       logger,
     },

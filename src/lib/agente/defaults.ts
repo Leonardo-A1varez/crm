@@ -1,0 +1,39 @@
+import { DIAS_SEMANA, type AgenteConfigValores, type Horario } from "@/types/agente";
+
+/** 24/7 abierto: hoy el agente no tiene restricción horaria y la semilla no debe inventarle una. */
+function horarioAbiertoSiempre(): Horario {
+  const horario = {} as Horario;
+  for (const dia of DIAS_SEMANA) horario[dia] = [{ desde: "00:00", hasta: "23:59" }];
+  return horario;
+}
+
+/**
+ * Config de fábrica. Cumple dos roles a la vez, y por eso vive en un solo lugar:
+ *
+ *   1. Alimenta la fila semilla de la migración.
+ *   2. Es el fallback cuando la config no se puede leer en runtime.
+ *
+ * Dos copias que se desincronizan serían la variante fea del mismo problema:
+ * la app arrancaría con un comportamiento y degradaría a otro distinto.
+ *
+ * Cada valor reproduce una constante que hoy está hardcodeada. Cambiar uno acá
+ * cambia el comportamiento del agente — no es un default cosmético.
+ */
+export const CONFIG_DE_FABRICA: AgenteConfigValores = {
+  modelo: "gpt-4o-mini",
+  instrucciones: "",
+  tono: "cercano",
+  largo: "corto",
+  emojis: "nunca",
+  descuento_max_pct: 0,
+  max_pasos_tool: 5,
+  ventana_contexto_mensajes: 10,
+  umbral_resumen_turnos: 20,
+  tope_gasto_diario_usd: 10,
+  politica_tope: "pausar",
+  horario: horarioAbiertoSiempre(),
+  // Explícita a propósito: en Vercel el server es UTC, y heredarlo haría que el
+  // agente cierre a la hora equivocada, en silencio, para todos.
+  horario_timezone: "America/Argentina/Buenos_Aires",
+  plantilla_fuera_horario: "",
+};

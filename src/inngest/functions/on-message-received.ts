@@ -2,6 +2,8 @@ import { NonRetriableError } from "inngest";
 import { inngest } from "@/inngest/client";
 import { messageReceived } from "@/inngest/events";
 import { isNonRetriable } from "@/lib/errors";
+import { excedeDescuento } from "@/lib/agente/descuento";
+import { estaAbierto } from "@/lib/agente/horario";
 import { NoopLogger, type Logger } from "@/lib/observability/logger";
 import type { ParsedMessage } from "@/lib/meta/parse-webhook";
 import type { IntentClassification } from "@/lib/validation/ai";
@@ -9,13 +11,12 @@ import type { ConversationsRepository } from "@/server/repositories/conversation
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
+import type { AgentConfigProvider } from "@/server/services/agente/config-provider";
 import type { AiAgentService } from "@/server/services/ai-agent.service";
 import type { IntentClassifierService } from "@/server/services/intent-classifier.service";
 import type { MetaApiService } from "@/server/services/meta-api.service";
 import type { Canal } from "@/types/domain";
 import type { Lead, LeadSession, MetaUserIds, UUID } from "@/types/entities";
-
-const RECENT_TURN_LIMIT = 10;
 
 export type EmittedEvent =
   | {
@@ -39,6 +40,7 @@ export interface OnMessageReceivedDeps {
   metaApi: MetaApiService;
   intentClassifier: IntentClassifierService;
   aiAgent: AiAgentService;
+  configProvider: AgentConfigProvider;
   emit: (event: EmittedEvent) => Promise<void>;
   logger?: Logger;
 }
@@ -132,6 +134,44 @@ export async function onMessageReceivedHandler(
       };
     }
 
+    const config = await deps.configProvider.get();
+
+    // Fuera de horario: no se invoca ningun LLM (ni classifier ni agente).
+    // Con plantilla configurada se responde eso; sin ella, no se responde
+    // nada y la sesion queda como esta para que el triage humano la retome.
+    if (!estaAbierto(config.horario, config.horario_timezone, new Date())) {
+      let templateSent = false;
+      if (config.plantilla_fuera_horario !== "") {
+        await step.run("send", () =>
+          deps.metaApi.sendOutbound({
+            conversacionId: conv.id,
+            leadSessionId: session.id,
+            canal: parsed.canal,
+            to: parsed.meta_user_id,
+            contenido: config.plantilla_fuera_horario,
+            sender: "ia",
+            idempotencyKey: `out:${parsed.meta_message_id}`,
+          }),
+        );
+        templateSent = true;
+      }
+      logger.info("pipeline-complete", {
+        duplicate: false,
+        sent: templateSent,
+        skipped: "fuera_de_horario",
+      });
+      return {
+        leadId: lead.id,
+        leadCreated,
+        sessionId: session.id,
+        sessionCreated,
+        conversacionId: conv.id,
+        agentSource: "handoff",
+        sent: templateSent,
+        duplicate: false,
+      };
+    }
+
     const classification = await step.run("classify", () =>
       deps.intentClassifier.classify(parsed.contenido ?? ""),
     );
@@ -141,7 +181,12 @@ export async function onMessageReceivedHandler(
     });
 
     const conversationTurn = await step.run("build-turn", () =>
-      buildConversationTurn(conv.id, deps.messages, session.context_summary),
+      buildConversationTurn(
+        conv.id,
+        deps.messages,
+        session.context_summary,
+        config.ventana_contexto_mensajes,
+      ),
     );
 
     const agentResult = await step.run("respond", () =>
@@ -159,6 +204,41 @@ export async function onMessageReceivedHandler(
 
     let sent = false;
     if (agentResult.source !== "handoff") {
+      const descuentoOfrecido = excedeDescuento(
+        agentResult.respuesta_contenido,
+        config.descuento_max_pct,
+      );
+      if (descuentoOfrecido !== null) {
+        // Se descarta la respuesta: no llega al cliente. La sesion pasa a
+        // triage humano con la IA pausada hasta que alguien la revise.
+        logger.warn("agente.descuento_excedido", {
+          ofrecido: descuentoOfrecido,
+          maximo: config.descuento_max_pct,
+          sessionId: session.id,
+        });
+        await step.run("pausar-por-descuento", () =>
+          deps.sessions.update(session.id, {
+            current_stage: "requiere_humano",
+            ia_pausada: true,
+          }),
+        );
+        logger.info("pipeline-complete", {
+          duplicate: false,
+          sent: false,
+          skipped: "descuento_excedido",
+        });
+        return {
+          leadId: lead.id,
+          leadCreated,
+          sessionId: session.id,
+          sessionCreated,
+          conversacionId: conv.id,
+          agentSource: "handoff",
+          sent: false,
+          duplicate: false,
+        };
+      }
+
       await step.run("send", () =>
         deps.metaApi.sendOutbound({
           conversacionId: conv.id,
@@ -280,8 +360,9 @@ async function buildConversationTurn(
   conversacionId: UUID,
   messages: MessagesRepository,
   contextSummary: string | null,
+  limit: number,
 ): Promise<string[]> {
-  const recent = await messages.listByConversacion(conversacionId, { limit: RECENT_TURN_LIMIT });
+  const recent = await messages.listByConversacion(conversacionId, { limit });
   const formatted = recent
     .slice()
     .reverse()

@@ -39,12 +39,17 @@ const envSchema = z.object({
   // OpenAI (vía Vercel AI SDK)
   OPENAI_API_KEY: z.string().min(1),
 
-  // Modelo OpenAI. `OPENAI_MODEL` aplica a los 5 LLM; los `_<WORKFLOW>` pisan
-  // ese default por workflow. Sin ninguno, cae a DEFAULT_OPENAI_MODEL.
+  // Modelo OpenAI. `OPENAI_MODEL` aplica a los 4 LLM auxiliares; los `_<WORKFLOW>`
+  // pisan ese default por workflow. Sin ninguno, cae a DEFAULT_OPENAI_MODEL.
   // Todos deben existir en OPENAI_PRICING o `makeLlmFactory` falla al boot.
-  // Razón del split: el agente le habla al cliente y usa tool calling (justifica
-  // modelo bueno); clasificador y extractor llenan un schema (modelo barato).
+  // Razón del split: clasificador, extractor, resumidor y batch-detector llenan
+  // un schema cada uno (modelo barato alcanza); el agente habla con el cliente.
   OPENAI_MODEL: z.string().min(1).optional(),
+  // DEPRECADA (Task 8, provider de config): el modelo del agente ya no sale de
+  // env, se configura en /agente (tabla agente_config, leída por turno via
+  // AgentConfigProvider). Se mantiene en el schema por si alguien la tiene
+  // seteada en su .env.local — no borrarla no la hace útil, seguir seteándola
+  // simplemente no tiene efecto.
   OPENAI_MODEL_AGENT: z.string().min(1).optional(),
   OPENAI_MODEL_CLASSIFIER: z.string().min(1).optional(),
   OPENAI_MODEL_TWIN: z.string().min(1).optional(),

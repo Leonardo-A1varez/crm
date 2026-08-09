@@ -411,20 +411,35 @@ describe("directivas de estilo", () => {
 });
 
 describe("instrucciones del negocio", () => {
+  // El encabezado se busca anclado a linea completa, no como substring: el
+  // texto de precedencia de las reglas NOMBRA al bloque ("incluidas las del
+  // bloque INSTRUCCIONES DEL NEGOCIO"), asi que un `toContain` daria positivo
+  // siempre y obligaria a mutilar ese texto para pasar el test.
+  const ENCABEZADO_INSTRUCCIONES = /^INSTRUCCIONES DEL NEGOCIO$/m;
+
   test("vacias no dejan un bloque huerfano con encabezado y nada debajo", () => {
     const prompt = componerSystemPrompt(config({ instrucciones: "" }));
-    expect(prompt).not.toContain("INSTRUCCIONES DEL NEGOCIO");
+    expect(prompt).not.toMatch(ENCABEZADO_INSTRUCCIONES);
   });
 
   test("presentes aparecen bajo su encabezado", () => {
     const prompt = componerSystemPrompt(config({ instrucciones: "Solo vendemos Toyota." }));
-    expect(prompt).toContain("INSTRUCCIONES DEL NEGOCIO");
+    expect(prompt).toMatch(ENCABEZADO_INSTRUCCIONES);
     expect(prompt).toContain("Solo vendemos Toyota.");
   });
 
   test("solo espacios en blanco cuentan como vacias", () => {
     const prompt = componerSystemPrompt(config({ instrucciones: "   \n\t  " }));
-    expect(prompt).not.toContain("INSTRUCCIONES DEL NEGOCIO");
+    expect(prompt).not.toMatch(ENCABEZADO_INSTRUCCIONES);
+  });
+
+  test("el encabezado de reglas es UNO SOLO, con o sin instrucciones", () => {
+    // Dos variantes de un string critico de seguridad es una fuente de deriva:
+    // alguien corrige una y olvida la otra.
+    const conInstrucciones = componerSystemPrompt(config({ instrucciones: "algo" }));
+    const sinInstrucciones = componerSystemPrompt(config({ instrucciones: "" }));
+    const bloqueReglas = (p: string) => p.slice(p.indexOf("REGLAS INVIOLABLES"));
+    expect(bloqueReglas(sinInstrucciones)).toBe(bloqueReglas(conInstrucciones));
   });
 });
 
@@ -546,7 +561,7 @@ export function componerSystemPrompt(config: AgenteConfigValores): string {
 - [ ] **Step 4: Correr el test para verificar que pasa**
 
 Run: `npx vitest run tests/unit/agente/prompt.test.ts`
-Expected: PASS, 17 tests.
+Expected: PASS, 18 tests.
 
 - [ ] **Step 5: Commitear**
 
@@ -1414,7 +1429,7 @@ export class InMemoryAgenteConfigRepository implements AgenteConfigRepository {
 - [ ] **Step 5: Correr los tests para verificar que pasan**
 
 Run: `npx vitest run tests/unit/repositories/agente-config.test.ts`
-Expected: PASS, 14 tests.
+Expected: PASS, 13 tests.
 
 - [ ] **Step 6: Implementar la impl Supabase**
 
@@ -3013,6 +3028,7 @@ Detalles que el spec exige y no son negociables:
 - La opción `seguir` de política de tope va en rojo y exige confirmación explícita: convierte el kill-switch en un adorno y el usuario tiene que saberlo.
 - La opción `solo_reglas` advierte que hasta G2 se comporta igual que `pausar`.
 - Bajo las instrucciones, un bloque colapsable **"Ver el prompt que se va a enviar"** que renderiza `componerSystemPrompt(configActual)`. La relación config → prompt tiene que ser auditable desde la pantalla, no una caja negra.
+- **`EditorHorario` tiene que resolver el cruce de medianoche.** `normalizarRangos` descarta un rango 22:00-02:00 por invertido: el modelo es "rangos dentro de un dia". Si el usuario escribe un rango cuya hora de fin es menor que la de inicio, el editor debe ofrecer partirlo en los dos dias que corresponden (lun 22:00-23:59 + mar 00:00-02:00, que funciona sin huecos) en vez de dejar que se guarde y desaparezca en silencio. Sin esto, un negocio nocturno se configura y queda cerrado sin entender por que.
 - La barra de guardado dice **"los cambios se aplican en menos de un minuto"** — el TTL de 30 s, dicho con honestidad en vez de prometer instantaneidad.
 
 - [ ] **Step 2: Navegación**

@@ -16,6 +16,8 @@ import { DefaultLeadMergeDetectorService } from "@/server/services/lead-merge-de
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
 import { DefaultRuleEngineService } from "@/server/services/rule-engine.service";
 import { DefaultTwinExtractorService } from "@/server/services/twin-extractor.service";
+import { StaticAgentConfigProvider } from "@/server/services/agente/config-provider";
+import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
 import { makeCrmInngestFunctions } from "@/inngest/functions";
 import {
   FakeAgentLLM,
@@ -58,6 +60,7 @@ describe("makeCrmInngestFunctions", () => {
         metaApi,
         intentClassifier,
         aiAgent,
+        configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
         emit: async () => {},
       },
       updateLeadTwin: { twinExtractor },

@@ -37,6 +37,10 @@ export default defineConfig({
         "src/components/productos/**", // fase 9: validados browser Playwright
         "src/components/leads/**", // fase 10: validados browser + E2E merge
         "src/app/**/_actions/**",
+        // Misma política que src/components/**: UI validada en navegador, no
+        // con unit tests. Vive bajo src/app/ y no src/components/ porque es
+        // privada de una ruta, pero es UI igual.
+        "src/app/**/_components/**",
         "src/app/**/error.tsx",
         "src/app/**/loading.tsx",
         "src/proxy.ts",
