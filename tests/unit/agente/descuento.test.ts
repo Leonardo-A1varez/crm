@@ -111,13 +111,7 @@ describe("dispara con frases de recorte de precio sin la palabra descuento", () 
 
   test("verbos de bajar precio", () => {
     expect(excedeDescuento("Te bajo el precio un 15%.", 10)).toBe(15);
-    expect(excedeDescuento("Podemos bajarlo un 15%.", 10)).toBe(15);
-    expect(excedeDescuento("Restamos un 15% por pago anticipado.", 10)).toBe(15);
     expect(excedeDescuento("Con este cupon el precio baja un 20%.", 10)).toBe(20);
-  });
-
-  test("mas barato anclado a palabra de precio", () => {
-    expect(excedeDescuento("Si pagas en efectivo te queda 20% mas barato.", 10)).toBe(20);
   });
 });
 
@@ -126,5 +120,45 @@ describe("no dispara con menos o mas sin contexto de precio", () => {
     // Sin el ancla de precio esto volveria a ser un falso positivo.
     expect(excedeDescuento("el filtro nuevo tiene 30% menos de restriccion", 10)).toBeNull();
     expect(excedeDescuento("pesa 20% menos que el original", 10)).toBeNull();
+  });
+});
+
+describe("limitacion conocida: parafrasis de descuento sin senal inequivoca", () => {
+  // Se aceptan estos falsos negativos a proposito. Cubrirlos exigia senales
+  // ambiguas (`baja`, `menos`, `queda`) que disparaban con especificaciones de
+  // producto — "la bateria baja 20%", "queda 15% menos de stock"— y bloquear
+  // una respuesta sana cuesta un cliente, mientras que no detectar una
+  // parafrasis cuesta margen. El control real del margen no es este modulo.
+  test("verbo de bajar sin la palabra precio", () => {
+    expect(excedeDescuento("Podemos bajarlo un 15%.", 10)).toBeNull();
+  });
+
+  test("restar", () => {
+    expect(excedeDescuento("Restamos un 15% por pago anticipado.", 10)).toBeNull();
+  });
+
+  test("mas barato", () => {
+    expect(excedeDescuento("Si pagas en efectivo te queda 20% mas barato.", 10)).toBeNull();
+  });
+});
+
+describe("no dispara con especificaciones tecnicas que usan bajar o menos", () => {
+  test("bajar sin la palabra precio", () => {
+    expect(excedeDescuento("la bateria baja 20% en invierno", 10)).toBeNull();
+    expect(
+      excedeDescuento("el consumo de combustible baja 20% respecto al modelo anterior", 10),
+    ).toBeNull();
+    expect(excedeDescuento("el rendimiento baja 20% con el uso", 10)).toBeNull();
+  });
+
+  test("menos con palabras de precio alrededor", () => {
+    expect(excedeDescuento("el filtro cuesta lo mismo y pesa 20% menos", 10)).toBeNull();
+    expect(excedeDescuento("queda 15% menos de stock", 10)).toBeNull();
+    expect(
+      excedeDescuento("queda 15% menos de stock, aunque el precio de lista no cambia", 10),
+    ).toBeNull();
+    expect(
+      excedeDescuento("El precio de lista es $50000 y el modelo nuevo pesa 20% menos.", 10),
+    ).toBeNull();
   });
 });

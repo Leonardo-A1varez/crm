@@ -1,27 +1,28 @@
 /** Porcentaje con coma o punto decimal y espacio opcional antes del simbolo. */
 const PORCENTAJE = /(\d{1,3}(?:[.,]\d{1,2})?)\s*%/g;
 
-/**
- * Senales lexicas de descuento. La guarda exige una cerca del numero: sin senal
- * positiva, un "te lo garantizo 100%" o un "bateria cargada al 80%" disparaban
- * y mandaban a un cliente sano a la cola humana.
- *
- * El clitico opcional (`te LO dejo`) esta contemplado a proposito: exigir
- * pronombre y verbo adyacentes dejaba afuera una construccion tan comun como
- * la que si matcheaba.
- */
-const ES_DESCUENTO =
-  /\b(descuento|descuentos|dto|off|rebaja|rebajas|rebajo|rebajamos|bonificacion|bonificaci[oó]n|promo|promocion|promoci[oó]n)\b|\b(te|le|les|lo|la)\s+(lo|la|los|las)?\s*(hago|dejo|doy|bajo|bajamos|bajarlo|rebajo)\b|\b(hacemos|dejamos|ofrecemos|aplicamos|restamos|bonificamos|bajamos|bajarlo|baja)\b/i;
+/** Sustantivos que solo significan descuento. */
+const SUSTANTIVO_DESCUENTO =
+  /\b(descuento|descuentos|dto|rebaja|rebajas|bonificaci[oó]n|bonificacion|promo|promoci[oó]n|promocion)\b/i;
 
 /**
- * "X% menos" y "X% mas barato" solo cuentan como descuento si hay una palabra
- * de precio cerca. Sin ese ancla, "tiene 30% menos de peso" —una especificacion
- * de producto— volveria a disparar, que es justo el falso positivo que este
- * modulo dejo de tener.
+ * Ofrecimiento en primera persona hacia el cliente: "te hago un 15%",
+ * "te lo dejo en 15%", "les damos un 10%". El clitico opcional esta
+ * contemplado —"te LO dejo"— porque exigir adyacencia dejaba afuera una
+ * construccion tan comun como la que si matcheaba.
  */
-const RECORTE_DE_PRECIO = /\b(menos|mas barato|m[aá]s barato)\b/i;
-const PALABRA_DE_PRECIO =
-  /\b(precio|precios|sale|cuesta|queda|quedan|pagas|pag[aá]s|abonas|abon[aá]s|total|lista|efectivo)\b/i;
+const OFRECIMIENTO = /\b(te|le|les)\s+(lo|la|los|las)?\s*(hago|hacemos|dejo|dejamos|doy|damos)\b/i;
+
+/**
+ * Bajar el precio, con la palabra `precio` pegada al verbo. El ancla es
+ * obligatoria: sin ella, "la bateria baja 20% en invierno" disparaba, y
+ * "bajar" es de los verbos mas genericos del idioma.
+ */
+const BAJA_DE_PRECIO =
+  /\b(baj|rebaj)\w*\s+(el\s+|los\s+|un\s+)?precios?\b|\bprecios?\s+(baj|rebaj)\w*/i;
+
+/** "20% off" — el anglicismo es inequivoco en contexto comercial. */
+const OFF = /\d{1,3}(?:[.,]\d{1,2})?\s*%\s*off\b/i;
 
 /**
  * Vetos: aunque haya senal de descuento cerca, esto no es un descuento
@@ -36,13 +37,18 @@ const VENTANA = 40;
 /**
  * Busca descuentos ofrecidos por encima del maximo permitido.
  *
- * Reconoce las formas frecuentes de ofrecer un descuento ("te hago un 15%",
- * "te lo dejo en 20% menos del precio", "restamos un 10%", etc.), no todas
- * las posibles: un LLM puede expresar un descuento con una frase fuera de esta
- * lista, o en pesos sin porcentaje, y esta guarda no lo va a ver. Es una red
- * que reduce la exposicion, no un control que la elimina. El control real
- * sobre el margen esta en otro lado: el agente no puede inventar precios,
- * porque salen de `buscar_repuesto` contra el catalogo.
+ * Tres rondas de ajuste mostraron que un matcher lexico no puede separar de
+ * forma confiable "20% de descuento" de "20% menos de peso" en español: cada
+ * ampliacion de las senales reabria falsos positivos, cada acotamiento volvia
+ * a dejar pasar parafrasis. Por eso la guarda solo dispara con lenguaje
+ * inequivoco ("descuento", "te hago un 15%", "bajamos el precio", "% off") y
+ * acepta las parafrasis como falso negativo: bloquear una respuesta sana le
+ * cuesta un cliente a la empresa, no detectar una parafrasis le cuesta margen,
+ * y esa asimetria es la que define el diseño. No es el control del margen —
+ * eso lo resuelve la arquitectura, no el texto: el agente no puede inventar
+ * precios, porque salen de `buscar_repuesto` contra el catalogo. La solucion
+ * de fondo, que un descuento exija una llamada a herramienta y deje de ser un
+ * problema de parseo de texto, queda para una tarea posterior.
  *
  * @returns el mayor porcentaje que excede `maximoPct`, o `null` si ninguno lo hace.
  */
@@ -59,8 +65,10 @@ export function excedeDescuento(texto: string, maximoPct: number): number | null
     const inicio = Math.max(0, (match.index ?? 0) - VENTANA);
     const contexto = texto.slice(inicio, (match.index ?? 0) + match[0].length + VENTANA);
     const esDescuento =
-      ES_DESCUENTO.test(contexto) ||
-      (RECORTE_DE_PRECIO.test(contexto) && PALABRA_DE_PRECIO.test(contexto));
+      SUSTANTIVO_DESCUENTO.test(contexto) ||
+      OFRECIMIENTO.test(contexto) ||
+      BAJA_DE_PRECIO.test(contexto) ||
+      OFF.test(contexto);
     if (!esDescuento) continue;
     if (NO_ES_DESCUENTO.test(contexto)) continue;
 
