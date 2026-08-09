@@ -26,6 +26,7 @@ import type { TwinExtractorLLM } from "@/server/services/twin-extractor.service"
 import type { ConversationSummarizerLLM } from "@/server/services/conversation-summarizer.service";
 import type { IntentBatchDetectorLLM } from "@/server/services/intent-batch-detector.service";
 import type { AgentLLM } from "@/server/services/ai-agent.service";
+import type { AgentConfigProvider } from "@/server/services/agente/config-provider";
 
 import { DEFAULT_OPENAI_MODEL, OPENAI_PRICING } from "./pricing";
 import { OpenAiIntentClassifierLLM } from "./openai-intent-classifier";
@@ -47,7 +48,6 @@ export const LLM_WORKFLOWS = [
   "twinExtractor",
   "conversationSummarizer",
   "intentBatchDetector",
-  "agent",
 ] as const;
 
 export type LlmWorkflow = (typeof LLM_WORKFLOWS)[number];
@@ -71,6 +71,8 @@ export interface LlmFactoryConfig {
   modelName?: string;
   /** Solo real mode. Pisa `modelName` por workflow. */
   models?: LlmModelOverrides;
+  /** Solo real mode. Obligatorio: el agente lee su modelo de acá por turno. */
+  configProvider?: AgentConfigProvider;
   /** CostTracker compartido entre 5 LLMs. */
   costTracker: CostTracker;
 }
@@ -125,6 +127,11 @@ export function makeLlmFactory(cfg: LlmFactoryConfig): LlmBundle {
         "LLM_MODE=real requiere openaiApiKey (lee de env.OPENAI_API_KEY). Setear var o cambiar LLM_MODE=mock.",
       );
     }
+    if (!cfg.configProvider) {
+      throw new ValidationError(
+        "LLM_MODE=real requiere configProvider para el agente (lee agente_config por turno).",
+      );
+    }
     const models = resolveLlmModels(cfg.modelName, cfg.models);
     const provider = createOpenAI({ apiKey: cfg.openaiApiKey });
     const configFor = (workflow: LlmWorkflow) => ({
@@ -140,7 +147,11 @@ export function makeLlmFactory(cfg: LlmFactoryConfig): LlmBundle {
         configFor("conversationSummarizer"),
       ),
       intentBatchDetector: new OpenAiIntentBatchDetectorLLM(configFor("intentBatchDetector")),
-      agent: new OpenAiAgentLLM(configFor("agent")),
+      agent: new OpenAiAgentLLM({
+        provider,
+        configProvider: cfg.configProvider,
+        costTracker: cfg.costTracker,
+      }),
     };
   }
   // Exhaustiveness check + runtime guard si caller bypassa types.

@@ -1,7 +1,11 @@
 import { generateText, stepCountIs, tool, type LanguageModel } from "ai";
 import type { CostTracker } from "@/lib/observability/cost-tracker";
+import type { Logger } from "@/lib/observability/logger";
 import { withSpan } from "@/lib/observability/tracing";
 import { BuscarRepuestoInputSchema } from "@/lib/validation/ai";
+import { componerSystemPrompt } from "@/lib/agente/prompt";
+import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
+import type { AgentConfigProvider } from "@/server/services/agente/config-provider";
 import type {
   AgentLLM,
   AgentLLMInput,
@@ -9,36 +13,27 @@ import type {
   ToolCallRecord,
 } from "@/server/services/ai-agent.service";
 import { recordLlmUsage } from "./cost-tracker-bridge";
+import { OPENAI_PRICING } from "./pricing";
 
 export interface OpenAiAgentConfig {
-  model: LanguageModel;
-  modelName: string;
+  /** El modelo concreto se elige por turno segun la config, no al construir. */
+  provider: (modelo: string) => LanguageModel;
+  configProvider: AgentConfigProvider;
   costTracker: CostTracker;
-  /** Máx steps tool-call loop. Default 5 — pilot tier conversaciones cortas. */
-  maxSteps?: number;
+  logger?: Logger;
 }
 
-const DEFAULT_MAX_STEPS = 5;
-
-const SYSTEM_PROMPT = [
-  "Sos un vendedor IA experto en repuestos automotrices para LATAM (Argentina, Brasil, México, Chile, Colombia, Perú).",
-  "Conversación informal, tuteás al cliente. Respuestas cortas (max 3-4 frases).",
-  "Tu objetivo: identificar la pieza buscada + dar precio + cerrar venta o pasar a humano si no podés.",
-  "Usás la tool `buscar_repuesto` para encontrar productos en el catálogo. NO inventes precios ni stock.",
-  "Si la tool devuelve 0 matches, decí honestamente que no lo tenemos.",
-  "El intent classification del último mensaje y el estado actual de la sesión te llegan como contexto.",
-  "Si el cliente necesita algo que no podés resolver con la tool, sugerí handoff a vendedor humano.",
-].join(" ");
-
 /**
- * OpenAI impl `AgentLLM`. Slice 1 sub-paso 7.5.
+ * OpenAI impl `AgentLLM`. Slice 1 sub-paso 7.5. Cablear el agente al provider
+ * de config (Slice 1 sub-paso 7.8/Task 8): modelo y system prompt ya no se
+ * resuelven al construir, se leen de `configProvider.get()` en cada turno.
  *
  * Usa `generateText` con tool `buscar_repuesto` que delega al
  * `AgentTools.buscar_repuesto` provisto por el caller (service consumidor
  * `DefaultAiAgentService` wrapea con audit + cost-tracking de la tool en sí).
  *
- * Tool loop limitado por `stopWhen: stepCountIs(maxSteps)` — evita runaway
- * costs si LLM se queda llamando tools indefinidamente.
+ * Tool loop limitado por `stopWhen: stepCountIs(config.max_pasos_tool)` —
+ * evita runaway costs si LLM se queda llamando tools indefinidamente.
  *
  * Mapea `result.toolCalls` + `result.toolResults` join-by-toolCallId a
  * `ToolCallRecord[]` que devuelve al service consumidor (este los persiste
@@ -46,13 +41,18 @@ const SYSTEM_PROMPT = [
  * denied) son skipped.
  */
 export class OpenAiAgentLLM implements AgentLLM {
-  private readonly maxSteps: number;
-
-  constructor(private readonly cfg: OpenAiAgentConfig) {
-    this.maxSteps = cfg.maxSteps ?? DEFAULT_MAX_STEPS;
-  }
+  constructor(private readonly cfg: OpenAiAgentConfig) {}
 
   async generate(input: AgentLLMInput): Promise<AgentLLMResult> {
+    const config = await this.cfg.configProvider.get();
+    // La Server Action valida el modelo al guardar; si igual llega uno sin
+    // pricing (dato viejo, edición manual en DB), caer al de fabrica es
+    // mejor que no responder al cliente.
+    const modelo = config.modelo in OPENAI_PRICING ? config.modelo : CONFIG_DE_FABRICA.modelo;
+    if (modelo !== config.modelo) {
+      this.cfg.logger?.error("agente.modelo_sin_pricing", { modelo: config.modelo });
+    }
+
     const contextBlock = JSON.stringify(
       {
         intent_clasificado: input.classification.intent_nombre,
@@ -76,11 +76,11 @@ export class OpenAiAgentLLM implements AgentLLM {
 
     const result = await withSpan(
       "llm.ai-agent",
-      { model: this.cfg.modelName, sessionId: input.session.id },
+      { model: modelo, sessionId: input.session.id },
       () =>
         generateText({
-          model: this.cfg.model,
-          system: SYSTEM_PROMPT,
+          model: this.cfg.provider(modelo),
+          system: componerSystemPrompt(config),
           prompt: [
             "Contexto:",
             contextBlock,
@@ -98,12 +98,12 @@ export class OpenAiAgentLLM implements AgentLLM {
               execute: async (args) => input.tools.buscar_repuesto(args),
             }),
           },
-          stopWhen: stepCountIs(this.maxSteps),
+          stopWhen: stepCountIs(config.max_pasos_tool),
         }),
     );
 
     await recordLlmUsage(this.cfg.costTracker, result, {
-      model: this.cfg.modelName,
+      model: modelo,
       workflow: "ai-agent",
       sessionId: input.session.id,
     });

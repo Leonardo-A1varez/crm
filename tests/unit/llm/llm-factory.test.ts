@@ -8,6 +8,8 @@ import {
   resolveLlmModels,
   type LlmFactoryConfig,
 } from "@/server/services/llm/llm-factory";
+import { StaticAgentConfigProvider } from "@/server/services/agente/config-provider";
+import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
 import type { IntentClassifierLLM } from "@/server/services/intent-classifier.service";
 import type { TwinExtractorLLM } from "@/server/services/twin-extractor.service";
 import type { ConversationSummarizerLLM } from "@/server/services/conversation-summarizer.service";
@@ -23,6 +25,7 @@ const REAL_CONFIG: LlmFactoryConfig = {
   mode: "real",
   openaiApiKey: "sk-test-fake-key",
   modelName: "gpt-4o-mini",
+  configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
   costTracker: new InMemoryCostTracker({ pricing: OPENAI_PRICING, dailyCapUsd: 10 }),
 };
 
@@ -122,6 +125,7 @@ describe("makeLlmFactory — real mode", () => {
     const bundle = makeLlmFactory({
       mode: "real",
       openaiApiKey: "sk-test",
+      configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
       costTracker: new InMemoryCostTracker({ pricing: OPENAI_PRICING, dailyCapUsd: 10 }),
     });
     expect(bundle.intentClassifier).toBeDefined();
@@ -132,6 +136,7 @@ describe("makeLlmFactory — real mode", () => {
       mode: "real",
       openaiApiKey: "sk-test",
       modelName: "gpt-4o",
+      configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
       costTracker: new InMemoryCostTracker({ pricing: OPENAI_PRICING, dailyCapUsd: 10 }),
     });
     expect(bundle.intentClassifier).toBeDefined();
@@ -143,6 +148,7 @@ describe("makeLlmFactory — real mode", () => {
         mode: "real",
         openaiApiKey: "sk-test",
         modelName: "gpt-inventado",
+        configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
         costTracker: new InMemoryCostTracker({ pricing: OPENAI_PRICING, dailyCapUsd: 10 }),
       }),
     ).toThrow(ValidationError);
@@ -153,7 +159,8 @@ describe("makeLlmFactory — real mode", () => {
       makeLlmFactory({
         mode: "real",
         openaiApiKey: "sk-test",
-        models: { agent: "gpt-inventado" },
+        models: { intentClassifier: "gpt-inventado" },
+        configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
         costTracker: new InMemoryCostTracker({ pricing: OPENAI_PRICING, dailyCapUsd: 10 }),
       }),
     ).toThrow(/gpt-inventado/);
@@ -164,15 +171,43 @@ describe("makeLlmFactory — real mode", () => {
       makeLlmFactory({
         mode: "mock",
         modelName: "gpt-inventado",
-        models: { agent: "otro-inventado" },
+        models: { intentClassifier: "otro-inventado" },
         costTracker: new InMemoryCostTracker({ pricing: OPENAI_PRICING, dailyCapUsd: 10 }),
       }),
     ).not.toThrow();
   });
 });
 
+describe("agente con config provider", () => {
+  test("real mode sin configProvider tira error claro", () => {
+    expect(() =>
+      makeLlmFactory({
+        mode: "real",
+        openaiApiKey: "sk-test",
+        costTracker: new InMemoryCostTracker({ pricing: OPENAI_PRICING, dailyCapUsd: 10 }),
+      }),
+    ).toThrow(/configProvider/);
+  });
+
+  test("mock mode no lo requiere", () => {
+    expect(() =>
+      makeLlmFactory({
+        mode: "mock",
+        costTracker: new InMemoryCostTracker({ pricing: OPENAI_PRICING, dailyCapUsd: 10 }),
+      }),
+    ).not.toThrow();
+  });
+
+  test("resolveLlmModels ya no incluye al agente", () => {
+    // El modelo del agente sale de la DB, no del env: dejarlo en la lista
+    // haria creer que OPENAI_MODEL_AGENT sigue teniendo efecto.
+    expect(LLM_WORKFLOWS).not.toContain("agent");
+    expect(LLM_WORKFLOWS).toHaveLength(4);
+  });
+});
+
 describe("resolveLlmModels", () => {
-  test("sin default ni overrides, los 5 workflows usan DEFAULT_OPENAI_MODEL", () => {
+  test("sin default ni overrides, los 4 workflows usan DEFAULT_OPENAI_MODEL", () => {
     const models = resolveLlmModels(undefined, {});
     expect(Object.keys(models).sort()).toEqual([...LLM_WORKFLOWS].sort());
     for (const workflow of LLM_WORKFLOWS) {
@@ -188,26 +223,25 @@ describe("resolveLlmModels", () => {
   });
 
   test("override pisa solo su workflow, el resto hereda el default", () => {
-    const models = resolveLlmModels("gpt-4o-mini", { agent: "gpt-5-mini" });
-    expect(models.agent).toBe("gpt-5-mini");
+    const models = resolveLlmModels("gpt-4o-mini", { twinExtractor: "gpt-5-mini" });
+    expect(models.twinExtractor).toBe("gpt-5-mini");
     expect(models.intentClassifier).toBe("gpt-4o-mini");
-    expect(models.twinExtractor).toBe("gpt-4o-mini");
     expect(models.conversationSummarizer).toBe("gpt-4o-mini");
     expect(models.intentBatchDetector).toBe("gpt-4o-mini");
   });
 
   test("override undefined se ignora (env var ausente hereda el default)", () => {
-    const models = resolveLlmModels("gpt-4o-mini", { agent: undefined });
-    expect(models.agent).toBe("gpt-4o-mini");
+    const models = resolveLlmModels("gpt-4o-mini", { twinExtractor: undefined });
+    expect(models.twinExtractor).toBe("gpt-4o-mini");
   });
 
   test("cada workflow puede tener modelo distinto", () => {
     const models = resolveLlmModels("gpt-4o-mini", {
-      agent: "gpt-5-mini",
+      intentBatchDetector: "gpt-5-mini",
       intentClassifier: "gpt-5-nano",
       twinExtractor: "gpt-4.1-nano",
     });
-    expect(models.agent).toBe("gpt-5-mini");
+    expect(models.intentBatchDetector).toBe("gpt-5-mini");
     expect(models.intentClassifier).toBe("gpt-5-nano");
     expect(models.twinExtractor).toBe("gpt-4.1-nano");
     expect(models.conversationSummarizer).toBe("gpt-4o-mini");
@@ -225,7 +259,7 @@ describe("resolveLlmModels", () => {
   test("modelos desconocidos se reportan sin repetir", () => {
     // Mismo modelo invalido en default + override: debe aparecer una sola vez.
     try {
-      resolveLlmModels("gpt-inventado", { agent: "gpt-inventado" });
+      resolveLlmModels("gpt-inventado", { twinExtractor: "gpt-inventado" });
       expect.unreachable("deberia haber lanzado");
     } catch (err) {
       const matches = String((err as Error).message).match(/gpt-inventado/g) ?? [];
