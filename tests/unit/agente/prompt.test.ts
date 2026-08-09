@@ -104,20 +104,35 @@ describe("directivas de estilo", () => {
 });
 
 describe("instrucciones del negocio", () => {
+  // El encabezado se busca anclado a linea completa, no como substring: el
+  // texto de precedencia de las reglas NOMBRA al bloque ("incluidas las del
+  // bloque INSTRUCCIONES DEL NEGOCIO"), asi que un `toContain` daria positivo
+  // siempre y obligaria a mutilar ese texto para pasar el test.
+  const ENCABEZADO_INSTRUCCIONES = /^INSTRUCCIONES DEL NEGOCIO$/m;
+
   test("vacias no dejan un bloque huerfano con encabezado y nada debajo", () => {
     const prompt = componerSystemPrompt(config({ instrucciones: "" }));
-    expect(prompt).not.toContain("INSTRUCCIONES DEL NEGOCIO");
+    expect(prompt).not.toMatch(ENCABEZADO_INSTRUCCIONES);
   });
 
   test("presentes aparecen bajo su encabezado", () => {
     const prompt = componerSystemPrompt(config({ instrucciones: "Solo vendemos Toyota." }));
-    expect(prompt).toContain("INSTRUCCIONES DEL NEGOCIO");
+    expect(prompt).toMatch(ENCABEZADO_INSTRUCCIONES);
     expect(prompt).toContain("Solo vendemos Toyota.");
   });
 
   test("solo espacios en blanco cuentan como vacias", () => {
     const prompt = componerSystemPrompt(config({ instrucciones: "   \n\t  " }));
-    expect(prompt).not.toContain("INSTRUCCIONES DEL NEGOCIO");
+    expect(prompt).not.toMatch(ENCABEZADO_INSTRUCCIONES);
+  });
+
+  test("el encabezado de reglas es UNO SOLO, con o sin instrucciones", () => {
+    // Dos variantes de un string critico de seguridad es una fuente de deriva:
+    // alguien corrige una y olvida la otra.
+    const conInstrucciones = componerSystemPrompt(config({ instrucciones: "algo" }));
+    const sinInstrucciones = componerSystemPrompt(config({ instrucciones: "" }));
+    const bloqueReglas = (p: string) => p.slice(p.indexOf("REGLAS INVIOLABLES"));
+    expect(bloqueReglas(sinInstrucciones)).toBe(bloqueReglas(conInstrucciones));
   });
 });
 
