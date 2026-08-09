@@ -25,14 +25,15 @@ interface NavItem {
   Icon: ComponentType<{ className?: string; size?: number; strokeWidth?: number }>;
 }
 
-// Las rutas NO cambian en este sub-proyecto. El handoff llama "Agente IA" a
-// /intents-reglas, pero esa consola no existe hasta el sub-proyecto G: un ítem
-// que promete una pantalla inexistente es peor que un label viejo.
+// /agente (sub-proyecto G1) ya existe: la consola real de configuración del
+// agente. /intents-reglas queda como stub — la reemplaza el sub-proyecto G2 —
+// y por eso no tiene ítem propio en el nav: un ítem que apunta a un stub es
+// peor que no tenerlo.
 const ITEMS: readonly NavItem[] = [
   { href: "/inbox", label: "Bandeja", Icon: InboxIcon },
   { href: "/leads", label: "Leads", Icon: Group },
   { href: "/productos", label: "Productos", Icon: Inventory2 },
-  { href: "/intents-reglas", label: "Intents y reglas", Icon: SmartToy },
+  { href: "/agente", label: "Agente IA", Icon: SmartToy },
   { href: "/tags", label: "Tags", Icon: Sell },
   { href: "/metricas", label: "Métricas", Icon: BarChartIcon },
   { href: "/ajustes", label: "Ajustes", Icon: SettingsIcon },
