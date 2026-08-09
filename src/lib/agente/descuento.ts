@@ -6,20 +6,25 @@ const SUSTANTIVO_DESCUENTO =
   /\b(descuento|descuentos|dto|rebaja|rebajas|bonificaci[oó]n|bonificacion|promo|promoci[oó]n|promocion)\b/i;
 
 /**
- * Ofrecimiento en primera persona hacia el cliente: "te hago un 15%",
- * "te lo dejo en 15%", "les damos un 10%". El clitico opcional esta
- * contemplado —"te LO dejo"— porque exigir adyacencia dejaba afuera una
- * construccion tan comun como la que si matcheaba.
+ * Ofrecimiento donde el porcentaje es el objeto directo: "te hago un 15%",
+ * "te lo dejo en 15%", "les damos un 10%".
+ *
+ * El porcentaje va DENTRO del patron a proposito. Antes se buscaba el verbo y
+ * el porcentaje por separado en la misma ventana, y eso disparaba con
+ * ofrecimientos de informacion: "te doy el filtro que rinde 20% mas" no ofrece
+ * ningun descuento.
  */
-const OFRECIMIENTO = /\b(te|le|les)\s+(lo|la|los|las)?\s*(hago|hacemos|dejo|dejamos|doy|damos)\b/i;
+const OFRECIMIENTO_CON_PORCENTAJE =
+  /\b(te|le|les)\s+(lo|la|los|las)?\s*(hago|hacemos|dejo|dejamos|doy|damos)\s+(un|una|el|la|en|de)?\s*\d{1,3}(?:[.,]\d{1,2})?\s*%/i;
 
 /**
- * Bajar el precio, con la palabra `precio` pegada al verbo. El ancla es
- * obligatoria: sin ella, "la bateria baja 20% en invierno" disparaba, y
- * "bajar" es de los verbos mas genericos del idioma.
+ * Bajar el precio, con la palabra `precio` pegada al verbo y solo en formas de
+ * presente o infinitivo. El comodin `baj\w*` incluia el pasado, y
+ * "los precios bajaron 20% el año pasado" es una respuesta sobre historia de
+ * precios, no una oferta vigente.
  */
 const BAJA_DE_PRECIO =
-  /\b(baj|rebaj)\w*\s+(el\s+|los\s+|un\s+)?precios?\b|\bprecios?\s+(baj|rebaj)\w*/i;
+  /\b(bajo|bajamos|baja|bajan|bajar|bajarlo|bajarte|rebajo|rebajamos|rebajar|rebajo)\s+(el\s+|los\s+|un\s+)?precios?\b|\bprecios?\s+(baja|bajan|bajo|bajamos)\b/i;
 
 /** "20% off" — el anglicismo es inequivoco en contexto comercial. */
 const OFF = /\d{1,3}(?:[.,]\d{1,2})?\s*%\s*off\b/i;
@@ -40,10 +45,11 @@ const VENTANA = 40;
  * Tres rondas de ajuste mostraron que un matcher lexico no puede separar de
  * forma confiable "20% de descuento" de "20% menos de peso" en español: cada
  * ampliacion de las senales reabria falsos positivos, cada acotamiento volvia
- * a dejar pasar parafrasis. Por eso la guarda solo dispara con lenguaje
- * inequivoco ("descuento", "te hago un 15%", "bajamos el precio", "% off") y
- * acepta las parafrasis como falso negativo: bloquear una respuesta sana le
- * cuesta un cliente a la empresa, no detectar una parafrasis le cuesta margen,
+ * a dejar pasar parafrasis. Por eso la guarda solo dispara cuando el
+ * porcentaje es el objeto directo de un ofrecimiento ("te hago un 15%"), o
+ * cuando aparece junto a una senal lexica inequivoca ("descuento", "bajamos
+ * el precio", "% off"), y acepta las parafrasis como falso negativo: bloquear
+ * una respuesta sana le cuesta un cliente a la empresa, no detectar una parafrasis le cuesta margen,
  * y esa asimetria es la que define el diseño. No es el control del margen —
  * eso lo resuelve la arquitectura, no el texto: el agente no puede inventar
  * precios, porque salen de `buscar_repuesto` contra el catalogo. La solucion
@@ -66,7 +72,7 @@ export function excedeDescuento(texto: string, maximoPct: number): number | null
     const contexto = texto.slice(inicio, (match.index ?? 0) + match[0].length + VENTANA);
     const esDescuento =
       SUSTANTIVO_DESCUENTO.test(contexto) ||
-      OFRECIMIENTO.test(contexto) ||
+      OFRECIMIENTO_CON_PORCENTAJE.test(contexto) ||
       BAJA_DE_PRECIO.test(contexto) ||
       OFF.test(contexto);
     if (!esDescuento) continue;

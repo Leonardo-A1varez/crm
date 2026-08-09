@@ -162,3 +162,28 @@ describe("no dispara con especificaciones tecnicas que usan bajar o menos", () =
     ).toBeNull();
   });
 });
+
+describe("no dispara con ofrecimientos que no son de descuento", () => {
+  test("ofrecer un producto o un dato cerca de un porcentaje de especificacion", () => {
+    // "te doy"/"te dejo" seguido de algo que no es el porcentaje: el numero es
+    // una especificacion, no lo que se ofrece.
+    expect(excedeDescuento("te doy el filtro que rinde 20% mas", 10)).toBeNull();
+    expect(
+      excedeDescuento("te doy un dato: el rendimiento sube 20% con este aceite", 10),
+    ).toBeNull();
+    expect(
+      excedeDescuento("te lo dejo anotado: el filtro rinde 20% mas que el original", 10),
+    ).toBeNull();
+  });
+});
+
+describe("no dispara con precios en pasado", () => {
+  test("historia de precios no es una oferta vigente", () => {
+    expect(
+      excedeDescuento(
+        "Los precios bajaron 20% el año pasado por la inflacion, ahora estan estables.",
+        10,
+      ),
+    ).toBeNull();
+  });
+});
