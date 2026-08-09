@@ -24,6 +24,15 @@ export function esTimezoneValida(tz: string): boolean {
  * Ordena por inicio, descarta invalidos y fusiona solapados o adyacentes.
  * Se aplica antes de guardar: dejar rangos solapados en la base obliga a que
  * cada lector los resuelva, y tarde o temprano uno lo hace distinto.
+ *
+ * LIMITACION CONOCIDA: un rango que cruza medianoche (22:00-02:00) se descarta
+ * por invertido. El modelo es "rangos dentro de un dia", no "intervalos en una
+ * linea de tiempo". Para un negocio nocturno hay que partirlo en dos dias
+ * —lun 22:00-23:59 y mar 00:00-02:00— y eso funciona sin huecos, pero la UI
+ * tiene que guiarlo: quien escriba 22:00-02:00 a mano se queda sin horario y
+ * en silencio. Aceptado a proposito: soportar wrap-around mete logica de
+ * frontera de dia en `estaAbierto` por un caso que un negocio de repuestos
+ * casi no tiene.
  */
 export function normalizarRangos(rangos: RangoHorario[]): RangoHorario[] {
   const validos = rangos

@@ -3028,6 +3028,7 @@ Detalles que el spec exige y no son negociables:
 - La opción `seguir` de política de tope va en rojo y exige confirmación explícita: convierte el kill-switch en un adorno y el usuario tiene que saberlo.
 - La opción `solo_reglas` advierte que hasta G2 se comporta igual que `pausar`.
 - Bajo las instrucciones, un bloque colapsable **"Ver el prompt que se va a enviar"** que renderiza `componerSystemPrompt(configActual)`. La relación config → prompt tiene que ser auditable desde la pantalla, no una caja negra.
+- **`EditorHorario` tiene que resolver el cruce de medianoche.** `normalizarRangos` descarta un rango 22:00-02:00 por invertido: el modelo es "rangos dentro de un dia". Si el usuario escribe un rango cuya hora de fin es menor que la de inicio, el editor debe ofrecer partirlo en los dos dias que corresponden (lun 22:00-23:59 + mar 00:00-02:00, que funciona sin huecos) en vez de dejar que se guarde y desaparezca en silencio. Sin esto, un negocio nocturno se configura y queda cerrado sin entender por que.
 - La barra de guardado dice **"los cambios se aplican en menos de un minuto"** — el TTL de 30 s, dicho con honestidad en vez de prometer instantaneidad.
 
 - [ ] **Step 2: Navegación**
