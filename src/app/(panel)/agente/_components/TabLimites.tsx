@@ -47,6 +47,15 @@ export function TabLimites({
     onChange({ politica_tope: p });
   }
 
+  // No reentra en seleccionarPolitica: en el momento del click, valores.politica_tope
+  // todavía no es "seguir" (el onChange real no se disparó todavía), así que llamar
+  // seleccionarPolitica("seguir") de nuevo solo reabriría la confirmación en vez de
+  // aplicar el cambio. "seguir" queda inalcanzable desde la UI si se reentra.
+  function confirmarSeguirPolitica() {
+    setConfirmarSeguir(false);
+    onChange({ politica_tope: "seguir" });
+  }
+
   return (
     <div className="flex flex-col gap-5">
       <section className="bg-surface-card border-line-card rounded-[15px] border p-[17px]">
@@ -190,7 +199,7 @@ export function TabLimites({
               </button>
               <button
                 type="button"
-                onClick={() => seleccionarPolitica("seguir")}
+                onClick={confirmarSeguirPolitica}
                 className="bg-danger text-ink-primary ml-auto rounded-[7px] px-3 py-1.5 text-[11px] font-semibold"
               >
                 Sí, desactivar el tope
