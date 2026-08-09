@@ -178,6 +178,9 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       metaApi,
       intentClassifier,
       aiAgent,
+      // Misma instancia usada por el LlmBundle: un solo cache de 30s sirve a
+      // todo el pipeline en vez de duplicar lecturas a la DB.
+      configProvider: agenteConfigProvider,
       emit,
       logger,
     },

@@ -11,6 +11,8 @@ import { DefaultIntentClassifierService } from "@/server/services/intent-classif
 import { DefaultRuleEngineService } from "@/server/services/rule-engine.service";
 import { DefaultCatalogMatcherService } from "@/server/services/catalog-matcher.service";
 import { DefaultAiAgentService } from "@/server/services/ai-agent.service";
+import { StaticAgentConfigProvider } from "@/server/services/agente/config-provider";
+import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
 import {
   onMessageReceivedHandler,
   type EmittedEvent,
@@ -76,6 +78,7 @@ function makeDeps() {
     metaApi,
     intentClassifier,
     aiAgent,
+    configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
     emit,
   };
 
