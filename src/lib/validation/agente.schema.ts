@@ -88,3 +88,15 @@ export type GuardarConfigFormInput = z.infer<typeof GuardarConfigSchema>;
 
 export const RollbackConfigSchema = z.object({ configId: UUIDSchema });
 export type RollbackConfigFormInput = z.infer<typeof RollbackConfigSchema>;
+
+/**
+ * Input de `previsualizarAction` (Task 11). Reusa `GuardarConfigSchema` para
+ * la config candidata en vez de duplicar sus 14 campos: una config que no es
+ * guardable tampoco es previsualizable, y con schemas distintos esa garantía
+ * se pierde en cuanto uno de los dos cambie sin el otro.
+ */
+export const PrevisualizarConfigSchema = z.object({
+  config: GuardarConfigSchema,
+  leadSessionId: UUIDSchema,
+});
+export type PrevisualizarConfigFormInput = z.infer<typeof PrevisualizarConfigSchema>;

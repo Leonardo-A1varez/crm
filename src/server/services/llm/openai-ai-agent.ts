@@ -21,6 +21,14 @@ export interface OpenAiAgentConfig {
   configProvider: AgentConfigProvider;
   costTracker: CostTracker;
   logger?: Logger;
+  /**
+   * Nombre de workflow para el cost tracker. Default "ai-agent" (produccion,
+   * turnos reales) — no tocar ese default no rompe a `llm-factory.ts`. El
+   * preview de config (Task 11) pasa "agente-preview" para que el reporte de
+   * costos distinga gasto de pruebas de gasto real; sin este parametro las
+   * dos cosas se mezclarian bajo la misma etiqueta.
+   */
+  workflow?: string;
 }
 
 /**
@@ -104,7 +112,7 @@ export class OpenAiAgentLLM implements AgentLLM {
 
     await recordLlmUsage(this.cfg.costTracker, result, {
       model: modelo,
-      workflow: "ai-agent",
+      workflow: this.cfg.workflow ?? "ai-agent",
       sessionId: input.session.id,
     });
 
