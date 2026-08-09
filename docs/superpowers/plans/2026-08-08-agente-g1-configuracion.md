@@ -1429,7 +1429,7 @@ export class InMemoryAgenteConfigRepository implements AgenteConfigRepository {
 - [ ] **Step 5: Correr los tests para verificar que pasan**
 
 Run: `npx vitest run tests/unit/repositories/agente-config.test.ts`
-Expected: PASS, 14 tests.
+Expected: PASS, 13 tests.
 
 - [ ] **Step 6: Implementar la impl Supabase**
 
