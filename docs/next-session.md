@@ -1,6 +1,6 @@
 # Cómo retomar la sesión
 
-> Última actualización: 2026-08-09. **Rediseño sub-proyecto A mergeado a master. G1 (config del agente en runtime) COMPLETO en la rama `agente-g1-configuracion`, 24 commits SIN MERGEAR.** Users dev: `admin-dev@crm.local` / `dev-admin-2026!` · `vendedor-dev@crm.local` / `dev-vendedor-2026!`.
+> Última actualización: 2026-08-09. **Rediseño A y agente G1 mergeados a master (`3be7398`). Spec y plan del sub-proyecto B escritos y aprobados, sin ejecutar.** Users dev: `admin-dev@crm.local` / `dev-admin-2026!` · `vendedor-dev@crm.local` / `dev-vendedor-2026!`.
 
 ---
 
@@ -40,21 +40,27 @@
 
 ---
 
-## 🔴 Lo primero al retomar: decidir el merge de G1
+## 🔴 Lo primero al retomar
 
-La rama **`agente-g1-configuracion`** tiene **24 commits**, está completa y verificada por tarea, pero **sin mergear y sin review de rama entera**.
+**Ejecutar el sub-proyecto B — Bandeja unificada.** Spec y plan escritos, aprobados y commiteados:
 
-Falta:
+- Spec: `docs/superpowers/specs/2026-08-09-rediseno-b-bandeja-design.md`
+- Plan: `docs/superpowers/plans/2026-08-09-rediseno-b-bandeja.md` (6 tareas)
 
-1. **Review final de rama completa** con el modelo más capaz, como se hizo con el sub-proyecto A. Ese review encontró en A un defecto que los 9 reviews por tarea no vieron: `src/lib/ui/` estaba construido, testeado y sin consumidores, mientras las pantallas seguían pintando con la paleta vieja.
-2. **E2E real de WhatsApp**: cambiar el tono a formal desde `/agente`, mandar un mensaje real, verificar que la respuesta trate de usted. **Nunca se hizo.** Requiere levantar el túnel y reconfigurar el webhook en Meta.
-3. Merge a master.
+Ejecutar con `superpowers:subagent-driven-development`.
 
-Ledger completo: `.superpowers/sdd/2026-08-08-agente-g1-configuracion/progress.md`.
+### ⚠️ Dos deudas de G1 que quedaron sin hacer
+
+G1 se mergeó con las verificaciones por tarea completas, pero **sin dos cosas que sí se hicieron en el sub-proyecto A**:
+
+1. **Review de rama completa.** En A, ese review encontró un defecto que los 9 reviews por tarea no vieron: `src/lib/ui/` estaba construido, testeado y sin consumidores mientras las pantallas seguían pintando con la paleta vieja. G1 no tuvo ese pase. Se puede hacer igual sobre master, revisando el rango `f5a12f6..3be7398`.
+2. **E2E real de WhatsApp.** Cambiar el tono a formal desde `/agente`, mandar un mensaje real, y verificar que la respuesta trate de usted. **Nunca se hizo.** Es lo único que prueba que la config llega de verdad al agente en producción; la CI no lo cubre.
+
+Ninguna bloquea B, pero conviene cerrarlas antes del soft launch.
 
 ---
 
-## §G1 — Config del agente en runtime (COMPLETO, sin mergear)
+## §G1 — Config del agente en runtime (MERGEADO en `3be7398`)
 
 Spec: `docs/superpowers/specs/2026-08-08-agente-g1-configuracion-design.md`
 Plan: `docs/superpowers/plans/2026-08-08-agente-g1-configuracion.md` (13 tareas)
