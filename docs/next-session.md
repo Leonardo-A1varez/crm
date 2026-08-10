@@ -1,6 +1,6 @@
 # Cómo retomar la sesión
 
-> Última actualización: 2026-08-09. **Rediseño A y agente G1 mergeados y pusheados (`d84e9fb`). Sub-proyecto B en curso: 3 de 6 tareas, rama `rediseno-b-bandeja`.** Users dev: `admin-dev@crm.local` / `dev-admin-2026!` · `vendedor-dev@crm.local` / `dev-vendedor-2026!`.
+> Última actualización: 2026-08-09. **Rediseño A y agente G1 mergeados y pusheados (`d84e9fb`). Sub-proyecto B completo en la rama `rediseno-b-bandeja`, sin mergear.** Users dev: `admin-dev@crm.local` / `dev-admin-2026!` · `vendedor-dev@crm.local` / `dev-vendedor-2026!`.
 
 ---
 
@@ -34,34 +34,42 @@
 | Slice 2 fase 10 Leads              | ✅                      | Lista + detalle + merge                                   |
 | **Slice 4b — cadena WhatsApp E2E** | ✅ **validada local**   | Ver §Slice 4b                                             |
 | **Rediseño A — base visual**       | ✅ **en master**        | Tokens, dark, íconos, primitivas, SideNav, shell          |
-| **Agente G1 — config runtime**     | ✅ **rama sin mergear** | Ver §G1                                                   |
-| Rediseño B-G                       | ⚪                      | Ver §Rediseño                                             |
+| **Agente G1 — config runtime**     | ✅ **en master**        | Ver §G1                                                   |
+| **Rediseño B — bandeja unificada** | ✅ **rama sin mergear** | 6/6 tareas, `rediseno-b-bandeja`                          |
+| Rediseño C-G                       | ⚪                      | Ver §Rediseño                                             |
 | Deploy Vercel + soft launch        | ⚪                      | Bloqueado por catálogo vacío                              |
 
 ---
 
-## 🔴 Lo primero al retomar: terminar B
+## 🔴 Lo primero al retomar: mergear B y arrancar D
 
-**Rama `rediseno-b-bandeja`, 3 de 6 tareas hechas.** Árbol limpio.
+**Rama `rediseno-b-bandeja`, 6 de 6 tareas hechas.** Árbol limpio, CI verde.
 
 | Tarea                        | Commit    | Estado                                                     |
 | ---------------------------- | --------- | ---------------------------------------------------------- |
 | 1 · Shell de 3 paneles       | `be78de4` | ✅ lista 322px, Twin 322px, scroll sobrevive la navegación |
 | 2 · Panel de lista           | `f97b05f` | ✅ filtros sin refetchear el layout                        |
 | 3 · Header e hilo            | `87529c0` | ✅ orden cronológico y toggle de IA verificados            |
-| 4 · Burbujas y composer      | —         | pendiente                                                  |
-| 5 · Twin con rail del embudo | —         | pendiente                                                  |
-| 6 · Verificación completa    | —         | pendiente                                                  |
+| 4 · Burbujas y composer      | `738fa31` | ✅ 4 burbujas por `sender`, max-width 62% medido           |
+| 5 · Twin con rail del embudo | `d396a9f` | ✅ rail normal y congelado, ambos medidos                  |
+| 6 · Verificación completa    | `bc58de2` | ✅ encontró un defecto de layout y lo arregló              |
 
 Plan: `docs/superpowers/plans/2026-08-09-rediseno-b-bandeja.md`
 Ledger con el detalle de cada tarea: `.superpowers/sdd/2026-08-09-rediseno-b-bandeja/progress.md`
 
-Ejecutar con `superpowers:subagent-driven-development`, empezando por la Task 4.
+**Antes de mergear conviene un review de rama completa** (rango `d84e9fb..bc58de2`). En A ese pase encontró un defecto que los 9 reviews por tarea no vieron; G1 no lo tuvo y quedó como deuda.
 
-### Reglas que las tareas restantes tienen que respetar
+### Lo que B dejó sin verificar
 
-- **No correr `npm run build` con el dev server levantado.** Corrompe `.next/` y el navegador queda colgado mostrando skeletons de `loading.tsx` en rutas que nadie tocó. Esto ensució la verificación de las Tasks 1 y 2 antes de que se diagnosticara. Si hace falta build, parar dev primero.
-- **Verificación medida en navegador como criterio de aceptación**, no revisión por lectura. B es todo layout.
+1. **El envío real desde el composer nunca se probó.** `sendMessage` va derecho a `metaApi.sendOutbound`: mandarlo es un WhatsApp real al `+593979932363`. No hay camino de dry-run. La burbuja de vendedor sí se verificó, pero insertando una fila a mano, no por el flujo real.
+2. **Comparación visual humana contra el prototipo.** El handoff (`CRM Repuestos v2.dc.html`) no está en el repo; todos los chequeos fueron medidos sobre el DOM. Es la misma deuda que quedó abierta en A.
+3. **Las tres pruebas interactivas de la Task 6** (scroll de la lista que sobrevive la selección, deep-link, scroll horizontal por debajo de 1164px) se verificaron por estructura y por medición, no clickeando: el panel del navegador no componía frames. Ver la lección 6 de `AGENTS.md` §2.
+
+### Reglas que siguen valiendo para C-G
+
+- **No correr `npm run build` con el dev server levantado.** Corrompe `.next/` y el navegador queda colgado mostrando skeletons de `loading.tsx` en rutas que nadie tocó.
+- **Con el panel del navegador oculto (`document.hidden`) React no revela los Suspense** y la conversación queda clavada en el skeleton para siempre. No es `.next/` corrupto. Se mide igual pidiendo el HTML del server por `fetch` e inyectando la raíz de la página en el slot del panel.
+- **Verificación medida en navegador como criterio de aceptación**, no revisión por lectura.
 - **Regenerar el brief si se corrige el plan** a mitad de ejecución: los briefs no se actualizan solos.
 
 ### Deudas abiertas de B
@@ -148,12 +156,12 @@ Handoff: `Rediseño UI sala de control.zip` → `design_handoff_crm_control_room
 | #   | Sub-proyecto                                 | Estado                                                           |
 | --- | -------------------------------------------- | ---------------------------------------------------------------- |
 | A   | Base visual                                  | ✅ en master                                                     |
-| B   | Bandeja unificada de 3 paneles               | ⚪ **siguiente por pedido del usuario**                          |
+| B   | Bandeja unificada de 3 paneles               | ✅ rama `rediseno-b-bandeja` sin mergear                         |
 | C   | Ventana de 24 h + estados de entrega         | ⚪ requiere migración + persistir webhooks de status de Meta     |
-| D   | Triage (motivo + prioridad)                  | ⚪ cálculo en server                                             |
+| D   | Triage (motivo + prioridad)                  | ⚪ **siguiente**: cálculo en server, y absorbe las deudas de B   |
 | E   | Twin con procedencia y edición               | ⚪ requiere migración por campo                                  |
 | F   | Métricas en 3 cortes                         | ⚪ `mensajes` ya tiene `direction` y `sender`: viable sin migrar |
-| G1  | Config del agente                            | ✅ rama sin mergear                                              |
+| G1  | Config del agente                            | ✅ en master                                                     |
 | G2  | Motor de reglas y escalado (absorbe fase 11) | ⚪                                                               |
 
 ### ⚠️ Lección para planear B
@@ -177,7 +185,7 @@ Ir pantalla por pantalla mejorando apariencia y utilidad, empezando por **Bandej
 
 **Utilidad actual de `/inbox`:** lista de conversaciones activas, y `/inbox/[leadId]` una página aparte a pantalla completa con la conversación y el panel del twin. Sin triage, orden cronológico.
 
-**El sub-proyecto B es exactamente su rediseño**: unifica ambas en un layout de 3 paneles fijos (lista 322px · conversación flex, mín 520px · twin 322px), conservando `/inbox/[leadId]` para deep-linking. Es decir: **mejorar Bandeja es hacer B**. Conviene tratarlo como tal —spec → plan → ejecución— y no como retoques sueltos.
+**El sub-proyecto B era exactamente su rediseño y ya está hecho**: unifica ambas en un layout de 3 paneles fijos (lista 322px · conversación flex, mín 520px · twin 322px), conservando `/inbox/[leadId]` para deep-linking. Falta el renombre y seguir pantalla por pantalla con las que siguen.
 
 ---
 
@@ -205,4 +213,4 @@ supabase migration list --linked
 
 ## Cómo dar contexto al asistente al volver
 
-> Leé `AGENTS.md` y `docs/next-session.md`. Estado: rediseño A en master, G1 completo en la rama `agente-g1-configuracion` sin mergear. Quiero seguir con [merge de G1 / sub-proyecto B Bandeja / catálogo]. Para entrar al panel: `admin-dev@crm.local` / `dev-admin-2026!`.
+> Leé `AGENTS.md` y `docs/next-session.md`. Estado: rediseño A y G1 en master, sub-proyecto B completo en la rama `rediseno-b-bandeja` sin mergear. Quiero seguir con [review y merge de B / sub-proyecto D Triage / catálogo]. Para entrar al panel: `admin-dev@crm.local` / `dev-admin-2026!`.
