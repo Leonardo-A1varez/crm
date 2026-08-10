@@ -29,6 +29,13 @@
   --color-line-card: #1c1f26;
   --color-line-input: #21242c;
   --color-line-control: #23262d;
+  /* Separador entre filas de una tabla o lista. Coincide en valor con
+     `surface-input`, pero se declara aparte porque es una línea y no una
+     superficie: usar el de superficie hacía que el rol no se leyera. */
+  --color-line-row: #14161b;
+  /* Separador `·` de las líneas de meta: más apagado que cualquier `ink-*`
+     porque no es texto, es puntuación entre datos. */
+  --color-line-dot: #2c3038;
 
   --color-ink-primary: #ecedef;
   --color-ink-body: #e4e6ea;
@@ -43,6 +50,18 @@
   --color-brand-hover: #ffc46b;
   --color-brand-deep: #f08a1d;
   --color-brand-ink: #231602;
+  /* Blanco cálido de la respuesta en el bloque ENTONCES de una regla: es texto
+     sobre fondo ámbar, y los `ink-*` están calibrados contra fondo oscuro. */
+  --color-ink-warm: #f2ede4;
+  /* Primer stop del gradiente de las tarjetas destacadas; el segundo es
+     `surface-card`. No es una superficie plana, por eso no entra en esa escala. */
+  --color-surface-glow: #151116;
+  /* Fondo cálido oscuro de los bloques de aviso (ventana cerrada, cotización).
+     Es el par oscuro de `ink-warm`, no una variante de `surface-*`. */
+  --color-surface-warm: #141116;
+  /* Texto sobre el bloque de bloqueador: cálido y atenuado a la vez, cosa que
+     ni `ink-warm` ni la escala `ink-*` cubren. */
+  --color-ink-warm-dim: #e4d9cb;
 
   --color-ok: #34d399;
   --color-warn: #fb923c;
