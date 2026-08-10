@@ -1,6 +1,6 @@
 # Cómo retomar la sesión
 
-> Última actualización: 2026-08-09. **Rediseño A y agente G1 mergeados a master (`3be7398`). Spec y plan del sub-proyecto B escritos y aprobados, sin ejecutar.** Users dev: `admin-dev@crm.local` / `dev-admin-2026!` · `vendedor-dev@crm.local` / `dev-vendedor-2026!`.
+> Última actualización: 2026-08-09. **Rediseño A y agente G1 mergeados y pusheados (`d84e9fb`). Sub-proyecto B en curso: 3 de 6 tareas, rama `rediseno-b-bandeja`.** Users dev: `admin-dev@crm.local` / `dev-admin-2026!` · `vendedor-dev@crm.local` / `dev-vendedor-2026!`.
 
 ---
 
@@ -40,23 +40,41 @@
 
 ---
 
-## 🔴 Lo primero al retomar
+## 🔴 Lo primero al retomar: terminar B
 
-**Ejecutar el sub-proyecto B — Bandeja unificada.** Spec y plan escritos, aprobados y commiteados:
+**Rama `rediseno-b-bandeja`, 3 de 6 tareas hechas.** Árbol limpio.
 
-- Spec: `docs/superpowers/specs/2026-08-09-rediseno-b-bandeja-design.md`
-- Plan: `docs/superpowers/plans/2026-08-09-rediseno-b-bandeja.md` (6 tareas)
+| Tarea                        | Commit    | Estado                                                     |
+| ---------------------------- | --------- | ---------------------------------------------------------- |
+| 1 · Shell de 3 paneles       | `be78de4` | ✅ lista 322px, Twin 322px, scroll sobrevive la navegación |
+| 2 · Panel de lista           | `f97b05f` | ✅ filtros sin refetchear el layout                        |
+| 3 · Header e hilo            | `87529c0` | ✅ orden cronológico y toggle de IA verificados            |
+| 4 · Burbujas y composer      | —         | pendiente                                                  |
+| 5 · Twin con rail del embudo | —         | pendiente                                                  |
+| 6 · Verificación completa    | —         | pendiente                                                  |
 
-Ejecutar con `superpowers:subagent-driven-development`.
+Plan: `docs/superpowers/plans/2026-08-09-rediseno-b-bandeja.md`
+Ledger con el detalle de cada tarea: `.superpowers/sdd/2026-08-09-rediseno-b-bandeja/progress.md`
 
-### ⚠️ Dos deudas de G1 que quedaron sin hacer
+Ejecutar con `superpowers:subagent-driven-development`, empezando por la Task 4.
 
-G1 se mergeó con las verificaciones por tarea completas, pero **sin dos cosas que sí se hicieron en el sub-proyecto A**:
+### Reglas que las tareas restantes tienen que respetar
 
-1. **Review de rama completa.** En A, ese review encontró un defecto que los 9 reviews por tarea no vieron: `src/lib/ui/` estaba construido, testeado y sin consumidores mientras las pantallas seguían pintando con la paleta vieja. G1 no tuvo ese pase. Se puede hacer igual sobre master, revisando el rango `f5a12f6..3be7398`.
-2. **E2E real de WhatsApp.** Cambiar el tono a formal desde `/agente`, mandar un mensaje real, y verificar que la respuesta trate de usted. **Nunca se hizo.** Es lo único que prueba que la config llega de verdad al agente en producción; la CI no lo cubre.
+- **No correr `npm run build` con el dev server levantado.** Corrompe `.next/` y el navegador queda colgado mostrando skeletons de `loading.tsx` en rutas que nadie tocó. Esto ensució la verificación de las Tasks 1 y 2 antes de que se diagnosticara. Si hace falta build, parar dev primero.
+- **Verificación medida en navegador como criterio de aceptación**, no revisión por lectura. B es todo layout.
+- **Regenerar el brief si se corrige el plan** a mitad de ejecución: los briefs no se actualizan solos.
 
-Ninguna bloquea B, pero conviene cerrarlas antes del soft launch.
+### Deudas abiertas de B
+
+- Badge de no leídos **omitido**: `InboxItem` no trae el campo. No se inventó ni se tocó el service. Agregarlo es sub-proyecto D.
+- El `ChannelDot` del avatar usa `canales[0]` porque `canales: Canal[]` no tiene orden garantizado ni campo de "canal del último mensaje". Aproximación documentada, no el canal activo real. Resolver en D.
+
+### Deudas de G1 que quedaron sin hacer
+
+1. **Review de rama completa.** En A ese pase encontró un defecto que los 9 reviews por tarea no vieron. G1 no lo tuvo. Se puede hacer sobre master, rango `f5a12f6..3be7398`.
+2. **E2E real de WhatsApp.** Cambiar el tono a formal desde `/agente`, mandar un mensaje real, verificar que trate de usted. Nunca se hizo. La CI no lo cubre.
+
+Ninguna bloquea B.
 
 ---
 
