@@ -181,6 +181,7 @@ export function makeSmokeBundle(): SmokeBundle {
       emit,
       logger,
     },
+    onStatusReceived: { messages },
     updateLeadTwin: { twinExtractor },
     detectIntentsBatch: {
       sessions,

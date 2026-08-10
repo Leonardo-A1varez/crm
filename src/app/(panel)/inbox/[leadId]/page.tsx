@@ -7,6 +7,7 @@ import { MessageInput } from "@/components/inbox/MessageInput";
 import { TwinPanel } from "@/components/lead-twin/TwinPanel";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { NotFoundError } from "@/lib/errors";
+import { estadoVentana } from "@/lib/ventana";
 import { getInboxServiceForRequest } from "@/server/bootstrap/inbox-bootstrap";
 import { closeSessionAction } from "../_actions/close-session.action";
 import { sendMessageAction } from "../_actions/send-message.action";
@@ -26,6 +27,11 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
     if (e instanceof NotFoundError) notFound();
     throw e;
   }
+
+  // La ventana de 24 h se mide desde el ultimo mensaje del cliente: cada
+  // entrante la reabre entera.
+  const ultimoEntrante = [...view.messages].reverse().find((m) => m.direction === "in") ?? null;
+  const ventana = estadoVentana(ultimoEntrante?.created_at ?? null, new Date());
 
   const lastMessage = view.messages[view.messages.length - 1];
   const ultimaActividadIso =
@@ -68,6 +74,7 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
                 leadId={view.lead.id}
                 sessionId={view.session.id}
                 canal={view.canalActivo}
+                ventana={ventana}
                 onSend={sendMessageAction}
               />
             </>

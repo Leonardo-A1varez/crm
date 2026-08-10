@@ -1,5 +1,5 @@
 import { format } from "date-fns";
-import { AutoAwesome } from "@/components/icons";
+import { AutoAwesome, Done, DoneAll, ErrorIcon, Schedule } from "@/components/icons";
 import { MonoMeta } from "@/components/shared/MonoMeta";
 import { cn } from "@/lib/utils";
 import type { Mensaje } from "@/types/entities";
@@ -21,6 +21,36 @@ const MEDIA_LABEL: Partial<Record<TipoMensaje, string>> = {
 const FONDO_IA = {
   backgroundImage: "linear-gradient(150deg, rgba(255,175,58,.16), rgba(255,175,58,.07))",
 };
+
+/**
+ * Acuse de entrega. Solo en salientes: en un entrante no significa nada, y el
+ * `null` de un saliente es "Meta todavia no reporto", que no es lo mismo que
+ * fallado — por eso muestra un reloj y no una cruz.
+ */
+function AcuseEntrega({ mensaje, claro }: { mensaje: Mensaje; claro: boolean }) {
+  if (mensaje.direction !== "out" || mensaje.sender === "sistema") return null;
+
+  const tono = claro ? "text-[#14161b]/45" : "text-ink-ghost";
+
+  switch (mensaje.estado_entrega) {
+    case "leido":
+      return <DoneAll size={13} className="text-info shrink-0" aria-label="Leido" />;
+    case "entregado":
+      return <DoneAll size={13} className={`${tono} shrink-0`} aria-label="Entregado" />;
+    case "enviado":
+      return <Done size={13} className={`${tono} shrink-0`} aria-label="Enviado" />;
+    case "fallido":
+      return (
+        <ErrorIcon
+          size={13}
+          className="text-danger shrink-0"
+          aria-label={mensaje.error_entrega ?? "No se pudo entregar"}
+        />
+      );
+    default:
+      return <Schedule size={13} className={`${tono} shrink-0`} aria-label="Sin acuse todavia" />;
+  }
+}
 
 function EtiquetaRemitente({ sender }: { sender: "ia" | "humano" }) {
   if (sender === "ia") {
@@ -101,7 +131,15 @@ export function MessageBubble({ message }: { message: Mensaje }) {
         {message.contenido ? (
           <p className="break-words whitespace-pre-wrap">{message.contenido}</p>
         ) : null}
-        <MonoMeta className="mt-1 block text-right text-[9.5px]">{hora}</MonoMeta>
+        <div className="mt-1 flex items-center justify-end gap-1">
+          {message.estado_entrega === "fallido" && message.error_entrega ? (
+            <span className="text-danger mr-auto truncate text-[10px]">
+              {message.error_entrega}
+            </span>
+          ) : null}
+          <MonoMeta className="text-[9.5px]">{hora}</MonoMeta>
+          <AcuseEntrega mensaje={message} claro={message.sender === "humano"} />
+        </div>
       </div>
     </div>
   );

@@ -5,7 +5,7 @@ import { serverNowIso } from "@/server/db/server-time";
 import type { Database } from "@/server/db/types.gen";
 import { isUuid } from "@/server/db/uuid";
 import type { CurrentStage, MetodoPago, MotivoPerdida, Resultado, Urgencia } from "@/types/domain";
-import type { LeadSession, UUID } from "@/types/entities";
+import type { LeadSession, Procedencia, UUID } from "@/types/entities";
 import type {
   CloseInput,
   LeadSessionInsert,
@@ -232,6 +232,7 @@ interface LeadSessionRow {
   ia_pausada: boolean;
   extras: unknown;
   context_summary: string | null;
+  procedencia: unknown;
   started_at: string;
   closed_at: string | null;
 }
@@ -256,6 +257,7 @@ function mapRow(row: LeadSessionRow): LeadSession {
     ia_pausada: row.ia_pausada,
     extras: structuredClone(extras),
     context_summary: row.context_summary,
+    procedencia: (row.procedencia ?? {}) as Procedencia,
     started_at: new Date(row.started_at),
     closed_at: row.closed_at ? new Date(row.closed_at) : null,
   };

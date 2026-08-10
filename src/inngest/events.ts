@@ -1,11 +1,24 @@
 import { eventType, staticSchema } from "inngest";
 import type { ParsedMessage } from "@/lib/meta/parse-webhook";
 import type { IntentClassification } from "@/lib/validation/ai";
-import type { Canal } from "@/types/domain";
+import type { Canal, EstadoEntrega } from "@/types/domain";
 import type { UUID } from "@/types/entities";
 
 export const messageReceived = eventType("meta/message.received", {
   schema: staticSchema<{ parsed: ParsedMessage }>(),
+});
+
+// Cambio de estado de entrega de un saliente. `at` viaja en ISO porque una
+// `Date` no sobrevive la serializacion del evento.
+export const statusReceived = eventType("meta/status.received", {
+  schema: staticSchema<{
+    parsed: {
+      meta_message_id: string;
+      estado: EstadoEntrega;
+      at: string;
+      error: string | null;
+    };
+  }>(),
 });
 
 export const turnCompleted = eventType("lead-session/turn.completed", {

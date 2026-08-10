@@ -29,6 +29,13 @@ export type Direction = (typeof DIRECTION)[number];
 export const SENDER = ["lead", "ia", "humano", "sistema"] as const;
 export type Sender = (typeof SENDER)[number];
 
+/**
+ * Escalones de entrega que reporta Meta para un mensaje saliente. `null` en la
+ * entidad significa entrante, o saliente cuyo webhook de status no llegó.
+ */
+export const ESTADO_ENTREGA = ["enviado", "entregado", "leido", "fallido"] as const;
+export type EstadoEntrega = (typeof ESTADO_ENTREGA)[number];
+
 export const TIPO_MENSAJE = [
   "text",
   "image",

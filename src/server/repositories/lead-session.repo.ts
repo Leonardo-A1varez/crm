@@ -7,7 +7,7 @@ import type { Update } from "./_types";
 // DB tiene DEFAULTs equivalentes, mirrored aquí.
 export type LeadSessionInsert = Omit<
   LeadSession,
-  "id" | "started_at" | "closed_at" | "extras" | "context_summary"
+  "id" | "started_at" | "closed_at" | "extras" | "context_summary" | "procedencia"
 > & {
   extras?: Record<string, unknown>;
   context_summary?: string | null;
@@ -64,6 +64,7 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
       ...input,
       extras: structuredClone(input.extras ?? {}),
       context_summary: input.context_summary ?? null,
+      procedencia: {},
       id: crypto.randomUUID(),
       started_at: new Date(),
       closed_at: null,

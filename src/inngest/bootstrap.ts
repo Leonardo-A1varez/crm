@@ -168,7 +168,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     logger: logger.child({ scope: "send-reactivation" }),
   });
 
-  // ===== CrmInngestDeps wireup (9 functions) =====
+  // ===== CrmInngestDeps wireup (10 functions) =====
   const deps: CrmInngestDeps = {
     onMessageReceived: {
       leads,
@@ -183,6 +183,9 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       configProvider: agenteConfigProvider,
       emit,
       logger,
+    },
+    onStatusReceived: {
+      messages,
     },
     updateLeadTwin: {
       twinExtractor,

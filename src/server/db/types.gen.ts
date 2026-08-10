@@ -308,6 +308,7 @@ export type Database = {
             | Database["public"]["Enums"]["motivo_perdida_enum"]
             | null
           precio_cotizado: number | null
+          procedencia: Json
           producto_cotizado_id: string | null
           resultado: Database["public"]["Enums"]["resultado_enum"] | null
           started_at: string
@@ -331,6 +332,7 @@ export type Database = {
             | Database["public"]["Enums"]["motivo_perdida_enum"]
             | null
           precio_cotizado?: number | null
+          procedencia?: Json
           producto_cotizado_id?: string | null
           resultado?: Database["public"]["Enums"]["resultado_enum"] | null
           started_at?: string
@@ -354,6 +356,7 @@ export type Database = {
             | Database["public"]["Enums"]["motivo_perdida_enum"]
             | null
           precio_cotizado?: number | null
+          procedencia?: Json
           producto_cotizado_id?: string | null
           resultado?: Database["public"]["Enums"]["resultado_enum"] | null
           started_at?: string
@@ -487,6 +490,11 @@ export type Database = {
           conversacion_id: string
           created_at: string
           direction: Database["public"]["Enums"]["direction_enum"]
+          error_entrega: string | null
+          estado_entrega:
+            | Database["public"]["Enums"]["estado_entrega_enum"]
+            | null
+          estado_entrega_at: string | null
           id: string
           idempotency_key: string | null
           lead_session_id: string
@@ -502,6 +510,11 @@ export type Database = {
           conversacion_id: string
           created_at?: string
           direction: Database["public"]["Enums"]["direction_enum"]
+          error_entrega?: string | null
+          estado_entrega?:
+            | Database["public"]["Enums"]["estado_entrega_enum"]
+            | null
+          estado_entrega_at?: string | null
           id?: string
           idempotency_key?: string | null
           lead_session_id: string
@@ -517,6 +530,11 @@ export type Database = {
           conversacion_id?: string
           created_at?: string
           direction?: Database["public"]["Enums"]["direction_enum"]
+          error_entrega?: string | null
+          estado_entrega?:
+            | Database["public"]["Enums"]["estado_entrega_enum"]
+            | null
+          estado_entrega_at?: string | null
           id?: string
           idempotency_key?: string | null
           lead_session_id?: string
@@ -911,6 +929,7 @@ export type Database = {
         | "perdido"
         | "requiere_humano"
       direction_enum: "in" | "out"
+      estado_entrega_enum: "enviado" | "entregado" | "leido" | "fallido"
       merge_candidate_status_enum:
         | "pending"
         | "approved"
@@ -1079,6 +1098,7 @@ export const Constants = {
         "requiere_humano",
       ],
       direction_enum: ["in", "out"],
+      estado_entrega_enum: ["enviado", "entregado", "leido", "fallido"],
       merge_candidate_status_enum: [
         "pending",
         "approved",

@@ -2,6 +2,7 @@ import type {
   Canal,
   CurrentStage,
   Direction,
+  EstadoEntrega,
   MergeCandidateStatus,
   MetodoPago,
   MotivoPerdida,
@@ -29,6 +30,15 @@ export interface CompatibilidadEntry {
   anio_hasta: number;
   motor?: string;
 }
+
+/** Quién dejó el valor actual de un campo del Twin. */
+export interface ProcedenciaCampo {
+  por: "humano";
+  at: string;
+  user_id: UUID | null;
+}
+
+export type Procedencia = Record<string, ProcedenciaCampo>;
 
 export interface MensajeMetadata {
   reply_to?: string;
@@ -79,6 +89,8 @@ export interface LeadSession {
   ia_pausada: boolean;
   extras: Record<string, unknown>;
   context_summary: string | null;
+  /** Campos del Twin corregidos por una persona; ausente = lo puso el extractor. */
+  procedencia: Procedencia;
   started_at: Date;
   closed_at: Date | null;
 }
@@ -121,6 +133,10 @@ export interface Mensaje {
   idempotency_key: string | null;
   metadata: MensajeMetadata;
   created_at: Date;
+  /** Solo salientes. `null` mientras Meta no reporte el primer estado. */
+  estado_entrega: EstadoEntrega | null;
+  estado_entrega_at: Date | null;
+  error_entrega: string | null;
 }
 
 export interface Intent {

@@ -19,7 +19,7 @@
 import { env } from "@/lib/env";
 import { inngest } from "@/inngest/client";
 import type { CrmInngestClient } from "@/inngest/client";
-import { parseMetaWebhook } from "@/lib/meta/parse-webhook";
+import { parseMetaStatuses, parseMetaWebhook } from "@/lib/meta/parse-webhook";
 import { verifyMetaSignature } from "@/lib/meta/verify-signature";
 import { getLogger } from "@/lib/observability/get-logger";
 import { withSpan } from "@/lib/observability/tracing";
@@ -98,6 +98,20 @@ export function makeMetaWebhookHandlers(deps: MetaWebhookHandlersDeps) {
         await deps.inngest.send({
           name: "meta/message.received",
           data: { parsed: message },
+        });
+      }
+
+      // 7. Estados de entrega. Vienen en el mismo POST que los mensajes y hasta
+      //    ahora se descartaban, asi que la UI no sabia si un saliente habia
+      //    llegado. `at` viaja en ISO: una Date no sobrevive el JSON del evento.
+      const statuses = parseMetaStatuses(payload);
+      if (statuses.length > 0) {
+        deps.logger.info("meta.webhook.statuses", { ip, count: statuses.length });
+      }
+      for (const status of statuses) {
+        await deps.inngest.send({
+          name: "meta/status.received",
+          data: { parsed: { ...status, at: status.at.toISOString() } },
         });
       }
 
