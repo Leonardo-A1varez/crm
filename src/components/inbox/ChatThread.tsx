@@ -17,7 +17,14 @@ export function ChatThread({ messages }: { messages: Mensaje[] }) {
   }
   const reversed = [...messages].reverse();
   return (
-    <div className="flex h-full flex-col-reverse gap-2 overflow-y-auto px-4 py-3">
+    <div
+      className="bg-surface-chat flex h-full flex-1 flex-col-reverse gap-[9px] overflow-y-auto px-[26px] py-5"
+      style={{
+        backgroundImage:
+          "radial-gradient(circle at 1px 1px, rgba(255,255,255,.03) 1px, transparent 0)",
+        backgroundSize: "24px 24px",
+      }}
+    >
       {reversed.map((m) => (
         <MessageBubble key={m.id} message={m} />
       ))}
