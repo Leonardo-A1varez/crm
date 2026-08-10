@@ -79,12 +79,16 @@ Ledger con el detalle de cada tarea: `.superpowers/sdd/2026-08-09-rediseno-b-ban
 
 ### Lo que se hizo después de B (misma rama)
 
-| Trabajo                             | Commit    | Notas                                                           |
-| ----------------------------------- | --------- | --------------------------------------------------------------- |
-| Leads y productos al lenguaje nuevo | `ffd9113` | `PageHeader` + `SearchField`; se fue el `h-screen` anidado      |
-| Las 5 rutas sin construir           | `fbd0c90` | `PantallaPendiente`, en vez de `TODO:` crudo en el nav          |
-| D — Triage                          | `874533a` | `lib/triage` pura; la bandeja ordena por lo que hay que atender |
-| F — Métricas                        | `9563f15` | Embudo, resultado y autoría; ventana de 7/30/90 días            |
+| Trabajo                             | Commit    | Notas                                                            |
+| ----------------------------------- | --------- | ---------------------------------------------------------------- |
+| Leads y productos al lenguaje nuevo | `ffd9113` | `PageHeader` + `SearchField`; se fue el `h-screen` anidado       |
+| Las 5 rutas sin construir           | `fbd0c90` | `PantallaPendiente`, en vez de `TODO:` crudo en el nav           |
+| D — Triage                          | `874533a` | `lib/triage` pura; la bandeja ordena por lo que hay que atender  |
+| F — Métricas                        | `9563f15` | Embudo, resultado y autoría; ventana de 7/30/90 días             |
+| C — Entrega y ventana de 24 h       | `e7a48eb` | Migración + status de Meta + composer bloqueado fuera de ventana |
+| E — Procedencia y edición del Twin  | `d5feb66` | Migración + lista blanca de campos + chip "editado"              |
+
+**Migraciones aplicadas a `crm-dev`**: 23 en total. `20260810011500` agrega estado de entrega a `mensajes`; `20260810011600` agrega `procedencia` a `lead_session`.
 
 **El orden de la bandeja cambió**: ya no es puramente cronológico, primero va lo que espera respuesta. Es el punto de D, pero es un cambio de comportamiento visible — si preferís el orden viejo, se revierte tocando un `sort`.
 
@@ -216,7 +220,7 @@ supabase migration list --linked
 ## Conexión Supabase
 
 - Proyecto `crm-dev`, ref `emubzkouwvuzlrtsgorx`, Postgres 17, plan Free.
-- **21 migraciones aplicadas** (20 + `agente_config`).
+- **23 migraciones aplicadas** (21 + estados de entrega + procedencia del Twin).
 - ⚠️ Free tier auto-pausa tras ~1 semana idle. Ya pasó una vez: el DNS deja de resolver y `/api/health` da `db: fail`. Se restaura desde el dashboard.
 - Remoto: `https://github.com/Leonardo-A1varez/crm.git` (privado).
 
