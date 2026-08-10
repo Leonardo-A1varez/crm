@@ -1,16 +1,17 @@
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
+import { AltRoute, ContactEmergency } from "@/components/icons";
 import { TwinEmptyState } from "@/components/lead-twin/TwinEmptyState";
 import { TwinField } from "@/components/lead-twin/TwinField";
+import { Eyebrow } from "@/components/shared/Eyebrow";
+import { MonoMeta } from "@/components/shared/MonoMeta";
 import { RelativeTime } from "@/components/shared/RelativeTime";
-import { StageBadge } from "@/components/shared/StageBadge";
-import type { MetodoPago, Urgencia } from "@/types/domain";
+import { FUNNEL_STAGES, funnelStep, isDetour, stageColor, stageLabel } from "@/lib/ui/stage";
+import type { CurrentStage, MetodoPago, Urgencia } from "@/types/domain";
 import type { LeadSession } from "@/types/entities";
 
 const URGENCIA_CONFIG: Record<Urgencia, { label: string; dotClass: string }> = {
-  baja: { label: "Baja", dotClass: "bg-zinc-400" },
-  media: { label: "Media", dotClass: "bg-amber-500" },
-  alta: { label: "Alta", dotClass: "bg-red-500" },
+  baja: { label: "Baja", dotClass: "bg-ink-faint" },
+  media: { label: "Media", dotClass: "bg-caution" },
+  alta: { label: "Alta", dotClass: "bg-danger" },
 };
 
 const METODO_PAGO_LABEL: Record<MetodoPago, string> = {
@@ -18,6 +19,13 @@ const METODO_PAGO_LABEL: Record<MetodoPago, string> = {
   efectivo: "Efectivo",
   tarjeta: "Tarjeta",
 };
+
+/**
+ * Gris del rail congelado. Va literal porque no hay token: es más claro que
+ * `line-card` a propósito, para que el rail de un desvío se lea como una barra
+ * inerte y no como progreso apagado.
+ */
+const RAIL_CONGELADO = "#3A3F49";
 
 // Sin currency configurable todavía (white-label diferido); "es" da separador de miles Latam.
 function formatPrecio(precio: number): string {
@@ -47,6 +55,66 @@ function safeHttpUrl(raw: string): string | null {
   }
 }
 
+function Seccion({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="border-line-layout flex flex-col gap-3 border-b px-[17px] py-[15px]">
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Rail del embudo: 6 segmentos, los alcanzados en el color de la etapa. En un
+ * desvío (`perdido`, `requiere_humano`) `funnelStep` es `null` porque esas
+ * etapas no tienen posición: el rail entero se congela y desaparece el
+ * contador, en vez de inventar un paso 7 que el embudo no tiene.
+ */
+function RailEmbudo({ stage }: { stage: CurrentStage }) {
+  const desvio = isDetour(stage);
+  const paso = funnelStep(stage);
+
+  return (
+    <Seccion>
+      <div className="flex items-baseline justify-between gap-2">
+        <span
+          className="text-[18px] font-[680] tracking-[-0.02em]"
+          style={{ color: stageColor(stage) }}
+        >
+          {stageLabel(stage)}
+        </span>
+        {paso !== null ? <MonoMeta>{`paso ${paso}/${FUNNEL_STAGES.length}`}</MonoMeta> : null}
+      </div>
+
+      <div className="flex gap-[3px]" role="presentation">
+        {FUNNEL_STAGES.map((etapa, i) => (
+          <span
+            key={etapa}
+            className={
+              !desvio && paso !== null && i < paso
+                ? "h-[3.5px] flex-1 rounded-full"
+                : "bg-line-card h-[3.5px] flex-1 rounded-full"
+            }
+            style={
+              desvio
+                ? { backgroundColor: RAIL_CONGELADO }
+                : paso !== null && i < paso
+                  ? { backgroundColor: stageColor(stage) }
+                  : undefined
+            }
+          />
+        ))}
+      </div>
+
+      {desvio ? (
+        <span className="text-special bg-special/9 inline-flex items-center gap-1.5 self-start rounded-md px-[7px] py-[3px] text-[10.5px] font-medium">
+          <AltRoute size={12} />
+          El embudo quedó frenado
+        </span>
+      ) : null}
+    </Seccion>
+  );
+}
+
 /**
  * Ficha estructurada de la sesión activa (Lead Twin). Read-only server render;
  * secciones opcionales solo aparecen cuando el extractor pobló los campos.
@@ -66,14 +134,17 @@ export function TwinPanel({ session }: { session: LeadSession | null }) {
   const extras = Object.entries(session.extras);
 
   return (
-    <Card size="sm">
-      <CardHeader>
-        <CardTitle>Lead Twin</CardTitle>
-        <CardAction>
-          <StageBadge stage={session.current_stage} />
-        </CardAction>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
+    <div className="flex flex-col">
+      <Seccion>
+        <span className="text-ink-primary flex items-center gap-1.5 text-[12.5px] font-[650]">
+          <ContactEmergency size={14} className="text-brand" />
+          Lead Twin
+        </span>
+      </Seccion>
+
+      <RailEmbudo stage={session.current_stage} />
+
+      <Seccion>
         <TwinField
           label="Consulta"
           value={
@@ -95,108 +166,97 @@ export function TwinPanel({ session }: { session: LeadSession | null }) {
           label="Sesión iniciada"
           value={<RelativeTime iso={session.started_at.toISOString()} />}
         />
+      </Seccion>
 
-        {hasCotizacion ? (
-          <>
-            <Separator />
-            <div className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-              Cotización
-            </div>
+      {hasCotizacion ? (
+        <Seccion>
+          <Eyebrow>Cotización</Eyebrow>
+          <TwinField
+            label="Código interno"
+            value={
+              session.codigo_interno ? (
+                <span className="font-mono">{session.codigo_interno}</span>
+              ) : undefined
+            }
+          />
+          <TwinField
+            label="Precio cotizado"
+            value={
+              session.precio_cotizado !== null ? formatPrecio(session.precio_cotizado) : undefined
+            }
+          />
+          <TwinField
+            label="Cantidad"
+            value={session.cantidad !== null ? String(session.cantidad) : undefined}
+          />
+        </Seccion>
+      ) : null}
+
+      {session.bloqueador ? (
+        <Seccion>
+          <TwinField
+            label="Bloqueador"
+            value={
+              <span className="text-warn break-words whitespace-pre-wrap">
+                {session.bloqueador}
+              </span>
+            }
+          />
+        </Seccion>
+      ) : null}
+
+      {hasPago ? (
+        <Seccion>
+          <Eyebrow>Pago</Eyebrow>
+          <TwinField
+            label="Método"
+            value={session.metodo_pago ? METODO_PAGO_LABEL[session.metodo_pago] : undefined}
+          />
+          <TwinField
+            label="Comprobante"
+            value={
+              comprobanteUrl ? (
+                <a
+                  href={comprobanteUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-brand underline underline-offset-4"
+                >
+                  Ver comprobante
+                </a>
+              ) : undefined
+            }
+          />
+        </Seccion>
+      ) : null}
+
+      {extras.length > 0 ? (
+        <Seccion>
+          <Eyebrow>Datos adicionales</Eyebrow>
+          {extras.map(([key, value]) => (
             <TwinField
-              label="Código interno"
+              key={key}
+              label={formatExtraKey(key)}
               value={
-                session.codigo_interno ? (
-                  <span className="font-mono">{session.codigo_interno}</span>
-                ) : undefined
+                <span className="break-words whitespace-pre-wrap">{formatExtraValue(value)}</span>
               }
             />
-            <TwinField
-              label="Precio cotizado"
-              value={
-                session.precio_cotizado !== null ? formatPrecio(session.precio_cotizado) : undefined
-              }
-            />
-            <TwinField
-              label="Cantidad"
-              value={session.cantidad !== null ? String(session.cantidad) : undefined}
-            />
-          </>
-        ) : null}
+          ))}
+        </Seccion>
+      ) : null}
 
-        {session.bloqueador ? (
-          <>
-            <Separator />
-            <TwinField
-              label="Bloqueador"
-              value={
-                <span className="break-words whitespace-pre-wrap text-amber-700 dark:text-amber-400">
-                  {session.bloqueador}
-                </span>
-              }
-            />
-          </>
-        ) : null}
-
-        {hasPago ? (
-          <>
-            <Separator />
-            <div className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-              Pago
-            </div>
-            <TwinField
-              label="Método"
-              value={session.metodo_pago ? METODO_PAGO_LABEL[session.metodo_pago] : undefined}
-            />
-            <TwinField
-              label="Comprobante"
-              value={
-                comprobanteUrl ? (
-                  <a
-                    href={comprobanteUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary underline underline-offset-4"
-                  >
-                    Ver comprobante
-                  </a>
-                ) : undefined
-              }
-            />
-          </>
-        ) : null}
-
-        {extras.length > 0 ? (
-          <>
-            <Separator />
-            <div className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-              Datos adicionales
-            </div>
-            {extras.map(([key, value]) => (
-              <TwinField
-                key={key}
-                label={formatExtraKey(key)}
-                value={
-                  <span className="break-words whitespace-pre-wrap">{formatExtraValue(value)}</span>
-                }
-              />
-            ))}
-          </>
-        ) : null}
-
-        {session.context_summary ? (
-          <>
-            <Separator />
-            <TwinField
-              label="Resumen de contexto"
-              value={
-                <span className="text-muted-foreground text-xs break-words whitespace-pre-wrap">
-                  {session.context_summary}
-                </span>
-              }
-            />
-          </>
-        ) : null}
-      </CardContent>
-    </Card>
+      {session.context_summary ? (
+        <Seccion>
+          <TwinField
+            label="Resumen de contexto"
+            value={
+              <span className="text-ink-dim text-[11.5px] break-words whitespace-pre-wrap">
+                {session.context_summary}
+              </span>
+            }
+          />
+        </Seccion>
+      ) : null}
+    </div>
   );
 }

@@ -80,7 +80,7 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
         </div>
         <aside
           aria-label="Lead Twin"
-          className="border-line-layout w-[322px] shrink-0 overflow-y-auto border-l p-3"
+          className="border-line-layout bg-surface-panel w-[322px] shrink-0 overflow-y-auto border-l"
         >
           <TwinPanel session={view.session} />
         </aside>
