@@ -142,4 +142,78 @@ describe("editarCampoTwin", () => {
       }),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
+
+  describe("moverEtapa", () => {
+    test("mueve la etapa y deja la marca de humano en la misma operación", async () => {
+      const out = await svc.moverEtapa({
+        sessionId: sesion.id,
+        etapa: "negociando",
+        userId: USER,
+      });
+
+      expect(out.current_stage).toBe("negociando");
+      expect(out.procedencia.current_stage).toMatchObject({ por: "humano", user_id: USER });
+    });
+
+    test("la marca guarda la etapa que había antes", async () => {
+      const out = await svc.moverEtapa({
+        sessionId: sesion.id,
+        etapa: "esperando_pago",
+        userId: USER,
+      });
+
+      expect(out.procedencia.current_stage?.valor_anterior).toBe("cotizado");
+    });
+
+    test("avanzar arrastra etapa_alcanzada", async () => {
+      const out = await svc.moverEtapa({ sessionId: sesion.id, etapa: "cerrado", userId: USER });
+
+      expect(out.current_stage).toBe("cerrado");
+      expect(out.etapa_alcanzada).toBe("cerrado");
+    });
+
+    test("retroceder mueve la etapa pero NO baja etapa_alcanzada", async () => {
+      // Que una cotización se caiga y la conversación vuelva a "identificando"
+      // no borra que llegó a cotizar: esa columna guarda el máximo alcanzado y
+      // es el único lugar donde ese hecho sobrevive.
+      const out = await svc.moverEtapa({
+        sessionId: sesion.id,
+        etapa: "identificando",
+        userId: USER,
+      });
+
+      expect(out.current_stage).toBe("identificando");
+      expect(out.etapa_alcanzada).toBe("cotizado");
+    });
+
+    test("mover la etapa no marca ningún otro campo", async () => {
+      const out = await svc.moverEtapa({ sessionId: sesion.id, etapa: "negociando", userId: USER });
+
+      expect(Object.keys(out.procedencia)).toEqual(["current_stage"]);
+    });
+
+    test("sin usuario autenticado la marca queda igual, con user_id null", async () => {
+      const out = await svc.moverEtapa({ sessionId: sesion.id, etapa: "negociando", userId: null });
+
+      expect(out.procedencia.current_stage).toMatchObject({ por: "humano", user_id: null });
+    });
+
+    test("una sesión cerrada no se puede mover", async () => {
+      await sessions.close(sesion.id, { resultado: "exito" });
+
+      await expect(
+        svc.moverEtapa({ sessionId: sesion.id, etapa: "negociando", userId: USER }),
+      ).rejects.toBeInstanceOf(ConflictError);
+    });
+
+    test("una sesión inexistente falla con NotFound", async () => {
+      await expect(
+        svc.moverEtapa({
+          sessionId: "22222222-2222-4222-8222-222222222222",
+          etapa: "negociando",
+          userId: USER,
+        }),
+      ).rejects.toBeInstanceOf(NotFoundError);
+    });
+  });
 });

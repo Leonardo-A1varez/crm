@@ -428,7 +428,7 @@ Lista cerrada. No re-abrir sin pedido explícito.
 ## 8. Glosario rápido
 
 - **Lead Twin** — Ficha estructurada de la sesión activa, mantenida por LLM extractor. Vive en `lead_session`.
-- **Auto-stage** — `current_stage` clasificada por IA tras cada turno (sin kanban manual).
+- **Auto-stage** — `current_stage` clasificada por IA tras cada turno (sin kanban manual). Se puede corregir a mano clickeando un segmento del rail del Twin: eso deja `procedencia.current_stage` en `humano` y el extractor deja de tocarla en esa sesión (mismo trato que los campos de `CAMPOS_TWIN_EDITABLES`). La escalada a `requiere_humano` no pasa por ese filtro y sigue funcionando.
 - **Sesión** — Conversación atómica con lead que termina en `exito` o `perdido`. Multi-sesiones históricas por lead.
 - **Handoff** — Transferencia IA → humano. Manual (botón) o automática (regla).
 - **Regla IF/THEN** — Mapping `intent + condiciones → respuesta fija`. Pre-LLM.

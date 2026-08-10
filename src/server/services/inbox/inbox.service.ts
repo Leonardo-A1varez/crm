@@ -1,5 +1,11 @@
 import type { ConversationView, InboxItem } from "@/types/inbox";
-import type { CampoTwinEditable, Canal, MotivoPerdida, Resultado } from "@/types/domain";
+import type {
+  CampoTwinEditable,
+  Canal,
+  EtapaEmbudo,
+  MotivoPerdida,
+  Resultado,
+} from "@/types/domain";
 import type { CampoContactoLead } from "@/lib/validation/inbox.schema";
 import type { Lead, LeadSession, Mensaje, Tag, UUID } from "@/types/entities";
 
@@ -33,6 +39,13 @@ export interface EditarCampoTwinServiceInput {
   sessionId: UUID;
   campo: CampoTwinEditable;
   valor: string | number | null;
+  userId: UUID | null;
+}
+
+export interface MoverEtapaServiceInput {
+  sessionId: UUID;
+  /** Solo las seis del embudo: los desvíos no se ponen a mano desde el rail. */
+  etapa: EtapaEmbudo;
   userId: UUID | null;
 }
 
@@ -119,6 +132,18 @@ export interface InboxService {
    * ficha cerrada es historial y no se reescribe.
    */
   editarCampoTwin(input: EditarCampoTwinServiceInput): Promise<LeadSession>;
+
+  /**
+   * Mueve la etapa a mano desde el rail del Twin y deja la marca de
+   * procedencia. Mismas guardas que `editarCampoTwin`: NotFoundError si la
+   * sesión no existe, ConflictError si está cerrada.
+   *
+   * Retroceder es legítimo —una cotización que se cae vuelve a "identificando"—
+   * y por eso no se valida el sentido del salto. Lo que no retrocede es
+   * `etapa_alcanzada`: esa columna guarda el máximo y bajarla borraría el único
+   * dato que existe para recordar hasta dónde llegó la conversación.
+   */
+  moverEtapa(input: MoverEtapaServiceInput): Promise<LeadSession>;
 
   /**
    * Pone el nombre con el que la casa identifica al lead. El pipeline nunca

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useCallback, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Add } from "@/components/icons";
+import { useCerrarAlSalir } from "@/hooks/use-cerrar-al-salir";
 import { MAX_LARGO_CLAVE, MAX_LARGO_VALOR } from "@/lib/datos-extra";
 import type { AgregarDatoLeadInput, CampoContactoLead } from "@/lib/validation/inbox.schema";
 import type { UUID } from "@/types/entities";
@@ -29,7 +30,7 @@ const OTRO = "__otro__";
  * es la puerta al campo libre, y aparece recién cuando ninguna de las opciones
  * sirve.
  *
- * Flota sobre la sección, abajo a la izquierda: no entra en el flujo de la
+ * Flota sobre la sección, abajo a la derecha: no entra en el flujo de la
  * columna de datos y por eso no reserva ninguna franja propia —una franja vacía
  * debajo del último dato fue justamente lo que hubo que sacar—. Tampoco vive
  * dentro del área con scroll: si viviera adentro habría que scrollear para
@@ -52,16 +53,22 @@ export function AgregarDato({
   const [clave, setClave] = useState("");
   const [valor, setValor] = useState("");
   const [isPending, startTransition] = useTransition();
+  const panel = useRef<HTMLDivElement>(null);
 
   const esLibre = seleccion === OTRO;
   const puedeGuardar = valor.trim() !== "" && (!esLibre || clave.trim() !== "") && !isPending;
 
-  const cerrar = () => {
+  const primerCampo = opciones[0]?.campo ?? OTRO;
+  const cerrar = useCallback(() => {
     setAbierto(false);
-    setSeleccion(opciones[0]?.campo ?? OTRO);
+    setSeleccion(primerCampo);
     setClave("");
     setValor("");
-  };
+  }, [primerCampo]);
+
+  // Cerrar al click afuera y con Escape. Mientras el formulario está abierto el
+  // `+` no se dibuja, así que el panel es todo lo que cuenta como "adentro".
+  useCerrarAlSalir(abierto, panel, cerrar);
 
   const guardar = () => {
     if (!puedeGuardar) return;
@@ -89,14 +96,17 @@ export function AgregarDato({
           onClick={() => setAbierto(true)}
           aria-label="Agregar un dato de contacto"
           title="Agregar un dato de contacto"
-          className="border-line-control bg-surface-card text-ink-dim hover:border-brand/50 hover:text-brand absolute bottom-3 left-4 z-10 inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[8px] border border-dashed transition-colors"
+          className="border-line-control bg-surface-card text-ink-dim hover:border-brand/50 hover:text-brand absolute right-4 bottom-3 z-10 inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[8px] border border-dashed transition-colors"
         >
           <Add size={14} />
         </button>
       )}
 
       {abierto ? (
-        <div className="border-line-control bg-surface-elevated absolute inset-x-3 bottom-3 z-20 flex flex-col gap-1.5 rounded-[10px] border p-2 shadow-lg">
+        <div
+          ref={panel}
+          className="border-line-control bg-surface-elevated absolute inset-x-3 bottom-3 z-20 flex flex-col gap-1.5 rounded-[10px] border p-2 shadow-lg"
+        >
           <select
             value={seleccion}
             disabled={isPending}
@@ -121,9 +131,6 @@ export function AgregarDato({
               aria-label="Nombre del dato"
               placeholder="Nombre del dato (ej. Cumpleaños)"
               onChange={(e) => setClave(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") cerrar();
-              }}
               className="text-ink-body border-line-input bg-surface-input w-full rounded-[7px] border px-2 py-1 text-[11.5px] outline-none"
             />
           ) : null}
@@ -138,7 +145,6 @@ export function AgregarDato({
             onChange={(e) => setValor(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") guardar();
-              if (e.key === "Escape") cerrar();
             }}
             className="text-ink-body border-line-input bg-surface-input w-full rounded-[7px] border px-2 py-1 text-[11.5px] outline-none"
           />

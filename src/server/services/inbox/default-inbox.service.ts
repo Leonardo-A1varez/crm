@@ -33,6 +33,7 @@ import type {
   EtiquetaLeadServiceInput,
   InboxItem,
   InboxService,
+  MoverEtapaServiceInput,
   RenombrarLeadServiceInput,
   SendMessageServiceInput,
   ToggleHandoffServiceInput,
@@ -364,6 +365,13 @@ export class DefaultInboxService implements InboxService {
       input.valor,
       input.userId,
     );
+  }
+
+  async moverEtapa(input: MoverEtapaServiceInput): Promise<LeadSession> {
+    // Misma guarda que `editarCampoTwin`: una sesión cerrada es historial y su
+    // etapa final ya cuenta en las métricas del embudo.
+    await this.requireActiveSession(input.sessionId);
+    return this.deps.sessions.moverEtapa(input.sessionId, input.etapa, input.userId);
   }
 
   async renombrarLead(input: RenombrarLeadServiceInput): Promise<Lead> {

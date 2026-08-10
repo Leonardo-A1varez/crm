@@ -119,6 +119,49 @@ export function runLeadSessionContract(
       await expect(repo.update("missing", { urgencia: "alta" })).rejects.toThrow();
     });
 
+    test("moverEtapa escribe la etapa y la marca de humano en una sola operación", async () => {
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
+      const movida = await repo.moverEtapa(s.id, "negociando", null);
+
+      expect(movida.current_stage).toBe("negociando");
+      expect(movida.procedencia.current_stage).toMatchObject({
+        por: "humano",
+        user_id: null,
+        valor_anterior: "nuevo",
+      });
+    });
+
+    test("moverEtapa hacia adelante arrastra etapa_alcanzada", async () => {
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
+      const movida = await repo.moverEtapa(s.id, "esperando_pago", null);
+
+      expect(movida.etapa_alcanzada).toBe("esperando_pago");
+    });
+
+    test("moverEtapa hacia atrás NO baja etapa_alcanzada", async () => {
+      // El máximo alcanzado es el único registro de hasta dónde llegó la
+      // conversación: bajarlo perdería el dato que la columna existe para guardar.
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
+      await repo.moverEtapa(s.id, "cotizado", null);
+      const atras = await repo.moverEtapa(s.id, "identificando", null);
+
+      expect(atras.current_stage).toBe("identificando");
+      expect(atras.etapa_alcanzada).toBe("cotizado");
+    });
+
+    test("moverEtapa no borra la procedencia de los otros campos", async () => {
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
+      await repo.editarCampoTwin(s.id, "bloqueador", "falta la factura", null);
+      const movida = await repo.moverEtapa(s.id, "negociando", null);
+
+      expect(movida.procedencia.bloqueador?.por).toBe("humano");
+      expect(movida.procedencia.current_stage?.por).toBe("humano");
+    });
+
+    test("moverEtapa throws cuando id falta", async () => {
+      await expect(repo.moverEtapa("missing", "cotizado", null)).rejects.toThrow();
+    });
+
     test("close setea resultado + closed_at + motivo_perdida", async () => {
       const s = await repo.create(baseInsert(fixtures.leadIds.one));
       const closed = await repo.close(s.id, {

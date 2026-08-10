@@ -1,40 +1,29 @@
 import { format } from "date-fns";
-import {
-  AltRoute,
-  ContactEmergency,
-  DirectionsCar,
-  Inventory2,
-  Savings,
-  Warning,
-} from "@/components/icons";
+import { ContactEmergency, DirectionsCar, Inventory2, Savings, Warning } from "@/components/icons";
 import { AgregarDato } from "@/components/lead-twin/AgregarDato";
 import { BorrarDatoExtra } from "@/components/lead-twin/BorrarDatoExtra";
 import { CampoEditable } from "@/components/lead-twin/CampoEditable";
 import { ChipProcedencia } from "@/components/lead-twin/ChipProcedencia";
 import { NombreLead } from "@/components/lead-twin/NombreLead";
+import { RailEmbudo } from "@/components/lead-twin/RailEmbudo";
 import { SeccionEtiquetas } from "@/components/lead-twin/SeccionEtiquetas";
 import { TwinEmptyState } from "@/components/lead-twin/TwinEmptyState";
 import { TwinField } from "@/components/lead-twin/TwinField";
+import { BanderaTelefono } from "@/components/shared/BanderaTelefono";
 import { Eyebrow } from "@/components/shared/Eyebrow";
 import { MonoMeta } from "@/components/shared/MonoMeta";
 import { RelativeTime } from "@/components/shared/RelativeTime";
 import { formatearUsd } from "@/lib/ui/metricas";
-import { FUNNEL_STAGES, funnelStep, isDetour, stageColor, stageLabel } from "@/lib/ui/stage";
 import { formatearTelefono } from "@/lib/ui/telefono";
 import { cn } from "@/lib/utils";
-import type {
-  CampoTwinEditable,
-  CurrentStage,
-  EtapaEmbudo,
-  MetodoPago,
-  Urgencia,
-} from "@/types/domain";
+import type { CampoTwinEditable, MetodoPago, Urgencia } from "@/types/domain";
 import type {
   AgregarDatoLeadInput,
   AsignarEtiquetaInput,
   BorrarDatoExtraInput,
   CrearEtiquetaInput,
   EditarCampoTwinInput,
+  MoverEtapaInput,
   QuitarEtiquetaInput,
   RenombrarLeadInput,
 } from "@/lib/validation/inbox.schema";
@@ -65,13 +54,6 @@ const METODO_PAGO_LABEL: Record<MetodoPago, string> = {
   efectivo: "Efectivo",
   tarjeta: "Tarjeta",
 };
-
-/**
- * Gris del rail congelado. Va literal porque no hay token: es más claro que
- * `line-card` a propósito, para que el rail de un desvío se lea como una barra
- * inerte y no como progreso apagado.
- */
-const RAIL_CONGELADO = "#3A3F49";
 
 /**
  * Hasta dónde llega la ficha de contacto antes de desplazarse.
@@ -165,65 +147,6 @@ function origenDe(
 }
 
 /**
- * Rail del embudo: 6 segmentos, los alcanzados en el color de la etapa.
- *
- * En un desvío (`perdido`, `requiere_humano`) `funnelStep` es `null` porque
- * esas etapas no tienen posición. El rail no se apaga entero: se congela en
- * gris **hasta `etapa_alcanzada`**, que es hasta dónde llegó la conversación
- * antes de salirse. Desaparece el contador de pasos —no hay paso 7— y el chip
- * de desvío nombra dónde quedó frenada.
- */
-function RailEmbudo({ stage, alcanzada }: { stage: CurrentStage; alcanzada: EtapaEmbudo }) {
-  const desvio = isDetour(stage);
-  const paso = funnelStep(stage);
-  // En un desvío el largo pintado sale de lo alcanzado; en el embudo, de la
-  // etapa actual (que es lo alcanzado, salvo que el extractor haya retrocedido).
-  const llenos = desvio ? (funnelStep(alcanzada) ?? 0) : (paso ?? 0);
-  const color = desvio ? RAIL_CONGELADO : stageColor(stage);
-
-  return (
-    <Seccion>
-      <div className="flex items-baseline justify-between gap-2">
-        <span
-          className="text-[18px] font-[680] tracking-[-0.02em]"
-          style={{ color: stageColor(stage) }}
-        >
-          {stageLabel(stage)}
-        </span>
-        {paso !== null ? <MonoMeta>{`paso ${paso}/${FUNNEL_STAGES.length}`}</MonoMeta> : null}
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <div className="flex gap-[3px]" role="presentation">
-          {FUNNEL_STAGES.map((etapa, i) => (
-            <span
-              key={etapa}
-              className={
-                i < llenos
-                  ? "h-[3.5px] flex-1 rounded-full"
-                  : "bg-line-card h-[3.5px] flex-1 rounded-full"
-              }
-              style={i < llenos ? { backgroundColor: color } : undefined}
-            />
-          ))}
-        </div>
-        <div className="flex items-baseline justify-between">
-          <MonoMeta className="text-ink-fainter text-[9px]">nuevo</MonoMeta>
-          <MonoMeta className="text-ink-fainter text-[9px]">cerrado</MonoMeta>
-        </div>
-      </div>
-
-      {desvio ? (
-        <span className="text-special bg-special/9 inline-flex items-center gap-1.5 self-start rounded-md px-[7px] py-[3px] text-[10.5px] font-medium">
-          <AltRoute size={12} className="shrink-0" />
-          El embudo quedó frenado en «{stageLabel(alcanzada)}»
-        </span>
-      ) : null}
-    </Seccion>
-  );
-}
-
-/**
  * Producto del catálogo que la sesión cotizó. Es el único bloque del Twin cuyo
  * dato no lo infirió nadie: sale de la fila de `productos`, y por eso lleva el
  * chip gris "Del catálogo" y no tiene lápiz. El badge de stock es el que
@@ -312,7 +235,12 @@ function Contacto({
         <TwinField
           label="Teléfono"
           value={
-            <span className="font-mono text-[11.5px]">{formatearTelefono(lead.telefono)}</span>
+            // La bandera a la izquierda del número: el código de país ya está
+            // separado, y la bandera es lo que lo vuelve reconocible sin leerlo.
+            <span className="flex items-center gap-1.5">
+              <BanderaTelefono telefono={lead.telefono} />
+              <span className="font-mono text-[11.5px]">{formatearTelefono(lead.telefono)}</span>
+            </span>
           }
         />
         <TwinField label="Dirección" value={lead.direccion ?? undefined} />
@@ -494,6 +422,7 @@ export function TwinPanel({
   sesionesPrevias,
   gastoIa,
   onEditar,
+  onMoverEtapa,
   onRenombrar,
   onAgregarDato,
   onBorrarDato,
@@ -514,6 +443,7 @@ export function TwinPanel({
   /** Gasto del modelo en esta sesión; `null` cuando no hay sesión activa. */
   gastoIa: GastoSesion | null;
   onEditar: (input: EditarCampoTwinInput) => Promise<ActionResult>;
+  onMoverEtapa: (input: MoverEtapaInput) => Promise<ActionResult>;
   onRenombrar: (input: RenombrarLeadInput) => Promise<ActionResult>;
   onAgregarDato: (input: AgregarDatoLeadInput) => Promise<ActionResult>;
   onBorrarDato: (input: BorrarDatoExtraInput) => Promise<ActionResult>;
@@ -602,7 +532,16 @@ export function TwinPanel({
     <div className="flex flex-col">
       {identidad}
 
-      <RailEmbudo stage={session.current_stage} alcanzada={session.etapa_alcanzada} />
+      <Seccion>
+        <RailEmbudo
+          leadId={leadId}
+          sessionId={session.id}
+          stage={session.current_stage}
+          alcanzada={session.etapa_alcanzada}
+          procedencia={session.procedencia.current_stage}
+          onMover={onMoverEtapa}
+        />
+      </Seccion>
 
       {ficha}
 

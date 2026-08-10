@@ -14,8 +14,14 @@ export interface CodigoPais {
   readonly pais: string;
 }
 
-/** Los ocho países del mercado (README §1). Declarados por código ascendente. */
-export const CODIGOS_PAIS: readonly CodigoPais[] = [
+/**
+ * Los ocho países del mercado (README §1). Declarados por código ascendente.
+ *
+ * `as const` y no una anotación suelta: la tabla de banderas del panel se tipa
+ * contra estos códigos, así que agregar un país al mercado sin dibujarle la
+ * bandera deja de compilar en vez de fallar callado en pantalla.
+ */
+export const CODIGOS_PAIS = [
   { codigo: "51", pais: "Perú" },
   { codigo: "52", pais: "México" },
   { codigo: "54", pais: "Argentina" },
@@ -24,7 +30,10 @@ export const CODIGOS_PAIS: readonly CodigoPais[] = [
   { codigo: "57", pais: "Colombia" },
   { codigo: "593", pais: "Ecuador" },
   { codigo: "595", pais: "Paraguay" },
-];
+] as const satisfies readonly CodigoPais[];
+
+/** Los códigos que la tabla reconoce, como unión de literales. */
+export type CodigoTelefono = (typeof CODIGOS_PAIS)[number]["codigo"];
 
 /**
  * El matcheo va del código más largo al más corto, no en el orden declarado.
@@ -34,9 +43,9 @@ export const CODIGOS_PAIS: readonly CodigoPais[] = [
  * —`59` sobre `593` y `595`— el orden declarado devolvería el país equivocado
  * en silencio. Ordenar por largo hace que ese día no exista.
  */
-const POR_LARGO_DESC: readonly CodigoPais[] = [...CODIGOS_PAIS].sort(
-  (a, b) => b.codigo.length - a.codigo.length,
-);
+// Sin anotar el tipo: anotarlo como `CodigoPais[]` ensancharía `codigo` de
+// vuelta a `string` y la tabla de banderas dejaría de estar comprobada.
+const POR_LARGO_DESC = [...CODIGOS_PAIS].sort((a, b) => b.codigo.length - a.codigo.length);
 
 /**
  * Mínimo de dígitos que tiene que quedar después del código para creerle al
@@ -50,7 +59,7 @@ const SEPARADORES = /[\s().-]/g;
 
 export interface TelefonoPartido {
   /** Código de país sin `+`. */
-  codigo: string;
+  codigo: CodigoTelefono;
   /** El resto del número, tal como vino. */
   nacional: string;
   pais: string;

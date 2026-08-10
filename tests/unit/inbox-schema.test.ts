@@ -5,6 +5,7 @@ import {
   BorrarDatoExtraSchema,
   CloseSessionSchema,
   CrearEtiquetaSchema,
+  MoverEtapaSchema,
   QuitarEtiquetaSchema,
   RenombrarLeadSchema,
   SendMessageSchema,
@@ -126,6 +127,58 @@ describe("CloseSessionSchema", () => {
       leadId: LEAD_ID,
       sessionId: SESSION_ID,
       resultado: "cancelado",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("MoverEtapaSchema", () => {
+  test("acepta las seis etapas del embudo", () => {
+    for (const etapa of [
+      "nuevo",
+      "identificando",
+      "cotizado",
+      "negociando",
+      "esperando_pago",
+      "cerrado",
+    ]) {
+      const result = MoverEtapaSchema.safeParse({
+        leadId: LEAD_ID,
+        sessionId: SESSION_ID,
+        etapa,
+      });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  test("rechaza los desvíos: no son segmentos del rail", () => {
+    // `perdido` y `requiere_humano` los decide el pipeline (escalado, descuento
+    // excedido, cierre). Aceptarlos acá sería marcar una conversación como
+    // perdida sin pasar por el cierre de sesión, que es el que pide el motivo.
+    for (const etapa of ["perdido", "requiere_humano"]) {
+      const result = MoverEtapaSchema.safeParse({
+        leadId: LEAD_ID,
+        sessionId: SESSION_ID,
+        etapa,
+      });
+      expect(result.success).toBe(false);
+    }
+  });
+
+  test("rechaza una etapa inventada", () => {
+    const result = MoverEtapaSchema.safeParse({
+      leadId: LEAD_ID,
+      sessionId: SESSION_ID,
+      etapa: "facturado",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rechaza sessionId no-uuid", () => {
+    const result = MoverEtapaSchema.safeParse({
+      leadId: LEAD_ID,
+      sessionId: "no-uuid",
+      etapa: "cotizado",
     });
     expect(result.success).toBe(false);
   });

@@ -6,8 +6,8 @@ import type {
 import { LeadTwinUpdateSchema, type LeadTwinUpdate } from "@/lib/validation/ai";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { NoopSessionLock, type SessionLock } from "@/server/lock/session-lock";
-import { CAMPOS_TWIN_EDITABLES } from "@/types/domain";
-import type { CampoTwinEditable } from "@/types/domain";
+import { CAMPOS_CON_PROCEDENCIA } from "@/types/domain";
+import type { CampoConProcedencia } from "@/types/domain";
 import type { LeadSession, Procedencia, UUID } from "@/types/entities";
 
 export interface TwinExtractorInput {
@@ -107,13 +107,22 @@ export class DefaultTwinExtractorService implements TwinExtractorService {
  * no se pisa. Es la promesa que el panel le hace al vendedor cuando le muestra
  * "Corregido por vos" — si el próximo turno lo revirtiera, corregir a mano no
  * serviría de nada.
+ *
+ * `current_stage` entra en el mismo trato desde que el rail del Twin es
+ * clickeable. Sin esto el control sería mentira: el extractor recalcula la
+ * etapa en cada turno, así que la etapa puesta a mano duraría hasta el próximo
+ * mensaje del cliente. El costo es explícito: una vez movida a mano, la etapa
+ * de esa sesión deja de avanzar sola y queda a cargo de la persona. La escalada
+ * a `requiere_humano` no se ve afectada — la escriben el pipeline y el agente
+ * con `sessions.update`, que no pasa por este filtro, y una guarda de seguridad
+ * no puede depender de que nadie haya tocado el rail.
  */
 function descartarCorregidosAMano(
   patch: LeadSessionUpdate,
   procedencia: Procedencia,
 ): LeadSessionUpdate {
   const out: LeadSessionUpdate = { ...patch };
-  for (const campo of CAMPOS_TWIN_EDITABLES) {
+  for (const campo of CAMPOS_CON_PROCEDENCIA) {
     if (procedencia[campo]?.por === "humano") delete out[campo];
   }
   return out;
@@ -122,7 +131,7 @@ function descartarCorregidosAMano(
 /**
  * Marcas de procedencia de lo que acaba de escribir el extractor.
  *
- * Solo para los campos que el Twin declara (`CAMPOS_TWIN_EDITABLES`): son los
+ * Solo para los campos que el Twin declara (`CAMPOS_CON_PROCEDENCIA`): son los
  * únicos que muestran chip y línea de origen, y anotar el patch entero llenaría
  * el jsonb de filas que nadie lee.
  */
@@ -133,7 +142,7 @@ function marcasDelExtractor(
 ): MarcasProcedencia {
   const at = new Date().toISOString();
   const marcas: MarcasProcedencia = {};
-  for (const campo of CAMPOS_TWIN_EDITABLES) {
+  for (const campo of CAMPOS_CON_PROCEDENCIA) {
     if (patch[campo] === undefined) continue;
     marcas[campo] = {
       por: "ia",
@@ -147,7 +156,7 @@ function marcasDelExtractor(
   return marcas;
 }
 
-function valorAnterior(session: LeadSession, campo: CampoTwinEditable): string | number | null {
+function valorAnterior(session: LeadSession, campo: CampoConProcedencia): string | number | null {
   const previo: unknown = session[campo];
   if (typeof previo === "string" || typeof previo === "number") return previo;
   return null;

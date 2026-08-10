@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useCallback, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Add, Close, Sell } from "@/components/icons";
+import { useCerrarAlSalir } from "@/hooks/use-cerrar-al-salir";
 import { opcionesSelector } from "@/lib/ui/selector-etiquetas";
 import type {
   AsignarEtiquetaInput,
@@ -45,6 +46,17 @@ export function SeccionEtiquetas({
   const [abierto, setAbierto] = useState(false);
   const [q, setQ] = useState("");
   const [isPending, startTransition] = useTransition();
+  const panel = useRef<HTMLDivElement>(null);
+
+  const cerrar = useCallback(() => {
+    setQ("");
+    setAbierto(false);
+  }, []);
+
+  // El `ref` abarca los chips y el selector, no solo el selector: quitar una
+  // etiqueta con el `×` mientras se está agregando otra es la misma tarea, y
+  // cerrar el panel ahí sería castigar un click legítimo.
+  useCerrarAlSalir(abierto, panel, cerrar);
 
   const { candidatas, puedeCrear } = opcionesSelector(disponibles, tags, q);
 
@@ -61,7 +73,7 @@ export function SeccionEtiquetas({
   };
 
   return (
-    <div className="flex flex-col gap-2">
+    <div ref={panel} className="flex flex-col gap-2">
       {tags.length > 0 ? (
         <ul className="flex flex-wrap gap-1.5">
           {tags.map((tag) => (
@@ -96,12 +108,6 @@ export function SeccionEtiquetas({
             aria-label="Buscar o crear etiqueta"
             placeholder="Buscar o crear…"
             onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                setQ("");
-                setAbierto(false);
-              }
-            }}
             className="text-ink-body border-line-input bg-surface-input w-full rounded-[7px] border px-2 py-1 text-[11.5px] outline-none"
           />
 

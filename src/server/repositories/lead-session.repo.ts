@@ -1,6 +1,6 @@
 import { ConflictError, IllegalStateError, NotFoundError } from "@/lib/errors";
 import { etapaAlcanzada } from "@/lib/ui/stage";
-import type { CampoTwinEditable, MotivoPerdida, Resultado } from "@/types/domain";
+import type { CampoTwinEditable, EtapaEmbudo, MotivoPerdida, Resultado } from "@/types/domain";
 import type { LeadSession, Procedencia, UUID } from "@/types/entities";
 import type { Update } from "./_types";
 
@@ -76,6 +76,19 @@ export interface LeadSessionRepository {
     valor: string | number | null,
     userId: UUID | null,
   ): Promise<LeadSession>;
+  /**
+   * Movimiento de etapa hecho a mano desde el rail del Twin.
+   *
+   * No es `editarCampoTwin` con otro campo por dos razones: el valor es un enum
+   * y no texto libre, y mover la etapa arrastra `etapa_alcanzada` —que solo el
+   * repo sabe derivar—. Solo acepta etapas del embudo: `perdido` y
+   * `requiere_humano` no son posiciones y las decide el pipeline.
+   *
+   * Deja `procedencia.current_stage` en "humano", que es lo que hace que el
+   * extractor no la vuelva a pisar en el turno siguiente.
+   */
+  moverEtapa(id: UUID, etapa: EtapaEmbudo, userId: UUID | null): Promise<LeadSession>;
+
   // Escritura del extractor: el patch y sus marcas de procedencia en la misma
   // operacion, por el mismo motivo que `editarCampoTwin`. Existe aparte de
   // `update` porque `update` lo usan callers que no extraen nada (pausar la IA,
@@ -236,6 +249,31 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
     } as LeadSession;
     this.store.set(id, next);
     return structuredClone(next);
+  }
+
+  async moverEtapa(id: UUID, etapa: EtapaEmbudo, userId: UUID | null): Promise<LeadSession> {
+    const current = this.store.get(id);
+    if (!current) {
+      throw new NotFoundError(`lead_session no encontrada: ${id}`, "lead_session", id);
+    }
+    // Pasa por `update` para no duplicar la derivación de `etapa_alcanzada`:
+    // un retroceso a mano mueve `current_stage` y deja el máximo donde estaba.
+    const conEtapa = await this.update(id, { current_stage: etapa });
+    const next: LeadSession = {
+      ...conEtapa,
+      procedencia: {
+        ...conEtapa.procedencia,
+        current_stage: {
+          por: "humano",
+          at: new Date().toISOString(),
+          user_id: userId,
+          mensaje_origen_id: null,
+          valor_anterior: current.current_stage,
+        },
+      },
+    };
+    this.store.set(id, next);
+    return cloneSession(next);
   }
 
   async aplicarExtraccion(

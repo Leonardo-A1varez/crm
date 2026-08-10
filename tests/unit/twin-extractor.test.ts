@@ -149,4 +149,58 @@ describe("TwinExtractorService.extract", () => {
     const r2 = await svc.extract({ sessionId: s.id, conversationTurn: ["..."] });
     expect(r2.bloqueador).toBeNull();
   });
+
+  describe("lo que tocó una persona no se pisa", () => {
+    const USER = "11111111-1111-4111-8111-111111111111";
+
+    test("un campo corregido a mano sobrevive al turno siguiente", async () => {
+      const s = await createActiveSession(sessions);
+      await sessions.editarCampoTwin(s.id, "consulta", "lo que dijo el cliente", USER);
+      llm.enqueue({ consulta: "lo que entendió el modelo" });
+
+      const r = await svc.extract({ sessionId: s.id, conversationTurn: ["..."] });
+
+      expect(r.consulta).toBe("lo que dijo el cliente");
+    });
+
+    test("la etapa puesta a mano sobrevive al turno siguiente", async () => {
+      // Sin esto el rail clickeable del Twin sería mentira: el extractor
+      // recalcula `current_stage` en cada turno y la etapa elegida a mano
+      // duraría hasta el próximo mensaje del cliente.
+      const s = await createActiveSession(sessions, { current_stage: "nuevo" });
+      await sessions.moverEtapa(s.id, "negociando", USER);
+      llm.enqueue({ current_stage: "identificando" });
+
+      const r = await svc.extract({ sessionId: s.id, conversationTurn: ["..."] });
+
+      expect(r.current_stage).toBe("negociando");
+      expect(r.procedencia.current_stage?.por).toBe("humano");
+    });
+
+    test("la etapa bloqueada no frena el resto del patch", async () => {
+      const s = await createActiveSession(sessions, { current_stage: "nuevo" });
+      await sessions.moverEtapa(s.id, "cotizado", USER);
+      llm.enqueue({ current_stage: "nuevo", urgencia: "alta", precio_cotizado: 90 });
+
+      const r = await svc.extract({ sessionId: s.id, conversationTurn: ["..."] });
+
+      expect(r.current_stage).toBe("cotizado");
+      expect(r.urgencia).toBe("alta");
+      expect(r.precio_cotizado).toBe(90);
+    });
+
+    test("la etapa que escribe el extractor queda marcada como ia y sí se puede pisar", async () => {
+      const s = await createActiveSession(sessions, { current_stage: "nuevo" });
+      llm.enqueue({ current_stage: "identificando" });
+      const r1 = await svc.extract({ sessionId: s.id, conversationTurn: ["..."] });
+
+      expect(r1.current_stage).toBe("identificando");
+      expect(r1.procedencia.current_stage).toMatchObject({ por: "ia", valor_anterior: "nuevo" });
+
+      llm.enqueue({ current_stage: "cotizado" });
+      const r2 = await svc.extract({ sessionId: s.id, conversationTurn: ["..."] });
+
+      expect(r2.current_stage).toBe("cotizado");
+    });
+  });
 });

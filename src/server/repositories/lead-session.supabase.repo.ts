@@ -151,6 +151,26 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
     return mapRow(data as LeadSessionRow);
   }
 
+  async moverEtapa(id: UUID, etapa: EtapaEmbudo, userId: UUID | null): Promise<LeadSession> {
+    const actual = await this.findById(id);
+    if (!actual) {
+      throw new NotFoundError(`lead_session no encontrada: ${id}`, "lead_session", id);
+    }
+    // Pasa por `escribir` y no por un `.update()` propio para que
+    // `etapa_alcanzada` la siga derivando el mismo lugar de siempre: un
+    // retroceso a mano mueve `current_stage` y deja el máximo donde estaba.
+    return this.escribir(id, { current_stage: etapa }, actual.etapa_alcanzada, {
+      ...actual.procedencia,
+      current_stage: {
+        por: "humano",
+        at: new Date().toISOString(),
+        user_id: userId,
+        mensaje_origen_id: null,
+        valor_anterior: actual.current_stage,
+      },
+    });
+  }
+
   async aplicarExtraccion(
     id: UUID,
     patch: LeadSessionUpdate,

@@ -8,7 +8,6 @@ import {
   Group,
   InboxIcon,
   Inventory2,
-  SearchIcon,
   Sell,
   SettingsIcon,
   SettingsSuggest,
@@ -25,14 +24,16 @@ interface NavItem {
   Icon: ComponentType<{ className?: string; size?: number; strokeWidth?: number }>;
 }
 
-// Los siete ítems del handoff §1.1, en ese orden. "Agente IA" (/agente) es la
-// consola que absorbió la administración de intents y reglas: /intents-reglas
-// ya solo redirige a /agente?tab=reglas, así que no tiene ítem propio.
+// Los siete ítems del handoff §1.1, en ese orden. "OpenAI settings" (/agente)
+// es la consola que absorbió la administración de intents y reglas:
+// /intents-reglas ya solo redirige a /agente?tab=reglas, así que no tiene ítem
+// propio. El nombre lo eligió el dueño; nombra al proveedor y no a la función,
+// así que si algún día se cambia de modelo hay que revisarlo.
 const ITEMS: readonly NavItem[] = [
   { href: "/inbox", label: "Inbox", Icon: InboxIcon },
   { href: "/leads", label: "Leads", Icon: Group },
   { href: "/productos", label: "Productos", Icon: Inventory2 },
-  { href: "/agente", label: "Agente IA", Icon: SmartToy },
+  { href: "/agente", label: "OpenAI settings", Icon: SmartToy },
   { href: "/tags", label: "Tags", Icon: Sell },
   { href: "/metricas", label: "Métricas", Icon: BarChartIcon },
   { href: "/ajustes", label: "Ajustes", Icon: SettingsIcon },
@@ -69,18 +70,6 @@ export function SideNav({
             CRM · single-org
           </span>
         </span>
-      </div>
-
-      {/* Decorativo: el buscador global y su atajo se cablean en el sub-proyecto B,
-          que es el que trae la query de conversaciones. */}
-      <div className="px-3 pb-2.5">
-        <div className="bg-surface-elevated border-line-card flex items-center gap-2 rounded-[9px] border px-2.5 py-[7px]">
-          <SearchIcon className="text-ink-ghost shrink-0" size={15} />
-          <span className="text-ink-faint flex-1 truncate text-[12px]">Buscar…</span>
-          <span className="text-ink-ghost border-line-control rounded-[4px] border px-1 font-mono text-[9.5px]">
-            ⌘K
-          </span>
-        </div>
       </div>
 
       {/* min-h-0 es obligatorio: sin él, el flex-1 del nav empuja el footer

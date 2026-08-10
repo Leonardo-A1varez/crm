@@ -1,7 +1,7 @@
 import { canalColor, canalLabel } from "@/lib/ui/canal";
 import type { Canal } from "@/types/domain";
 
-function CanalGlyph({ canal, className }: { canal: Canal; className: string }) {
+export function CanalGlyph({ canal, className }: { canal: Canal; className: string }) {
   switch (canal) {
     case "wa":
       return (

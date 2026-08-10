@@ -15,6 +15,7 @@ import { borrarDatoLeadAction } from "../_actions/borrar-dato-lead.action";
 import { closeSessionAction } from "../_actions/close-session.action";
 import { crearEtiquetaAction } from "../_actions/crear-etiqueta.action";
 import { editarCampoTwinAction } from "../_actions/editar-campo-twin.action";
+import { moverEtapaAction } from "../_actions/mover-etapa.action";
 import { quitarEtiquetaAction } from "../_actions/quitar-etiqueta.action";
 import { renombrarLeadAction } from "../_actions/renombrar-lead.action";
 import { sendMessageAction } from "../_actions/send-message.action";
@@ -104,6 +105,7 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
           sesionesPrevias={view.sesionesPrevias}
           gastoIa={view.gastoIa}
           onEditar={editarCampoTwinAction}
+          onMoverEtapa={moverEtapaAction}
           onRenombrar={renombrarLeadAction}
           onAgregarDato={agregarDatoLeadAction}
           onBorrarDato={borrarDatoLeadAction}

@@ -53,7 +53,7 @@ export type Direction = (typeof DIRECTION)[number];
 export const SENDER = ["lead", "ia", "humano", "sistema"] as const;
 export type Sender = (typeof SENDER)[number];
 
-/** Campos del Twin que una persona puede corregir a mano. */
+/** Campos del Twin que una persona puede corregir a mano, escribiendo texto. */
 export const CAMPOS_TWIN_EDITABLES = [
   "consulta",
   "codigo_interno",
@@ -62,6 +62,19 @@ export const CAMPOS_TWIN_EDITABLES = [
   "bloqueador",
 ] as const;
 export type CampoTwinEditable = (typeof CAMPOS_TWIN_EDITABLES)[number];
+
+/**
+ * Campos cuya autoría se anota en `lead_session.procedencia` y que, por eso, el
+ * extractor no vuelve a pisar cuando los tocó una persona.
+ *
+ * Es `CAMPOS_TWIN_EDITABLES` más `current_stage`. La etapa no entra en aquella
+ * lista porque esa gobierna el lápiz de texto libre —y el `valor` que viaja por
+ * ahí es un string arbitrario: meterla ahí dejaría que un cliente mandara
+ * cualquier cosa a una columna que es un enum—. La etapa se mueve solo desde el
+ * rail, que ofrece las seis del embudo y nada más.
+ */
+export const CAMPOS_CON_PROCEDENCIA = [...CAMPOS_TWIN_EDITABLES, "current_stage"] as const;
+export type CampoConProcedencia = (typeof CAMPOS_CON_PROCEDENCIA)[number];
 
 /**
  * Escalones de entrega que reporta Meta para un mensaje saliente. `null` en la

@@ -6,7 +6,7 @@ export default function AjustesPage() {
     <PantallaPendiente
       titulo="Ajustes"
       icono={<SettingsIcon size={34} strokeWidth={1.4} />}
-      descripcion="Va a juntar los ajustes del sistema: datos de la empresa, usuarios y roles, y horario de atención. La configuración del agente vendedor no vive acá: está en Agente IA."
+      descripcion="Va a juntar los ajustes del sistema: datos de la empresa, usuarios y roles, y horario de atención. La configuración del agente vendedor no vive acá: está en OpenAI settings."
       origen="fase 12"
     />
   );

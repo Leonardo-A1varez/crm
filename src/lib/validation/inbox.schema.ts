@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CAMPOS_TWIN_EDITABLES } from "@/types/domain";
+import { CAMPOS_TWIN_EDITABLES, ETAPAS_EMBUDO } from "@/types/domain";
 import { esClaveReservada, MAX_LARGO_CLAVE, MAX_LARGO_VALOR } from "@/lib/datos-extra";
 import {
   CanalSchema,
@@ -44,6 +44,22 @@ export const EditarCampoTwinSchema = z.object({
   valor: z.union([z.string().trim().max(2000), z.number(), z.null()]),
 });
 export type EditarCampoTwinInput = z.infer<typeof EditarCampoTwinSchema>;
+
+/**
+ * Movimiento de etapa desde el rail del Twin.
+ *
+ * `ETAPAS_EMBUDO` y no `CURRENT_STAGE`: `perdido` y `requiere_humano` son
+ * desvíos que decide el pipeline —escalado, descuento excedido, cierre— y no
+ * tienen segmento en el rail. Aceptarlos acá abriría un camino para marcar una
+ * conversación como perdida sin pasar por el cierre de sesión, que es el que
+ * pide el motivo.
+ */
+export const MoverEtapaSchema = z.object({
+  leadId: UUIDSchema,
+  sessionId: UUIDSchema,
+  etapa: z.enum(ETAPAS_EMBUDO),
+});
+export type MoverEtapaInput = z.infer<typeof MoverEtapaSchema>;
 
 /**
  * El nombre con el que la casa identifica al lead. Acepta vacío porque volver a
