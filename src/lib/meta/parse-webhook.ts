@@ -17,6 +17,15 @@ export interface ParsedMessage {
   tipo: TipoMensaje;
   contenido: string | null;
   media_url: string | null;
+  /**
+   * Cómo se llama a sí mismo el contacto en la plataforma.
+   *
+   * Solo WhatsApp: viene en `value.contacts[].profile.name` de cada POST.
+   * Instagram y Messenger no lo mandan en el webhook —hace falta una llamada
+   * aparte a la Graph API— así que ahí es `null`, que significa "no lo sabemos"
+   * y no "no tiene".
+   */
+  nombre_perfil: string | null;
   raw: Record<string, unknown>;
 }
 
@@ -102,10 +111,11 @@ function parseWA(payload: Record<string, unknown>): ParsedMessage[] {
       if (!isObject(change)) continue;
       if (change.field !== "messages") continue;
       const value = isObject(change.value) ? change.value : {};
+      const perfiles = waPerfiles(value.contacts);
       const messages = asArray(value.messages);
       for (const m of messages) {
         if (!isObject(m)) continue;
-        const parsed = waMessage(m);
+        const parsed = waMessage(m, perfiles);
         if (parsed) out.push(parsed);
       }
     }
@@ -113,7 +123,29 @@ function parseWA(payload: Record<string, unknown>): ParsedMessage[] {
   return out;
 }
 
-function waMessage(m: Record<string, unknown>): ParsedMessage | null {
+/**
+ * Nombres de perfil del `value`, indexados por `wa_id`.
+ *
+ * Meta manda los contactos al lado de los mensajes y no adentro de cada uno, y
+ * `wa_id` es la clave que los une con `messages[].from`. El índice se arma una
+ * vez por `value` porque un mismo POST puede traer varios mensajes del mismo
+ * contacto.
+ */
+function waPerfiles(contacts: unknown): Map<string, string> {
+  const porWaId = new Map<string, string>();
+  for (const c of asArray(contacts)) {
+    if (!isObject(c)) continue;
+    const waId = asString(c.wa_id);
+    const nombre = isObject(c.profile) ? asString(c.profile.name) : null;
+    if (waId && nombre) porWaId.set(waId, nombre);
+  }
+  return porWaId;
+}
+
+function waMessage(
+  m: Record<string, unknown>,
+  perfiles: Map<string, string>,
+): ParsedMessage | null {
   const from = asString(m.from);
   const id = asString(m.id);
   const type = asString(m.type);
@@ -124,6 +156,13 @@ function waMessage(m: Record<string, unknown>): ParsedMessage | null {
 
   const contenido = extractWaContenido(tipo, m);
 
+  // Se cruza por `wa_id`. Cuando el `value` trae un solo contacto se usa ese
+  // aunque no matchee: México y Argentina devuelven a veces un `wa_id`
+  // normalizado (sin el 1 ni el 9) que no coincide con el `from` del mensaje, y
+  // con un único contacto en el lote no hay a quién más pertenecer.
+  const unico = perfiles.size === 1 ? [...perfiles.values()][0] : null;
+  const nombrePerfil = perfiles.get(from) ?? unico ?? null;
+
   return {
     canal: "wa",
     canal_thread_id: from,
@@ -132,6 +171,7 @@ function waMessage(m: Record<string, unknown>): ParsedMessage | null {
     tipo,
     contenido,
     media_url: null,
+    nombre_perfil: nombrePerfil,
     raw: m,
   };
 }
@@ -208,6 +248,8 @@ function messengerEvent(ev: Record<string, unknown>, canal: "ig" | "fb"): Parsed
     tipo: "text",
     contenido: text,
     media_url: null,
+    // Messenger e Instagram no mandan el nombre en el evento de mensaje.
+    nombre_perfil: null,
     raw: ev,
   };
 }

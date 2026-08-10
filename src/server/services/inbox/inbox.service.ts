@@ -1,5 +1,6 @@
 import type { ConversationView, InboxItem } from "@/types/inbox";
 import type { CampoTwinEditable, Canal, MotivoPerdida, Resultado } from "@/types/domain";
+import type { CampoContactoLead } from "@/lib/validation/inbox.schema";
 import type { Lead, LeadSession, Mensaje, Tag, UUID } from "@/types/entities";
 
 export type { ConversationView, InboxItem };
@@ -41,6 +42,15 @@ export interface RenombrarLeadServiceInput {
   nombre: string;
 }
 
+/**
+ * Un dato cargado a mano desde el `+` de la ficha. Las dos formas son
+ * excluyentes: o completa una columna que existe, o crea un campo libre.
+ */
+export type AgregarDatoLeadServiceInput = { leadId: UUID } & (
+  | { tipo: "campo"; campo: CampoContactoLead; valor: string }
+  | { tipo: "libre"; clave: string; valor: string }
+);
+
 export interface EtiquetaLeadServiceInput {
   leadId: UUID;
   tagId: UUID;
@@ -72,7 +82,7 @@ export interface InboxService {
 
   /**
    * Vista conversación de un lead: lead + sesión activa (null si no hay) +
-   * mensajes de la sesión ASC (cap 200) + canales vinculados + canal activo.
+   * mensajes de la sesión ASC (cap 200) + canal activo.
    * Lanza NotFoundError cuando el lead no existe.
    */
   getConversation(leadId: UUID): Promise<ConversationView>;
@@ -112,6 +122,16 @@ export interface InboxService {
    * NotFoundError si el lead no existe.
    */
   renombrarLead(input: RenombrarLeadServiceInput): Promise<Lead>;
+
+  /**
+   * Carga un dato de contacto: o completa una columna existente, o agrega un
+   * campo libre a `datos_extra`. Como `renombrarLead`, no exige sesión activa:
+   * la dirección de un lead vale igual con la conversación cerrada.
+   *
+   * NotFoundError si el lead no existe; ValidationError si el campo libre
+   * supera el tope de campos por lead.
+   */
+  agregarDato(input: AgregarDatoLeadServiceInput): Promise<Lead>;
 
   /**
    * Cuelga una etiqueta ya existente del lead, con `source: "manual"`.

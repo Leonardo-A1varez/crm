@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  AgregarDatoLeadSchema,
   AsignarEtiquetaSchema,
   CloseSessionSchema,
   CrearEtiquetaSchema,
@@ -179,5 +180,89 @@ describe("CrearEtiquetaSchema", () => {
   test("rechaza más de 40 chars", () => {
     const result = CrearEtiquetaSchema.safeParse({ leadId: LEAD_ID, nombre: "x".repeat(41) });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("AgregarDatoLeadSchema", () => {
+  test("acepta una columna de la lista blanca y trimea el valor", () => {
+    const parsed = AgregarDatoLeadSchema.parse({
+      tipo: "campo",
+      leadId: LEAD_ID,
+      campo: "email",
+      valor: "  ramon@taller.com  ",
+    });
+    expect(parsed).toEqual({
+      tipo: "campo",
+      leadId: LEAD_ID,
+      campo: "email",
+      valor: "ramon@taller.com",
+    });
+  });
+
+  test("rechaza una columna fuera de la lista blanca", () => {
+    // `telefono` es la clave con la que el pipeline encuentra al lead.
+    for (const campo of ["telefono", "nombre", "nombre_perfil", "id"]) {
+      const r = AgregarDatoLeadSchema.safeParse({
+        tipo: "campo",
+        leadId: LEAD_ID,
+        campo,
+        valor: "x",
+      });
+      expect(r.success).toBe(false);
+    }
+  });
+
+  test("acepta un campo libre con nombre y valor propios", () => {
+    const parsed = AgregarDatoLeadSchema.parse({
+      tipo: "libre",
+      leadId: LEAD_ID,
+      clave: " Cumpleaños ",
+      valor: " 12/03 ",
+    });
+    expect(parsed).toEqual({
+      tipo: "libre",
+      leadId: LEAD_ID,
+      clave: "Cumpleaños",
+      valor: "12/03",
+    });
+  });
+
+  test("rechaza un campo libre que se llame como una columna real", () => {
+    for (const clave of ["Teléfono", "email", "Dirección", "canal", "Nombre"]) {
+      const r = AgregarDatoLeadSchema.safeParse({
+        tipo: "libre",
+        leadId: LEAD_ID,
+        clave,
+        valor: "x",
+      });
+      expect(r.success).toBe(false);
+    }
+  });
+
+  test("rechaza vacíos post-trim y largos fuera de rango", () => {
+    const base = { tipo: "libre" as const, leadId: LEAD_ID };
+    expect(AgregarDatoLeadSchema.safeParse({ ...base, clave: "  ", valor: "x" }).success).toBe(
+      false,
+    );
+    expect(AgregarDatoLeadSchema.safeParse({ ...base, clave: "x", valor: "  " }).success).toBe(
+      false,
+    );
+    expect(
+      AgregarDatoLeadSchema.safeParse({ ...base, clave: "x".repeat(41), valor: "x" }).success,
+    ).toBe(false);
+    expect(
+      AgregarDatoLeadSchema.safeParse({ ...base, clave: "x", valor: "x".repeat(201) }).success,
+    ).toBe(false);
+  });
+
+  test("rechaza un tipo desconocido y leadId no-uuid", () => {
+    expect(
+      AgregarDatoLeadSchema.safeParse({ tipo: "otro", leadId: LEAD_ID, clave: "x", valor: "y" })
+        .success,
+    ).toBe(false);
+    expect(
+      AgregarDatoLeadSchema.safeParse({ tipo: "libre", leadId: "no-uuid", clave: "x", valor: "y" })
+        .success,
+    ).toBe(false);
   });
 });

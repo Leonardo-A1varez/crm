@@ -59,8 +59,14 @@ function buildFillPatch(ganador: Lead, perdedor: Lead): LeadUpdate {
   if (ganador.vehiculo_anio === 0 && perdedor.vehiculo_anio !== 0) {
     patch.vehiculo_anio = perdedor.vehiculo_anio;
   }
+  if (ganador.nombre_perfil === null && perdedor.nombre_perfil !== null) {
+    patch.nombre_perfil = perdedor.nombre_perfil;
+  }
   // Unión de identidades Meta: el ganador prima por canal.
   patch.meta_user_ids = { ...perdedor.meta_user_ids, ...ganador.meta_user_ids };
+  // Unión de campos libres: el ganador prima clave por clave. El perdedor se
+  // borra con CASCADE, así que lo que no se copie acá se pierde.
+  patch.datos_extra = { ...perdedor.datos_extra, ...ganador.datos_extra };
   return patch;
 }
 

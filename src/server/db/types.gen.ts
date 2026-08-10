@@ -447,12 +447,14 @@ export type Database = {
         Row: {
           canal_origen: Database["public"]["Enums"]["canal_enum"]
           created_at: string
+          datos_extra: Json
           direccion: string | null
           email: string | null
           empresa_id: string | null
           id: string
           meta_user_ids: Json
           nombre: string
+          nombre_perfil: string | null
           telefono: string
           updated_at: string
           vehiculo_anio: number
@@ -463,12 +465,14 @@ export type Database = {
         Insert: {
           canal_origen: Database["public"]["Enums"]["canal_enum"]
           created_at?: string
+          datos_extra?: Json
           direccion?: string | null
           email?: string | null
           empresa_id?: string | null
           id?: string
           meta_user_ids?: Json
           nombre: string
+          nombre_perfil?: string | null
           telefono: string
           updated_at?: string
           vehiculo_anio: number
@@ -479,12 +483,14 @@ export type Database = {
         Update: {
           canal_origen?: Database["public"]["Enums"]["canal_enum"]
           created_at?: string
+          datos_extra?: Json
           direccion?: string | null
           email?: string | null
           empresa_id?: string | null
           id?: string
           meta_user_ids?: Json
           nombre?: string
+          nombre_perfil?: string | null
           telefono?: string
           updated_at?: string
           vehiculo_anio?: number

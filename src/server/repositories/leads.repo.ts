@@ -3,7 +3,14 @@ import type { Canal } from "@/types/domain";
 import type { Lead, MetaUserIds, UUID } from "@/types/entities";
 import type { Insert, Update } from "./_types";
 
-export type LeadInsert = Insert<Lead, "id" | "created_at" | "updated_at">;
+// `nombre_perfil` y `datos_extra` quedan opcionales: los dos tienen default en
+// la tabla (null y '{}') y solo los escribe quien los tiene — el pipeline de
+// WhatsApp el primero, el vendedor el segundo.
+export type LeadInsert = Insert<
+  Lead,
+  "id" | "created_at" | "updated_at" | "nombre_perfil" | "datos_extra"
+> &
+  Partial<Pick<Lead, "nombre_perfil" | "datos_extra">>;
 export type LeadUpdate = Update<Lead, "id" | "created_at" | "updated_at">;
 
 export interface LeadListFilter {
@@ -32,10 +39,11 @@ const META_KEY_BY_CANAL: Record<Canal, keyof MetaUserIds> = {
   fb: "fb",
 };
 
-// Deep clone defensivo de meta_user_ids (jsonb nested). Garantiza parity con Supabase
-// que siempre devuelve objetos nuevos. Sin esto, mutación externa contaminaría storage.
+// Deep clone defensivo de los jsonb (meta_user_ids, datos_extra). Garantiza
+// parity con Supabase que siempre devuelve objetos nuevos. Sin esto, mutación
+// externa contaminaría storage.
 function cloneLead(l: Lead): Lead {
-  return { ...l, meta_user_ids: { ...l.meta_user_ids } };
+  return { ...l, meta_user_ids: { ...l.meta_user_ids }, datos_extra: { ...l.datos_extra } };
 }
 
 export class InMemoryLeadsRepository implements LeadsRepository {
@@ -50,7 +58,9 @@ export class InMemoryLeadsRepository implements LeadsRepository {
     const now = new Date();
     const lead: Lead = {
       ...input,
+      nombre_perfil: input.nombre_perfil ?? null,
       meta_user_ids: { ...input.meta_user_ids },
+      datos_extra: { ...(input.datos_extra ?? {}) },
       id: crypto.randomUUID(),
       created_at: now,
       updated_at: now,
@@ -88,6 +98,7 @@ export class InMemoryLeadsRepository implements LeadsRepository {
       meta_user_ids: patch.meta_user_ids
         ? { ...patch.meta_user_ids }
         : { ...current.meta_user_ids },
+      datos_extra: patch.datos_extra ? { ...patch.datos_extra } : { ...current.datos_extra },
       id: current.id,
       created_at: current.created_at,
       updated_at: new Date(),

@@ -89,6 +89,57 @@ export function runLeadsContract(makeRepo: () => LeadsRepository) {
       await expect(repo.update("missing", { nombre: "x" })).rejects.toThrow();
     });
 
+    test("nombre_perfil y datos_extra tienen default y no exigen el insert", async () => {
+      const lead = await repo.create({ ...baseInsert, telefono: "+595981000900" });
+      expect(lead.nombre_perfil).toBeNull();
+      expect(lead.datos_extra).toEqual({});
+    });
+
+    test("nombre_perfil viaja aparte de nombre en create y update", async () => {
+      const lead = await repo.create({
+        ...baseInsert,
+        telefono: "+595981000901",
+        nombre_perfil: "Juanchi",
+      });
+      expect(lead.nombre_perfil).toBe("Juanchi");
+      expect(lead.nombre).toBe(baseInsert.nombre);
+
+      const patched = await repo.update(lead.id, { nombre_perfil: "Juanchi 🏁" });
+      expect(patched.nombre_perfil).toBe("Juanchi 🏁");
+      // El nombre de la casa no lo toca el pipeline.
+      expect(patched.nombre).toBe(baseInsert.nombre);
+    });
+
+    test("datos_extra persiste el objeto entero y se puede vaciar", async () => {
+      const lead = await repo.create({
+        ...baseInsert,
+        telefono: "+595981000902",
+        datos_extra: { Cumpleaños: "12/03" },
+      });
+      expect(lead.datos_extra).toEqual({ Cumpleaños: "12/03" });
+
+      const patched = await repo.update(lead.id, {
+        datos_extra: { Cumpleaños: "12/03", Taller: "El Rápido" },
+      });
+      expect(patched.datos_extra).toEqual({ Cumpleaños: "12/03", Taller: "El Rápido" });
+
+      const vaciado = await repo.update(lead.id, { datos_extra: {} });
+      expect(vaciado.datos_extra).toEqual({});
+    });
+
+    test("datos_extra devuelto no es el mismo objeto que el guardado", async () => {
+      // Sin clone, mutar lo que devuelve el repo contaminaría el storage.
+      const lead = await repo.create({
+        ...baseInsert,
+        telefono: "+595981000903",
+        datos_extra: { Taller: "El Rápido" },
+      });
+      lead.datos_extra.Taller = "otro";
+
+      const fetched = await repo.findById(lead.id);
+      expect(fetched?.datos_extra).toEqual({ Taller: "El Rápido" });
+    });
+
     test("delete borra y es no-op si no existe (replay-safe)", async () => {
       const l = await repo.create({ ...baseInsert, telefono: "+5491100000009" });
       await repo.delete(l.id);

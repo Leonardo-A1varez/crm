@@ -76,10 +76,23 @@ export interface Empresa {
 
 export interface Lead {
   id: UUID;
+  /** Cómo identifica la casa al lead. Lo escribe el vendedor; nace vacío. */
   nombre: string;
+  /**
+   * Cómo se llama a sí mismo en la plataforma (WhatsApp `profile.name`). Lo
+   * mantiene el pipeline y nunca pisa `nombre`. `null` en Instagram y Messenger,
+   * que no lo mandan en el webhook.
+   */
+  nombre_perfil: string | null;
   telefono: string;
   email: string | null;
   direccion: string | null;
+  /**
+   * Campos libres que carga el vendedor desde el `+` de la ficha. Las claves
+   * que colisionan con columnas reales se rechazan al escribir, para que no
+   * haya dos fuentes del mismo dato.
+   */
+  datos_extra: Record<string, string>;
   vehiculo_marca: string;
   vehiculo_modelo: string;
   vehiculo_anio: number;

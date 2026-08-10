@@ -33,6 +33,7 @@ function parsed(overrides: Partial<ParsedMessage> = {}): ParsedMessage {
     tipo: "text",
     contenido: "ultima pregunta",
     media_url: null,
+    nombre_perfil: null,
     raw: { type: "text" },
     ...overrides,
   };

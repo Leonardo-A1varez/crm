@@ -374,7 +374,6 @@ describe("DefaultInboxService.getConversation", () => {
     expect(view.session?.id).toBe(session.id);
     expect(view.session?.current_stage).toBe("cotizado");
     expect(view.messages.map((m) => m.id)).toEqual([m1.id, m2.id, m3.id]);
-    expect([...view.canales].sort()).toEqual(["ig", "wa"]);
     // convIg creada después → ultima_actividad_at más reciente → canal activo.
     expect(view.canalActivo).toBe("ig");
   });
@@ -385,7 +384,7 @@ describe("DefaultInboxService.getConversation", () => {
     });
   });
 
-  test("sin sesión activa: session null + messages vacío + canales derivados", async () => {
+  test("sin sesión activa: session null + messages vacío", async () => {
     const lead = await makeLead(leads);
     // Sesión cerrada (resultado seteado) NO cuenta como activa.
     await makeSession(sessions, lead.id, { resultado: "perdido" });
@@ -395,16 +394,14 @@ describe("DefaultInboxService.getConversation", () => {
 
     expect(view.session).toBeNull();
     expect(view.messages).toEqual([]);
-    expect(view.canales).toEqual(["wa"]);
   });
 
-  test("sin conversaciones: canales vacío + canalActivo cae a canal_origen", async () => {
+  test("sin conversaciones: canalActivo cae a canal_origen", async () => {
     const lead = await makeLead(leads, { canal_origen: "fb" });
     await makeSession(sessions, lead.id);
 
     const view = await svc.getConversation(lead.id);
 
-    expect(view.canales).toEqual([]);
     expect(view.canalActivo).toBe("fb");
   });
 

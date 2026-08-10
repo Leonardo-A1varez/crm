@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CAMPOS_TWIN_EDITABLES } from "@/types/domain";
+import { esClaveReservada, MAX_LARGO_CLAVE, MAX_LARGO_VALOR } from "@/lib/datos-extra";
 import {
   CanalSchema,
   MotivoPerdidaSchema,
@@ -75,3 +76,44 @@ export const CrearEtiquetaSchema = z.object({
   nombre: z.string().trim().min(1).max(40),
 });
 export type CrearEtiquetaInput = z.infer<typeof CrearEtiquetaSchema>;
+
+/**
+ * Columnas de contacto de `leads` que el `+` del Twin puede completar.
+ *
+ * Lista blanca corta y explícita: `telefono` no está porque es la clave con la
+ * que el pipeline encuentra al lead, y `nombre` / `nombre_perfil` tienen cada
+ * uno su propio camino de escritura.
+ */
+export const CAMPOS_CONTACTO_LEAD = ["email", "direccion"] as const;
+export type CampoContactoLead = (typeof CAMPOS_CONTACTO_LEAD)[number];
+
+/**
+ * El `+` de la ficha, en sus dos formas: completar una columna que existe o
+ * inventar un campo con nombre y valor libres.
+ *
+ * Unión discriminada y no un objeto con todo opcional: son dos escrituras
+ * distintas —una va a una columna, la otra a `datos_extra`— y mezclarlas
+ * dejaría al service decidiendo con `if (clave)` cuál quiso hacer el vendedor.
+ */
+export const AgregarDatoLeadSchema = z.discriminatedUnion("tipo", [
+  z.object({
+    tipo: z.literal("campo"),
+    leadId: UUIDSchema,
+    campo: z.enum(CAMPOS_CONTACTO_LEAD),
+    valor: z.string().trim().min(1).max(MAX_LARGO_VALOR),
+  }),
+  z.object({
+    tipo: z.literal("libre"),
+    leadId: UUIDSchema,
+    clave: z
+      .string()
+      .trim()
+      .min(1)
+      .max(MAX_LARGO_CLAVE)
+      // Un campo libre que se llame "Email" competiría con la columna `email`:
+      // dos filas con el mismo rótulo y ninguna que mande.
+      .refine((c) => !esClaveReservada(c), { message: "clave reservada" }),
+    valor: z.string().trim().min(1).max(MAX_LARGO_VALOR),
+  }),
+]);
+export type AgregarDatoLeadInput = z.infer<typeof AgregarDatoLeadSchema>;

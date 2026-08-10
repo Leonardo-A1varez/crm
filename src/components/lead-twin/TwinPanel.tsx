@@ -7,28 +7,28 @@ import {
   Savings,
   Warning,
 } from "@/components/icons";
+import { AgregarDato } from "@/components/lead-twin/AgregarDato";
 import { CampoEditable } from "@/components/lead-twin/CampoEditable";
 import { ChipProcedencia } from "@/components/lead-twin/ChipProcedencia";
 import { NombreLead } from "@/components/lead-twin/NombreLead";
 import { SeccionEtiquetas } from "@/components/lead-twin/SeccionEtiquetas";
 import { TwinEmptyState } from "@/components/lead-twin/TwinEmptyState";
 import { TwinField } from "@/components/lead-twin/TwinField";
-import { ChannelDot } from "@/components/shared/ChannelDot";
 import { Eyebrow } from "@/components/shared/Eyebrow";
 import { MonoMeta } from "@/components/shared/MonoMeta";
 import { RelativeTime } from "@/components/shared/RelativeTime";
-import { canalLabel } from "@/lib/ui/canal";
 import { formatearUsd } from "@/lib/ui/metricas";
 import { FUNNEL_STAGES, funnelStep, isDetour, stageColor, stageLabel } from "@/lib/ui/stage";
+import { formatearTelefono } from "@/lib/ui/telefono";
 import type {
   CampoTwinEditable,
-  Canal,
   CurrentStage,
   EtapaEmbudo,
   MetodoPago,
   Urgencia,
 } from "@/types/domain";
 import type {
+  AgregarDatoLeadInput,
   AsignarEtiquetaInput,
   CrearEtiquetaInput,
   EditarCampoTwinInput,
@@ -80,10 +80,13 @@ function formatExtraKey(key: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-function formatExtraValue(value: unknown): string {
-  if (value === null || value === undefined) return "—";
+// `null` = no hay nada que mostrar y la fila no se dibuja. Un extra que el
+// extractor dejó vacío no es un dato: es una clave que quedó suelta.
+function formatExtraValue(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
   if (typeof value === "boolean") return value ? "Sí" : "No";
-  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (typeof value === "string") return value.trim() === "" ? null : value;
+  if (typeof value === "number") return String(value);
   return JSON.stringify(value);
 }
 
@@ -236,48 +239,61 @@ function ProductoCotizado({ producto }: { producto: Producto }) {
  * Datos de contacto del lead. Bajaron del header de la conversación, que los
  * apretaba en una línea que se truncaba: acá hay ancho y hay scroll, y son los
  * datos con los que se lo llama cuando la conversación no alcanza.
+ *
+ * Solo se dibuja lo que existe. El único que está siempre es el teléfono; el
+ * resto aparece cuando hay dato y, si no lo hay, se carga con el `+`. El canal
+ * no está: ya lo dicen el punto del avatar y la lista.
+ *
+ * El alto máximo con scroll propio es decisión del dueño, tomada contra la
+ * recomendación de quien lo escribió —un scroll adentro de otro scroll
+ * desorienta en trackpad—. Lo que se pudo mitigar: `overflow-y-auto` en vez de
+ * `scroll` (la barra existe solo si desborda de verdad), `overscroll-contain`
+ * para que llegar al final no arrastre el Twin entero, y el `+` afuera del área
+ * scrolleable.
  */
 function Contacto({
   lead,
-  canales,
-  canalActivo,
+  onAgregarDato,
 }: {
   lead: Lead;
-  canales: Canal[];
-  canalActivo: Canal;
+  onAgregarDato: (input: AgregarDatoLeadInput) => Promise<ActionResult>;
 }) {
-  // Sin conversación abierta todavía no hay canales vinculados; el de origen es
-  // lo único que se sabe y es mejor que una raya.
-  const vinculados = canales.length > 0 ? canales : [lead.canal_origen];
+  const extras = Object.entries(lead.datos_extra);
 
   return (
     <Seccion>
       <Eyebrow>Contacto</Eyebrow>
-      <TwinField
-        label="Teléfono"
-        value={<span className="font-mono text-[11.5px]">{lead.telefono}</span>}
-      />
-      <div>
-        <div className="text-ink-faint text-[10.5px]">Canal</div>
-        <ul className="mt-[3px] flex flex-wrap items-center gap-x-2.5 gap-y-1">
-          {vinculados.map((canal) => (
-            <li key={canal} className="flex items-center gap-1.5">
-              <ChannelDot canal={canal} size={9} />
-              <span
-                className={
-                  canal === canalActivo
-                    ? "text-ink-secondary text-[12px] font-medium"
-                    : "text-ink-faint text-[12px]"
-                }
-              >
-                {canalLabel(canal)}
-              </span>
-            </li>
-          ))}
-        </ul>
+      <div className="flex max-h-[204px] flex-col gap-3 overflow-y-auto overscroll-contain">
+        {/* "Contacto" y no "Nombre": es como se llama a sí mismo en la
+            plataforma, no como lo identifica la casa —ese es el título de
+            arriba, editable—. Instagram y Messenger no lo mandan, así que en
+            esos leads la línea directamente no está. */}
+        <TwinField label="Contacto" value={lead.nombre_perfil ?? undefined} />
+        <TwinField
+          label="Teléfono"
+          value={
+            <span className="font-mono text-[11.5px]">{formatearTelefono(lead.telefono)}</span>
+          }
+        />
+        <TwinField label="Email" value={lead.email ?? undefined} />
+        <TwinField label="Dirección" value={lead.direccion ?? undefined} />
+        {extras.map(([clave, valor]) => (
+          // La clave se muestra tal como la escribió el vendedor: la eligió él.
+          <TwinField
+            key={clave}
+            label={clave}
+            value={<span className="break-words whitespace-pre-wrap">{valor}</span>}
+          />
+        ))}
       </div>
-      <TwinField label="Email" value={lead.email ?? undefined} />
-      <TwinField label="Dirección" value={lead.direccion ?? undefined} />
+      <AgregarDato
+        leadId={lead.id}
+        opciones={[
+          { campo: "email", label: "Email", cargado: lead.email !== null },
+          { campo: "direccion", label: "Dirección", cargado: lead.direccion !== null },
+        ]}
+        onAgregar={onAgregarDato}
+      />
     </Seccion>
   );
 }
@@ -437,8 +453,6 @@ export function TwinPanel({
   session,
   leadId,
   mensajes,
-  canales,
-  canalActivo,
   producto,
   tags,
   tagsDisponibles,
@@ -446,6 +460,7 @@ export function TwinPanel({
   gastoIa,
   onEditar,
   onRenombrar,
+  onAgregarDato,
   onAsignarEtiqueta,
   onQuitarEtiqueta,
   onCrearEtiqueta,
@@ -455,8 +470,6 @@ export function TwinPanel({
   leadId: UUID;
   /** Hilo de la sesión: resuelve `mensaje_origen_id` a la hora que se muestra. */
   mensajes: Mensaje[];
-  canales: Canal[];
-  canalActivo: Canal;
   producto: Producto | null;
   tags: Tag[];
   /** Catálogo completo para el selector de "+ Agregar etiquetas". */
@@ -466,50 +479,50 @@ export function TwinPanel({
   gastoIa: GastoSesion | null;
   onEditar: (input: EditarCampoTwinInput) => Promise<ActionResult>;
   onRenombrar: (input: RenombrarLeadInput) => Promise<ActionResult>;
+  onAgregarDato: (input: AgregarDatoLeadInput) => Promise<ActionResult>;
   onAsignarEtiqueta: (input: AsignarEtiquetaInput) => Promise<ActionResult>;
   onQuitarEtiqueta: (input: QuitarEtiquetaInput) => Promise<ActionResult>;
   onCrearEtiqueta: (input: CrearEtiquetaInput) => Promise<ActionResult>;
 }) {
   const identidad = (
-    <>
-      <Seccion>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-ink-primary flex items-center gap-1.5 text-[12.5px] font-[650]">
-            <ContactEmergency size={14} className="text-brand" />
-            Lead Twin
-          </span>
-          {/* "hace 40 s" del handoff §1.4: cuándo se tocó la ficha por última
-              vez, no cuándo empezó la sesión. Sale de `lead_session.updated_at`,
-              que escribe un trigger en cada UPDATE — el extractor y las
-              correcciones humanas quedan las dos contadas. */}
-          {session ? (
-            <MonoMeta className="flex shrink-0 items-center gap-1.5">
-              <span aria-hidden className="bg-ok animate-pulse-dot h-[5px] w-[5px] rounded-full" />
-              <RelativeTime iso={session.updated_at.toISOString()} />
-            </MonoMeta>
-          ) : null}
-        </div>
+    <Seccion>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-ink-primary flex items-center gap-1.5 text-[12.5px] font-[650]">
+          <ContactEmergency size={14} className="text-brand" />
+          Lead Twin
+        </span>
+        {/* "hace 40 s" del handoff §1.4: cuándo se tocó la ficha por última
+            vez, no cuándo empezó la sesión. Sale de `lead_session.updated_at`,
+            que escribe un trigger en cada UPDATE — el extractor y las
+            correcciones humanas quedan las dos contadas. */}
+        {session ? (
+          <MonoMeta className="flex shrink-0 items-center gap-1.5">
+            <span aria-hidden className="bg-ok animate-pulse-dot h-[5px] w-[5px] rounded-full" />
+            <RelativeTime iso={session.updated_at.toISOString()} />
+          </MonoMeta>
+        ) : null}
+      </div>
+      {/* Nombre y etiquetas pegados: las dos cosas que ponemos nosotros sobre
+          quién es este lead. Estaban separadas por un párrafo explicativo y por
+          media pantalla, y la explicación no le hacía falta a nadie que ya
+          estuviera mirando la ficha. */}
+      <div className="flex flex-col gap-2">
         <NombreLead leadId={leadId} nombre={lead.nombre} onGuardar={onRenombrar} />
-        <p className="text-ink-faint text-[10.5px] leading-relaxed">
-          El extractor LLM mantiene la ficha de la sesión en cada turno. El nombre y las etiquetas
-          los ponés vos: un alias de redes no alcanza para distinguir a una persona.
-        </p>
-      </Seccion>
-
-      <SeccionEtiquetas
-        leadId={leadId}
-        tags={tags}
-        disponibles={tagsDisponibles}
-        onAsignar={onAsignarEtiqueta}
-        onQuitar={onQuitarEtiqueta}
-        onCrear={onCrearEtiqueta}
-      />
-    </>
+        <SeccionEtiquetas
+          leadId={leadId}
+          tags={tags}
+          disponibles={tagsDisponibles}
+          onAsignar={onAsignarEtiqueta}
+          onQuitar={onQuitarEtiqueta}
+          onCrear={onCrearEtiqueta}
+        />
+      </div>
+    </Seccion>
   );
 
   const ficha = (
     <>
-      <Contacto lead={lead} canales={canales} canalActivo={canalActivo} />
+      <Contacto lead={lead} onAgregarDato={onAgregarDato} />
       <Vehiculo lead={lead} />
     </>
   );
@@ -544,7 +557,9 @@ export function TwinPanel({
   const comprobanteUrl = session.comprobante_pago_url
     ? safeHttpUrl(session.comprobante_pago_url)
     : null;
-  const extras = Object.entries(session.extras);
+  const extras = Object.entries(session.extras)
+    .map(([key, value]) => [key, formatExtraValue(value)] as const)
+    .filter((par): par is readonly [string, string] => par[1] !== null);
 
   return (
     <div className="flex flex-col">
@@ -675,9 +690,7 @@ export function TwinPanel({
             <TwinField
               key={key}
               label={formatExtraKey(key)}
-              value={
-                <span className="break-words whitespace-pre-wrap">{formatExtraValue(value)}</span>
-              }
+              value={<span className="break-words whitespace-pre-wrap">{value}</span>}
             />
           ))}
         </Seccion>

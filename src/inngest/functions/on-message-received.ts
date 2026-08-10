@@ -353,16 +353,36 @@ async function resolveLead(
   parsed: ParsedMessage,
   leads: LeadsRepository,
 ): Promise<{ lead: Lead; created: boolean }> {
-  if (parsed.canal === "wa") {
-    const existing = await leads.findByTelefono(parsed.meta_user_id);
-    if (existing) return { lead: existing, created: false };
-    const created = await leads.create(buildPlaceholderLead(parsed));
-    return { lead: created, created: true };
-  }
-  const existing = await leads.findByMetaUserId(parsed.canal, parsed.meta_user_id);
-  if (existing) return { lead: existing, created: false };
+  const existing =
+    parsed.canal === "wa"
+      ? await leads.findByTelefono(parsed.meta_user_id)
+      : await leads.findByMetaUserId(parsed.canal, parsed.meta_user_id);
+
+  if (existing)
+    return { lead: await sincronizarNombrePerfil(existing, parsed, leads), created: false };
+
   const created = await leads.create(buildPlaceholderLead(parsed));
   return { lead: created, created: true };
+}
+
+/**
+ * Mantiene `nombre_perfil` al día con lo que dice Meta.
+ *
+ * El dato es de la plataforma, no nuestro: si el cliente se cambia el nombre en
+ * WhatsApp, el nuestro tiene que seguirlo. `leads.nombre` no se toca nunca acá
+ * —ese lo escribe el vendedor y un alias de redes no lo pisa—. Sin cambio no
+ * hay UPDATE: escribir en cada mensaje entrante movería `updated_at` de todos
+ * los leads y desordenaría la lista, que ordena por esa columna.
+ */
+async function sincronizarNombrePerfil(
+  lead: Lead,
+  parsed: ParsedMessage,
+  leads: LeadsRepository,
+): Promise<Lead> {
+  const nuevo = parsed.nombre_perfil;
+  // `null` es "este canal no lo manda", no "se lo borraron": no pisa lo guardado.
+  if (nuevo === null || nuevo === lead.nombre_perfil) return lead;
+  return leads.update(lead.id, { nombre_perfil: nuevo });
 }
 
 function buildPlaceholderLead(parsed: ParsedMessage): Parameters<LeadsRepository["create"]>[0] {
@@ -371,7 +391,10 @@ function buildPlaceholderLead(parsed: ParsedMessage): Parameters<LeadsRepository
   const meta_user_ids: MetaUserIds = {};
   meta_user_ids[canalKey(parsed.canal)] = parsed.meta_user_id;
   return {
+    // `nombre` sigue naciendo vacío a propósito: es el nombre que le pone la
+    // casa. El de Meta va aparte y no compite con él.
     nombre: "",
+    nombre_perfil: parsed.nombre_perfil,
     telefono,
     email: null,
     direccion: null,

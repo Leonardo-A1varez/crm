@@ -49,8 +49,6 @@ export interface ConversationView {
   session: LeadSession | null;
   // Mensajes de la sesión activa, ASC (viejo→nuevo), cap 200.
   messages: Mensaje[];
-  // Canales con conversación existente (dedup).
-  canales: Canal[];
   // Canal de la conversación con actividad más reciente; fallback canal_origen.
   canalActivo: Canal;
   /**

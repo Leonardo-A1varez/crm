@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi, type Mock } from "vitest";
+import { MAX_DATOS_EXTRA } from "@/lib/datos-extra";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { InMemoryConversationsRepository } from "@/server/repositories/conversations.repo";
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
@@ -344,6 +345,121 @@ describe("DefaultInboxService write path", () => {
     test("NotFoundError cuando el lead no existe", async () => {
       await expect(
         svc.renombrarLead({ leadId: crypto.randomUUID(), nombre: "Ramón" }),
+      ).rejects.toBeInstanceOf(NotFoundError);
+    });
+  });
+
+  describe("agregarDato", () => {
+    test("completa una columna de contacto que estaba vacía", async () => {
+      const lead = await makeLead(leads);
+
+      const actualizado = await svc.agregarDato({
+        leadId: lead.id,
+        tipo: "campo",
+        campo: "email",
+        valor: "  ramon@taller.com  ",
+      });
+
+      expect(actualizado.email).toBe("ramon@taller.com");
+      expect((await leads.findById(lead.id))?.email).toBe("ramon@taller.com");
+      // La columna no toca `datos_extra`: si lo hiciera habría dos emails.
+      expect(actualizado.datos_extra).toEqual({});
+    });
+
+    test("un campo libre va a datos_extra con el nombre que escribió el vendedor", async () => {
+      const lead = await makeLead(leads);
+
+      const actualizado = await svc.agregarDato({
+        leadId: lead.id,
+        tipo: "libre",
+        clave: "Cumpleaños",
+        valor: "12/03",
+      });
+
+      expect(actualizado.datos_extra).toEqual({ Cumpleaños: "12/03" });
+    });
+
+    test("campos libres sucesivos se acumulan", async () => {
+      const lead = await makeLead(leads);
+
+      await svc.agregarDato({ leadId: lead.id, tipo: "libre", clave: "Patente", valor: "ABC123" });
+      const actualizado = await svc.agregarDato({
+        leadId: lead.id,
+        tipo: "libre",
+        clave: "Cumpleaños",
+        valor: "12/03",
+      });
+
+      expect(actualizado.datos_extra).toEqual({ Patente: "ABC123", Cumpleaños: "12/03" });
+    });
+
+    test("volver a cargar una clave equivalente pisa el valor y no duplica la fila", async () => {
+      const lead = await makeLead(leads);
+
+      await svc.agregarDato({
+        leadId: lead.id,
+        tipo: "libre",
+        clave: "Cumpleaños",
+        valor: "12/03",
+      });
+      const actualizado = await svc.agregarDato({
+        leadId: lead.id,
+        tipo: "libre",
+        clave: "cumpleanos",
+        valor: "13/03",
+      });
+
+      expect(actualizado.datos_extra).toEqual({ Cumpleaños: "13/03" });
+    });
+
+    test("ValidationError al pasar el tope de campos libres", async () => {
+      const lead = await makeLead(leads);
+      for (let i = 0; i < MAX_DATOS_EXTRA; i++) {
+        await svc.agregarDato({
+          leadId: lead.id,
+          tipo: "libre",
+          clave: `Campo ${i}`,
+          valor: String(i),
+        });
+      }
+
+      await expect(
+        svc.agregarDato({ leadId: lead.id, tipo: "libre", clave: "Uno más", valor: "x" }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      // Pisar uno que ya está sigue funcionando con la ficha llena.
+      const actualizado = await svc.agregarDato({
+        leadId: lead.id,
+        tipo: "libre",
+        clave: "Campo 0",
+        valor: "nuevo",
+      });
+      expect(actualizado.datos_extra["Campo 0"]).toBe("nuevo");
+    });
+
+    test("no exige sesión activa: el lead vive más que la sesión", async () => {
+      const lead = await makeLead(leads);
+      const session = await makeSession(sessions, lead.id);
+      await sessions.close(session.id, { resultado: "exito" });
+
+      const actualizado = await svc.agregarDato({
+        leadId: lead.id,
+        tipo: "campo",
+        campo: "direccion",
+        valor: "Av. Siempre Viva 742",
+      });
+
+      expect(actualizado.direccion).toBe("Av. Siempre Viva 742");
+    });
+
+    test("NotFoundError cuando el lead no existe", async () => {
+      await expect(
+        svc.agregarDato({
+          leadId: crypto.randomUUID(),
+          tipo: "libre",
+          clave: "Patente",
+          valor: "ABC123",
+        }),
       ).rejects.toBeInstanceOf(NotFoundError);
     });
   });

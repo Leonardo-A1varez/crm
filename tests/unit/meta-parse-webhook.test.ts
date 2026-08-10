@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { parseMetaWebhook } from "@/lib/meta/parse-webhook";
 
-function waPayload(messages: Array<Record<string, unknown>>) {
+function waPayload(
+  messages: Array<Record<string, unknown>>,
+  contacts?: Array<Record<string, unknown>>,
+) {
   return {
     object: "whatsapp_business_account",
     entry: [
@@ -12,6 +15,7 @@ function waPayload(messages: Array<Record<string, unknown>>) {
             field: "messages",
             value: {
               metadata: { phone_number_id: "PNID", display_phone_number: "+1" },
+              ...(contacts ? { contacts } : {}),
               messages,
             },
           },
@@ -19,6 +23,10 @@ function waPayload(messages: Array<Record<string, unknown>>) {
       },
     ],
   };
+}
+
+function waTexto(from: string, id: string) {
+  return { from, id, timestamp: "1700000000", type: "text", text: { body: "hola" } };
 }
 
 function igPayload(messaging: Array<Record<string, unknown>>) {
@@ -182,5 +190,78 @@ describe("parseMetaWebhook", () => {
     };
     const result = parseMetaWebhook(waPayload([msg]));
     expect(result[0].raw).toEqual(msg);
+  });
+});
+
+describe("parseMetaWebhook — nombre de perfil", () => {
+  test("WA toma el nombre de contacts[].profile.name", () => {
+    const result = parseMetaWebhook(
+      waPayload(
+        [waTexto("593979932363", "wamid.1")],
+        [{ wa_id: "593979932363", profile: { name: "Marcela Pérez" } }],
+      ),
+    );
+    expect(result[0].nombre_perfil).toBe("Marcela Pérez");
+  });
+
+  test("cruza cada mensaje con su contacto por wa_id", () => {
+    const result = parseMetaWebhook(
+      waPayload(
+        [waTexto("595981111111", "wamid.1"), waTexto("593979932363", "wamid.2")],
+        [
+          { wa_id: "593979932363", profile: { name: "Marcela" } },
+          { wa_id: "595981111111", profile: { name: "Aldo" } },
+        ],
+      ),
+    );
+    expect(result.map((m) => m.nombre_perfil)).toEqual(["Aldo", "Marcela"]);
+  });
+
+  test("con un solo contacto lo usa aunque el wa_id no matchee el from", () => {
+    // México y Argentina devuelven a veces un `wa_id` normalizado (sin el 1 ni
+    // el 9) que no coincide con el `from`. Con un contacto no hay ambigüedad.
+    const result = parseMetaWebhook(
+      waPayload(
+        [waTexto("5491112345678", "wamid.1")],
+        [{ wa_id: "541112345678", profile: { name: "Nadia" } }],
+      ),
+    );
+    expect(result[0].nombre_perfil).toBe("Nadia");
+  });
+
+  test("con varios contactos y ninguno que matchee no adivina", () => {
+    const result = parseMetaWebhook(
+      waPayload(
+        [waTexto("593979932363", "wamid.1")],
+        [
+          { wa_id: "111", profile: { name: "Uno" } },
+          { wa_id: "222", profile: { name: "Dos" } },
+        ],
+      ),
+    );
+    expect(result[0].nombre_perfil).toBeNull();
+  });
+
+  test("sin contacts, con contacts vacío o sin profile.name queda null", () => {
+    expect(parseMetaWebhook(waPayload([waTexto("1", "m1")]))[0].nombre_perfil).toBeNull();
+    expect(parseMetaWebhook(waPayload([waTexto("1", "m1")], []))[0].nombre_perfil).toBeNull();
+    expect(
+      parseMetaWebhook(waPayload([waTexto("1", "m1")], [{ wa_id: "1", profile: {} }]))[0]
+        .nombre_perfil,
+    ).toBeNull();
+    expect(
+      parseMetaWebhook(waPayload([waTexto("1", "m1")], [{ wa_id: "1" }]))[0].nombre_perfil,
+    ).toBeNull();
+  });
+
+  test("Instagram y Messenger no traen el nombre en el evento de mensaje", () => {
+    const ig = parseMetaWebhook(
+      igPayload([{ sender: { id: "ig_1" }, message: { mid: "m1", text: "hola" } }]),
+    );
+    const fb = parseMetaWebhook(
+      fbPayload([{ sender: { id: "fb_1" }, message: { mid: "m2", text: "hola" } }]),
+    );
+    expect(ig[0].nombre_perfil).toBeNull();
+    expect(fb[0].nombre_perfil).toBeNull();
   });
 });

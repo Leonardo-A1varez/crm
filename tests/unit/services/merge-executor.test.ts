@@ -326,6 +326,48 @@ describe("DefaultMergeExecutorService.approveMerge", () => {
       empresa_id: empresaG,
     });
   });
+
+  test("nombre_perfil y datos_extra sobreviven al merge", async () => {
+    const ganador = await leads.create(
+      baseLead({ nombre: "G", nombre_perfil: null, datos_extra: { Patente: "AAA111" } }),
+    );
+    const perdedor = await leads.create(
+      baseLead({
+        nombre: "G",
+        nombre_perfil: "Juanchi",
+        datos_extra: { Patente: "BBB222", Cumpleaños: "12/03" },
+      }),
+    );
+    const cand = await candidates.create({
+      src_lead_id: perdedor.id,
+      dst_lead_id: ganador.id,
+      similarity_score: 1,
+      reasons: ["manual"],
+    });
+
+    await svc.approveMerge({ candidateId: cand.id, keepLeadId: ganador.id, actorUserId: null });
+
+    const g = await leads.findById(ganador.id);
+    expect(g?.nombre_perfil).toBe("Juanchi");
+    // Unión clave por clave: el ganador prima donde los dos tenían valor, y lo
+    // que solo tenía el perdedor no se pierde con el CASCADE.
+    expect(g?.datos_extra).toEqual({ Patente: "AAA111", Cumpleaños: "12/03" });
+  });
+
+  test("un nombre_perfil ya cargado en el ganador no lo pisa el perdedor", async () => {
+    const ganador = await leads.create(baseLead({ nombre: "G", nombre_perfil: "Juan P." }));
+    const perdedor = await leads.create(baseLead({ nombre: "G", nombre_perfil: "Juanchi" }));
+    const cand = await candidates.create({
+      src_lead_id: perdedor.id,
+      dst_lead_id: ganador.id,
+      similarity_score: 1,
+      reasons: ["manual"],
+    });
+
+    await svc.approveMerge({ candidateId: cand.id, keepLeadId: ganador.id, actorUserId: null });
+
+    expect((await leads.findById(ganador.id))?.nombre_perfil).toBe("Juan P.");
+  });
 });
 
 describe("DefaultMergeExecutorService.rejectMerge / createManualCandidate", () => {

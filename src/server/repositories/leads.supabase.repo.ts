@@ -31,9 +31,11 @@ export class SupabaseLeadsRepository implements LeadsRepository {
       .from("leads")
       .insert({
         nombre: input.nombre,
+        nombre_perfil: input.nombre_perfil ?? null,
         telefono: input.telefono,
         email: input.email,
         direccion: input.direccion,
+        datos_extra: (input.datos_extra ?? {}) as never,
         vehiculo_marca: input.vehiculo_marca,
         vehiculo_modelo: input.vehiculo_modelo,
         vehiculo_anio: input.vehiculo_anio,
@@ -92,7 +94,9 @@ export class SupabaseLeadsRepository implements LeadsRepository {
       updated_at: await serverNowIso(this.db),
     };
     if (patch.nombre !== undefined) updatePayload.nombre = patch.nombre;
+    if (patch.nombre_perfil !== undefined) updatePayload.nombre_perfil = patch.nombre_perfil;
     if (patch.telefono !== undefined) updatePayload.telefono = patch.telefono;
+    if (patch.datos_extra !== undefined) updatePayload.datos_extra = patch.datos_extra as never;
     if (patch.email !== undefined) updatePayload.email = patch.email;
     if (patch.direccion !== undefined) updatePayload.direccion = patch.direccion;
     if (patch.vehiculo_marca !== undefined) updatePayload.vehiculo_marca = patch.vehiculo_marca;
@@ -162,9 +166,11 @@ export class SupabaseLeadsRepository implements LeadsRepository {
 interface LeadRow {
   id: string;
   nombre: string;
+  nombre_perfil: string | null;
   telefono: string;
   email: string | null;
   direccion: string | null;
+  datos_extra: unknown;
   vehiculo_marca: string;
   vehiculo_modelo: string;
   vehiculo_anio: number;
@@ -178,12 +184,15 @@ interface LeadRow {
 
 function mapRow(row: LeadRow): Lead {
   const meta = (row.meta_user_ids ?? {}) as MetaUserIds;
+  const extra = (row.datos_extra ?? {}) as Record<string, string>;
   return {
     id: row.id,
     nombre: row.nombre,
+    nombre_perfil: row.nombre_perfil,
     telefono: row.telefono,
     email: row.email,
     direccion: row.direccion,
+    datos_extra: { ...extra },
     vehiculo_marca: row.vehiculo_marca,
     vehiculo_modelo: row.vehiculo_modelo,
     vehiculo_anio: row.vehiculo_anio,

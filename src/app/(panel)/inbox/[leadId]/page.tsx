@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { NotFoundError } from "@/lib/errors";
 import { estadoVentana } from "@/lib/ventana";
 import { getInboxServiceForRequest } from "@/server/bootstrap/inbox-bootstrap";
+import { agregarDatoLeadAction } from "../_actions/agregar-dato-lead.action";
 import { asignarEtiquetaAction } from "../_actions/asignar-etiqueta.action";
 import { closeSessionAction } from "../_actions/close-session.action";
 import { crearEtiquetaAction } from "../_actions/crear-etiqueta.action";
@@ -96,8 +97,6 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
           session={view.session}
           leadId={view.lead.id}
           mensajes={view.messages}
-          canales={view.canales}
-          canalActivo={view.canalActivo}
           producto={view.producto}
           tags={view.tags}
           tagsDisponibles={view.tagsDisponibles}
@@ -105,6 +104,7 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
           gastoIa={view.gastoIa}
           onEditar={editarCampoTwinAction}
           onRenombrar={renombrarLeadAction}
+          onAgregarDato={agregarDatoLeadAction}
           onAsignarEtiqueta={asignarEtiquetaAction}
           onQuitarEtiqueta={quitarEtiquetaAction}
           onCrearEtiqueta={crearEtiquetaAction}

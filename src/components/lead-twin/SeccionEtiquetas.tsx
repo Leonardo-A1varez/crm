@@ -3,7 +3,6 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Add, Close, Sell } from "@/components/icons";
-import { Eyebrow } from "@/components/shared/Eyebrow";
 import { opcionesSelector } from "@/lib/ui/selector-etiquetas";
 import type {
   AsignarEtiquetaInput,
@@ -21,6 +20,10 @@ import type { ActionResult } from "@/types/inbox";
  * administración para volver después es la forma segura de que nadie etiquete:
  * la etiqueta se pone en el momento en que se entiende algo del lead, no diez
  * clicks más tarde.
+ *
+ * No dibuja sección propia ni rótulo: va pegada debajo del nombre, como parte
+ * de quién es el lead. Un encabezado "ETIQUETAS" entre el nombre y los chips
+ * los volvía a alejar, que es justo lo que se quería sacar.
  */
 export function SeccionEtiquetas({
   leadId,
@@ -58,9 +61,7 @@ export function SeccionEtiquetas({
   };
 
   return (
-    <div className="border-line-layout flex flex-col gap-2.5 border-b px-[17px] py-[15px]">
-      <Eyebrow>Etiquetas</Eyebrow>
-
+    <div className="flex flex-col gap-2">
       {tags.length > 0 ? (
         <ul className="flex flex-wrap gap-1.5">
           {tags.map((tag) => (

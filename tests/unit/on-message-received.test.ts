@@ -44,6 +44,7 @@ function parsed(overrides: Partial<ParsedMessage> = {}): ParsedMessage {
     tipo: "text",
     contenido: "hola",
     media_url: null,
+    nombre_perfil: null,
     raw: { type: "text" },
     ...overrides,
   };
@@ -182,6 +183,94 @@ describe("onMessageReceivedHandler", () => {
     expect(result.leadCreated).toBe(false);
     const all = await ctx.leads.list();
     expect(all).toHaveLength(1);
+  });
+
+  test("el lead nuevo guarda el nombre de perfil de Meta sin tocar nombre", async () => {
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("respuesta");
+
+    await onMessageReceivedHandler({ parsed: parsed({ nombre_perfil: "Marcela" }) }, ctx.deps);
+
+    const lead = await ctx.leads.findByTelefono("549110");
+    expect(lead!.nombre_perfil).toBe("Marcela");
+    // El nombre de la casa lo escribe el vendedor: el alias de redes no lo pisa.
+    expect(lead!.nombre).toBe("");
+  });
+
+  test("un cambio de nombre de perfil se sincroniza en el lead existente", async () => {
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("respuesta");
+    const previo = await ctx.leads.create({
+      nombre: "Juan el del Corolla",
+      nombre_perfil: "Juan",
+      telefono: "549110",
+      email: null,
+      direccion: null,
+      vehiculo_marca: "",
+      vehiculo_modelo: "",
+      vehiculo_anio: 0,
+      vehiculo_motor: null,
+      empresa_id: null,
+      canal_origen: "wa",
+      meta_user_ids: { wa: "549110" },
+    });
+
+    await onMessageReceivedHandler({ parsed: parsed({ nombre_perfil: "Juan P." }) }, ctx.deps);
+
+    const lead = await ctx.leads.findById(previo.id);
+    expect(lead!.nombre_perfil).toBe("Juan P.");
+    expect(lead!.nombre).toBe("Juan el del Corolla");
+  });
+
+  test("un canal sin nombre de perfil no borra el que ya estaba", async () => {
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("respuesta");
+    const previo = await ctx.leads.create({
+      nombre: "",
+      nombre_perfil: "Juan",
+      telefono: "549110",
+      email: null,
+      direccion: null,
+      vehiculo_marca: "",
+      vehiculo_modelo: "",
+      vehiculo_anio: 0,
+      vehiculo_motor: null,
+      empresa_id: null,
+      canal_origen: "wa",
+      meta_user_ids: { wa: "549110" },
+    });
+
+    await onMessageReceivedHandler({ parsed: parsed({ nombre_perfil: null }) }, ctx.deps);
+
+    const lead = await ctx.leads.findById(previo.id);
+    expect(lead!.nombre_perfil).toBe("Juan");
+    // Sin cambio no hay UPDATE: escribir en cada entrante movería `updated_at`
+    // de todos los leads y desordenaría la lista, que ordena por esa columna.
+    expect(lead!.updated_at).toEqual(previo.updated_at);
+  });
+
+  test("el mismo nombre de perfil no genera UPDATE", async () => {
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("respuesta");
+    const previo = await ctx.leads.create({
+      nombre: "",
+      nombre_perfil: "Marcela",
+      telefono: "549110",
+      email: null,
+      direccion: null,
+      vehiculo_marca: "",
+      vehiculo_modelo: "",
+      vehiculo_anio: 0,
+      vehiculo_motor: null,
+      empresa_id: null,
+      canal_origen: "wa",
+      meta_user_ids: { wa: "549110" },
+    });
+
+    await onMessageReceivedHandler({ parsed: parsed({ nombre_perfil: "Marcela" }) }, ctx.deps);
+
+    const lead = await ctx.leads.findById(previo.id);
+    expect(lead!.updated_at).toEqual(previo.updated_at);
   });
 
   test("IG mensaje crea lead con telefono placeholder ig:USERID", async () => {

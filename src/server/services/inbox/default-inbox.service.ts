@@ -1,3 +1,4 @@
+import { conDatoExtra, excedeTope, MAX_DATOS_EXTRA } from "@/lib/datos-extra";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { pesoMotivo, triage } from "@/lib/triage";
 import type { EntradaTriage } from "@/lib/triage";
@@ -23,6 +24,7 @@ import type {
 } from "@/types/entities";
 import type { GastoSesion, SesionesPrevias } from "@/types/inbox";
 import type {
+  AgregarDatoLeadServiceInput,
   CloseSessionServiceInput,
   ConversationView,
   CrearEtiquetaServiceInput,
@@ -195,7 +197,6 @@ export class DefaultInboxService implements InboxService {
 
     const session = await this.deps.sessions.findActiveByLeadId(leadId);
     const convs = await this.deps.convs.findByLeadId(leadId);
-    const canales: Canal[] = Array.from(new Set(convs.map((c) => c.canal)));
 
     let masReciente: Conversacion | null = null;
     for (const conv of convs) {
@@ -226,7 +227,6 @@ export class DefaultInboxService implements InboxService {
       lead,
       session,
       messages,
-      canales,
       canalActivo,
       producto,
       // Solo lo que el chip necesita: `AssignedTag` arrastra `assigned_by` y
@@ -368,6 +368,28 @@ export class DefaultInboxService implements InboxService {
   async renombrarLead(input: RenombrarLeadServiceInput): Promise<Lead> {
     await this.requireLead(input.leadId);
     return this.deps.leads.update(input.leadId, { nombre: input.nombre.trim() });
+  }
+
+  async agregarDato(input: AgregarDatoLeadServiceInput): Promise<Lead> {
+    const lead = await this.requireLead(input.leadId);
+    const valor = input.valor.trim();
+
+    if (input.tipo === "campo") {
+      return this.deps.leads.update(input.leadId, { [input.campo]: valor });
+    }
+
+    const clave = input.clave.trim();
+    // El tope se mira acá y no en el schema: depende de cuántos campos tiene
+    // ya *este* lead, que la validación de entrada no puede saber.
+    if (excedeTope(lead.datos_extra, clave)) {
+      throw new ValidationError(
+        `El lead ya tiene ${MAX_DATOS_EXTRA} campos extra. Borrá uno antes de agregar otro.`,
+        "datos_extra_tope",
+      );
+    }
+    return this.deps.leads.update(input.leadId, {
+      datos_extra: conDatoExtra(lead.datos_extra, clave, valor),
+    });
   }
 
   async asignarEtiqueta(input: EtiquetaLeadServiceInput): Promise<void> {
