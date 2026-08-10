@@ -6,7 +6,6 @@ import { HandoffToggle } from "@/components/inbox/HandoffToggle";
 import { MessageInput } from "@/components/inbox/MessageInput";
 import { TwinPanel } from "@/components/lead-twin/TwinPanel";
 import { EmptyState } from "@/components/shared/EmptyState";
-import { RefreshPoller } from "@/components/shared/RefreshPoller";
 import { NotFoundError } from "@/lib/errors";
 import { getInboxServiceForRequest } from "@/server/bootstrap/inbox-bootstrap";
 import { closeSessionAction } from "../_actions/close-session.action";
@@ -33,7 +32,7 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
     lastMessage?.created_at.toISOString() ?? view.session?.started_at.toISOString() ?? null;
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex flex-1 flex-col overflow-hidden">
       <ConversationHeader
         lead={view.lead}
         session={view.session}
@@ -81,12 +80,11 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
         </div>
         <aside
           aria-label="Lead Twin"
-          className="border-border w-80 shrink-0 overflow-y-auto border-l p-3 max-lg:hidden"
+          className="border-line-layout w-[322px] shrink-0 overflow-y-auto border-l p-3"
         >
           <TwinPanel session={view.session} />
         </aside>
       </div>
-      <RefreshPoller intervalMs={5000} />
     </div>
   );
 }
