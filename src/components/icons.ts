@@ -33,6 +33,7 @@ export {
   Pencil as Edit,
   ReceiptText as ReceiptLong,
   Search as SearchIcon,
+  Send as SendIcon,
   Settings as SettingsIcon,
   Settings2 as SettingsSuggest,
   ShieldCheck as VerifiedUser,
