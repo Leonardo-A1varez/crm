@@ -48,12 +48,15 @@ export default async function ProductosPage({
           ) : null
         }
       />
-      <SearchField
-        action="/productos"
-        defaultValue={q}
-        placeholder="Buscar por código o nombre…"
-        label="Buscar productos"
-      />
+      <div className="border-line-layout bg-surface-panel shrink-0 border-b px-5 py-2.5">
+        <SearchField
+          action="/productos"
+          defaultValue={q}
+          placeholder="Buscar por código o nombre…"
+          label="Buscar productos"
+          className="max-w-[360px]"
+        />
+      </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <ProductosTable
           productos={productos}

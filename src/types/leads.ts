@@ -1,4 +1,4 @@
-import type { Canal, TagSource } from "./domain";
+import type { Canal, CurrentStage, TagSource } from "./domain";
 import type { Lead, LeadSession, UUID } from "./entities";
 
 /**
@@ -11,9 +11,16 @@ export interface LeadListItem {
   nombre: string;
   telefono: string;
   canalOrigen: Canal;
-  canales: Canal[]; // canal_origen + canales con meta_user_ids presentes (dedup)
   vehiculo: string; // "marca modelo anio" trim; "" si todo vacío
   sesionActiva: boolean;
+  /**
+   * Etapa de la sesión abierta. `null` sin sesión activa: la etapa de una
+   * sesión cerrada quedó congelada donde terminó y mostrarla como vigente
+   * miente sobre el estado del lead.
+   */
+  currentStage: CurrentStage | null;
+  /** Alta del lead. Es lo que cuenta el "nuevos esta semana" del encabezado. */
+  createdAt: Date;
   updatedAt: Date;
 }
 

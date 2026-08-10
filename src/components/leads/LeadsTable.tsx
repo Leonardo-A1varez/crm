@@ -1,21 +1,18 @@
 import Link from "next/link";
 import { Group } from "@/components/icons";
-import { ChannelIcons } from "@/components/inbox/ChannelIcons";
+import { ChannelDot } from "@/components/shared/ChannelDot";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { InitialsAvatar } from "@/components/shared/InitialsAvatar";
 import { RelativeTime } from "@/components/shared/RelativeTime";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { StageBadge } from "@/components/shared/StageBadge";
 import type { LeadListItem } from "@/types/leads";
 
-const TH =
-  "text-ink-faint px-5 py-2.5 font-mono text-[9px] font-semibold tracking-[0.13em] uppercase";
-const TD = "px-5 py-[9px]";
+// Encabezado y filas comparten la plantilla de columnas del handoff §2, así
+// que vive en una sola constante: si se desincronizan, las columnas dejan de
+// alinearse y el defecto es invisible leyendo el diff.
+const FILA =
+  "grid grid-cols-[1.5fr_1.1fr_1.4fr_0.9fr_0.8fr] items-center gap-[14px] px-[18px] py-[11px]";
+const TH = "text-ink-faint font-mono text-[9px] font-semibold tracking-[0.13em] uppercase";
 
 export function LeadsTable({ items, q }: { items: LeadListItem[]; q?: string }) {
   if (items.length === 0) {
@@ -34,53 +31,82 @@ export function LeadsTable({ items, q }: { items: LeadListItem[]; q?: string }) 
   }
 
   return (
-    <Table className="text-[12.5px]">
-      <TableHeader>
-        <TableRow className="border-line-layout hover:bg-transparent">
-          <TableHead className={TH}>Nombre</TableHead>
-          <TableHead className={TH}>Teléfono</TableHead>
-          <TableHead className={TH}>Canales</TableHead>
-          <TableHead className={TH}>Vehículo</TableHead>
-          <TableHead className={TH}>Estado</TableHead>
-          <TableHead className={`${TH} text-right`}>Actividad</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {items.map((l) => (
-          <TableRow key={l.leadId} className="border-line-layout hover:bg-surface-elevated">
-            <TableCell className={TD}>
-              <Link
-                href={`/leads/${l.leadId}`}
-                className="text-ink-primary font-semibold hover:underline"
-              >
-                {l.nombre}
-              </Link>
-            </TableCell>
-            <TableCell className={`${TD} text-ink-dim font-mono text-[11px]`}>
-              {l.telefono}
-            </TableCell>
-            <TableCell className={TD}>
-              <ChannelIcons activos={l.canales} activoActual={l.canalOrigen} />
-            </TableCell>
-            <TableCell className={`${TD} text-ink-dim`}>{l.vehiculo || "—"}</TableCell>
-            <TableCell className={TD}>
-              {l.sesionActiva ? (
-                <span className="text-ok bg-ok/10 border-ok/28 inline-flex items-center gap-1.5 rounded-md border px-[7px] py-[2.5px] text-[10px] font-semibold">
-                  <span aria-hidden className="bg-ok animate-pulse-dot h-1.5 w-1.5 rounded-full" />
-                  Sesión activa
+    // Divs con roles ARIA y no `<table>`: la plantilla de columnas en `fr` del
+    // handoff necesita `display:grid` en la fila, y eso descarta el layout de
+    // tabla nativo. Los roles mantienen la semántica para el lector de pantalla.
+    <div className="bg-surface-card border-line-card overflow-hidden rounded-[15px] border">
+      <div role="table" aria-label="Leads">
+        <div role="rowgroup">
+          <div role="row" className={FILA}>
+            <span role="columnheader" className={TH}>
+              Lead
+            </span>
+            <span role="columnheader" className={TH}>
+              Teléfono
+            </span>
+            <span role="columnheader" className={TH}>
+              Vehículo
+            </span>
+            <span role="columnheader" className={TH}>
+              Etapa
+            </span>
+            <span role="columnheader" className={`${TH} text-right`}>
+              Actividad
+            </span>
+          </div>
+        </div>
+
+        <div role="rowgroup">
+          {items.map((l) => (
+            <div
+              key={l.leadId}
+              role="row"
+              className={`${FILA} border-line-row hover:bg-line-row border-t transition-colors`}
+            >
+              <span role="cell" className="flex min-w-0 items-center gap-2.5">
+                <span className="relative shrink-0">
+                  <InitialsAvatar nombre={l.nombre} size={28} />
+                  {/* El canal se lee acá y por eso ya no hay columna propia. */}
+                  <ChannelDot
+                    canal={l.canalOrigen}
+                    size={10}
+                    ringColor="var(--color-surface-card)"
+                    className="absolute right-[-2px] bottom-[-2px]"
+                  />
                 </span>
-              ) : (
-                <span className="text-ink-ghost">—</span>
-              )}
-            </TableCell>
-            <TableCell className={`${TD} text-ink-faint text-right font-mono text-[10px]`}>
-              <RelativeTime
-                iso={l.updatedAt instanceof Date ? l.updatedAt.toISOString() : l.updatedAt}
-              />
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+                <Link
+                  href={`/leads/${l.leadId}`}
+                  className="text-ink-primary truncate text-[12.5px] font-[550] hover:underline"
+                >
+                  {l.nombre}
+                </Link>
+              </span>
+
+              <span role="cell" className="text-ink-dim truncate font-mono text-[11px]">
+                {l.telefono}
+              </span>
+
+              <span role="cell" className="text-ink-muted truncate text-[11.5px]">
+                {l.vehiculo || "—"}
+              </span>
+
+              <span role="cell" className="min-w-0">
+                {l.currentStage ? (
+                  <StageBadge stage={l.currentStage} />
+                ) : (
+                  <span className="text-ink-ghost">—</span>
+                )}
+              </span>
+
+              <span role="cell" className="text-ink-faint text-right font-mono text-[10.5px]">
+                <RelativeTime
+                  iso={l.updatedAt instanceof Date ? l.updatedAt.toISOString() : l.updatedAt}
+                />
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

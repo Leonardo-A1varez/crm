@@ -61,7 +61,7 @@ describe("DefaultLeadsService", () => {
     svc = new DefaultLeadsService({ leads, sessions, candidates, tags });
   });
 
-  test("listLeads incluye TODOS los leads con badge sesionActiva y canales", async () => {
+  test("listLeads incluye TODOS los leads con badge sesionActiva, etapa y fechas", async () => {
     const conActiva = await leads.create(baseLead({ meta_user_ids: { wa: "w1", ig: "i1" } }));
     const sinActiva = await leads.create(baseLead({ canal_origen: "ig", meta_user_ids: {} }));
     await sessions.create(baseSession(conActiva.id));
@@ -70,11 +70,26 @@ describe("DefaultLeadsService", () => {
     expect(page.items).toHaveLength(2);
     const item = page.items.find((i) => i.leadId === conActiva.id);
     expect(item?.sesionActiva).toBe(true);
-    expect(item?.canales.sort()).toEqual(["ig", "wa"]);
+    expect(item?.currentStage).toBe("identificando"); // etapa de la sesión abierta
+    expect(item?.canalOrigen).toBe("wa");
     expect(item?.vehiculo).toBe("Toyota Corolla 2018");
+    // El encabezado cuenta altas: `createdAt` viaja tal cual, sin derivar.
+    expect(item?.createdAt).toEqual(conActiva.created_at);
+    expect(item?.updatedAt).toEqual(conActiva.updated_at);
     const otro = page.items.find((i) => i.leadId === sinActiva.id);
     expect(otro?.sesionActiva).toBe(false);
-    expect(otro?.canales).toEqual(["ig"]); // solo canal_origen
+    expect(otro?.currentStage).toBeNull(); // sin sesión abierta no hay etapa vigente
+    expect(otro?.canalOrigen).toBe("ig");
+  });
+
+  test("listLeads: sesión cerrada no aporta etapa", async () => {
+    const lead = await leads.create(baseLead());
+    const s = await sessions.create(baseSession(lead.id));
+    await sessions.close(s.id, { resultado: "exito" });
+
+    const page = await svc.listLeads();
+    expect(page.items[0]?.sesionActiva).toBe(false);
+    expect(page.items[0]?.currentStage).toBeNull();
   });
 
   test("listLeads q delega al repo (trim + cap 100)", async () => {

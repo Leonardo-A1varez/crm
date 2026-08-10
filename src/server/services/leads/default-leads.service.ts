@@ -3,7 +3,6 @@ import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { MergeCandidatesRepository } from "@/server/repositories/merge-candidates.repo";
 import type { TagsRepository } from "@/server/repositories/tags.repo";
-import type { Canal } from "@/types/domain";
 import type { Lead, UUID } from "@/types/entities";
 import type { DuplicadoPendiente, LeadDetail, LeadListItem, LeadsPage } from "@/types/leads";
 import type { LeadsListInput, LeadsService } from "./leads.service";
@@ -17,14 +16,6 @@ export interface DefaultLeadsServiceDeps {
   sessions: LeadSessionRepository;
   candidates: MergeCandidatesRepository;
   tags: TagsRepository;
-}
-
-function canalesDe(lead: Lead): Canal[] {
-  const set = new Set<Canal>([lead.canal_origen]);
-  for (const c of ["wa", "ig", "fb"] as const) {
-    if (lead.meta_user_ids[c]) set.add(c);
-  }
-  return Array.from(set);
 }
 
 function vehiculoDe(lead: Lead): string {
@@ -49,7 +40,9 @@ export class DefaultLeadsService implements LeadsService {
       this.deps.candidates.list({ status: "pending" }),
     ]);
 
-    const activos = new Set(activas.map((s) => s.lead_id));
+    // Map y no Set: la lista muestra la etapa además del badge, y la sesión
+    // abierta es la única que la define (una cerrada quedó congelada).
+    const etapaActiva = new Map(activas.map((s) => [s.lead_id, s.current_stage]));
     const involucrados = new Set(pendientes.flatMap((c) => [c.src_lead_id, c.dst_lead_id]));
 
     let items: LeadListItem[] = rows.map((lead) => ({
@@ -57,9 +50,10 @@ export class DefaultLeadsService implements LeadsService {
       nombre: lead.nombre,
       telefono: lead.telefono,
       canalOrigen: lead.canal_origen,
-      canales: canalesDe(lead),
       vehiculo: vehiculoDe(lead),
-      sesionActiva: activos.has(lead.id),
+      sesionActiva: etapaActiva.has(lead.id),
+      currentStage: etapaActiva.get(lead.id) ?? null,
+      createdAt: lead.created_at,
       updatedAt: lead.updated_at,
     }));
 
