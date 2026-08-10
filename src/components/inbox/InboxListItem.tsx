@@ -8,6 +8,7 @@ import { InitialsAvatar } from "@/components/shared/InitialsAvatar";
 import { MonoMeta } from "@/components/shared/MonoMeta";
 import { StageBadge } from "@/components/shared/StageBadge";
 import { esperaLegible } from "@/lib/triage";
+import { nombreVisible, sinNombre } from "@/lib/ui/lead";
 import { cn } from "@/lib/utils";
 import type { MotivoTriage } from "@/types/domain";
 import type { InboxItem } from "@/types/inbox";
@@ -86,8 +87,13 @@ function FilaCompacta({ item, activa }: { item: InboxItem; activa: boolean }) {
           />
         ) : null}
       </div>
-      <span className="text-ink-secondary shrink-0 truncate text-[12px] font-[550]">
-        {item.nombre}
+      <span
+        className={cn(
+          "shrink-0 truncate text-[12px] font-[550]",
+          sinNombre(item.nombre) ? "text-ink-faint" : "text-ink-secondary",
+        )}
+      >
+        {nombreVisible(item.nombre)}
       </span>
       <StageBadge
         stage={item.currentStage}
@@ -143,8 +149,13 @@ function FilaCompleta({
 
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
-          <span className="text-ink-primary truncate text-[12.5px] font-semibold">
-            {item.nombre}
+          <span
+            className={cn(
+              "truncate text-[12.5px] font-semibold",
+              sinNombre(item.nombre) ? "text-ink-faint" : "text-ink-primary",
+            )}
+          >
+            {nombreVisible(item.nombre)}
           </span>
           <MonoMeta className="shrink-0">{formatRelative(item.ultimaActividad)}</MonoMeta>
         </div>

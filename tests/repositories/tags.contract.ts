@@ -103,6 +103,31 @@ export function runTagsContract(
       expect(all).toHaveLength(2);
     });
 
+    test("delete borra el tag", async () => {
+      const t = await repo.create(baseTag());
+      await repo.delete(t.id);
+      expect(await repo.findById(t.id)).toBeNull();
+    });
+
+    test("delete idempotente: no-op si el tag no existe", async () => {
+      await expect(repo.delete(fixtures.unknownTagId)).resolves.toBeUndefined();
+    });
+
+    test("delete arrastra los lead_tags del tag (CASCADE)", async () => {
+      const borrado = await repo.create(baseTag({ nombre: "borrado" }));
+      const queda = await repo.create(baseTag({ nombre: "queda" }));
+      await repo.assignToLead(fixtures.leadIds.A, borrado.id, "manual");
+      await repo.assignToLead(fixtures.leadIds.B, borrado.id, "manual");
+      await repo.assignToLead(fixtures.leadIds.A, queda.id, "manual");
+
+      await repo.delete(borrado.id);
+
+      expect(await repo.listLeadIdsByTag(borrado.id)).toEqual([]);
+      // El resto de las asignaciones del mismo lead sobreviven.
+      expect((await repo.listByLead(fixtures.leadIds.A)).map((t) => t.id)).toEqual([queda.id]);
+      expect(await repo.listByLead(fixtures.leadIds.B)).toEqual([]);
+    });
+
     // --- LeadTag ---
 
     test("assignToLead crea LeadTag con source + assigned_at", async () => {
@@ -184,6 +209,33 @@ export function runTagsContract(
 
     test("listLeadIdsByTag devuelve [] cuando tag no asignado", async () => {
       expect(await repo.listLeadIdsByTag(fixtures.unknownAssignedTagId)).toEqual([]);
+    });
+
+    test("countLeadsByTag cuenta los leads de cada tag en una sola pasada", async () => {
+      const t1 = await repo.create(baseTag({ nombre: "t1" }));
+      const t2 = await repo.create(baseTag({ nombre: "t2" }));
+      await repo.assignToLead(fixtures.leadIds.A, t1.id, "manual");
+      await repo.assignToLead(fixtures.leadIds.B, t1.id, "workflow");
+      await repo.assignToLead(fixtures.leadIds.C, t2.id, "manual");
+
+      const conteo = await repo.countLeadsByTag();
+
+      expect(conteo.get(t1.id)).toBe(2);
+      expect(conteo.get(t2.id)).toBe(1);
+    });
+
+    test("countLeadsByTag omite los tags sin uso — el consumidor asume 0", async () => {
+      const sinUso = await repo.create(baseTag({ nombre: "sin-uso" }));
+      expect((await repo.countLeadsByTag()).has(sinUso.id)).toBe(false);
+    });
+
+    test("countLeadsByTag no cuenta dos veces al mismo lead en el mismo tag", async () => {
+      const t = await repo.create(baseTag());
+      await repo.assignToLead(fixtures.leadIds.A, t.id, "manual");
+      // assignToLead es idempotente: la PK (lead_id, tag_id) impide la segunda fila.
+      await repo.assignToLead(fixtures.leadIds.A, t.id, "manual");
+
+      expect((await repo.countLeadsByTag()).get(t.id)).toBe(1);
     });
   });
 }

@@ -1,6 +1,6 @@
 import type { ConversationView, InboxItem } from "@/types/inbox";
 import type { CampoTwinEditable, Canal, MotivoPerdida, Resultado } from "@/types/domain";
-import type { LeadSession, Mensaje, UUID } from "@/types/entities";
+import type { Lead, LeadSession, Mensaje, Tag, UUID } from "@/types/entities";
 
 export type { ConversationView, InboxItem };
 
@@ -32,6 +32,25 @@ export interface EditarCampoTwinServiceInput {
   sessionId: UUID;
   campo: CampoTwinEditable;
   valor: string | number | null;
+  userId: UUID | null;
+}
+
+export interface RenombrarLeadServiceInput {
+  leadId: UUID;
+  /** Vacío = el lead vuelve a "sin identificar"; no es un error. */
+  nombre: string;
+}
+
+export interface EtiquetaLeadServiceInput {
+  leadId: UUID;
+  tagId: UUID;
+  /** Quién la puso. Va a `lead_tags.assigned_by`; solo lo usa el alta. */
+  userId?: UUID | null;
+}
+
+export interface CrearEtiquetaServiceInput {
+  leadId: UUID;
+  nombre: string;
   userId: UUID | null;
 }
 
@@ -84,4 +103,29 @@ export interface InboxService {
    * ficha cerrada es historial y no se reescribe.
    */
   editarCampoTwin(input: EditarCampoTwinServiceInput): Promise<LeadSession>;
+
+  /**
+   * Pone el nombre con el que la casa identifica al lead. El pipeline nunca
+   * escribe `leads.nombre` —los crea con `""` y jamás copia el de Meta—, así
+   * que este campo es del vendedor y no compite con nadie. No exige sesión
+   * activa: el lead sigue existiendo después de que la sesión cierra.
+   * NotFoundError si el lead no existe.
+   */
+  renombrarLead(input: RenombrarLeadServiceInput): Promise<Lead>;
+
+  /**
+   * Cuelga una etiqueta ya existente del lead, con `source: "manual"`.
+   * Idempotente: reasignar la misma no pisa quién la puso ni cuándo.
+   */
+  asignarEtiqueta(input: EtiquetaLeadServiceInput): Promise<void>;
+
+  /** Saca la etiqueta del lead. Quitar una que no estaba es no-op. */
+  quitarEtiqueta(input: EtiquetaLeadServiceInput): Promise<void>;
+
+  /**
+   * Crea la etiqueta al vuelo y la cuelga del lead en un solo paso: el selector
+   * del Twin la ofrece cuando el vendedor escribe un nombre que no existe.
+   * ConflictError si ya hay una etiqueta con ese nombre (`tags.nombre` UNIQUE).
+   */
+  crearYAsignarEtiqueta(input: CrearEtiquetaServiceInput): Promise<Tag>;
 }

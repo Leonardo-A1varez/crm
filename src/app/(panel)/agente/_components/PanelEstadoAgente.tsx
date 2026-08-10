@@ -49,7 +49,7 @@ export function PanelEstadoAgente({
       <button
         type="button"
         disabled
-        title="Todavía no existe: la pausa es por conversación (desde la Bandeja) y el interruptor global es el feature flag ai_agent.enabled, que se cambia fuera de la app."
+        title="Todavía no existe: la pausa es por conversación (desde el Inbox) y el interruptor global es el feature flag ai_agent.enabled, que se cambia fuera de la app."
         className="text-danger border-line-control hover:border-danger rounded-[9px] border px-3 py-1.5 text-[11.5px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-45"
       >
         <span className="flex items-center gap-1.5">

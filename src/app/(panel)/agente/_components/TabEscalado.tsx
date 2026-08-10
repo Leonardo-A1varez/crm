@@ -91,7 +91,7 @@ export function TabEscalado({
             detalle="Pausa la IA y manda la conversación al triage."
             Icon={PanTool}
             color="var(--color-special)"
-            nota="Sin construir: no hay un detector propio. Hoy se aproxima con una regla IF/THEN de tipo «Escala a un humano» sobre un intent que represente el pedido, o pausando la IA a mano desde la Bandeja."
+            nota="Sin construir: no hay un detector propio. Hoy se aproxima con una regla IF/THEN de tipo «Escala a un humano» sobre un intent que represente el pedido, o pausando la IA a mano desde el Inbox."
           />
 
           <FilaCondicion

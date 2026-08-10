@@ -1,4 +1,4 @@
-import { ConflictError, NotFoundError } from "@/lib/errors";
+import { ConflictError, NotFoundError, PermissionDeniedError } from "@/lib/errors";
 import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import type { Database } from "@/server/db/types.gen";
@@ -86,6 +86,21 @@ export class SupabaseTagsRepository implements TagsRepository {
     return (data ?? []).map(mapTagRow);
   }
 
+  async delete(id: UUID): Promise<void> {
+    if (!isUuid(id)) return;
+    const { data, error } = await this.db.from("tags").delete().eq("id", id).select();
+    if (error) throw mapPostgrestError(error, { resource: "tag" });
+    if ((data ?? []).length === 0) {
+      // 0 filas sin error: inexistente (ok, replay) O la policy DELETE filtró.
+      // El SELECT lo ven ambos roles → si sigue visible, fue RLS. Sin esta
+      // sonda la pantalla avisaría "etiqueta borrada" sobre un no-op silencioso.
+      const visible = await this.findById(id);
+      if (visible) {
+        throw new PermissionDeniedError(`delete de tag denegado por RLS: ${id}`);
+      }
+    }
+  }
+
   async assignToLead(
     leadId: UUID,
     tagId: UUID,
@@ -157,6 +172,21 @@ export class SupabaseTagsRepository implements TagsRepository {
     const { data, error } = await this.db.from("lead_tags").select("lead_id").eq("tag_id", tagId);
     if (error) throw mapPostgrestError(error, { resource: "lead_tag" });
     return (data ?? []).map((r) => r.lead_id);
+  }
+
+  async countLeadsByTag(): Promise<Map<UUID, number>> {
+    // Se agrupa en JS y no con el `count()` de PostgREST porque los agregados
+    // dependen de `db-aggregates-enabled`, que este proyecto no habilita. Trae
+    // una sola columna del pivot: a escala de piloto (~5K leads/mes) es una
+    // consulta barata, y es lo que evita el N+1 por etiqueta.
+    const { data, error } = await this.db.from("lead_tags").select("tag_id");
+    if (error) throw mapPostgrestError(error, { resource: "lead_tag" });
+
+    const out = new Map<UUID, number>();
+    for (const row of data ?? []) {
+      out.set(row.tag_id, (out.get(row.tag_id) ?? 0) + 1);
+    }
+    return out;
   }
 }
 

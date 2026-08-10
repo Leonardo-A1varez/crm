@@ -15,22 +15,37 @@ const logger = getLogger({ scope: "inbox-actions" });
  * técnico (respuestas Graph API, ids, stack) queda en logs server-side; al
  * cliente solo van mensajes curados — evita information disclosure en UI.
  */
-export function toActionError(e: unknown, accion: string): ActionResult {
+export function toActionError(
+  e: unknown,
+  accion: string,
+  /**
+   * Copys alternativos para las acciones que no son de mensajería. Los defaults
+   * hablan de la sesión y de la Graph API porque ese es el grueso del inbox;
+   * en las que escriben etiquetas o el nombre del lead, esos textos serían una
+   * pista falsa.
+   */
+  opciones: { permisoDenegado?: string; conflicto?: string } = {},
+): ActionResult {
   if (e instanceof NotFoundError) {
     return { ok: false, error: "Lead, sesión o conversación no encontrada. Refrescá la página." };
   }
   if (e instanceof ConflictError) {
-    return { ok: false, error: "La sesión ya está cerrada. Refrescá la página." };
+    return {
+      ok: false,
+      error: opciones.conflicto ?? "La sesión ya está cerrada. Refrescá la página.",
+    };
   }
   if (e instanceof ValidationError) {
     // Accionable para el operador (p.ej. canal sin configurar). Sin secrets.
     return { ok: false, error: e.message };
   }
   if (e instanceof PermissionDeniedError) {
-    logger.warn("meta auth rechazada en action", { accion, code: e.code });
+    logger.warn("permiso denegado en action", { accion, code: e.code });
     return {
       ok: false,
-      error: "El canal de mensajería rechazó la autenticación. Avisá al administrador.",
+      error:
+        opciones.permisoDenegado ??
+        "El canal de mensajería rechazó la autenticación. Avisá al administrador.",
     };
   }
   if (e instanceof DomainError) {

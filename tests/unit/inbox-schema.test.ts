@@ -1,6 +1,10 @@
 import { describe, expect, test } from "vitest";
 import {
+  AsignarEtiquetaSchema,
   CloseSessionSchema,
+  CrearEtiquetaSchema,
+  QuitarEtiquetaSchema,
+  RenombrarLeadSchema,
   SendMessageSchema,
   ToggleHandoffSchema,
 } from "@/lib/validation/inbox.schema";
@@ -121,6 +125,59 @@ describe("CloseSessionSchema", () => {
       sessionId: SESSION_ID,
       resultado: "cancelado",
     });
+    expect(result.success).toBe(false);
+  });
+});
+
+const TAG_ID = "33333333-3333-4333-8333-333333333333";
+
+describe("RenombrarLeadSchema", () => {
+  test("trimea el nombre", () => {
+    const parsed = RenombrarLeadSchema.parse({ leadId: LEAD_ID, nombre: "  Ramón Díaz  " });
+    expect(parsed.nombre).toBe("Ramón Díaz");
+  });
+
+  test("acepta vacío: es el estado legítimo de «todavía nadie lo identificó»", () => {
+    const parsed = RenombrarLeadSchema.parse({ leadId: LEAD_ID, nombre: "   " });
+    expect(parsed.nombre).toBe("");
+  });
+
+  test("rechaza más de 80 chars", () => {
+    const result = RenombrarLeadSchema.safeParse({ leadId: LEAD_ID, nombre: "x".repeat(81) });
+    expect(result.success).toBe(false);
+  });
+
+  test("rechaza leadId no-uuid", () => {
+    const result = RenombrarLeadSchema.safeParse({ leadId: "no-uuid", nombre: "Ramón" });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("AsignarEtiquetaSchema / QuitarEtiquetaSchema", () => {
+  test("aceptan par de uuids", () => {
+    expect(AsignarEtiquetaSchema.parse({ leadId: LEAD_ID, tagId: TAG_ID }).tagId).toBe(TAG_ID);
+    expect(QuitarEtiquetaSchema.parse({ leadId: LEAD_ID, tagId: TAG_ID }).leadId).toBe(LEAD_ID);
+  });
+
+  test("rechazan tagId no-uuid", () => {
+    expect(AsignarEtiquetaSchema.safeParse({ leadId: LEAD_ID, tagId: "1" }).success).toBe(false);
+    expect(QuitarEtiquetaSchema.safeParse({ leadId: LEAD_ID, tagId: "1" }).success).toBe(false);
+  });
+});
+
+describe("CrearEtiquetaSchema", () => {
+  test("trimea el nombre", () => {
+    const parsed = CrearEtiquetaSchema.parse({ leadId: LEAD_ID, nombre: "  flota  " });
+    expect(parsed.nombre).toBe("flota");
+  });
+
+  test("rechaza nombre vacío post-trim", () => {
+    const result = CrearEtiquetaSchema.safeParse({ leadId: LEAD_ID, nombre: "   " });
+    expect(result.success).toBe(false);
+  });
+
+  test("rechaza más de 40 chars", () => {
+    const result = CrearEtiquetaSchema.safeParse({ leadId: LEAD_ID, nombre: "x".repeat(41) });
     expect(result.success).toBe(false);
   });
 });

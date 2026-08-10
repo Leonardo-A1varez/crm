@@ -29,7 +29,7 @@ interface NavItem {
 // consola que absorbió la administración de intents y reglas: /intents-reglas
 // ya solo redirige a /agente?tab=reglas, así que no tiene ítem propio.
 const ITEMS: readonly NavItem[] = [
-  { href: "/inbox", label: "Bandeja", Icon: InboxIcon },
+  { href: "/inbox", label: "Inbox", Icon: InboxIcon },
   { href: "/leads", label: "Leads", Icon: Group },
   { href: "/productos", label: "Productos", Icon: Inventory2 },
   { href: "/agente", label: "Agente IA", Icon: SmartToy },

@@ -538,6 +538,20 @@ describe("DefaultInboxService.getConversation — datos del Lead Twin", () => {
     ]);
   });
 
+  test("trae el catálogo entero de tags, ordenado, para el selector", async () => {
+    const lead = await makeLead(leads);
+    await makeSession(sessions, lead.id);
+    const puesta = await tags.create({ nombre: "mayorista", color: "#38BDF8", descripcion: null });
+    await tags.create({ nombre: "flota", color: "#34D399", descripcion: null });
+    await tags.assignToLead(lead.id, puesta.id, "manual", null);
+
+    const view = await svc.getConversation(lead.id);
+
+    // Incluye la que el lead ya tiene: el selector necesita el catálogo entero
+    // para saber qué nombre existe y no ofrecer crearlo de nuevo.
+    expect(view.tagsDisponibles.map((t) => t.nombre)).toEqual(["flota", "mayorista"]);
+  });
+
   test("las sesiones previas no cuentan la abierta", async () => {
     const lead = await makeLead(leads);
     const vieja = await makeSession(sessions, lead.id);

@@ -12,14 +12,25 @@ import type { HandoffService } from "@/server/services/handoff.service";
 import type { MetaApiService } from "@/server/services/meta-api.service";
 import { WORKFLOW_LLM } from "@/types/domain";
 import type { Canal } from "@/types/domain";
-import type { Conversacion, LeadSession, Mensaje, Producto, Tag, UUID } from "@/types/entities";
+import type {
+  Conversacion,
+  Lead,
+  LeadSession,
+  Mensaje,
+  Producto,
+  Tag,
+  UUID,
+} from "@/types/entities";
 import type { GastoSesion, SesionesPrevias } from "@/types/inbox";
 import type {
   CloseSessionServiceInput,
   ConversationView,
+  CrearEtiquetaServiceInput,
   EditarCampoTwinServiceInput,
+  EtiquetaLeadServiceInput,
   InboxItem,
   InboxService,
+  RenombrarLeadServiceInput,
   SendMessageServiceInput,
   ToggleHandoffServiceInput,
 } from "./inbox.service";
@@ -30,6 +41,29 @@ const CONVERSATION_MESSAGES_LIMIT = 200;
 // Para contar lo que quedó sin responder alcanza con la cola del hilo: solo se
 // miran los mensajes posteriores a la última respuesta nuestra.
 const TRIAGE_MESSAGES_LIMIT = 50;
+
+/**
+ * Colores para las etiquetas creadas al vuelo desde el Twin.
+ *
+ * El default de la tabla es `#888888` y deja todos los chips grises, que es
+ * justo lo que una etiqueta no tiene que ser: se pone para distinguir de un
+ * vistazo. Se elige por el nombre y no al azar para que la misma etiqueta
+ * salga siempre del mismo color, incluso si se borra y se vuelve a crear.
+ */
+const COLORES_ETIQUETA = [
+  "#FFAF3A",
+  "#34D399",
+  "#7FB3F5",
+  "#E879F9",
+  "#FB923C",
+  "#38BDF8",
+] as const;
+
+function colorParaEtiqueta(nombre: string): string {
+  let acumulado = 0;
+  for (const char of nombre) acumulado = (acumulado + (char.codePointAt(0) ?? 0)) % 4096;
+  return COLORES_ETIQUETA[acumulado % COLORES_ETIQUETA.length] ?? COLORES_ETIQUETA[0];
+}
 
 /**
  * Mensajes entrantes posteriores a la última respuesta nuestra.
@@ -181,7 +215,10 @@ export class DefaultInboxService implements InboxService {
       : [];
 
     const producto = await this.resolverProducto(session);
-    const tags = await this.deps.tags.listByLead(leadId);
+    const [tags, tagsDisponibles] = await Promise.all([
+      this.deps.tags.listByLead(leadId),
+      this.deps.tags.list(),
+    ]);
     const sesionesPrevias = await this.contarSesionesPrevias(leadId, session);
     const gastoIa = await this.resolverGastoIa(session);
 
@@ -202,6 +239,7 @@ export class DefaultInboxService implements InboxService {
           descripcion: t.descripcion,
         }),
       ),
+      tagsDisponibles: [...tagsDisponibles].sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
       sesionesPrevias,
       gastoIa,
     };
@@ -327,11 +365,57 @@ export class DefaultInboxService implements InboxService {
     );
   }
 
+  async renombrarLead(input: RenombrarLeadServiceInput): Promise<Lead> {
+    await this.requireLead(input.leadId);
+    return this.deps.leads.update(input.leadId, { nombre: input.nombre.trim() });
+  }
+
+  async asignarEtiqueta(input: EtiquetaLeadServiceInput): Promise<void> {
+    await this.requireLead(input.leadId);
+    const tag = await this.deps.tags.findById(input.tagId);
+    if (!tag) {
+      throw new NotFoundError(`tag no encontrado: ${input.tagId}`, "tag", input.tagId);
+    }
+    await this.deps.tags.assignToLead(input.leadId, tag.id, "manual", input.userId ?? null);
+  }
+
+  async quitarEtiqueta(input: EtiquetaLeadServiceInput): Promise<void> {
+    await this.deps.tags.removeFromLead(input.leadId, input.tagId);
+  }
+
+  async crearYAsignarEtiqueta(input: CrearEtiquetaServiceInput): Promise<Tag> {
+    await this.requireLead(input.leadId);
+    const nombre = input.nombre.trim();
+
+    // El duplicado exacto no es un error para quien lo escribió: quería esa
+    // etiqueta en este lead y ya existe. Se reusa en vez de reventar; el
+    // ConflictError del INSERT queda para las carreras entre dos pestañas.
+    const existente = await this.deps.tags.findByNombre(nombre);
+    const tag =
+      existente ??
+      (await this.deps.tags.create({
+        nombre,
+        color: colorParaEtiqueta(nombre),
+        descripcion: null,
+      }));
+
+    await this.deps.tags.assignToLead(input.leadId, tag.id, "manual", input.userId);
+    return tag;
+  }
+
   async closeSession(input: CloseSessionServiceInput): Promise<LeadSession> {
     return this.deps.sessions.close(input.sessionId, {
       resultado: input.resultado,
       motivo_perdida: input.motivoPerdida ?? null,
     });
+  }
+
+  private async requireLead(leadId: UUID): Promise<Lead> {
+    const lead = await this.deps.leads.findById(leadId);
+    if (!lead) {
+      throw new NotFoundError(`lead no encontrado: ${leadId}`, "lead", leadId);
+    }
+    return lead;
   }
 
   private async requireActiveSession(sessionId: UUID): Promise<LeadSession> {

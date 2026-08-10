@@ -43,3 +43,35 @@ export const EditarCampoTwinSchema = z.object({
   valor: z.union([z.string().trim().max(2000), z.number(), z.null()]),
 });
 export type EditarCampoTwinInput = z.infer<typeof EditarCampoTwinSchema>;
+
+/**
+ * El nombre con el que la casa identifica al lead. Acepta vacío porque volver a
+ * dejarlo sin nombre tiene que ser posible: el pipeline crea los leads con `""`
+ * y ese vacío es el estado legítimo de "todavía nadie lo identificó".
+ */
+export const RenombrarLeadSchema = z.object({
+  leadId: UUIDSchema,
+  nombre: z.string().trim().max(80),
+});
+export type RenombrarLeadInput = z.infer<typeof RenombrarLeadSchema>;
+
+export const AsignarEtiquetaSchema = z.object({
+  leadId: UUIDSchema,
+  tagId: UUIDSchema,
+});
+export type AsignarEtiquetaInput = z.infer<typeof AsignarEtiquetaSchema>;
+
+export const QuitarEtiquetaSchema = z.object({
+  leadId: UUIDSchema,
+  tagId: UUIDSchema,
+});
+export type QuitarEtiquetaInput = z.infer<typeof QuitarEtiquetaSchema>;
+
+// 40 chars: el chip vive en un panel de 322px y un nombre más largo deja de
+// leerse como etiqueta. `nombre` es UNIQUE en la tabla, así que el duplicado lo
+// resuelve el repo con ConflictError y no la validación.
+export const CrearEtiquetaSchema = z.object({
+  leadId: UUIDSchema,
+  nombre: z.string().trim().min(1).max(40),
+});
+export type CrearEtiquetaInput = z.infer<typeof CrearEtiquetaSchema>;

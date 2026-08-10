@@ -20,6 +20,12 @@ export interface TagsRepository {
   findByNombre(nombre: string): Promise<Tag | null>;
   update(id: UUID, patch: TagUpdate): Promise<Tag>;
   list(): Promise<Tag[]>;
+  /**
+   * Borra el tag. Los `lead_tags` que lo referencian caen con él (FK ON DELETE
+   * CASCADE): la baja saca la etiqueta de todos los leads que la tenían y eso
+   * no se deshace. Idempotente: borrar uno inexistente no es error.
+   */
+  delete(id: UUID): Promise<void>;
 
   // LeadTag operaciones. assignToLead es idempotente: no sobrescribe source/assigned_by/assigned_at si ya existe.
   assignToLead(
@@ -31,6 +37,13 @@ export interface TagsRepository {
   removeFromLead(leadId: UUID, tagId: UUID): Promise<void>;
   listByLead(leadId: UUID): Promise<AssignedTag[]>;
   listLeadIdsByTag(tagId: UUID): Promise<UUID[]>;
+  /**
+   * Cuántos leads usan cada tag, en una sola consulta. Existe para que la
+   * pantalla de administración no haga un `listLeadIdsByTag` por fila: los ids
+   * no le sirven de nada y el N+1 crece con el catálogo de etiquetas.
+   * Los tags sin uso no aparecen en el mapa — el consumidor asume 0.
+   */
+  countLeadsByTag(): Promise<Map<UUID, number>>;
 }
 
 function leadTagKey(leadId: UUID, tagId: UUID): string {
@@ -69,6 +82,15 @@ export class InMemoryTagsRepository implements TagsRepository {
 
   async list(): Promise<Tag[]> {
     return Array.from(this.tags.values()).map((t) => ({ ...t }));
+  }
+
+  async delete(id: UUID): Promise<void> {
+    this.tags.delete(id);
+    // Emula el ON DELETE CASCADE de `lead_tags`: sin esto quedarían asignaciones
+    // apuntando a un tag inexistente y el contract divergiría de Supabase.
+    for (const [key, lt] of this.leadTags) {
+      if (lt.tag_id === id) this.leadTags.delete(key);
+    }
   }
 
   async assignToLead(
@@ -115,6 +137,14 @@ export class InMemoryTagsRepository implements TagsRepository {
     const out: UUID[] = [];
     for (const lt of this.leadTags.values()) {
       if (lt.tag_id === tagId) out.push(lt.lead_id);
+    }
+    return out;
+  }
+
+  async countLeadsByTag(): Promise<Map<UUID, number>> {
+    const out = new Map<UUID, number>();
+    for (const lt of this.leadTags.values()) {
+      out.set(lt.tag_id, (out.get(lt.tag_id) ?? 0) + 1);
     }
     return out;
   }

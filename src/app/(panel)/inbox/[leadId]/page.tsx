@@ -9,8 +9,12 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { NotFoundError } from "@/lib/errors";
 import { estadoVentana } from "@/lib/ventana";
 import { getInboxServiceForRequest } from "@/server/bootstrap/inbox-bootstrap";
+import { asignarEtiquetaAction } from "../_actions/asignar-etiqueta.action";
 import { closeSessionAction } from "../_actions/close-session.action";
+import { crearEtiquetaAction } from "../_actions/crear-etiqueta.action";
 import { editarCampoTwinAction } from "../_actions/editar-campo-twin.action";
+import { quitarEtiquetaAction } from "../_actions/quitar-etiqueta.action";
+import { renombrarLeadAction } from "../_actions/renombrar-lead.action";
 import { sendMessageAction } from "../_actions/send-message.action";
 import { toggleHandoffAction } from "../_actions/toggle-handoff.action";
 import type { ConversationView } from "@/types/inbox";
@@ -34,10 +38,6 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
   const ultimoEntrante = [...view.messages].reverse().find((m) => m.direction === "in") ?? null;
   const ventana = estadoVentana(ultimoEntrante?.created_at ?? null, new Date());
 
-  const lastMessage = view.messages[view.messages.length - 1];
-  const ultimaActividadIso =
-    lastMessage?.created_at.toISOString() ?? view.session?.started_at.toISOString() ?? null;
-
   return (
     // Tres columnas hermanas, no un header que cruza las dos: el header de la
     // conversación pertenece al panel de conversación y el Twin arranca con el
@@ -47,9 +47,7 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
         <ConversationHeader
           lead={view.lead}
           session={view.session}
-          canales={view.canales}
           canalActivo={view.canalActivo}
-          ultimaActividadIso={ultimaActividadIso}
           actions={
             view.session ? (
               <>
@@ -98,11 +96,18 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
           session={view.session}
           leadId={view.lead.id}
           mensajes={view.messages}
+          canales={view.canales}
+          canalActivo={view.canalActivo}
           producto={view.producto}
           tags={view.tags}
+          tagsDisponibles={view.tagsDisponibles}
           sesionesPrevias={view.sesionesPrevias}
           gastoIa={view.gastoIa}
           onEditar={editarCampoTwinAction}
+          onRenombrar={renombrarLeadAction}
+          onAsignarEtiqueta={asignarEtiquetaAction}
+          onQuitarEtiqueta={quitarEtiquetaAction}
+          onCrearEtiqueta={crearEtiquetaAction}
         />
       </aside>
     </div>

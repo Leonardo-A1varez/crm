@@ -61,7 +61,7 @@ export function PanelLista({ items }: { items: InboxItem[] }) {
     <div className="bg-surface-panel border-line-layout flex w-[322px] shrink-0 flex-col border-r">
       <div className="border-line-layout border-b px-3.5 py-3.5">
         <div className="flex items-baseline justify-between gap-2">
-          <h2 className="text-ink-primary text-[17px] font-[650] tracking-[-0.02em]">Bandeja</h2>
+          <h2 className="text-ink-primary text-[17px] font-[650] tracking-[-0.02em]">Inbox</h2>
           <MonoMeta className="text-[11px]">{items.length}</MonoMeta>
         </div>
         <div className="mt-1.5 flex items-center gap-1.5">
@@ -92,7 +92,7 @@ export function PanelLista({ items }: { items: InboxItem[] }) {
             icon={<InboxIcon className="h-10 w-10" />}
           />
         ) : orden === "recientes" ? (
-          <ul aria-label="Bandeja de conversaciones" className="flex flex-col gap-1 px-2 pt-2">
+          <ul aria-label="Inbox de conversaciones" className="flex flex-col gap-1 px-2 pt-2">
             {recientes.map((item) => (
               <li key={item.leadId}>
                 <InboxListItem item={item} conMotivo={false} />

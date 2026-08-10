@@ -61,8 +61,15 @@ export interface ConversationView {
    * código sueltos sin machear una fila de `productos`).
    */
   producto: Producto | null;
-  /** Tags del lead, para la sección Tags del Twin. */
+  /** Tags del lead, para la sección Etiquetas del Twin. */
   tags: Tag[];
+  /**
+   * Catálogo completo de tags, para el selector de "+ Agregar etiquetas". Viaja
+   * con la vista y no por una action aparte porque el selector filtra mientras
+   * se escribe: traerlo al abrir el popover obligaría a un estado de carga
+   * sobre una tabla que en producción tiene decenas de filas, no miles.
+   */
+  tagsDisponibles: Tag[];
   /** Sesiones anteriores del mismo lead: "4 · 3 con compra" del handoff §1.4. */
   sesionesPrevias: SesionesPrevias;
   /**
