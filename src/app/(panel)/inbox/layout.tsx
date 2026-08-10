@@ -16,9 +16,16 @@ export default async function InboxLayout({ children }: { children: React.ReactN
   const items = await svc.listActiveLeads();
 
   return (
-    <div className="flex h-full min-w-[1164px] flex-1 overflow-hidden">
-      <PanelLista items={items} />
-      <div className="flex min-w-[520px] flex-1 overflow-hidden">{children}</div>
+    // El scroll horizontal tiene que vivir acá y no en el `<main>` del panel:
+    // ese `<main>` es `min-w-0 overflow-hidden` y clipea sin barra, así que por
+    // debajo de 1164px el Twin quedaba cortado y no había forma de alcanzarlo.
+    // Dárselo al `<main>` haría que cualquier tabla ancha de las otras 6
+    // pantallas empujara el shell entero.
+    <div className="h-full overflow-x-auto">
+      <div className="flex h-full min-w-[1164px]">
+        <PanelLista items={items} />
+        <div className="flex min-w-[520px] flex-1 overflow-hidden">{children}</div>
+      </div>
       <RefreshPoller intervalMs={5000} />
     </div>
   );
