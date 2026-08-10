@@ -21,6 +21,7 @@ import { RelativeTime } from "@/components/shared/RelativeTime";
 import { formatearUsd } from "@/lib/ui/metricas";
 import { FUNNEL_STAGES, funnelStep, isDetour, stageColor, stageLabel } from "@/lib/ui/stage";
 import { formatearTelefono } from "@/lib/ui/telefono";
+import { cn } from "@/lib/utils";
 import type {
   CampoTwinEditable,
   CurrentStage,
@@ -118,9 +119,14 @@ function safeHttpUrl(raw: string): string | null {
   }
 }
 
-function Seccion({ children }: { children: React.ReactNode }) {
+function Seccion({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className="border-line-layout flex flex-col gap-3 border-b px-[17px] py-[15px]">
+    <div
+      className={cn(
+        "border-line-layout flex flex-col gap-3 border-b px-[17px] py-[15px]",
+        className,
+      )}
+    >
       {children}
     </div>
   );
@@ -284,13 +290,13 @@ function Contacto({
   const extras = Object.entries(lead.datos_extra);
 
   return (
-    <Seccion>
-      {/* El rótulo y el `+` son una sola línea y viven afuera del área
-          scrolleable: el botón queda quieto mientras se desplazan los datos y,
-          sobre todo, no reserva una franja propia debajo del último dato. */}
+    // `relative` porque el `+` se posiciona contra esta caja: es el ancla que
+    // le permite flotar sin ocupar lugar en la columna de datos.
+    <Seccion className="relative">
+      {/* El `+` flota sobre la sección y no entra en el flujo: sin rótulo ni
+          fila propia, para que no reserve espacio en la columna de datos. */}
       <AgregarDato
         leadId={lead.id}
-        rotulo={<Eyebrow>Contacto</Eyebrow>}
         opciones={[
           { campo: "email", label: "Email", cargado: lead.email !== null },
           { campo: "direccion", label: "Dirección", cargado: lead.direccion !== null },

@@ -29,27 +29,21 @@ const OTRO = "__otro__";
  * es la puerta al campo libre, y aparece recién cuando ninguna de las opciones
  * sirve.
  *
- * Queda fuera del área con scroll de la sección a propósito: si viviera adentro
- * habría que scrollear para encontrar el botón que agrega la fila que va a
- * hacer scrollear más, y además reservaría una franja vacía debajo del último
- * dato.
+ * Flota sobre la sección, abajo a la izquierda: no entra en el flujo de la
+ * columna de datos y por eso no reserva ninguna franja propia —una franja vacía
+ * debajo del último dato fue justamente lo que hubo que sacar—. Tampoco vive
+ * dentro del área con scroll: si viviera adentro habría que scrollear para
+ * encontrar el botón que agrega la fila que va a hacer scrollear más.
+ *
+ * Exige que su contenedor sea `relative`; el formulario se abre anclado al
+ * mismo borde, tapando los datos en vez de empujarlos.
  */
 export function AgregarDato({
   leadId,
-  rotulo,
   opciones,
   onAgregar,
 }: {
   leadId: UUID;
-  /**
-   * Rótulo de la sección, que se dibuja a la izquierda del `+`.
-   *
-   * Lo recibe este componente y no lo pone quien llama porque el botón comparte
-   * línea con el rótulo y el formulario se abre debajo, ocupando el ancho
-   * entero: son un bloque solo. Partirlo en dos obligaría a subir el estado de
-   * "abierto" a un componente cliente que hoy no existe.
-   */
-  rotulo: React.ReactNode;
   opciones: OpcionCampo[];
   onAgregar: (input: AgregarDatoLeadInput) => Promise<ActionResult>;
 }) {
@@ -88,24 +82,21 @@ export function AgregarDato({
   const pisado = opciones.find((o) => o.campo === seleccion)?.cargado ?? false;
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex min-h-[26px] items-center justify-between gap-2">
-        {rotulo}
-        {abierto ? null : (
-          <button
-            type="button"
-            onClick={() => setAbierto(true)}
-            aria-label="Agregar un dato de contacto"
-            title="Agregar un dato de contacto"
-            className="border-line-control text-ink-dim hover:border-brand/50 hover:text-brand inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[8px] border border-dashed transition-colors"
-          >
-            <Add size={14} />
-          </button>
-        )}
-      </div>
+    <>
+      {abierto ? null : (
+        <button
+          type="button"
+          onClick={() => setAbierto(true)}
+          aria-label="Agregar un dato de contacto"
+          title="Agregar un dato de contacto"
+          className="border-line-control bg-surface-card text-ink-dim hover:border-brand/50 hover:text-brand absolute bottom-3 left-4 z-10 inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[8px] border border-dashed transition-colors"
+        >
+          <Add size={14} />
+        </button>
+      )}
 
       {abierto ? (
-        <div className="border-line-control bg-surface-elevated flex flex-col gap-1.5 rounded-[10px] border p-2">
+        <div className="border-line-control bg-surface-elevated absolute inset-x-3 bottom-3 z-20 flex flex-col gap-1.5 rounded-[10px] border p-2 shadow-lg">
           <select
             value={seleccion}
             disabled={isPending}
@@ -178,6 +169,6 @@ export function AgregarDato({
           </div>
         </div>
       ) : null}
-    </div>
+    </>
   );
 }
