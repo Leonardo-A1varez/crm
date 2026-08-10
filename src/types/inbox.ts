@@ -1,4 +1,4 @@
-import type { Canal, CurrentStage, Direction } from "./domain";
+import type { Canal, CurrentStage, Direction, Prioridad } from "./domain";
 import type { Lead, LeadSession, Mensaje, UUID } from "./entities";
 
 /**
@@ -20,6 +20,15 @@ export interface InboxItem {
     createdAt: Date;
   } | null;
   canales: Canal[];
+  /** Canal de la conversación con el mensaje más reciente. `null` sin canales. */
+  canalActivo: Canal | null;
+  /** Mensajes del cliente posteriores a la última respuesta nuestra. */
+  sinResponder: number;
+  /** Desde cuándo espera el primero de esos mensajes. */
+  esperandoDesde: Date | null;
+  prioridad: Prioridad;
+  /** Por qué está priorizada; `null` cuando no hay nada que atender. */
+  motivo: string | null;
 }
 
 /**

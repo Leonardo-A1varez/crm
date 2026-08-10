@@ -13,6 +13,13 @@ export type CurrentStage = (typeof CURRENT_STAGE)[number];
 export const URGENCIA = ["baja", "media", "alta"] as const;
 export type Urgencia = (typeof URGENCIA)[number];
 
+/**
+ * Prioridad de triage de una conversación. No se persiste: se recalcula en
+ * cada render a partir del estado de la sesión y del hilo (ver `lib/triage`).
+ */
+export const PRIORIDAD = ["alta", "media", "baja"] as const;
+export type Prioridad = (typeof PRIORIDAD)[number];
+
 export const CANAL = ["wa", "ig", "fb"] as const;
 export type Canal = (typeof CANAL)[number];
 

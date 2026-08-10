@@ -8,6 +8,7 @@ import { InitialsAvatar } from "@/components/shared/InitialsAvatar";
 import { MonoMeta } from "@/components/shared/MonoMeta";
 import { StageBadge } from "@/components/shared/StageBadge";
 import { cn } from "@/lib/utils";
+import type { Prioridad } from "@/types/domain";
 import type { InboxItem } from "@/types/inbox";
 
 /** Timestamp compacto para la fila: "ahora" / "3m" / "2h" / "1d". */
@@ -22,13 +23,15 @@ function formatRelative(date: Date): string {
   return `${diffD}d`;
 }
 
+const CHIP_PRIORIDAD: Record<Prioridad, string> = {
+  alta: "text-danger bg-danger/13",
+  media: "text-caution bg-caution/13",
+  baja: "text-ink-dim bg-surface-avatar",
+};
+
 export function InboxListItem({ item }: { item: InboxItem }) {
   const pathname = usePathname();
   const isActive = pathname === `/inbox/${item.leadId}`;
-  // `canales` es un set deduplicado sin orden significativo (ver
-  // default-inbox.service.ts) — no hay campo "canal del último mensaje" en
-  // InboxItem. Se usa el primero solo como referencia visual del avatar.
-  const canalPrincipal = item.canales[0];
 
   return (
     <Link
@@ -47,9 +50,9 @@ export function InboxListItem({ item }: { item: InboxItem }) {
 
       <div className="relative shrink-0">
         <InitialsAvatar nombre={item.nombre} size={38} />
-        {canalPrincipal ? (
+        {item.canalActivo ? (
           <ChannelDot
-            canal={canalPrincipal}
+            canal={item.canalActivo}
             size={13}
             ringColor="var(--color-surface-panel)"
             className="absolute right-[-2px] bottom-[-2px]"
@@ -62,7 +65,17 @@ export function InboxListItem({ item }: { item: InboxItem }) {
           <span className="text-ink-primary truncate text-[12.5px] font-semibold">
             {item.nombre}
           </span>
-          <MonoMeta className="shrink-0">{formatRelative(item.ultimaActividad)}</MonoMeta>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <MonoMeta>{formatRelative(item.ultimaActividad)}</MonoMeta>
+            {item.sinResponder > 0 ? (
+              <span
+                className="bg-brand text-brand-ink inline-flex h-[17px] min-w-[17px] items-center justify-center rounded-full px-1 font-mono text-[9.5px] font-bold"
+                aria-label={`${item.sinResponder} sin responder`}
+              >
+                {item.sinResponder}
+              </span>
+            ) : null}
+          </div>
         </div>
         <p className="text-ink-dim mt-0.5 truncate text-[11.5px]">
           {item.ultimoMensaje
@@ -71,10 +84,15 @@ export function InboxListItem({ item }: { item: InboxItem }) {
         </p>
         <div className="mt-1.5 flex items-center gap-1.5">
           <StageBadge stage={item.currentStage} />
-          {item.iaPausada ? (
-            <span className="text-danger bg-danger/13 inline-flex items-center gap-1 rounded-md px-[7px] py-[2.5px] text-[10px] font-semibold">
-              <PanTool size={12} />
-              IA pausada
+          {item.motivo ? (
+            <span
+              className={cn(
+                "inline-flex min-w-0 items-center gap-1 rounded-md px-[7px] py-[2.5px] text-[10px] font-semibold",
+                CHIP_PRIORIDAD[item.prioridad],
+              )}
+            >
+              {item.iaPausada ? <PanTool size={12} className="shrink-0" /> : null}
+              <span className="truncate">{item.motivo}</span>
             </span>
           ) : null}
         </div>
