@@ -1,4 +1,4 @@
-import { conDatoExtra, excedeTope, MAX_DATOS_EXTRA } from "@/lib/datos-extra";
+import { conDatoExtra, excedeTope, MAX_DATOS_EXTRA, sinDatoExtra } from "@/lib/datos-extra";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { pesoMotivo, triage } from "@/lib/triage";
 import type { EntradaTriage } from "@/lib/triage";
@@ -25,6 +25,7 @@ import type {
 import type { GastoSesion, SesionesPrevias } from "@/types/inbox";
 import type {
   AgregarDatoLeadServiceInput,
+  BorrarDatoExtraServiceInput,
   CloseSessionServiceInput,
   ConversationView,
   CrearEtiquetaServiceInput,
@@ -390,6 +391,19 @@ export class DefaultInboxService implements InboxService {
     return this.deps.leads.update(input.leadId, {
       datos_extra: conDatoExtra(lead.datos_extra, clave, valor),
     });
+  }
+
+  async borrarDatoExtra(input: BorrarDatoExtraServiceInput): Promise<Lead> {
+    const lead = await this.requireLead(input.leadId);
+    // El patch se arma como el jsonb entero menos esa clave: no hay camino por
+    // el que la clave que llegó termine nombrando una columna de `leads`.
+    const restantes = sinDatoExtra(lead.datos_extra, input.clave.trim());
+
+    // Nada que sacar —la fila ya se había borrado en otra pestaña, o el doble
+    // click mandó dos veces—. Ni error ni UPDATE: el estado ya es el pedido.
+    if (Object.keys(restantes).length === Object.keys(lead.datos_extra).length) return lead;
+
+    return this.deps.leads.update(input.leadId, { datos_extra: restantes });
   }
 
   async asignarEtiqueta(input: EtiquetaLeadServiceInput): Promise<void> {

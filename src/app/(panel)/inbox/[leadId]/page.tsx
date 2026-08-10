@@ -11,6 +11,7 @@ import { estadoVentana } from "@/lib/ventana";
 import { getInboxServiceForRequest } from "@/server/bootstrap/inbox-bootstrap";
 import { agregarDatoLeadAction } from "../_actions/agregar-dato-lead.action";
 import { asignarEtiquetaAction } from "../_actions/asignar-etiqueta.action";
+import { borrarDatoLeadAction } from "../_actions/borrar-dato-lead.action";
 import { closeSessionAction } from "../_actions/close-session.action";
 import { crearEtiquetaAction } from "../_actions/crear-etiqueta.action";
 import { editarCampoTwinAction } from "../_actions/editar-campo-twin.action";
@@ -105,6 +106,7 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
           onEditar={editarCampoTwinAction}
           onRenombrar={renombrarLeadAction}
           onAgregarDato={agregarDatoLeadAction}
+          onBorrarDato={borrarDatoLeadAction}
           onAsignarEtiqueta={asignarEtiquetaAction}
           onQuitarEtiqueta={quitarEtiquetaAction}
           onCrearEtiqueta={crearEtiquetaAction}

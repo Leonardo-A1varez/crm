@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   AgregarDatoLeadSchema,
   AsignarEtiquetaSchema,
+  BorrarDatoExtraSchema,
   CloseSessionSchema,
   CrearEtiquetaSchema,
   QuitarEtiquetaSchema,
@@ -264,5 +265,33 @@ describe("AgregarDatoLeadSchema", () => {
       AgregarDatoLeadSchema.safeParse({ tipo: "libre", leadId: "no-uuid", clave: "x", valor: "y" })
         .success,
     ).toBe(false);
+  });
+});
+
+describe("BorrarDatoExtraSchema", () => {
+  test("acepta la clave que se ve en la ficha y la trimea", () => {
+    expect(BorrarDatoExtraSchema.parse({ leadId: LEAD_ID, clave: "  Cumpleaños  " })).toEqual({
+      leadId: LEAD_ID,
+      clave: "Cumpleaños",
+    });
+  });
+
+  test("rechaza vacío post-trim, largo fuera de rango y leadId no-uuid", () => {
+    expect(BorrarDatoExtraSchema.safeParse({ leadId: LEAD_ID, clave: "   " }).success).toBe(false);
+    expect(
+      BorrarDatoExtraSchema.safeParse({ leadId: LEAD_ID, clave: "x".repeat(41) }).success,
+    ).toBe(false);
+    expect(BorrarDatoExtraSchema.safeParse({ leadId: "no-uuid", clave: "x" }).success).toBe(false);
+  });
+
+  test("no acepta un campo que nombre la columna a tocar", () => {
+    // El input no lleva `campo` ni nada que pueda apuntar a una columna real:
+    // lo único que viaja es la clave del jsonb. Zod descarta el resto.
+    const parsed = BorrarDatoExtraSchema.parse({
+      leadId: LEAD_ID,
+      clave: "Patente",
+      campo: "telefono",
+    });
+    expect(parsed).toEqual({ leadId: LEAD_ID, clave: "Patente" });
   });
 });

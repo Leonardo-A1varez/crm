@@ -117,3 +117,18 @@ export const AgregarDatoLeadSchema = z.discriminatedUnion("tipo", [
   }),
 ]);
 export type AgregarDatoLeadInput = z.infer<typeof AgregarDatoLeadSchema>;
+
+/**
+ * El `×` de un campo libre: saca el par entero de `datos_extra`.
+ *
+ * Solo viaja la clave, sin lista blanca, porque los nombres los inventa el
+ * vendedor y no hay forma de enumerarlos. El alcance no lo cuida esta
+ * validación sino el service, que escribe únicamente el jsonb: una clave que se
+ * llame como una columna real puede, a lo sumo, sacar una fila libre mal puesta
+ * con ese nombre, nunca vaciar `telefono`, `email` ni `direccion`.
+ */
+export const BorrarDatoExtraSchema = z.object({
+  leadId: UUIDSchema,
+  clave: z.string().trim().min(1).max(MAX_LARGO_CLAVE),
+});
+export type BorrarDatoExtraInput = z.infer<typeof BorrarDatoExtraSchema>;

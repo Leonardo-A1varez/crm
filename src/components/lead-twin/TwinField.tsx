@@ -6,12 +6,24 @@
  * falta información cuando nunca la hubo. Devolver `null` deja que quien llama
  * escriba la fila sin preguntar si hay dato.
  */
-export function TwinField({ label, value }: { label: string; value?: React.ReactNode }) {
+export function TwinField({
+  label,
+  value,
+  accion,
+}: {
+  label: string;
+  value?: React.ReactNode;
+  /** Control al final de la línea de la etiqueta (hoy: el `×` del campo libre). */
+  accion?: React.ReactNode;
+}) {
   if (value === undefined || value === null || value === "") return null;
 
   return (
     <div>
-      <div className="text-ink-faint text-[10.5px]">{label}</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-ink-faint min-w-0 text-[10.5px] break-words">{label}</div>
+        {accion}
+      </div>
       <div className="text-ink-secondary mt-[3px] text-[12.5px]">{value}</div>
     </div>
   );

@@ -48,6 +48,9 @@ function ResumenLead({ lead, titulo }: { lead: ResumenLeadFields; titulo: string
     <div className="flex flex-col gap-0.5 text-sm">
       <span className="text-muted-foreground text-xs">{titulo}</span>
       <span className="font-medium">{lead.nombre}</span>
+      {/* Crudo a propósito, contra el resto de la app: acá se comparan dos
+          números dígito a dígito para decidir si son la misma persona, y el
+          `+593 ` que agrega `formatearTelefono` desalinea esa lectura. */}
       <span className="text-muted-foreground font-mono text-xs">{lead.telefono}</span>
       <ChannelIcons activos={canales} activoActual={lead.canal_origen} />
       <span className="text-muted-foreground text-xs">{vehiculo || "—"}</span>

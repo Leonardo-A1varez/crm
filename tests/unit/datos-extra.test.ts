@@ -5,6 +5,7 @@ import {
   esClaveReservada,
   excedeTope,
   MAX_DATOS_EXTRA,
+  sinDatoExtra,
 } from "@/lib/datos-extra";
 
 describe("claveComparable", () => {
@@ -67,6 +68,30 @@ describe("conDatoExtra", () => {
     const resultado = conDatoExtra({ Cumpleaños: "12/03" }, "cumpleanos", "13/03");
     expect(resultado).toEqual({ Cumpleaños: "13/03" });
     expect(Object.keys(resultado)).toHaveLength(1);
+  });
+});
+
+describe("sinDatoExtra", () => {
+  test("saca el campo y deja los demás intactos", () => {
+    expect(sinDatoExtra({ Patente: "ABC123", Cumpleaños: "12/03" }, "Cumpleaños")).toEqual({
+      Patente: "ABC123",
+    });
+  });
+
+  test("encuentra la clave aunque llegue sin acento ni mayúsculas", () => {
+    expect(sinDatoExtra({ Cumpleaños: "12/03" }, "cumpleanos")).toEqual({});
+    expect(sinDatoExtra({ "Taller de confianza": "El Rápido" }, "TALLER_DE_CONFIANZA")).toEqual({});
+  });
+
+  test("borrar una clave que no está devuelve lo mismo", () => {
+    expect(sinDatoExtra({ Patente: "ABC123" }, "Cumpleaños")).toEqual({ Patente: "ABC123" });
+    expect(sinDatoExtra({}, "Cumpleaños")).toEqual({});
+  });
+
+  test("no muta el objeto original", () => {
+    const original = { Patente: "ABC123", Cumpleaños: "12/03" };
+    sinDatoExtra(original, "Cumpleaños");
+    expect(original).toEqual({ Patente: "ABC123", Cumpleaños: "12/03" });
   });
 });
 

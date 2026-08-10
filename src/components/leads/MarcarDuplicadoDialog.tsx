@@ -104,6 +104,9 @@ export function MarcarDuplicadoDialog({
               <li key={i.leadId} className="flex items-center gap-2 py-2 text-sm">
                 <div className="flex flex-col">
                   <span className="font-medium">{i.nombre}</span>
+                  {/* Crudo a propósito, como en DuplicadosSection: el número se
+                      compara con el del lead abierto para ver si es el mismo, y
+                      el separador de país estorba esa comparación. */}
                   <span className="text-muted-foreground font-mono text-xs">{i.telefono}</span>
                 </div>
                 <Button

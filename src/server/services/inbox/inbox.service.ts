@@ -51,6 +51,12 @@ export type AgregarDatoLeadServiceInput = { leadId: UUID } & (
   | { tipo: "libre"; clave: string; valor: string }
 );
 
+/** El `×` de un campo libre. `clave` es el nombre tal como se ve en la ficha. */
+export interface BorrarDatoExtraServiceInput {
+  leadId: UUID;
+  clave: string;
+}
+
 export interface EtiquetaLeadServiceInput {
   leadId: UUID;
   tagId: UUID;
@@ -132,6 +138,19 @@ export interface InboxService {
    * supera el tope de campos por lead.
    */
   agregarDato(input: AgregarDatoLeadServiceInput): Promise<Lead>;
+
+  /**
+   * Saca un campo libre de `datos_extra`. Es el único borrado de la ficha, y
+   * llega hasta ahí: las columnas de contacto no se tocan ni por accidente
+   * —la única escritura es el jsonb sin esa clave—, y para vaciar una columna
+   * está la edición en el lugar.
+   *
+   * Borrar una clave que ya no está es no-op, como quitar una etiqueta que el
+   * lead no tenía: la fila pudo desaparecer en otra pestaña.
+   *
+   * NotFoundError si el lead no existe.
+   */
+  borrarDatoExtra(input: BorrarDatoExtraServiceInput): Promise<Lead>;
 
   /**
    * Cuelga una etiqueta ya existente del lead, con `source: "manual"`.

@@ -90,6 +90,28 @@ export function conDatoExtra(
   return { ...actuales, [existente ?? clave]: valor };
 }
 
+/**
+ * Devuelve el objeto sin ese campo.
+ *
+ * La clave se busca por su forma comparable y no por igualdad literal: lo que
+ * viaja desde el `×` es el texto de la fila, y un campo guardado como
+ * "Cumpleaños" tiene que poder borrarse aunque llegue "cumpleanos". Sin eso, un
+ * campo escrito con acento quedaría imposible de sacar, que es justo el caso
+ * que el borrado viene a resolver.
+ *
+ * Si no hay ninguna clave equivalente devuelve un objeto igual al de entrada:
+ * borrar lo que ya no está no es un error.
+ */
+export function sinDatoExtra(
+  actuales: Record<string, string>,
+  clave: string,
+): Record<string, string> {
+  const comparable = claveComparable(clave);
+  return Object.fromEntries(
+    Object.entries(actuales).filter(([k]) => claveComparable(k) !== comparable),
+  );
+}
+
 /** `true` si agregar esa clave superaría el tope (pisar una que ya está, no). */
 export function excedeTope(actuales: Record<string, string>, clave: string): boolean {
   const comparable = claveComparable(clave);

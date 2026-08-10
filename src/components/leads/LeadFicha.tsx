@@ -1,5 +1,6 @@
 import { ChannelIcons } from "@/components/inbox/ChannelIcons";
 import { InitialsAvatar } from "@/components/shared/InitialsAvatar";
+import { formatearTelefono } from "@/lib/ui/telefono";
 import type { Lead } from "@/types/entities";
 import type { LeadTagView } from "@/types/leads";
 
@@ -44,7 +45,7 @@ export function LeadFicha({ lead, tags }: { lead: Lead; tags: LeadTagView[] }) {
         </div>
       </div>
       <div className="grid grid-cols-2 gap-x-6 gap-y-3.5 lg:grid-cols-3">
-        <Campo label="Teléfono" value={lead.telefono} />
+        <Campo label="Teléfono" value={formatearTelefono(lead.telefono)} />
         <Campo label="Email" value={lead.email} />
         <Campo label="Dirección" value={lead.direccion} />
         <Campo label="Vehículo" value={vehiculo || null} />

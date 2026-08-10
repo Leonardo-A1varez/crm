@@ -31,14 +31,25 @@ const OTRO = "__otro__";
  *
  * Queda fuera del área con scroll de la sección a propósito: si viviera adentro
  * habría que scrollear para encontrar el botón que agrega la fila que va a
- * hacer scrollear más.
+ * hacer scrollear más, y además reservaría una franja vacía debajo del último
+ * dato.
  */
 export function AgregarDato({
   leadId,
+  rotulo,
   opciones,
   onAgregar,
 }: {
   leadId: UUID;
+  /**
+   * Rótulo de la sección, que se dibuja a la izquierda del `+`.
+   *
+   * Lo recibe este componente y no lo pone quien llama porque el botón comparte
+   * línea con el rótulo y el formulario se abre debajo, ocupando el ancho
+   * entero: son un bloque solo. Partirlo en dos obligaría a subir el estado de
+   * "abierto" a un componente cliente que hoy no existe.
+   */
+  rotulo: React.ReactNode;
   opciones: OpcionCampo[];
   onAgregar: (input: AgregarDatoLeadInput) => Promise<ActionResult>;
 }) {
@@ -74,96 +85,99 @@ export function AgregarDato({
     });
   };
 
-  if (!abierto) {
-    return (
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => setAbierto(true)}
-          aria-label="Agregar un dato de contacto"
-          title="Agregar un dato de contacto"
-          className="border-line-control text-ink-dim hover:border-brand/50 hover:text-brand inline-flex h-[26px] w-[26px] items-center justify-center rounded-[8px] border border-dashed transition-colors"
-        >
-          <Add size={14} />
-        </button>
-      </div>
-    );
-  }
-
   const pisado = opciones.find((o) => o.campo === seleccion)?.cargado ?? false;
 
   return (
-    <div className="border-line-control bg-surface-elevated flex flex-col gap-1.5 rounded-[10px] border p-2">
-      <select
-        value={seleccion}
-        disabled={isPending}
-        aria-label="Qué dato agregar"
-        onChange={(e) => setSeleccion(e.target.value)}
-        className="text-ink-body border-line-input bg-surface-input w-full rounded-[7px] border px-2 py-1 text-[11.5px] outline-none"
-      >
-        {opciones.map((o) => (
-          <option key={o.campo} value={o.campo}>
-            {o.label}
-          </option>
-        ))}
-        <option value={OTRO}>Otro…</option>
-      </select>
-
-      {esLibre ? (
-        <input
-          value={clave}
-          autoFocus
-          disabled={isPending}
-          maxLength={MAX_LARGO_CLAVE}
-          aria-label="Nombre del dato"
-          placeholder="Nombre del dato (ej. Cumpleaños)"
-          onChange={(e) => setClave(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") cerrar();
-          }}
-          className="text-ink-body border-line-input bg-surface-input w-full rounded-[7px] border px-2 py-1 text-[11.5px] outline-none"
-        />
-      ) : null}
-
-      <input
-        value={valor}
-        autoFocus={!esLibre}
-        disabled={isPending}
-        maxLength={MAX_LARGO_VALOR}
-        aria-label="Valor del dato"
-        placeholder="Valor"
-        onChange={(e) => setValor(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") guardar();
-          if (e.key === "Escape") cerrar();
-        }}
-        className="text-ink-body border-line-input bg-surface-input w-full rounded-[7px] border px-2 py-1 text-[11.5px] outline-none"
-      />
-
-      {pisado ? (
-        <p className="text-ink-fainter text-[10px] leading-snug">
-          Ese campo ya tiene un valor: se reemplaza.
-        </p>
-      ) : null}
-
-      <div className="flex gap-1.5">
-        <button
-          type="button"
-          onClick={guardar}
-          disabled={!puedeGuardar}
-          className="bg-brand text-brand-ink rounded-[7px] px-2 py-[3px] text-[10.5px] font-semibold disabled:opacity-50"
-        >
-          {isPending ? "Guardando…" : "Guardar"}
-        </button>
-        <button
-          type="button"
-          onClick={cerrar}
-          disabled={isPending}
-          className="text-ink-dim border-line-control rounded-[7px] border px-2 py-[3px] text-[10.5px] font-semibold"
-        >
-          Cancelar
-        </button>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex min-h-[26px] items-center justify-between gap-2">
+        {rotulo}
+        {abierto ? null : (
+          <button
+            type="button"
+            onClick={() => setAbierto(true)}
+            aria-label="Agregar un dato de contacto"
+            title="Agregar un dato de contacto"
+            className="border-line-control text-ink-dim hover:border-brand/50 hover:text-brand inline-flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[8px] border border-dashed transition-colors"
+          >
+            <Add size={14} />
+          </button>
+        )}
       </div>
+
+      {abierto ? (
+        <div className="border-line-control bg-surface-elevated flex flex-col gap-1.5 rounded-[10px] border p-2">
+          <select
+            value={seleccion}
+            disabled={isPending}
+            aria-label="Qué dato agregar"
+            onChange={(e) => setSeleccion(e.target.value)}
+            className="text-ink-body border-line-input bg-surface-input w-full rounded-[7px] border px-2 py-1 text-[11.5px] outline-none"
+          >
+            {opciones.map((o) => (
+              <option key={o.campo} value={o.campo}>
+                {o.label}
+              </option>
+            ))}
+            <option value={OTRO}>Otro…</option>
+          </select>
+
+          {esLibre ? (
+            <input
+              value={clave}
+              autoFocus
+              disabled={isPending}
+              maxLength={MAX_LARGO_CLAVE}
+              aria-label="Nombre del dato"
+              placeholder="Nombre del dato (ej. Cumpleaños)"
+              onChange={(e) => setClave(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") cerrar();
+              }}
+              className="text-ink-body border-line-input bg-surface-input w-full rounded-[7px] border px-2 py-1 text-[11.5px] outline-none"
+            />
+          ) : null}
+
+          <input
+            value={valor}
+            autoFocus={!esLibre}
+            disabled={isPending}
+            maxLength={MAX_LARGO_VALOR}
+            aria-label="Valor del dato"
+            placeholder="Valor"
+            onChange={(e) => setValor(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") guardar();
+              if (e.key === "Escape") cerrar();
+            }}
+            className="text-ink-body border-line-input bg-surface-input w-full rounded-[7px] border px-2 py-1 text-[11.5px] outline-none"
+          />
+
+          {pisado ? (
+            <p className="text-ink-fainter text-[10px] leading-snug">
+              Ese campo ya tiene un valor: se reemplaza.
+            </p>
+          ) : null}
+
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              onClick={guardar}
+              disabled={!puedeGuardar}
+              className="bg-brand text-brand-ink rounded-[7px] px-2 py-[3px] text-[10.5px] font-semibold disabled:opacity-50"
+            >
+              {isPending ? "Guardando…" : "Guardar"}
+            </button>
+            <button
+              type="button"
+              onClick={cerrar}
+              disabled={isPending}
+              className="text-ink-dim border-line-control rounded-[7px] border px-2 py-[3px] text-[10.5px] font-semibold"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

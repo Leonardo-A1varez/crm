@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { InitialsAvatar } from "@/components/shared/InitialsAvatar";
 import { RelativeTime } from "@/components/shared/RelativeTime";
 import { StageBadge } from "@/components/shared/StageBadge";
+import { formatearTelefono } from "@/lib/ui/telefono";
 import type { LeadListItem } from "@/types/leads";
 
 // Encabezado y filas comparten la plantilla de columnas del handoff §2, así
@@ -83,7 +84,7 @@ export function LeadsTable({ items, q }: { items: LeadListItem[]; q?: string }) 
               </span>
 
               <span role="cell" className="text-ink-dim truncate font-mono text-[11px]">
-                {l.telefono}
+                {formatearTelefono(l.telefono)}
               </span>
 
               <span role="cell" className="text-ink-muted truncate text-[11.5px]">

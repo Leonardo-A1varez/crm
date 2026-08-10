@@ -464,6 +464,126 @@ describe("DefaultInboxService write path", () => {
     });
   });
 
+  describe("borrarDatoExtra", () => {
+    test("saca el campo libre y deja los demás", async () => {
+      const lead = await makeLead(leads);
+      await svc.agregarDato({ leadId: lead.id, tipo: "libre", clave: "Patente", valor: "ABC123" });
+      await svc.agregarDato({
+        leadId: lead.id,
+        tipo: "libre",
+        clave: "Cumpleaños",
+        valor: "12/03",
+      });
+
+      const actualizado = await svc.borrarDatoExtra({ leadId: lead.id, clave: "Cumpleaños" });
+
+      expect(actualizado.datos_extra).toEqual({ Patente: "ABC123" });
+      expect((await leads.findById(lead.id))?.datos_extra).toEqual({ Patente: "ABC123" });
+    });
+
+    test("encuentra la clave aunque el nombre venga escrito distinto", async () => {
+      const lead = await makeLead(leads);
+      await svc.agregarDato({
+        leadId: lead.id,
+        tipo: "libre",
+        clave: "Cumpleaños",
+        valor: "12/03",
+      });
+
+      const actualizado = await svc.borrarDatoExtra({ leadId: lead.id, clave: "  cumpleanos  " });
+
+      expect(actualizado.datos_extra).toEqual({});
+    });
+
+    test("no toca las columnas de contacto ni cuando la clave se llama como una", async () => {
+      const lead = await makeLead(leads);
+      await svc.agregarDato({
+        leadId: lead.id,
+        tipo: "campo",
+        campo: "email",
+        valor: "ramon@taller.com",
+      });
+      await svc.agregarDato({
+        leadId: lead.id,
+        tipo: "campo",
+        campo: "direccion",
+        valor: "Av. Siempre Viva 742",
+      });
+
+      // Lo que llega desde el cliente es texto libre: aunque nombre una columna
+      // real, el borrado solo puede escribir el jsonb.
+      for (const clave of ["telefono", "Teléfono", "email", "Dirección", "nombre"]) {
+        const actualizado = await svc.borrarDatoExtra({ leadId: lead.id, clave });
+        expect(actualizado.telefono).toBe(lead.telefono);
+        expect(actualizado.email).toBe("ramon@taller.com");
+        expect(actualizado.direccion).toBe("Av. Siempre Viva 742");
+        expect(actualizado.nombre).toBe(lead.nombre);
+      }
+    });
+
+    test("borrar una clave que no está es no-op", async () => {
+      const lead = await makeLead(leads);
+      await svc.agregarDato({ leadId: lead.id, tipo: "libre", clave: "Patente", valor: "ABC123" });
+
+      const actualizado = await svc.borrarDatoExtra({ leadId: lead.id, clave: "Cumpleaños" });
+
+      expect(actualizado.datos_extra).toEqual({ Patente: "ABC123" });
+    });
+
+    test("borrar dos veces el mismo campo no falla", async () => {
+      const lead = await makeLead(leads);
+      await svc.agregarDato({ leadId: lead.id, tipo: "libre", clave: "Patente", valor: "ABC123" });
+
+      await svc.borrarDatoExtra({ leadId: lead.id, clave: "Patente" });
+      const actualizado = await svc.borrarDatoExtra({ leadId: lead.id, clave: "Patente" });
+
+      expect(actualizado.datos_extra).toEqual({});
+    });
+
+    test("libera lugar bajo el tope de campos libres", async () => {
+      const lead = await makeLead(leads);
+      for (let i = 0; i < MAX_DATOS_EXTRA; i++) {
+        await svc.agregarDato({
+          leadId: lead.id,
+          tipo: "libre",
+          clave: `Campo ${i}`,
+          valor: String(i),
+        });
+      }
+      await expect(
+        svc.agregarDato({ leadId: lead.id, tipo: "libre", clave: "Uno más", valor: "x" }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      await svc.borrarDatoExtra({ leadId: lead.id, clave: "Campo 0" });
+      const actualizado = await svc.agregarDato({
+        leadId: lead.id,
+        tipo: "libre",
+        clave: "Uno más",
+        valor: "x",
+      });
+
+      expect(actualizado.datos_extra["Uno más"]).toBe("x");
+      expect(actualizado.datos_extra["Campo 0"]).toBeUndefined();
+    });
+
+    test("no exige sesión activa: el lead vive más que la sesión", async () => {
+      const lead = await makeLead(leads);
+      const session = await makeSession(sessions, lead.id);
+      await svc.agregarDato({ leadId: lead.id, tipo: "libre", clave: "Patente", valor: "ABC123" });
+      await sessions.close(session.id, { resultado: "exito" });
+
+      const actualizado = await svc.borrarDatoExtra({ leadId: lead.id, clave: "Patente" });
+
+      expect(actualizado.datos_extra).toEqual({});
+    });
+
+    test("NotFoundError cuando el lead no existe", async () => {
+      await expect(
+        svc.borrarDatoExtra({ leadId: crypto.randomUUID(), clave: "Patente" }),
+      ).rejects.toBeInstanceOf(NotFoundError);
+    });
+  });
+
   describe("etiquetas del lead", () => {
     test("asignar deja source manual y quién la puso", async () => {
       const lead = await makeLead(leads);

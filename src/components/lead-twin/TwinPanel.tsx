@@ -8,6 +8,7 @@ import {
   Warning,
 } from "@/components/icons";
 import { AgregarDato } from "@/components/lead-twin/AgregarDato";
+import { BorrarDatoExtra } from "@/components/lead-twin/BorrarDatoExtra";
 import { CampoEditable } from "@/components/lead-twin/CampoEditable";
 import { ChipProcedencia } from "@/components/lead-twin/ChipProcedencia";
 import { NombreLead } from "@/components/lead-twin/NombreLead";
@@ -30,6 +31,7 @@ import type {
 import type {
   AgregarDatoLeadInput,
   AsignarEtiquetaInput,
+  BorrarDatoExtraInput,
   CrearEtiquetaInput,
   EditarCampoTwinInput,
   QuitarEtiquetaInput,
@@ -69,6 +71,21 @@ const METODO_PAGO_LABEL: Record<MetodoPago, string> = {
  * inerte y no como progreso apagado.
  */
 const RAIL_CONGELADO = "#3A3F49";
+
+/**
+ * Hasta dónde llega la ficha de contacto antes de desplazarse.
+ *
+ * Sale de la cuenta, no del ojo: una fila de `TwinField` de una línea mide
+ * 36,5 px —rótulo de 10.5px (15,2 de línea) + 3 de aire + valor de 12.5px
+ * (18,1)— y el contenedor las separa de a 12. Tres filas son 133, que es lo que
+ * ocupan las que el dueño quiere ver sin tocar nada: nombre de perfil, teléfono
+ * y dirección. Los 3 px de más evitan que un redondeo del navegador dispare la
+ * barra con esas tres solas.
+ *
+ * Es `max-height` y no `height`: con menos datos el bloque se achica y el
+ * último dato queda pegado al borde de la sección, sin hueco.
+ */
+const ALTO_CONTACTO = "max-h-[136px]";
 
 // Sin currency configurable todavía (white-label diferido); "es" da separador de miles Latam.
 function formatPrecio(precio: number): string {
@@ -244,6 +261,10 @@ function ProductoCotizado({ producto }: { producto: Producto }) {
  * resto aparece cuando hay dato y, si no lo hay, se carga con el `+`. El canal
  * no está: ya lo dicen el punto del avatar y la lista.
  *
+ * El orden no es decorativo: teléfono y dirección son con lo que el dueño
+ * atiende —llamar y despachar— y por eso van arriba, dentro de lo que entra sin
+ * desplazar. El email y los campos libres existen pero se leen al desplazar.
+ *
  * El alto máximo con scroll propio es decisión del dueño, tomada contra la
  * recomendación de quien lo escribió —un scroll adentro de otro scroll
  * desorienta en trackpad—. Lo que se pudo mitigar: `overflow-y-auto` en vez de
@@ -254,16 +275,29 @@ function ProductoCotizado({ producto }: { producto: Producto }) {
 function Contacto({
   lead,
   onAgregarDato,
+  onBorrarDato,
 }: {
   lead: Lead;
   onAgregarDato: (input: AgregarDatoLeadInput) => Promise<ActionResult>;
+  onBorrarDato: (input: BorrarDatoExtraInput) => Promise<ActionResult>;
 }) {
   const extras = Object.entries(lead.datos_extra);
 
   return (
     <Seccion>
-      <Eyebrow>Contacto</Eyebrow>
-      <div className="flex max-h-[204px] flex-col gap-3 overflow-y-auto overscroll-contain">
+      {/* El rótulo y el `+` son una sola línea y viven afuera del área
+          scrolleable: el botón queda quieto mientras se desplazan los datos y,
+          sobre todo, no reserva una franja propia debajo del último dato. */}
+      <AgregarDato
+        leadId={lead.id}
+        rotulo={<Eyebrow>Contacto</Eyebrow>}
+        opciones={[
+          { campo: "email", label: "Email", cargado: lead.email !== null },
+          { campo: "direccion", label: "Dirección", cargado: lead.direccion !== null },
+        ]}
+        onAgregar={onAgregarDato}
+      />
+      <div className={`flex ${ALTO_CONTACTO} flex-col gap-3 overflow-y-auto overscroll-contain`}>
         {/* "Contacto" y no "Nombre": es como se llama a sí mismo en la
             plataforma, no como lo identifica la casa —ese es el título de
             arriba, editable—. Instagram y Messenger no lo mandan, así que en
@@ -275,25 +309,20 @@ function Contacto({
             <span className="font-mono text-[11.5px]">{formatearTelefono(lead.telefono)}</span>
           }
         />
-        <TwinField label="Email" value={lead.email ?? undefined} />
         <TwinField label="Dirección" value={lead.direccion ?? undefined} />
+        <TwinField label="Email" value={lead.email ?? undefined} />
         {extras.map(([clave, valor]) => (
           // La clave se muestra tal como la escribió el vendedor: la eligió él.
+          // El `×` va solo acá: las cuatro filas de arriba son columnas de
+          // `leads` y se vacían editándolas, no borrando la fila entera.
           <TwinField
             key={clave}
             label={clave}
             value={<span className="break-words whitespace-pre-wrap">{valor}</span>}
+            accion={<BorrarDatoExtra leadId={lead.id} clave={clave} onBorrar={onBorrarDato} />}
           />
         ))}
       </div>
-      <AgregarDato
-        leadId={lead.id}
-        opciones={[
-          { campo: "email", label: "Email", cargado: lead.email !== null },
-          { campo: "direccion", label: "Dirección", cargado: lead.direccion !== null },
-        ]}
-        onAgregar={onAgregarDato}
-      />
     </Seccion>
   );
 }
@@ -461,6 +490,7 @@ export function TwinPanel({
   onEditar,
   onRenombrar,
   onAgregarDato,
+  onBorrarDato,
   onAsignarEtiqueta,
   onQuitarEtiqueta,
   onCrearEtiqueta,
@@ -480,6 +510,7 @@ export function TwinPanel({
   onEditar: (input: EditarCampoTwinInput) => Promise<ActionResult>;
   onRenombrar: (input: RenombrarLeadInput) => Promise<ActionResult>;
   onAgregarDato: (input: AgregarDatoLeadInput) => Promise<ActionResult>;
+  onBorrarDato: (input: BorrarDatoExtraInput) => Promise<ActionResult>;
   onAsignarEtiqueta: (input: AsignarEtiquetaInput) => Promise<ActionResult>;
   onQuitarEtiqueta: (input: QuitarEtiquetaInput) => Promise<ActionResult>;
   onCrearEtiqueta: (input: CrearEtiquetaInput) => Promise<ActionResult>;
@@ -522,7 +553,7 @@ export function TwinPanel({
 
   const ficha = (
     <>
-      <Contacto lead={lead} onAgregarDato={onAgregarDato} />
+      <Contacto lead={lead} onAgregarDato={onAgregarDato} onBorrarDato={onBorrarDato} />
       <Vehiculo lead={lead} />
     </>
   );
