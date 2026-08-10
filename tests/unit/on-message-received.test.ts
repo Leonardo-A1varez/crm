@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { InMemoryRuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
 import { InMemoryConversationsRepository } from "@/server/repositories/conversations.repo";
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
@@ -61,6 +62,7 @@ function makeDeps(
   messages: InMemoryMessagesRepository;
   intents: InMemoryIntentsRepository;
   rules: InMemoryRulesRepository;
+  ruleExecutions: InMemoryRuleExecutionsRepository;
   productos: InMemoryProductsRepository;
 } {
   const leads = new InMemoryLeadsRepository();
@@ -70,6 +72,7 @@ function makeDeps(
   const intents = new InMemoryIntentsRepository();
   const rules = new InMemoryRulesRepository();
   const productos = new InMemoryProductsRepository();
+  const ruleExecutions = new InMemoryRuleExecutionsRepository();
 
   const intentLLM = new FakeIntentClassifierLLM();
   const agentLLM = new FakeAgentLLM();
@@ -94,6 +97,7 @@ function makeDeps(
     metaApi,
     intentClassifier,
     aiAgent,
+    ruleExecutions,
     configProvider,
     emit,
   };
@@ -110,6 +114,7 @@ function makeDeps(
     messages,
     intents,
     rules,
+    ruleExecutions,
     productos,
   };
 }
@@ -336,6 +341,39 @@ describe("onMessageReceivedHandler", () => {
     );
 
     expect(ctx.intentLLM.calls[0].text).toBe("");
+  });
+
+  test("una respuesta por regla queda auditada contra el mensaje entrante", async () => {
+    ctx.intentLLM.enqueue({ intent_nombre: "saludo", confidence: 0.9 });
+    const intent = await ctx.intents.create({
+      nombre: "saludo",
+      descripcion: "",
+      ejemplos: [],
+      auto_detectado: false,
+      activo: true,
+    });
+    const regla = await ctx.rules.create({
+      intent_id: intent.id,
+      condiciones_extra: null,
+      respuesta_tipo: "text",
+      respuesta_contenido: "¡Hola! ¿Qué repuesto buscás?",
+      prioridad: 0,
+      activa: true,
+    });
+
+    const out = await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+
+    expect(out.agentSource).toBe("rule");
+    const auditoria = await ctx.ruleExecutions.listByRegla(regla.id);
+    expect(auditoria).toHaveLength(1);
+    expect(auditoria[0]?.matched_intent_id).toBe(intent.id);
+
+    // Contra el ENTRANTE: la pregunta que responde esta tabla es qué disparó
+    // la regla, y lo que la disparó fue lo que escribió el cliente.
+    const delLead = (await ctx.messages.listBySessionId(out.sessionId)).find(
+      (m) => m.direction === "in",
+    );
+    expect(auditoria[0]?.mensaje_id).toBe(delLead?.id);
   });
 });
 

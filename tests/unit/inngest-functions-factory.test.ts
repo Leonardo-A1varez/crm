@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { InMemoryRuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
 import { InMemoryConversationsRepository } from "@/server/repositories/conversations.repo";
 import { InMemoryEventOutboxRepository } from "@/server/repositories/event-outbox.repo";
 import { InMemoryIntentsRepository } from "@/server/repositories/intents.repo";
@@ -60,6 +61,7 @@ describe("makeCrmInngestFunctions", () => {
         metaApi,
         intentClassifier,
         aiAgent,
+        ruleExecutions: new InMemoryRuleExecutionsRepository(),
         configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
         emit: async () => {},
       },

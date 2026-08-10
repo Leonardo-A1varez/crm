@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 import {
   BarChartIcon,
+  Bolt,
+  DatabaseSearch,
   Group,
   InboxIcon,
   Inventory2,
@@ -34,6 +36,8 @@ const ITEMS: readonly NavItem[] = [
   { href: "/leads", label: "Leads", Icon: Group },
   { href: "/productos", label: "Productos", Icon: Inventory2 },
   { href: "/agente", label: "Agente IA", Icon: SmartToy },
+  { href: "/intents-reglas/reglas", label: "Reglas", Icon: Bolt },
+  { href: "/intents-reglas/intents", label: "Intents", Icon: DatabaseSearch },
   { href: "/tags", label: "Tags", Icon: Sell },
   { href: "/metricas", label: "Métricas", Icon: BarChartIcon },
   { href: "/ajustes", label: "Ajustes", Icon: SettingsIcon },

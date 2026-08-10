@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "vitest";
+import { InMemoryRuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
 import { InMemoryConversationsRepository } from "@/server/repositories/conversations.repo";
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
@@ -68,6 +69,7 @@ function makeDeps() {
     metaApi,
     intentClassifier,
     aiAgent,
+    ruleExecutions: new InMemoryRuleExecutionsRepository(),
     configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
     emit,
   };

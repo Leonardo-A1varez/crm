@@ -11,6 +11,7 @@ import type { ConversationsRepository } from "@/server/repositories/conversation
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
+import type { RuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
 import type { AgentConfigProvider } from "@/server/services/agente/config-provider";
 import type { AiAgentService } from "@/server/services/ai-agent.service";
 import type { IntentClassifierService } from "@/server/services/intent-classifier.service";
@@ -40,6 +41,7 @@ export interface OnMessageReceivedDeps {
   metaApi: MetaApiService;
   intentClassifier: IntentClassifierService;
   aiAgent: AiAgentService;
+  ruleExecutions: RuleExecutionsRepository;
   configProvider: AgentConfigProvider;
   emit: (event: EmittedEvent) => Promise<void>;
   logger?: Logger;
@@ -112,7 +114,7 @@ export async function onMessageReceivedHandler(
     );
     if (sessionCreated) logger.info("session-created", { session_id: session.id });
 
-    await step.run("record-inbound", () =>
+    const inbound = await step.run("record-inbound", () =>
       deps.metaApi.recordInbound({
         conversacionId: conv.id,
         leadSessionId: session.id,
@@ -252,6 +254,20 @@ export async function onMessageReceivedHandler(
       );
       sent = true;
       logger.info("send-out");
+
+      // La tabla `rule_executions` existe desde Slice 1 y nunca se escribio:
+      // el agente devolvia `regla_id` y nadie lo guardaba, asi que no habia
+      // forma de responder "por que el cliente recibio esta respuesta".
+      // Se audita contra el mensaje ENTRANTE, que es el que disparo la regla.
+      if (agentResult.source === "rule" && agentResult.regla_id && agentResult.intent_id) {
+        await step.run("auditar-regla", () =>
+          deps.ruleExecutions.create({
+            regla_id: agentResult.regla_id as UUID,
+            mensaje_id: inbound.id,
+            matched_intent_id: agentResult.intent_id as UUID,
+          }),
+        );
+      }
     } else {
       logger.info("send-skipped", { reason: "handoff" });
     }
