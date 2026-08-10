@@ -34,6 +34,7 @@ import { SupabaseMergeCandidatesRepository } from "@/server/repositories/merge-c
 import { SupabaseMessagesRepository } from "@/server/repositories/messages.supabase.repo";
 import { SupabaseProductsRepository } from "@/server/repositories/productos.supabase.repo";
 import { SupabaseReactivationDispatchesRepository } from "@/server/repositories/reactivation-dispatches.supabase.repo";
+import { SupabaseRuleExecutionsRepository } from "@/server/repositories/rule-executions.supabase.repo";
 import { SupabaseRulesRepository } from "@/server/repositories/rules.supabase.repo";
 import { SupabaseToolExecutionsRepository } from "@/server/repositories/tool-executions.supabase.repo";
 import { SupabaseAgenteConfigRepository } from "@/server/repositories/agente-config.supabase.repo";
@@ -84,6 +85,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   const messages = new SupabaseMessagesRepository(db);
   const intents = new SupabaseIntentsRepository(db);
   const rules = new SupabaseRulesRepository(db);
+  const ruleExecutions = new SupabaseRuleExecutionsRepository(db);
   const productos = new SupabaseProductsRepository(db);
   const reactivationDispatches = new SupabaseReactivationDispatchesRepository(db);
   const mergeCandidates = new SupabaseMergeCandidatesRepository(db);
@@ -168,7 +170,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     logger: logger.child({ scope: "send-reactivation" }),
   });
 
-  // ===== CrmInngestDeps wireup (9 functions) =====
+  // ===== CrmInngestDeps wireup (10 functions) =====
   const deps: CrmInngestDeps = {
     onMessageReceived: {
       leads,
@@ -181,8 +183,12 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       // Misma instancia usada por el LlmBundle: un solo cache de 30s sirve a
       // todo el pipeline en vez de duplicar lecturas a la DB.
       configProvider: agenteConfigProvider,
+      ruleExecutions,
       emit,
       logger,
+    },
+    onStatusReceived: {
+      messages,
     },
     updateLeadTwin: {
       twinExtractor,

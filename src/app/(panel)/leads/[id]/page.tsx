@@ -4,7 +4,8 @@ import { DuplicadosSection } from "@/components/leads/DuplicadosSection";
 import { LeadFicha } from "@/components/leads/LeadFicha";
 import { MarcarDuplicadoDialog } from "@/components/leads/MarcarDuplicadoDialog";
 import { SesionesHistorial } from "@/components/leads/SesionesHistorial";
-import { Button } from "@/components/ui/button";
+import { Eyebrow } from "@/components/shared/Eyebrow";
+import { PageHeader } from "@/components/shared/PageHeader";
 import { NotFoundError } from "@/lib/errors";
 import { getCurrentRol } from "@/server/auth/guards";
 import { getLeadsServiceForRequest } from "@/server/bootstrap/leads-bootstrap";
@@ -32,30 +33,40 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
   }
 
   return (
-    <div className="flex h-screen flex-col">
-      <header className="border-border flex items-center gap-3 border-b px-4 py-3">
-        <Link href="/leads" className="text-muted-foreground text-sm hover:underline">
-          ← Leads
-        </Link>
-        <h1 className="text-lg font-semibold">{detail.lead.nombre}</h1>
-        {detail.sesionActiva ? (
-          <Button size="sm" render={<Link href={`/inbox/${detail.lead.id}`} />}>
-            Abrir conversación
-          </Button>
-        ) : null}
-        {isAdmin ? (
-          <MarcarDuplicadoDialog
-            leadId={detail.lead.id}
-            onSearch={searchLeadsAction}
-            onCreate={createManualCandidateAction}
-          />
-        ) : null}
-      </header>
-      <div className="flex-1 overflow-y-auto">
+    <div className="bg-surface-root flex h-full flex-col overflow-hidden">
+      <PageHeader
+        title={detail.lead.nombre}
+        actions={
+          <>
+            <Link
+              href="/leads"
+              className="border-line-control text-ink-secondary hover:bg-surface-hover inline-flex items-center rounded-[9px] border px-[11px] py-1.5 text-[11.5px] font-semibold transition-colors"
+            >
+              ← Leads
+            </Link>
+            {detail.sesionActiva ? (
+              <Link
+                href={`/inbox/${detail.lead.id}`}
+                className="bg-brand text-brand-ink inline-flex items-center rounded-[9px] px-[11px] py-1.5 text-[11.5px] font-semibold"
+              >
+                Abrir conversación
+              </Link>
+            ) : null}
+            {isAdmin ? (
+              <MarcarDuplicadoDialog
+                leadId={detail.lead.id}
+                onSearch={searchLeadsAction}
+                onCreate={createManualCandidateAction}
+              />
+            ) : null}
+          </>
+        }
+      />
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <LeadFicha lead={detail.lead} tags={detail.tags} />
-        <h3 className="border-border border-t px-4 pt-4 text-sm font-medium">
-          Sesiones ({detail.sesiones.length})
-        </h3>
+        <div className="border-line-layout border-t px-5 pt-4 pb-1">
+          <Eyebrow>Sesiones ({detail.sesiones.length})</Eyebrow>
+        </div>
         <SesionesHistorial sesiones={detail.sesiones} />
         {isAdmin ? (
           <DuplicadosSection

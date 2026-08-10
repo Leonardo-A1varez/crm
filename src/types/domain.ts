@@ -13,6 +13,21 @@ export type CurrentStage = (typeof CURRENT_STAGE)[number];
 export const URGENCIA = ["baja", "media", "alta"] as const;
 export type Urgencia = (typeof URGENCIA)[number];
 
+/**
+ * Motivo por el que una conversación cae en "Requieren tu atención". Son los
+ * tres del handoff y en ese orden de prioridad; el orden del array ES el orden
+ * de la bandeja. No se persiste: se recalcula a partir de la sesión
+ * (ver `lib/triage`).
+ */
+export const MOTIVO_TRIAGE = ["humano", "bloqueo", "pago"] as const;
+export type MotivoTriage = (typeof MOTIVO_TRIAGE)[number];
+
+export interface MotivoAtencion {
+  tipo: MotivoTriage;
+  /** Lo que lee el vendedor en el chip de la fila. */
+  texto: string;
+}
+
 export const CANAL = ["wa", "ig", "fb"] as const;
 export type Canal = (typeof CANAL)[number];
 
@@ -21,6 +36,23 @@ export type Direction = (typeof DIRECTION)[number];
 
 export const SENDER = ["lead", "ia", "humano", "sistema"] as const;
 export type Sender = (typeof SENDER)[number];
+
+/** Campos del Twin que una persona puede corregir a mano. */
+export const CAMPOS_TWIN_EDITABLES = [
+  "consulta",
+  "codigo_interno",
+  "precio_cotizado",
+  "cantidad",
+  "bloqueador",
+] as const;
+export type CampoTwinEditable = (typeof CAMPOS_TWIN_EDITABLES)[number];
+
+/**
+ * Escalones de entrega que reporta Meta para un mensaje saliente. `null` en la
+ * entidad significa entrante, o saliente cuyo webhook de status no llegó.
+ */
+export const ESTADO_ENTREGA = ["enviado", "entregado", "leido", "fallido"] as const;
+export type EstadoEntrega = (typeof ESTADO_ENTREGA)[number];
 
 export const TIPO_MENSAJE = [
   "text",

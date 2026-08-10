@@ -1,6 +1,6 @@
 # Cómo retomar la sesión
 
-> Última actualización: 2026-08-09. **Rediseño A y agente G1 mergeados a master (`3be7398`). Spec y plan del sub-proyecto B escritos y aprobados, sin ejecutar.** Users dev: `admin-dev@crm.local` / `dev-admin-2026!` · `vendedor-dev@crm.local` / `dev-vendedor-2026!`.
+> Última actualización: 2026-08-09. **Rediseño A y agente G1 mergeados y pusheados (`d84e9fb`). Sub-proyecto B completo en la rama `rediseno-b-bandeja`, sin mergear.** Users dev: `admin-dev@crm.local` / `dev-admin-2026!` · `vendedor-dev@crm.local` / `dev-vendedor-2026!`.
 
 ---
 
@@ -34,29 +34,118 @@
 | Slice 2 fase 10 Leads              | ✅                      | Lista + detalle + merge                                   |
 | **Slice 4b — cadena WhatsApp E2E** | ✅ **validada local**   | Ver §Slice 4b                                             |
 | **Rediseño A — base visual**       | ✅ **en master**        | Tokens, dark, íconos, primitivas, SideNav, shell          |
-| **Agente G1 — config runtime**     | ✅ **rama sin mergear** | Ver §G1                                                   |
-| Rediseño B-G                       | ⚪                      | Ver §Rediseño                                             |
+| **Agente G1 — config runtime**     | ✅ **en master**        | Ver §G1                                                   |
+| **Rediseño B — bandeja unificada** | ✅ **rama sin mergear** | 6/6 tareas, `rediseno-b-bandeja`                          |
+| Rediseño C-G                       | ⚪                      | Ver §Rediseño                                             |
 | Deploy Vercel + soft launch        | ⚪                      | Bloqueado por catálogo vacío                              |
 
 ---
 
-## 🔴 Lo primero al retomar
+## 🔴 Lo primero al retomar: mergear B y arrancar D
 
-**Ejecutar el sub-proyecto B — Bandeja unificada.** Spec y plan escritos, aprobados y commiteados:
+**Rama `rediseno-b-bandeja`, 6 de 6 tareas hechas.** Árbol limpio, CI verde.
 
-- Spec: `docs/superpowers/specs/2026-08-09-rediseno-b-bandeja-design.md`
-- Plan: `docs/superpowers/plans/2026-08-09-rediseno-b-bandeja.md` (6 tareas)
+| Tarea                        | Commit    | Estado                                                     |
+| ---------------------------- | --------- | ---------------------------------------------------------- |
+| 1 · Shell de 3 paneles       | `be78de4` | ✅ lista 322px, Twin 322px, scroll sobrevive la navegación |
+| 2 · Panel de lista           | `f97b05f` | ✅ filtros sin refetchear el layout                        |
+| 3 · Header e hilo            | `87529c0` | ✅ orden cronológico y toggle de IA verificados            |
+| 4 · Burbujas y composer      | `738fa31` | ✅ 4 burbujas por `sender`, max-width 62% medido           |
+| 5 · Twin con rail del embudo | `d396a9f` | ✅ rail normal y congelado, ambos medidos                  |
+| 6 · Verificación completa    | `bc58de2` | ✅ encontró un defecto de layout y lo arregló              |
 
-Ejecutar con `superpowers:subagent-driven-development`.
+Plan: `docs/superpowers/plans/2026-08-09-rediseno-b-bandeja.md`
+Ledger con el detalle de cada tarea: `.superpowers/sdd/2026-08-09-rediseno-b-bandeja/progress.md`
 
-### ⚠️ Dos deudas de G1 que quedaron sin hacer
+**Antes de mergear conviene un review de rama completa** (rango `d84e9fb..bc58de2`). En A ese pase encontró un defecto que los 9 reviews por tarea no vieron; G1 no lo tuvo y quedó como deuda.
 
-G1 se mergeó con las verificaciones por tarea completas, pero **sin dos cosas que sí se hicieron en el sub-proyecto A**:
+### Lo que B dejó sin verificar
 
-1. **Review de rama completa.** En A, ese review encontró un defecto que los 9 reviews por tarea no vieron: `src/lib/ui/` estaba construido, testeado y sin consumidores mientras las pantallas seguían pintando con la paleta vieja. G1 no tuvo ese pase. Se puede hacer igual sobre master, revisando el rango `f5a12f6..3be7398`.
-2. **E2E real de WhatsApp.** Cambiar el tono a formal desde `/agente`, mandar un mensaje real, y verificar que la respuesta trate de usted. **Nunca se hizo.** Es lo único que prueba que la config llega de verdad al agente en producción; la CI no lo cubre.
+1. **El envío real desde el composer nunca se probó.** `sendMessage` va derecho a `metaApi.sendOutbound`: mandarlo es un WhatsApp real al `+593979932363`. No hay camino de dry-run. La burbuja de vendedor sí se verificó, pero insertando una fila a mano, no por el flujo real.
+2. **Comparación visual humana contra el prototipo.** El handoff (`CRM Repuestos v2.dc.html`) no está en el repo; todos los chequeos fueron medidos sobre el DOM. Es la misma deuda que quedó abierta en A.
+3. **Las tres pruebas interactivas de la Task 6** (scroll de la lista que sobrevive la selección, deep-link, scroll horizontal por debajo de 1164px) se verificaron por estructura y por medición, no clickeando: el panel del navegador no componía frames. Ver la lección 6 de `AGENTS.md` §2.
 
-Ninguna bloquea B, pero conviene cerrarlas antes del soft launch.
+### Reglas que siguen valiendo para C-G
+
+- **No correr `npm run build` con el dev server levantado.** Corrompe `.next/` y el navegador queda colgado mostrando skeletons de `loading.tsx` en rutas que nadie tocó.
+- **Con el panel del navegador oculto (`document.hidden`) React no revela los Suspense** y la conversación queda clavada en el skeleton para siempre. No es `.next/` corrupto. Se mide igual pidiendo el HTML del server por `fetch` e inyectando la raíz de la página en el slot del panel.
+- **Verificación medida en navegador como criterio de aceptación**, no revisión por lectura.
+- **Regenerar el brief si se corrige el plan** a mitad de ejecución: los briefs no se actualizan solos.
+
+### Deudas de B — cerradas en D
+
+- Badge de no leídos: ahora cuenta **mensajes del cliente posteriores a nuestra última respuesta**. No hay acuse de lectura en el schema y no se inventó uno; para una bandeja de ventas "sin responder" es mejor señal que "sin abrir".
+- El `ChannelDot` del avatar ya no usa `canales[0]`: es el canal de la conversación del último mensaje.
+
+### Lo que se hizo después de B (misma rama)
+
+| Trabajo                             | Commit    | Notas                                                            |
+| ----------------------------------- | --------- | ---------------------------------------------------------------- |
+| Leads y productos al lenguaje nuevo | `ffd9113` | `PageHeader` + `SearchField`; se fue el `h-screen` anidado       |
+| Las 5 rutas sin construir           | `fbd0c90` | `PantallaPendiente`, en vez de `TODO:` crudo en el nav           |
+| D — Triage                          | `874533a` | `lib/triage` pura; la bandeja ordena por lo que hay que atender  |
+| F — Métricas                        | `9563f15` | Embudo, resultado y autoría; ventana de 7/30/90 días             |
+| C — Entrega y ventana de 24 h       | `e7a48eb` | Migración + status de Meta + composer bloqueado fuera de ventana |
+| E — Procedencia y edición del Twin  | `d5feb66` | Migración + lista blanca de campos + chip "editado"              |
+
+**Migraciones aplicadas a `crm-dev`**: 23 en total. `20260810011500` agrega estado de entrega a `mensajes`; `20260810011600` agrega `procedencia` a `lead_session`.
+
+**El orden de la bandeja cambió**: ya no es puramente cronológico, primero va lo que espera respuesta. Es el punto de D, pero es un cambio de comportamiento visible — si preferís el orden viejo, se revierte tocando un `sort`.
+
+## 🔴 El handoff apareció: hay desvíos reales
+
+El README del handoff está ahora en `docs/handoff-rediseno-README.md` (antes vivía solo en un zip fuera del repo). Comparado contra lo implementado, **el rediseño NO está completo**. Tres huecos, en orden de costo:
+
+### 1. La nav: corregido
+
+El handoff dice que la consola de Agente IA **reemplaza** el ítem "Intents y reglas" de la nav. G2 había agregado dos entradas propias. Revertido: las rutas `/intents-reglas/*` siguen funcionando, pero la administración de intents pertenece adentro de `/agente`, como pestaña "Reglas IF/THEN".
+
+### 2. Leads: la pantalla no sigue la spec
+
+El handoff la especifica en detalle (`README §2`) y lo implementado se desvía:
+
+| Handoff                                                                         | Lo que hay                                                       |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Título 22px/680/`-.03em` + subtítulo 12px "N esta semana · M con sesión activa" | Título 17px/650 + contador en mono                               |
+| Buscador de 250px **a la derecha del header**                                   | Barra de búsqueda de ancho completo debajo                       |
+| Tabla **en tarjeta**: `radius:15px`, `#0f1116`, borde `#1c1f26`                 | Tabla suelta, sin tarjeta                                        |
+| Grid `1.5fr 1.1fr 1.4fr .9fr .8fr`, `padding:11px 18px`                         | Tabla de shadcn, `padding:9px 20px`                              |
+| 5 columnas: Lead / Teléfono / Vehículo / **Etapa** / Actividad                  | 6: agrega Canales, y en vez de Etapa hay un chip "Sesión activa" |
+| Avatar 28×28 con punto de canal en la fila                                      | Sin avatar                                                       |
+| Separador `#14161b`, hover `#14161b`                                            | Separador `#17191f`, hover `#101218`                             |
+
+**Bloqueo parcial:** la columna Etapa necesita `currentStage` en `LeadListItem`, que hoy no lo trae. Es un cambio chico en `leads.service`.
+
+### 3. Métricas: se diseñó otra pantalla
+
+El handoff (`README §3`) pide **tres pestañas** —Total / Agente IA / Vendedores— con tarjetas KPI con delta, embudo de barras de 22px, volumen por canal, "quién cerró la venta", tarjeta de gasto de IA, "intents sin regla" con costo diario y tabla de rendimiento por vendedor.
+
+Lo implementado son tres secciones planas (embudo, resultado, autoría). **La estructura es distinta y falta la mayor parte del contenido.**
+
+Buena parte de lo que falta **no se puede construir con los datos de hoy**:
+
+| Lo que pide el handoff                                | Qué falta para poder calcularlo                                       |
+| ----------------------------------------------------- | --------------------------------------------------------------------- |
+| Costo de IA por lead, gasto diario, ahorro por reglas | `InMemoryCostTracker` no persiste; sin Upstash no hay serie histórica |
+| Latencia de 1ra respuesta                             | Nadie mide el delta entrante→saliente                                 |
+| Rendimiento por vendedor, ticket promedio             | `mensajes.sender_user_id` está siempre en `null` (nunca se llenó)     |
+| Deltas contra el período anterior                     | Ninguna query compara ventanas                                        |
+| "Intents sin regla" con costo                         | El costo por intent no se registra                                    |
+
+Se puede construir ya, sin datos nuevos: la estructura de 3 pestañas, el embudo al formato del handoff, volumen por canal, y "quién cerró" (IA vs humano) que ya sale de `sender`.
+
+### 4. Pantallas que el handoff nunca diseñó
+
+`README §Pendientes de diseño` las lista: **ficha individual del lead, Productos, Tags, Ajustes, Login**, merge de duplicados y layout móvil. Lo que se hizo ahí es extensión del lenguaje de A y B, no una recreación — no hay contra qué compararlo.
+
+---
+
+### Deudas de G1 que quedaron sin hacer
+
+1. **Review de rama completa.** En A ese pase encontró un defecto que los 9 reviews por tarea no vieron. G1 no lo tuvo. Se puede hacer sobre master, rango `f5a12f6..3be7398`.
+2. **E2E real de WhatsApp.** Cambiar el tono a formal desde `/agente`, mandar un mensaje real, verificar que trate de usted. Nunca se hizo. La CI no lo cubre.
+
+Ninguna bloquea B.
 
 ---
 
@@ -114,12 +203,12 @@ Configurable desde `/agente`: modelo (11 opciones con precio), instrucciones de 
 
 ## 🔴 Lo que impide que el producto haga lo que promete
 
-| Tabla       | Filas | Impacto                                                                                                |
-| ----------- | ----- | ------------------------------------------------------------------------------------------------------ |
-| `productos` | **0** | El agente llama a `buscar_repuesto`, recibe cero resultados y responde "no lo tenemos" siempre         |
-| `intents`   | **0** | El clasificador se saltea                                                                              |
-| `reglas`    | **0** | **Cada turno pasa por el LLM**, incluidos saludos. Es exactamente el costo que el diseño quería evitar |
-| `empresas`  | **0** | El schema declara single-org y no hay ninguna. Confirmar que nada dependa                              |
+| Tabla       | Filas | Impacto                                                                                          |
+| ----------- | ----- | ------------------------------------------------------------------------------------------------ |
+| `productos` | **0** | El agente llama a `buscar_repuesto`, recibe cero resultados y responde "no lo tenemos" siempre   |
+| `intents`   | **1** | `saludo`, cargado al probar G2                                                                   |
+| `reglas`    | **1** | Cargada una regla de `saludo` para probar G2 end to end. Se borra desde `/intents-reglas/reglas` |
+| `empresas`  | **0** | El schema declara single-org y no hay ninguna. Confirmar que nada dependa                        |
 
 ---
 
@@ -127,16 +216,16 @@ Configurable desde `/agente`: modelo (11 opciones con precio), instrucciones de 
 
 Handoff: `Rediseño UI sala de control.zip` → `design_handoff_crm_control_room/`, referencia `CRM Repuestos v2.dc.html`.
 
-| #   | Sub-proyecto                                 | Estado                                                           |
-| --- | -------------------------------------------- | ---------------------------------------------------------------- |
-| A   | Base visual                                  | ✅ en master                                                     |
-| B   | Bandeja unificada de 3 paneles               | ⚪ **siguiente por pedido del usuario**                          |
-| C   | Ventana de 24 h + estados de entrega         | ⚪ requiere migración + persistir webhooks de status de Meta     |
-| D   | Triage (motivo + prioridad)                  | ⚪ cálculo en server                                             |
-| E   | Twin con procedencia y edición               | ⚪ requiere migración por campo                                  |
-| F   | Métricas en 3 cortes                         | ⚪ `mensajes` ya tiene `direction` y `sender`: viable sin migrar |
-| G1  | Config del agente                            | ✅ rama sin mergear                                              |
-| G2  | Motor de reglas y escalado (absorbe fase 11) | ⚪                                                               |
+| #   | Sub-proyecto                                 | Estado                                                     |
+| --- | -------------------------------------------- | ---------------------------------------------------------- |
+| A   | Base visual                                  | ✅ en master                                               |
+| B   | Bandeja unificada de 3 paneles               | ✅ rama `rediseno-b-bandeja` sin mergear                   |
+| C   | Ventana de 24 h + estados de entrega         | ⚪ **siguiente**: migración + persistir webhooks de status |
+| D   | Triage (motivo + prioridad)                  | ✅ misma rama, sin migrar                                  |
+| E   | Twin con procedencia y edición               | ⚪ requiere migración por campo                            |
+| F   | Métricas en 3 cortes                         | ✅ misma rama, sin migrar                                  |
+| G1  | Config del agente                            | ✅ en master                                               |
+| G2  | Motor de reglas y escalado (absorbe fase 11) | ⚪                                                         |
 
 ### ⚠️ Lección para planear B
 
@@ -159,7 +248,7 @@ Ir pantalla por pantalla mejorando apariencia y utilidad, empezando por **Bandej
 
 **Utilidad actual de `/inbox`:** lista de conversaciones activas, y `/inbox/[leadId]` una página aparte a pantalla completa con la conversación y el panel del twin. Sin triage, orden cronológico.
 
-**El sub-proyecto B es exactamente su rediseño**: unifica ambas en un layout de 3 paneles fijos (lista 322px · conversación flex, mín 520px · twin 322px), conservando `/inbox/[leadId]` para deep-linking. Es decir: **mejorar Bandeja es hacer B**. Conviene tratarlo como tal —spec → plan → ejecución— y no como retoques sueltos.
+**El sub-proyecto B era exactamente su rediseño y ya está hecho**: unifica ambas en un layout de 3 paneles fijos (lista 322px · conversación flex, mín 520px · twin 322px), conservando `/inbox/[leadId]` para deep-linking. Falta el renombre y seguir pantalla por pantalla con las que siguen.
 
 ---
 
@@ -179,7 +268,7 @@ supabase migration list --linked
 ## Conexión Supabase
 
 - Proyecto `crm-dev`, ref `emubzkouwvuzlrtsgorx`, Postgres 17, plan Free.
-- **21 migraciones aplicadas** (20 + `agente_config`).
+- **23 migraciones aplicadas** (21 + estados de entrega + procedencia del Twin).
 - ⚠️ Free tier auto-pausa tras ~1 semana idle. Ya pasó una vez: el DNS deja de resolver y `/api/health` da `db: fail`. Se restaura desde el dashboard.
 - Remoto: `https://github.com/Leonardo-A1varez/crm.git` (privado).
 
@@ -187,4 +276,4 @@ supabase migration list --linked
 
 ## Cómo dar contexto al asistente al volver
 
-> Leé `AGENTS.md` y `docs/next-session.md`. Estado: rediseño A en master, G1 completo en la rama `agente-g1-configuracion` sin mergear. Quiero seguir con [merge de G1 / sub-proyecto B Bandeja / catálogo]. Para entrar al panel: `admin-dev@crm.local` / `dev-admin-2026!`.
+> Leé `AGENTS.md` y `docs/next-session.md`. Estado: rediseño A y G1 en master, sub-proyecto B completo en la rama `rediseno-b-bandeja` sin mergear. Quiero seguir con [review y merge de B / sub-proyecto D Triage / catálogo]. Para entrar al panel: `admin-dev@crm.local` / `dev-admin-2026!`.

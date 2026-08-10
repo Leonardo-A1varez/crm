@@ -1,35 +1,12 @@
-import { ChannelTabs } from "@/components/inbox/ChannelTabs";
-import { InboxList } from "@/components/inbox/InboxList";
-import { RefreshPoller } from "@/components/shared/RefreshPoller";
-import { CanalSchema } from "@/lib/validation/schemas";
-import { getInboxServiceForRequest } from "@/server/bootstrap/inbox-bootstrap";
+import { EmptyState } from "@/components/shared/EmptyState";
 
-export const dynamic = "force-dynamic";
-
-export default async function InboxPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ canal?: string }>;
-}) {
-  const params = await searchParams;
-  // Param inválido (?canal=sms) → sin filtro, no error.
-  const canalParse = CanalSchema.safeParse(params.canal);
-  const canal = canalParse.success ? canalParse.data : null;
-
-  const svc = await getInboxServiceForRequest();
-  const items = await svc.listActiveLeads();
-  const filtered = canal ? items.filter((i) => i.canales.includes(canal)) : items;
-
+export default function InboxPage() {
   return (
-    <div className="flex h-screen flex-col">
-      <header className="border-border border-b px-4 py-3">
-        <h1 className="text-lg font-semibold">Bandeja</h1>
-      </header>
-      <ChannelTabs active={canal} />
-      <div className="flex-1 overflow-hidden">
-        <InboxList items={filtered} />
-      </div>
-      <RefreshPoller intervalMs={5000} />
+    <div className="bg-surface-chat flex flex-1 items-center justify-center">
+      <EmptyState
+        title="Elegí una conversación"
+        description="Seleccioná una de la lista para ver el hilo y la ficha del lead."
+      />
     </div>
   );
 }

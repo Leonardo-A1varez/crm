@@ -14,6 +14,8 @@ import type { DispatchOutboxEventsDeps } from "@/inngest/functions/dispatch-outb
 import { makeDispatchOutboxEventsFn } from "@/inngest/functions/dispatch-outbox-events.cron";
 import type { OnMessageReceivedDeps } from "@/inngest/functions/on-message-received";
 import { makeOnMessageReceivedFn } from "@/inngest/functions/on-message-received";
+import type { OnStatusReceivedDeps } from "@/inngest/functions/on-status-received";
+import { makeOnStatusReceivedFn } from "@/inngest/functions/on-status-received";
 import type { PurgeOldSessionsDeps } from "@/inngest/functions/purge-old-sessions.cron";
 import { makePurgeOldSessionsFn } from "@/inngest/functions/purge-old-sessions.cron";
 import type { ReactivationPredictorDeps } from "@/inngest/functions/reactivation-predictor.cron";
@@ -23,6 +25,7 @@ import { makeUpdateLeadTwinFn } from "@/inngest/functions/update-lead-twin";
 
 export interface CrmInngestDeps {
   onMessageReceived: OnMessageReceivedDeps;
+  onStatusReceived: OnStatusReceivedDeps;
   updateLeadTwin: UpdateLeadTwinDeps;
   detectIntentsBatch: DetectIntentsBatchDeps;
   autoHandoff: AutoHandoffDeps;
@@ -36,6 +39,7 @@ export interface CrmInngestDeps {
 export function makeCrmInngestFunctions(deps: CrmInngestDeps) {
   return [
     makeOnMessageReceivedFn(deps.onMessageReceived),
+    makeOnStatusReceivedFn(deps.onStatusReceived),
     makeUpdateLeadTwinFn(deps.updateLeadTwin),
     makeDetectIntentsBatchFn(deps.detectIntentsBatch),
     makeAutoHandoffFn(deps.autoHandoff),

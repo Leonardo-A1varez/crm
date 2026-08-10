@@ -32,6 +32,8 @@ export interface AgentTurnResult {
   respuesta_tipo: RespuestaTipo;
   respuesta_contenido: string;
   regla_id?: UUID;
+  /** Intent que disparo la regla. Va junto con `regla_id` para poder auditar. */
+  intent_id?: UUID;
   tool_calls?: ToolCallRecord[];
 }
 
@@ -107,6 +109,7 @@ export class DefaultAiAgentService implements AiAgentService {
         respuesta_tipo: ruleMatch.respuesta_tipo,
         respuesta_contenido: ruleMatch.respuesta_contenido,
         regla_id: ruleMatch.regla_id,
+        intent_id: ruleMatch.intent_id,
       };
     }
 

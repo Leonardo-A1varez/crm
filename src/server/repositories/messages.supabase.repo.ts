@@ -2,9 +2,11 @@ import { ConflictError } from "@/lib/errors";
 import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { isUuid } from "@/server/db/uuid";
-import type { Direction, Sender, TipoMensaje } from "@/types/domain";
+import { esAvance } from "@/lib/entrega";
+import type { Direction, EstadoEntrega, Sender, TipoMensaje } from "@/types/domain";
 import type { Mensaje, MensajeMetadata, UUID } from "@/types/entities";
 import type {
+  EstadoEntregaPatch,
   ListByConversacionFilter,
   ListBySessionFilter,
   MensajeInsert,
@@ -137,6 +139,27 @@ export class SupabaseMessagesRepository implements MessagesRepository {
     if (error) throw mapPostgrestError(error, { resource: "mensaje" });
     return (data ?? []).map(mapRow).reverse();
   }
+  async aplicarEstadoEntrega(
+    metaMessageId: string,
+    patch: EstadoEntregaPatch,
+  ): Promise<Mensaje | null> {
+    const actual = await this.findByMetaMessageId(metaMessageId);
+    if (!actual) return null;
+    if (!esAvance(actual.estado_entrega, patch.estado)) return actual;
+
+    const { data, error } = await this.db
+      .from("mensajes")
+      .update({
+        estado_entrega: patch.estado,
+        estado_entrega_at: patch.at.toISOString(),
+        error_entrega: patch.error,
+      })
+      .eq("id", actual.id)
+      .select()
+      .single();
+    if (error) throw mapPostgrestError(error, { resource: "mensajes" });
+    return mapRow(data as MensajeRow);
+  }
 }
 
 interface MensajeRow {
@@ -153,6 +176,9 @@ interface MensajeRow {
   idempotency_key: string | null;
   metadata: unknown;
   created_at: string;
+  estado_entrega: EstadoEntrega | null;
+  estado_entrega_at: string | null;
+  error_entrega: string | null;
 }
 
 function mapRow(row: MensajeRow): Mensaje {
@@ -171,5 +197,8 @@ function mapRow(row: MensajeRow): Mensaje {
     idempotency_key: row.idempotency_key,
     metadata: structuredClone(meta),
     created_at: new Date(row.created_at),
+    estado_entrega: row.estado_entrega,
+    estado_entrega_at: row.estado_entrega_at ? new Date(row.estado_entrega_at) : null,
+    error_entrega: row.error_entrega,
   };
 }

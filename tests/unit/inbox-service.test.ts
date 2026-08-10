@@ -479,3 +479,154 @@ describe("DefaultInboxService.listActiveLeads edge cases (8.8)", () => {
     expect(out[0]?.ultimoMensaje?.body).toBe("");
   });
 });
+
+describe("DefaultInboxService.listActiveLeads — triage (sub-proyecto D)", () => {
+  let leads: InMemoryLeadsRepository;
+  let sessions: InMemoryLeadSessionRepository;
+  let convs: InMemoryConversationsRepository;
+  let messages: InMemoryMessagesRepository;
+  let svc: DefaultInboxService;
+
+  beforeEach(() => {
+    leads = new InMemoryLeadsRepository();
+    sessions = new InMemoryLeadSessionRepository();
+    convs = new InMemoryConversationsRepository();
+    messages = new InMemoryMessagesRepository();
+    svc = new DefaultInboxService(makeReadOnlyDeps(leads, sessions, convs, messages));
+  });
+
+  test("canalActivo es el canal del último mensaje, no el primero del set", async () => {
+    const lead = await makeLead(leads, { canal_origen: "wa" });
+    const session = await makeSession(sessions, lead.id);
+    const convWa = await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: "wa-1" });
+    const convIg = await convs.create({ lead_id: lead.id, canal: "ig", canal_thread_id: "ig-1" });
+
+    await messages.create(msgInsert(convWa.id, session.id, { contenido: "por whatsapp" }));
+    await new Promise((r) => setTimeout(r, 5));
+    await messages.create(msgInsert(convIg.id, session.id, { contenido: "ahora por instagram" }));
+
+    const out = await svc.listActiveLeads();
+
+    expect(out[0]?.canalActivo).toBe("ig");
+  });
+
+  test("sin mensajes, canalActivo cae al primer canal con conversación", async () => {
+    const lead = await makeLead(leads);
+    await makeSession(sessions, lead.id);
+    await convs.create({ lead_id: lead.id, canal: "fb", canal_thread_id: "fb-1" });
+
+    const out = await svc.listActiveLeads();
+
+    expect(out[0]?.canalActivo).toBe("fb");
+  });
+
+  test("cuenta los entrantes posteriores a la última respuesta nuestra", async () => {
+    const lead = await makeLead(leads);
+    const session = await makeSession(sessions, lead.id);
+    const conv = await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: "wa-1" });
+
+    await messages.create(msgInsert(conv.id, session.id, { contenido: "hola" }));
+    await new Promise((r) => setTimeout(r, 5));
+    await messages.create(
+      msgInsert(conv.id, session.id, { direction: "out", sender: "ia", contenido: "hola!" }),
+    );
+    await new Promise((r) => setTimeout(r, 5));
+    await messages.create(msgInsert(conv.id, session.id, { contenido: "tenés el filtro?" }));
+    await new Promise((r) => setTimeout(r, 5));
+    await messages.create(msgInsert(conv.id, session.id, { contenido: "hola?" }));
+
+    const out = await svc.listActiveLeads();
+
+    expect(out[0]?.sinResponder).toBe(2);
+    expect(out[0]?.esperandoDesde).toBeInstanceOf(Date);
+  });
+
+  test("un mensaje de sistema no cuenta como respuesta al cliente", async () => {
+    const lead = await makeLead(leads);
+    const session = await makeSession(sessions, lead.id);
+    const conv = await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: "wa-1" });
+
+    await messages.create(msgInsert(conv.id, session.id, { contenido: "necesito el precio" }));
+    await new Promise((r) => setTimeout(r, 5));
+    await messages.create(
+      msgInsert(conv.id, session.id, {
+        direction: "out",
+        sender: "sistema",
+        contenido: "sesión reasignada",
+      }),
+    );
+
+    const out = await svc.listActiveLeads();
+
+    expect(out[0]?.sinResponder).toBe(1);
+  });
+
+  test("respondido queda en 0 sin nada esperando", async () => {
+    const lead = await makeLead(leads);
+    const session = await makeSession(sessions, lead.id);
+    const conv = await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: "wa-1" });
+
+    await messages.create(msgInsert(conv.id, session.id, { contenido: "hola" }));
+    await new Promise((r) => setTimeout(r, 5));
+    await messages.create(
+      msgInsert(conv.id, session.id, { direction: "out", sender: "humano", contenido: "ahí va" }),
+    );
+
+    const out = await svc.listActiveLeads();
+
+    expect(out[0]?.sinResponder).toBe(0);
+    expect(out[0]?.esperandoDesde).toBeNull();
+    expect(out[0]?.motivo).toBeNull();
+  });
+
+  test("la IA pausada manda la conversación al grupo que requiere atención", async () => {
+    const lead = await makeLead(leads);
+    await makeSession(sessions, lead.id, { ia_pausada: true });
+    await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: "wa-1" });
+
+    const out = await svc.listActiveLeads();
+
+    expect(out[0]?.motivo).toEqual({ tipo: "humano", texto: "La atiende un vendedor" });
+  });
+
+  test("contarRequierenAtencion cuenta solo las que tienen motivo", async () => {
+    const escalado = await makeLead(leads, { nombre: "Escalado" });
+    await makeSession(sessions, escalado.id, { current_stage: "requiere_humano" });
+    const tranquilo = await makeLead(leads, { nombre: "Tranquilo" });
+    await makeSession(sessions, tranquilo.id);
+
+    expect(await svc.contarRequierenAtencion()).toBe(1);
+  });
+
+  test("las conversaciones con motivo encabezan la lista aunque sean menos recientes", async () => {
+    const viejo = await makeLead(leads, { nombre: "Escalado" });
+    const sesionVieja = await makeSession(sessions, viejo.id, { current_stage: "requiere_humano" });
+    const convVieja = await convs.create({
+      lead_id: viejo.id,
+      canal: "wa",
+      canal_thread_id: "wa-viejo",
+    });
+    await messages.create(msgInsert(convVieja.id, sesionVieja.id, { contenido: "ayuda" }));
+
+    await new Promise((r) => setTimeout(r, 5));
+
+    const nuevo = await makeLead(leads, { nombre: "Tranquilo" });
+    const sesionNueva = await makeSession(sessions, nuevo.id);
+    const convNueva = await convs.create({
+      lead_id: nuevo.id,
+      canal: "wa",
+      canal_thread_id: "wa-nuevo",
+    });
+    await messages.create(
+      msgInsert(convNueva.id, sesionNueva.id, {
+        direction: "out",
+        sender: "ia",
+        contenido: "listo",
+      }),
+    );
+
+    const out = await svc.listActiveLeads();
+
+    expect(out.map((i) => i.nombre)).toEqual(["Escalado", "Tranquilo"]);
+  });
+});

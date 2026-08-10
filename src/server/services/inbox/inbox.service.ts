@@ -1,5 +1,5 @@
 import type { ConversationView, InboxItem } from "@/types/inbox";
-import type { Canal, MotivoPerdida, Resultado } from "@/types/domain";
+import type { CampoTwinEditable, Canal, MotivoPerdida, Resultado } from "@/types/domain";
 import type { LeadSession, Mensaje, UUID } from "@/types/entities";
 
 export type { ConversationView, InboxItem };
@@ -22,6 +22,13 @@ export interface CloseSessionServiceInput {
   motivoPerdida?: MotivoPerdida | null;
 }
 
+export interface EditarCampoTwinServiceInput {
+  sessionId: UUID;
+  campo: CampoTwinEditable;
+  valor: string | number | null;
+  userId: UUID | null;
+}
+
 export interface InboxService {
   /**
    * Lista leads con sesión activa (resultado IS NULL), ordenados por última
@@ -29,6 +36,14 @@ export interface InboxService {
    * lead y canales vinculados.
    */
   listActiveLeads(): Promise<InboxItem[]>;
+
+  /**
+   * Cuántas conversaciones activas requieren a una persona (las del grupo
+   * "Requieren tu atención"). Existe aparte de `listActiveLeads` porque el
+   * badge del SideNav se pinta en las 7 pantallas del panel: el triage mira
+   * solo la sesión, así que contar es una query y no un hilo por lead.
+   */
+  contarRequierenAtencion(): Promise<number>;
 
   /**
    * Vista conversación de un lead: lead + sesión activa (null si no hay) +
@@ -56,4 +71,11 @@ export interface InboxService {
    * no-op; cierre con resultado distinto lanza IllegalStateError.
    */
   closeSession(input: CloseSessionServiceInput): Promise<LeadSession>;
+
+  /**
+   * Corrige a mano un campo del Twin y deja la marca de procedencia. Lanza
+   * NotFoundError si la sesión no existe, ConflictError si está cerrada: una
+   * ficha cerrada es historial y no se reescribe.
+   */
+  editarCampoTwin(input: EditarCampoTwinServiceInput): Promise<LeadSession>;
 }

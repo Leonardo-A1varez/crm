@@ -1,5 +1,5 @@
 import { ConflictError, IllegalStateError, NotFoundError } from "@/lib/errors";
-import type { MotivoPerdida, Resultado } from "@/types/domain";
+import type { CampoTwinEditable, MotivoPerdida, Resultado } from "@/types/domain";
 import type { LeadSession, UUID } from "@/types/entities";
 import type { Update } from "./_types";
 
@@ -7,7 +7,7 @@ import type { Update } from "./_types";
 // DB tiene DEFAULTs equivalentes, mirrored aquí.
 export type LeadSessionInsert = Omit<
   LeadSession,
-  "id" | "started_at" | "closed_at" | "extras" | "context_summary"
+  "id" | "started_at" | "closed_at" | "extras" | "context_summary" | "procedencia"
 > & {
   extras?: Record<string, unknown>;
   context_summary?: string | null;
@@ -41,6 +41,15 @@ export interface LeadSessionRepository {
   // Devuelve count movidas; 0 = no-op (replay-safe). No usar fuera del merge —
   // `update` sigue prohibiendo lead_id a propósito.
   reassignLead(fromLeadId: UUID, toLeadId: UUID): Promise<number>;
+  // Edicion humana de un campo del Twin: escribe el valor y deja la marca de
+  // procedencia en la misma operacion. Van juntos a proposito — un valor
+  // corregido sin su marca es indistinguible de uno que dedujo el extractor.
+  editarCampoTwin(
+    id: UUID,
+    campo: CampoTwinEditable,
+    valor: string | number | null,
+    userId: UUID | null,
+  ): Promise<LeadSession>;
 }
 
 // Deep clone defensivo para extras (jsonb arbitrario LLM-extracted).
@@ -64,6 +73,7 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
       ...input,
       extras: structuredClone(input.extras ?? {}),
       context_summary: input.context_summary ?? null,
+      procedencia: {},
       id: crypto.randomUUID(),
       started_at: new Date(),
       closed_at: null,
@@ -153,6 +163,28 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
 
   async delete(id: UUID): Promise<void> {
     this.store.delete(id);
+  }
+
+  async editarCampoTwin(
+    id: UUID,
+    campo: CampoTwinEditable,
+    valor: string | number | null,
+    userId: UUID | null,
+  ): Promise<LeadSession> {
+    const current = this.store.get(id);
+    if (!current) {
+      throw new NotFoundError(`lead_session no encontrada: ${id}`, "lead_session", id);
+    }
+    const next: LeadSession = {
+      ...current,
+      [campo]: valor,
+      procedencia: {
+        ...current.procedencia,
+        [campo]: { por: "humano", at: new Date().toISOString(), user_id: userId },
+      },
+    } as LeadSession;
+    this.store.set(id, next);
+    return structuredClone(next);
   }
 
   async reassignLead(fromLeadId: UUID, toLeadId: UUID): Promise<number> {

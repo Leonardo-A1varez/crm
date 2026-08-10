@@ -1,4 +1,6 @@
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
+import { pesoMotivo, triage } from "@/lib/triage";
+import type { EntradaTriage } from "@/lib/triage";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
@@ -10,6 +12,7 @@ import type { Conversacion, LeadSession, Mensaje, UUID } from "@/types/entities"
 import type {
   CloseSessionServiceInput,
   ConversationView,
+  EditarCampoTwinServiceInput,
   InboxItem,
   InboxService,
   SendMessageServiceInput,
@@ -18,6 +21,42 @@ import type {
 
 // Cap thread: sesiones cortas (5-15 msgs); 200 cubre outliers sin paginar.
 const CONVERSATION_MESSAGES_LIMIT = 200;
+
+// Para contar lo que quedó sin responder alcanza con la cola del hilo: solo se
+// miran los mensajes posteriores a la última respuesta nuestra.
+const TRIAGE_MESSAGES_LIMIT = 50;
+
+/**
+ * Mensajes entrantes posteriores a la última respuesta nuestra.
+ *
+ * `sistema` se descarta a propósito aunque sea `out`: "sesión reasignada" no
+ * es contestarle al cliente, y contarlo como respuesta apagaría el triage de
+ * una conversación que sigue esperando.
+ */
+function calcularSinResponder(mensajes: Mensaje[]): {
+  sinResponder: number;
+  esperandoDesde: Date | null;
+} {
+  const pendientes: Mensaje[] = [];
+  for (let i = mensajes.length - 1; i >= 0; i--) {
+    const m = mensajes[i];
+    if (!m) continue;
+    if (m.direction === "out" && m.sender !== "sistema") break;
+    if (m.direction === "in") pendientes.push(m);
+  }
+  const primero = pendientes[pendientes.length - 1];
+  return { sinResponder: pendientes.length, esperandoDesde: primero?.created_at ?? null };
+}
+
+/** El triage mira solo la sesión, así que contar no obliga a leer hilos. */
+function entradaTriage(session: LeadSession): EntradaTriage {
+  return {
+    stage: session.current_stage,
+    iaPausada: session.ia_pausada,
+    bloqueador: session.bloqueador,
+    comprobantePagoUrl: session.comprobante_pago_url,
+  };
+}
 
 export interface DefaultInboxServiceDeps {
   leads: LeadsRepository;
@@ -31,6 +70,11 @@ export interface DefaultInboxServiceDeps {
 export class DefaultInboxService implements InboxService {
   constructor(private readonly deps: DefaultInboxServiceDeps) {}
 
+  async contarRequierenAtencion(): Promise<number> {
+    const activeSessions = await this.deps.sessions.listActive();
+    return activeSessions.filter((s) => triage(entradaTriage(s)).motivo !== null).length;
+  }
+
   async listActiveLeads(): Promise<InboxItem[]> {
     const activeSessions = await this.deps.sessions.listActive();
 
@@ -43,17 +87,27 @@ export class DefaultInboxService implements InboxService {
       const canales: Canal[] = Array.from(new Set(convs.map((c) => c.canal)));
 
       let lastMsg: Mensaje | null = null;
+      let canalActivo: Canal | null = null;
       for (const conv of convs) {
         const msgs = await this.deps.messages.listByConversacion(conv.id, { limit: 1 });
         const candidate = msgs[0];
         if (!candidate) continue;
         if (!lastMsg || candidate.created_at.getTime() > lastMsg.created_at.getTime()) {
           lastMsg = candidate;
+          // El canal del último mensaje, no `canales[0]`: `canales` es un set
+          // sin orden significativo y la bandeja lo mostraba como si lo fuera.
+          canalActivo = conv.canal;
         }
       }
 
       const ultimaActividad =
         lastMsg?.created_at ?? convs[0]?.ultima_actividad_at ?? session.started_at;
+
+      const thread = await this.deps.messages.listBySessionId(session.id, {
+        limit: TRIAGE_MESSAGES_LIMIT,
+      });
+      const { sinResponder, esperandoDesde } = calcularSinResponder(thread);
+      const { motivo } = triage(entradaTriage(session));
 
       items.push({
         leadId: lead.id,
@@ -70,10 +124,22 @@ export class DefaultInboxService implements InboxService {
             }
           : null,
         canales,
+        canalActivo: canalActivo ?? canales[0] ?? null,
+        sinResponder,
+        esperandoDesde,
+        urgencia: session.urgencia,
+        motivo,
       });
     }
 
-    items.sort((a, b) => b.ultimaActividad.getTime() - a.ultimaActividad.getTime());
+    // Triage primero y recencia después: una conversación escalada hace 3 horas
+    // importa más que un "gracias" de hace 2 minutos. Dentro de cada motivo se
+    // mantiene el orden cronológico de siempre.
+    items.sort(
+      (a, b) =>
+        pesoMotivo(a.motivo) - pesoMotivo(b.motivo) ||
+        b.ultimaActividad.getTime() - a.ultimaActividad.getTime(),
+    );
     return items;
   }
 
@@ -141,6 +207,18 @@ export class DefaultInboxService implements InboxService {
     return input.action === "pause"
       ? this.deps.handoff.pause(input.sessionId, "handoff manual vendedor")
       : this.deps.handoff.resume(input.sessionId);
+  }
+
+  async editarCampoTwin(input: EditarCampoTwinServiceInput): Promise<LeadSession> {
+    // Reusa la guarda de sesión activa: una ficha cerrada es historial y
+    // reescribirla cambiaría el pasado que se le mostró a alguien.
+    await this.requireActiveSession(input.sessionId);
+    return this.deps.sessions.editarCampoTwin(
+      input.sessionId,
+      input.campo,
+      input.valor,
+      input.userId,
+    );
   }
 
   async closeSession(input: CloseSessionServiceInput): Promise<LeadSession> {

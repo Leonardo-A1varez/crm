@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { TaskAlt } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -72,8 +73,20 @@ export function CloseSessionButton({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button variant="destructive" size="sm" />}>
-        Cerrar sesión
+      {/* Botón icónico de 30×30: el handoff lo saca del flujo de lectura del
+          header a propósito — cerrar una sesión es raro y destructivo, no una
+          acción que compita con el toggle de la IA. */}
+      <DialogTrigger
+        render={
+          <button
+            type="button"
+            aria-label="Cerrar sesión"
+            title="Cerrar sesión"
+            className="text-ink-dim hover:bg-surface-elevated hover:text-ink-primary inline-flex h-[30px] w-[30px] items-center justify-center rounded-[9px] transition-colors"
+          />
+        }
+      >
+        <TaskAlt size={16} />
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>

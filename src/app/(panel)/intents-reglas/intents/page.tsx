@@ -1,3 +1,10 @@
+import { redirect } from "next/navigation";
+
+/**
+ * Ver la nota de `../reglas/page.tsx`: los intents se administran desde la
+ * pestaña "Reglas IF/THEN" de la consola del agente, y esta ruta queda solo
+ * como redirección para no romper marcadores.
+ */
 export default function IntentsPage() {
-  return <div>TODO: intents detectados + aprobación admin (Fase 8)</div>;
+  redirect("/agente?tab=reglas");
 }

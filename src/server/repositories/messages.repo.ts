@@ -1,8 +1,21 @@
 import { ConflictError } from "@/lib/errors";
+import { esAvance } from "@/lib/entrega";
+import type { EstadoEntrega } from "@/types/domain";
 import type { Mensaje, UUID } from "@/types/entities";
 import type { Insert } from "./_types";
 
-export type MensajeInsert = Insert<Mensaje, "id" | "created_at">;
+// Los tres campos de entrega quedan fuera del insert: los escribe el webhook
+// de status de Meta, nunca quien crea el mensaje.
+export type MensajeInsert = Insert<
+  Mensaje,
+  "id" | "created_at" | "estado_entrega" | "estado_entrega_at" | "error_entrega"
+>;
+
+export interface EstadoEntregaPatch {
+  estado: EstadoEntrega;
+  at: Date;
+  error: string | null;
+}
 
 export interface ListByConversacionFilter {
   limit?: number;
@@ -34,6 +47,10 @@ export interface MessagesRepository {
   // Thread de la sesión cruzando conversaciones (multi-canal). Orden ASC
   // (viejo→nuevo); con limit conserva los N más recientes.
   listBySessionId(sessionId: UUID, filter?: ListBySessionFilter): Promise<Mensaje[]>;
+  // Estado de entrega desde el webhook de Meta. `meta_message_id` desconocido
+  // = no-op y devuelve null: Meta reporta estados de mensajes que no mandamos
+  // nosotros (plantillas disparadas desde su consola) y no son un error.
+  aplicarEstadoEntrega(metaMessageId: string, patch: EstadoEntregaPatch): Promise<Mensaje | null>;
 }
 
 export class InMemoryMessagesRepository implements MessagesRepository {
@@ -67,6 +84,9 @@ export class InMemoryMessagesRepository implements MessagesRepository {
       metadata: structuredClone(input.metadata),
       id: crypto.randomUUID(),
       created_at: new Date(),
+      estado_entrega: null,
+      estado_entrega_at: null,
+      error_entrega: null,
     };
     this.store.set(msg.id, msg);
     return cloneMensaje(msg);
@@ -114,5 +134,20 @@ export class InMemoryMessagesRepository implements MessagesRepository {
     const rows = Array.from(this.store.values()).filter((m) => m.lead_session_id === sessionId);
     rows.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
     return rows.slice(-limit).map(cloneMensaje);
+  }
+
+  async aplicarEstadoEntrega(
+    metaMessageId: string,
+    patch: EstadoEntregaPatch,
+  ): Promise<Mensaje | null> {
+    for (const m of this.store.values()) {
+      if (m.meta_message_id !== metaMessageId) continue;
+      if (!esAvance(m.estado_entrega, patch.estado)) return cloneMensaje(m);
+      m.estado_entrega = patch.estado;
+      m.estado_entrega_at = patch.at;
+      m.error_entrega = patch.error;
+      return cloneMensaje(m);
+    }
+    return null;
   }
 }

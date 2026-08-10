@@ -4,8 +4,15 @@ import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { serverNowIso } from "@/server/db/server-time";
 import type { Database } from "@/server/db/types.gen";
 import { isUuid } from "@/server/db/uuid";
-import type { CurrentStage, MetodoPago, MotivoPerdida, Resultado, Urgencia } from "@/types/domain";
-import type { LeadSession, UUID } from "@/types/entities";
+import type {
+  CampoTwinEditable,
+  CurrentStage,
+  MetodoPago,
+  MotivoPerdida,
+  Resultado,
+  Urgencia,
+} from "@/types/domain";
+import type { LeadSession, Procedencia, UUID } from "@/types/entities";
 import type {
   CloseInput,
   LeadSessionInsert,
@@ -100,6 +107,35 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
       .order("started_at", { ascending: false });
     if (error) throw mapPostgrestError(error, { resource: "lead_session" });
     return (data ?? []).map(mapRow);
+  }
+
+  async editarCampoTwin(
+    id: UUID,
+    campo: CampoTwinEditable,
+    valor: string | number | null,
+    userId: UUID | null,
+  ): Promise<LeadSession> {
+    const actual = await this.findById(id);
+    if (!actual) {
+      throw new NotFoundError(`lead_session no encontrada: ${id}`, "lead_session", id);
+    }
+
+    // El merge de procedencia se hace en TypeScript y no con `jsonb_set`: son
+    // ediciones de una persona sobre una ficha que mira, no escrituras
+    // concurrentes, y un update entero es mas simple de auditar.
+    const procedencia: Procedencia = {
+      ...actual.procedencia,
+      [campo]: { por: "humano", at: new Date().toISOString(), user_id: userId },
+    };
+
+    const { data, error } = await this.db
+      .from("lead_session")
+      .update({ [campo]: valor, procedencia } as never)
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw mapPostgrestError(error, { resource: "lead_session" });
+    return mapRow(data as LeadSessionRow);
   }
 
   async update(id: UUID, patch: LeadSessionUpdate): Promise<LeadSession> {
@@ -232,6 +268,7 @@ interface LeadSessionRow {
   ia_pausada: boolean;
   extras: unknown;
   context_summary: string | null;
+  procedencia: unknown;
   started_at: string;
   closed_at: string | null;
 }
@@ -256,6 +293,7 @@ function mapRow(row: LeadSessionRow): LeadSession {
     ia_pausada: row.ia_pausada,
     extras: structuredClone(extras),
     context_summary: row.context_summary,
+    procedencia: (row.procedencia ?? {}) as Procedencia,
     started_at: new Date(row.started_at),
     closed_at: row.closed_at ? new Date(row.closed_at) : null,
   };

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { InMemoryRuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
 import { InMemoryConversationsRepository } from "@/server/repositories/conversations.repo";
 import { InMemoryEventOutboxRepository } from "@/server/repositories/event-outbox.repo";
 import { InMemoryIntentsRepository } from "@/server/repositories/intents.repo";
@@ -28,7 +29,7 @@ import {
 import { FakeMetaApiClient } from "../mocks/meta";
 
 describe("makeCrmInngestFunctions", () => {
-  test("produce 9 InngestFunction con IDs esperados", () => {
+  test("produce 10 InngestFunction con IDs esperados", () => {
     const leads = new InMemoryLeadsRepository();
     const conversations = new InMemoryConversationsRepository();
     const sessions = new InMemoryLeadSessionRepository();
@@ -60,9 +61,11 @@ describe("makeCrmInngestFunctions", () => {
         metaApi,
         intentClassifier,
         aiAgent,
+        ruleExecutions: new InMemoryRuleExecutionsRepository(),
         configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
         emit: async () => {},
       },
+      onStatusReceived: { messages },
       updateLeadTwin: { twinExtractor },
       detectIntentsBatch: {
         sessions,
@@ -79,11 +82,12 @@ describe("makeCrmInngestFunctions", () => {
       dispatchOutboxEvents: { outbox, inngestEmit: async () => {} },
     });
 
-    expect(fns).toHaveLength(9);
+    expect(fns).toHaveLength(10);
     const ids = fns.map((f) => f.id());
     expect(ids).toEqual(
       expect.arrayContaining([
         expect.stringContaining("on-message-received"),
+        expect.stringContaining("on-status-received"),
         expect.stringContaining("update-lead-twin"),
         expect.stringContaining("detect-intents.batch"),
         expect.stringContaining("auto-handoff"),

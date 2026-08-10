@@ -25,10 +25,9 @@ interface NavItem {
   Icon: ComponentType<{ className?: string; size?: number; strokeWidth?: number }>;
 }
 
-// /agente (sub-proyecto G1) ya existe: la consola real de configuración del
-// agente. /intents-reglas queda como stub — la reemplaza el sub-proyecto G2 —
-// y por eso no tiene ítem propio en el nav: un ítem que apunta a un stub es
-// peor que no tenerlo.
+// Los siete ítems del handoff §1.1, en ese orden. "Agente IA" (/agente) es la
+// consola que absorbió la administración de intents y reglas: /intents-reglas
+// ya solo redirige a /agente?tab=reglas, así que no tiene ítem propio.
 const ITEMS: readonly NavItem[] = [
   { href: "/inbox", label: "Bandeja", Icon: InboxIcon },
   { href: "/leads", label: "Leads", Icon: Group },
@@ -63,7 +62,7 @@ export function SideNav({
           <SettingsSuggest className="text-brand-ink" size={19} strokeWidth={1.75} />
         </span>
         <span className="min-w-0">
-          <span className="text-ink-primary block truncate text-[13.5px] leading-tight font-semibold tracking-[-0.01em]">
+          <span className="text-ink-primary block truncate text-[13.5px] leading-tight font-[650] tracking-[-0.01em]">
             Repuestos
           </span>
           <span className="text-ink-faint block font-mono text-[9.5px] tracking-[0.13em] uppercase">
@@ -115,8 +114,10 @@ export function SideNav({
               ) : null}
               <Icon className="shrink-0" size={18} strokeWidth={1.5} />
               <span className="flex-1 truncate">{label}</span>
-              {/* Decorativo: el contador se alimenta en el sub-proyecto B. */}
-              {href === "/inbox" && bandejaCount !== undefined ? (
+              {/* Cuenta las que requieren a una persona, no las activas: un
+                  badge que marca todo lo que existe no dice nada. En cero no
+                  se muestra. */}
+              {href === "/inbox" && bandejaCount ? (
                 <span className="bg-brand text-brand-ink rounded-full px-1.5 py-px font-mono text-[10px] font-semibold">
                   {bandejaCount}
                 </span>
@@ -129,7 +130,7 @@ export function SideNav({
       <div className="border-line-layout flex items-center gap-2.5 border-t px-3 py-3">
         <InitialsAvatar nombre={user.nombre} size={26} />
         <span className="min-w-0 flex-1">
-          <span className="text-ink-primary block truncate text-[11.5px] font-medium">
+          <span className="text-ink-primary block truncate text-[11.5px] font-[550]">
             {user.nombre}
           </span>
           <span className="text-ink-faint block truncate text-[10px]">{user.rol}</span>

@@ -81,6 +81,7 @@ const baseSession: LeadSession = {
   ia_pausada: false,
   extras: {},
   context_summary: null,
+  procedencia: {},
   started_at: new Date(),
   closed_at: null,
 };

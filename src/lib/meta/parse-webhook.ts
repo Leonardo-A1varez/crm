@@ -1,4 +1,13 @@
-import type { Canal, TipoMensaje } from "@/types/domain";
+import type { Canal, EstadoEntrega, TipoMensaje } from "@/types/domain";
+
+export interface ParsedStatus {
+  meta_message_id: string;
+  estado: EstadoEntrega;
+  /** Momento que reporta Meta, no el de recepción del webhook. */
+  at: Date;
+  /** Título del error cuando `estado` es `fallido`. */
+  error: string | null;
+}
 
 export interface ParsedMessage {
   canal: Canal;
@@ -19,6 +28,68 @@ export function parseMetaWebhook(payload: unknown): ParsedMessage[] {
   if (object === "instagram") return parseMessenger(payload, "ig");
   if (object === "page") return parseMessenger(payload, "fb");
   return [];
+}
+
+/**
+ * Cambios de estado de mensajes salientes.
+ *
+ * Solo WhatsApp: Instagram y Messenger reportan `delivery`/`read` como marcas
+ * de agua sobre el hilo entero, sin id de mensaje, así que no se pueden mapear
+ * a una fila sin inventar a cuál corresponden. Un payload de esos canales
+ * devuelve `[]` a propósito.
+ */
+export function parseMetaStatuses(payload: unknown): ParsedStatus[] {
+  if (!isObject(payload)) return [];
+  if (payload.object !== "whatsapp_business_account") return [];
+
+  const out: ParsedStatus[] = [];
+  for (const entry of asArray(payload.entry)) {
+    if (!isObject(entry)) continue;
+    for (const change of asArray(entry.changes)) {
+      if (!isObject(change)) continue;
+      if (change.field !== "messages") continue;
+      const value = isObject(change.value) ? change.value : {};
+      for (const s of asArray(value.statuses)) {
+        if (!isObject(s)) continue;
+        const parsed = waStatus(s);
+        if (parsed) out.push(parsed);
+      }
+    }
+  }
+  return out;
+}
+
+function waStatus(s: Record<string, unknown>): ParsedStatus | null {
+  const id = asString(s.id);
+  const estado = waEstado(asString(s.status));
+  if (!id || !estado) return null;
+
+  // Meta manda el timestamp en segundos y como string. Si viene roto se usa el
+  // momento de recepción: perder el orden exacto es mejor que descartar el
+  // estado y dejar el mensaje marcado como si nunca hubiera salido.
+  const segundos = Number(asString(s.timestamp) ?? "");
+  const at = Number.isFinite(segundos) && segundos > 0 ? new Date(segundos * 1000) : new Date();
+
+  const primerError = asArray(s.errors).find(isObject);
+  const error = primerError ? (asString(primerError.title) ?? asString(primerError.message)) : null;
+
+  return { meta_message_id: id, estado, at, error };
+}
+
+function waEstado(status: string | null): EstadoEntrega | null {
+  switch (status) {
+    case "sent":
+      return "enviado";
+    case "delivered":
+      return "entregado";
+    case "read":
+      return "leido";
+    case "failed":
+      return "fallido";
+    default:
+      // `deleted` y lo que Meta agregue después no son escalones de entrega.
+      return null;
+  }
 }
 
 function parseWA(payload: Record<string, unknown>): ParsedMessage[] {

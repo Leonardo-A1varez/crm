@@ -37,8 +37,10 @@ export function PanelPreview({
         Corre la config de arriba —todavía sin guardar— contra el historial real de una sesión. No
         guarda nada ni le envía nada al cliente.
       </p>
+      {/* Resumen al pie del handoff §4.3, más el modelo: es lo que distingue
+          una respuesta candidata de la que está corriendo hoy. */}
       <MonoMeta className="mb-3 block">
-        candidata: {valores.modelo} · tono {valores.tono} · largo {valores.largo}
+        tono: {valores.tono} · largo: {valores.largo} · emojis: {valores.emojis} · {valores.modelo}
       </MonoMeta>
 
       {sesiones.length === 0 ? (
