@@ -14,11 +14,19 @@ export const URGENCIA = ["baja", "media", "alta"] as const;
 export type Urgencia = (typeof URGENCIA)[number];
 
 /**
- * Prioridad de triage de una conversación. No se persiste: se recalcula en
- * cada render a partir del estado de la sesión y del hilo (ver `lib/triage`).
+ * Motivo por el que una conversación cae en "Requieren tu atención". Son los
+ * tres del handoff y en ese orden de prioridad; el orden del array ES el orden
+ * de la bandeja. No se persiste: se recalcula a partir de la sesión
+ * (ver `lib/triage`).
  */
-export const PRIORIDAD = ["alta", "media", "baja"] as const;
-export type Prioridad = (typeof PRIORIDAD)[number];
+export const MOTIVO_TRIAGE = ["humano", "bloqueo", "pago"] as const;
+export type MotivoTriage = (typeof MOTIVO_TRIAGE)[number];
+
+export interface MotivoAtencion {
+  tipo: MotivoTriage;
+  /** Lo que lee el vendedor en el chip de la fila. */
+  texto: string;
+}
 
 export const CANAL = ["wa", "ig", "fb"] as const;
 export type Canal = (typeof CANAL)[number];

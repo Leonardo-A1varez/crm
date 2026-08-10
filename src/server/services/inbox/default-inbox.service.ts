@@ -1,12 +1,13 @@
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
-import { triage } from "@/lib/triage";
+import { pesoMotivo, triage } from "@/lib/triage";
+import type { EntradaTriage } from "@/lib/triage";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { HandoffService } from "@/server/services/handoff.service";
 import type { MetaApiService } from "@/server/services/meta-api.service";
-import type { Canal, Prioridad } from "@/types/domain";
+import type { Canal } from "@/types/domain";
 import type { Conversacion, LeadSession, Mensaje, UUID } from "@/types/entities";
 import type {
   CloseSessionServiceInput,
@@ -24,8 +25,6 @@ const CONVERSATION_MESSAGES_LIMIT = 200;
 // Para contar lo que quedó sin responder alcanza con la cola del hilo: solo se
 // miran los mensajes posteriores a la última respuesta nuestra.
 const TRIAGE_MESSAGES_LIMIT = 50;
-
-const PESO_PRIORIDAD: Record<Prioridad, number> = { alta: 0, media: 1, baja: 2 };
 
 /**
  * Mensajes entrantes posteriores a la última respuesta nuestra.
@@ -49,6 +48,16 @@ function calcularSinResponder(mensajes: Mensaje[]): {
   return { sinResponder: pendientes.length, esperandoDesde: primero?.created_at ?? null };
 }
 
+/** El triage mira solo la sesión, así que contar no obliga a leer hilos. */
+function entradaTriage(session: LeadSession): EntradaTriage {
+  return {
+    stage: session.current_stage,
+    iaPausada: session.ia_pausada,
+    bloqueador: session.bloqueador,
+    comprobantePagoUrl: session.comprobante_pago_url,
+  };
+}
+
 export interface DefaultInboxServiceDeps {
   leads: LeadsRepository;
   sessions: LeadSessionRepository;
@@ -61,12 +70,14 @@ export interface DefaultInboxServiceDeps {
 export class DefaultInboxService implements InboxService {
   constructor(private readonly deps: DefaultInboxServiceDeps) {}
 
+  async contarRequierenAtencion(): Promise<number> {
+    const activeSessions = await this.deps.sessions.listActive();
+    return activeSessions.filter((s) => triage(entradaTriage(s)).motivo !== null).length;
+  }
+
   async listActiveLeads(): Promise<InboxItem[]> {
     const activeSessions = await this.deps.sessions.listActive();
 
-    // Un solo `ahora` para toda la lista: si cada item tomara el suyo, dos
-    // conversaciones que esperan lo mismo podrían caer en prioridades distintas.
-    const ahora = new Date();
     const items: InboxItem[] = [];
     for (const session of activeSessions) {
       const lead = await this.deps.leads.findById(session.lead_id);
@@ -96,15 +107,7 @@ export class DefaultInboxService implements InboxService {
         limit: TRIAGE_MESSAGES_LIMIT,
       });
       const { sinResponder, esperandoDesde } = calcularSinResponder(thread);
-      const { prioridad, motivo } = triage({
-        stage: session.current_stage,
-        urgencia: session.urgencia,
-        iaPausada: session.ia_pausada,
-        bloqueador: session.bloqueador,
-        sinResponder,
-        esperandoDesde,
-        ahora,
-      });
+      const { motivo } = triage(entradaTriage(session));
 
       items.push({
         leadId: lead.id,
@@ -124,17 +127,17 @@ export class DefaultInboxService implements InboxService {
         canalActivo: canalActivo ?? canales[0] ?? null,
         sinResponder,
         esperandoDesde,
-        prioridad,
+        urgencia: session.urgencia,
         motivo,
       });
     }
 
     // Triage primero y recencia después: una conversación escalada hace 3 horas
-    // importa más que un "gracias" de hace 2 minutos. Dentro de cada prioridad
-    // se mantiene el orden cronológico de siempre.
+    // importa más que un "gracias" de hace 2 minutos. Dentro de cada motivo se
+    // mantiene el orden cronológico de siempre.
     items.sort(
       (a, b) =>
-        PESO_PRIORIDAD[a.prioridad] - PESO_PRIORIDAD[b.prioridad] ||
+        pesoMotivo(a.motivo) - pesoMotivo(b.motivo) ||
         b.ultimaActividad.getTime() - a.ultimaActividad.getTime(),
     );
     return items;

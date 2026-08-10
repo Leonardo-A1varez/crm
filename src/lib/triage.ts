@@ -1,25 +1,28 @@
-import type { CurrentStage, Prioridad, Urgencia } from "@/types/domain";
+import { MOTIVO_TRIAGE } from "@/types/domain";
+import type { CurrentStage, MotivoAtencion } from "@/types/domain";
+
+export type { MotivoAtencion };
 
 export interface EntradaTriage {
   stage: CurrentStage;
-  urgencia: Urgencia;
   iaPausada: boolean;
   bloqueador: string | null;
-  /** Mensajes entrantes posteriores al último saliente. */
-  sinResponder: number;
-  /** `created_at` del primero de esos entrantes; `null` si no hay ninguno. */
-  esperandoDesde: Date | null;
-  ahora: Date;
+  comprobantePagoUrl: string | null;
 }
 
 export interface Triage {
-  prioridad: Prioridad;
-  /** Por qué está priorizada. `null` cuando no hay nada que atender. */
-  motivo: string | null;
+  /** `null` cuando no hay nada que atender: la IA la está manejando sola. */
+  motivo: MotivoAtencion | null;
 }
 
-/** Una hora sin respuesta escala la conversación a prioridad alta. */
-export const UMBRAL_ESPERA_ALTA_MS = 60 * 60 * 1000;
+/**
+ * Peso de orden de cada motivo. Sale del índice en `MOTIVO_TRIAGE` para que
+ * agregar un motivo no obligue a mantener dos listas en sincronía; sin motivo
+ * va al fondo, después de los tres.
+ */
+export function pesoMotivo(motivo: MotivoAtencion | null): number {
+  return motivo === null ? MOTIVO_TRIAGE.length : MOTIVO_TRIAGE.indexOf(motivo.tipo);
+}
 
 /**
  * "hace 12m" / "hace 3h" / "hace 2d". Redondea hacia abajo: decir menos tiempo
@@ -34,40 +37,38 @@ export function esperaLegible(ms: number): string {
   return `hace ${Math.floor(horas / 24)}d`;
 }
 
+/** Un bloqueador en blanco no es un bloqueador. */
+function bloqueadorActivo(bloqueador: string | null): bloqueador is string {
+  return bloqueador !== null && bloqueador.trim() !== "";
+}
+
 /**
- * Triage de una conversación: qué tan urgente es y por qué.
+ * Triage de una conversación: si requiere a una persona y por qué.
  *
- * El orden de las reglas importa y no es cosmético — la primera que matchea
- * define el motivo, así que arriba van las que describen mejor la situación.
- * Que la IA esté pausada gana sobre el tiempo de espera: si un vendedor tomó
- * la conversación, "la tomaste vos y no contestaste" explica más que "hace 2h".
+ * El orden de las reglas es el del handoff (`requiere_humano` → bloqueador →
+ * `esperando_pago` sin comprobante → resto) y no es cosmético: la primera que
+ * matchea define el motivo, y el motivo define tanto el chip de la fila como
+ * la posición en la lista.
  *
- * Función pura y con `ahora` inyectado: el triage se recalcula en cada render
- * del server y tiene que dar lo mismo en un test que en producción.
+ * Depende solo de campos de la sesión — nada del hilo — para que contar
+ * cuántas conversaciones requieren atención (el badge del SideNav) no obligue
+ * a leer los mensajes de todas.
  */
 export function triage(e: EntradaTriage): Triage {
-  const esperaMs = e.esperandoDesde !== null ? e.ahora.getTime() - e.esperandoDesde.getTime() : 0;
-
   if (e.stage === "requiere_humano") {
-    return { prioridad: "alta", motivo: "Escalado a un humano" };
+    return { motivo: { tipo: "humano", texto: "Pidió hablar con una persona" } };
   }
+  // La IA pausada a mano también es "esto lo contesta una persona": sin esta
+  // regla, una conversación tomada por un vendedor caería en el grupo
+  // "La IA está manejando", que es justo lo contrario de lo que pasa.
   if (e.iaPausada) {
-    return { prioridad: "alta", motivo: "IA pausada, contesta un vendedor" };
+    return { motivo: { tipo: "humano", texto: "La atiende un vendedor" } };
   }
-  if (e.sinResponder > 0 && esperaMs >= UMBRAL_ESPERA_ALTA_MS) {
-    return { prioridad: "alta", motivo: `Sin responder ${esperaLegible(esperaMs)}` };
+  if (bloqueadorActivo(e.bloqueador)) {
+    return { motivo: { tipo: "bloqueo", texto: `Bloqueador: ${e.bloqueador.trim()}` } };
   }
-  if (e.sinResponder > 0 && e.urgencia === "alta") {
-    return { prioridad: "alta", motivo: "Urgencia alta sin responder" };
+  if (e.stage === "esperando_pago" && e.comprobantePagoUrl === null) {
+    return { motivo: { tipo: "pago", texto: "Pago sin comprobante" } };
   }
-  if (e.bloqueador !== null && e.bloqueador.trim() !== "") {
-    return { prioridad: "media", motivo: "Con bloqueador" };
-  }
-  if (e.sinResponder > 0) {
-    return { prioridad: "media", motivo: `Sin responder ${esperaLegible(esperaMs)}` };
-  }
-  if (e.stage === "esperando_pago") {
-    return { prioridad: "media", motivo: "Esperando pago" };
-  }
-  return { prioridad: "baja", motivo: null };
+  return { motivo: null };
 }

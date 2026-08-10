@@ -59,7 +59,7 @@ export function FiltrosCanal() {
             aria-pressed={isActive}
             onClick={() => seleccionar(canal)}
             className={cn(
-              "inline-flex shrink-0 items-center gap-1.5 rounded-[20px] border px-[10px] py-[4.5px] text-[11.5px] font-medium transition-colors",
+              "inline-flex shrink-0 items-center gap-1.5 rounded-[20px] border px-[10px] py-[4.5px] text-[11.5px] font-[550] transition-colors",
               isActive
                 ? "bg-surface-avatar border-line-control text-ink-primary"
                 : "border-line-card text-ink-dim bg-transparent",

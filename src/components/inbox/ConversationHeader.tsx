@@ -8,6 +8,15 @@ import type { Canal } from "@/types/domain";
 import type { Lead, LeadSession } from "@/types/entities";
 
 /**
+ * Separador de la línea de meta. Tiene token propio y más oscuro que cualquier
+ * `ink-*` a propósito: es puntuación, y no tiene que competir con los datos que
+ * separa.
+ */
+function Separador() {
+  return <span className="text-line-dot"> · </span>;
+}
+
+/**
  * Header de conversación: avatar + nombre + stage + meta (teléfono, canales,
  * última actividad). `actions` = slot para HandoffToggle + CloseSessionButton
  * (client comps montados desde el RSC page, que es quien importa las Server
@@ -29,7 +38,7 @@ export function ConversationHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <header className="border-line-layout flex items-center gap-3 border-b bg-[rgba(13,14,18,.86)] px-5 py-[13px] backdrop-blur-[8px]">
+    <header className="border-line-layout bg-surface-chat/86 flex items-center gap-3 border-b px-5 py-[13px] backdrop-blur-[8px]">
       <div className="relative shrink-0">
         <InitialsAvatar nombre={lead.nombre} size={36} />
         <ChannelDot
@@ -53,14 +62,14 @@ export function ConversationHeader({
           )}
         </div>
         {/* Teléfono · canales · última actividad, en una sola línea mono. */}
-        <MonoMeta className="mt-0.5 block truncate">
+        <MonoMeta className="mt-0.5 block truncate text-[10.5px]">
           {lead.telefono}
-          <span className="text-ink-fainter"> · </span>
+          <Separador />
           {canales.map(canalLabel).join(", ")}
           {ultimaActividadIso ? (
             <>
-              <span className="text-ink-fainter"> · </span>
-              <RelativeTime iso={ultimaActividadIso} />
+              <Separador />
+              últ. actividad <RelativeTime iso={ultimaActividadIso} />
             </>
           ) : null}
         </MonoMeta>

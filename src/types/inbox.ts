@@ -1,4 +1,4 @@
-import type { Canal, CurrentStage, Direction, Prioridad } from "./domain";
+import type { Canal, CurrentStage, Direction, MotivoAtencion, Urgencia } from "./domain";
 import type { Lead, LeadSession, Mensaje, UUID } from "./entities";
 
 /**
@@ -26,9 +26,10 @@ export interface InboxItem {
   sinResponder: number;
   /** Desde cuándo espera el primero de esos mensajes. */
   esperandoDesde: Date | null;
-  prioridad: Prioridad;
-  /** Por qué está priorizada; `null` cuando no hay nada que atender. */
-  motivo: string | null;
+  /** Urgencia inferida por el extractor; `alta` marca la fila con el rayo. */
+  urgencia: Urgencia;
+  /** Por qué requiere atención; `null` = la IA la está manejando sola. */
+  motivo: MotivoAtencion | null;
 }
 
 /**

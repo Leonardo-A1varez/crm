@@ -38,6 +38,14 @@ export interface InboxService {
   listActiveLeads(): Promise<InboxItem[]>;
 
   /**
+   * Cuántas conversaciones activas requieren a una persona (las del grupo
+   * "Requieren tu atención"). Existe aparte de `listActiveLeads` porque el
+   * badge del SideNav se pinta en las 7 pantallas del panel: el triage mira
+   * solo la sesión, así que contar es una query y no un hilo por lead.
+   */
+  contarRequierenAtencion(): Promise<number>;
+
+  /**
    * Vista conversación de un lead: lead + sesión activa (null si no hay) +
    * mensajes de la sesión ASC (cap 200) + canales vinculados + canal activo.
    * Lanza NotFoundError cuando el lead no existe.

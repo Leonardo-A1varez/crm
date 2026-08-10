@@ -2,7 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { Edit } from "@/components/icons";
+import { AutoAwesome, Edit } from "@/components/icons";
+import { ChipProcedencia } from "@/components/lead-twin/ChipProcedencia";
+import { cn } from "@/lib/utils";
 import type { EditarCampoTwinInput } from "@/lib/validation/inbox.schema";
 import type { CampoTwinEditable } from "@/types/domain";
 import type { ProcedenciaCampo, UUID } from "@/types/entities";
@@ -11,9 +13,9 @@ import type { ActionResult } from "@/types/inbox";
 /**
  * Un campo del Twin con su procedencia y edición en el lugar.
  *
- * La procedencia se muestra solo cuando la tocó una persona: marcar también lo
- * que puso el extractor pondría una etiqueta en casi todos los campos y la
- * señal dejaría de significar algo. Sin chip = lo dedujo la IA.
+ * Todo campo con valor declara de dónde salió, que es el punto del panel: sin
+ * marca de procedencia el vendedor no sabe si el dato lo dedujo un LLM o lo
+ * escribió una persona, y trata igual a los dos.
  */
 export function CampoEditable({
   label,
@@ -23,6 +25,7 @@ export function CampoEditable({
   sessionId,
   procedencia,
   multilinea = false,
+  claseValor,
   onGuardar,
 }: {
   label: string;
@@ -32,6 +35,8 @@ export function CampoEditable({
   sessionId: UUID;
   procedencia?: ProcedenciaCampo;
   multilinea?: boolean;
+  /** Tipografía del valor cuando el handoff la especifica (precio, bloqueador). */
+  claseValor?: string;
   onGuardar: (input: EditarCampoTwinInput) => Promise<ActionResult>;
 }) {
   const [editando, setEditando] = useState(false);
@@ -102,14 +107,28 @@ export function CampoEditable({
     );
   }
 
+  const conValor = Boolean(valor?.trim());
+
   return (
     <div className="group">
       <div className="flex items-center gap-1.5">
         <span className="text-ink-faint text-[10.5px]">{label}</span>
         {procedencia ? (
-          <span className="text-info bg-info/12 rounded px-1 py-px font-mono text-[8.5px] tracking-wide uppercase">
-            editado
-          </span>
+          <ChipProcedencia
+            Icon={Edit}
+            className="text-info bg-info/12"
+            titulo="Un humano lo pisó; el extractor no lo vuelve a tocar."
+          >
+            Corregido por vos
+          </ChipProcedencia>
+        ) : conValor ? (
+          <ChipProcedencia
+            Icon={AutoAwesome}
+            className="text-brand-hover bg-brand/12"
+            titulo="Lo infirió el extractor. Editable."
+          >
+            Extraído por IA
+          </ChipProcedencia>
         ) : null}
         <button
           type="button"
@@ -120,8 +139,13 @@ export function CampoEditable({
           <Edit size={12} />
         </button>
       </div>
-      <div className="text-ink-secondary mt-[3px] text-[12.5px] break-words whitespace-pre-wrap">
-        {valor?.trim() ? valor : "—"}
+      <div
+        className={cn(
+          "text-ink-secondary mt-[3px] text-[12.5px] break-words whitespace-pre-wrap",
+          claseValor,
+        )}
+      >
+        {conValor ? valor : "—"}
       </div>
     </div>
   );

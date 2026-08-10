@@ -576,22 +576,29 @@ describe("DefaultInboxService.listActiveLeads — triage (sub-proyecto D)", () =
 
     expect(out[0]?.sinResponder).toBe(0);
     expect(out[0]?.esperandoDesde).toBeNull();
-    expect(out[0]?.prioridad).toBe("baja");
     expect(out[0]?.motivo).toBeNull();
   });
 
-  test("la IA pausada sube la prioridad aunque no haya nada sin responder", async () => {
+  test("la IA pausada manda la conversación al grupo que requiere atención", async () => {
     const lead = await makeLead(leads);
     await makeSession(sessions, lead.id, { ia_pausada: true });
     await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: "wa-1" });
 
     const out = await svc.listActiveLeads();
 
-    expect(out[0]?.prioridad).toBe("alta");
-    expect(out[0]?.motivo).toBe("IA pausada, contesta un vendedor");
+    expect(out[0]?.motivo).toEqual({ tipo: "humano", texto: "La atiende un vendedor" });
   });
 
-  test("las prioridades altas encabezan la lista aunque sean menos recientes", async () => {
+  test("contarRequierenAtencion cuenta solo las que tienen motivo", async () => {
+    const escalado = await makeLead(leads, { nombre: "Escalado" });
+    await makeSession(sessions, escalado.id, { current_stage: "requiere_humano" });
+    const tranquilo = await makeLead(leads, { nombre: "Tranquilo" });
+    await makeSession(sessions, tranquilo.id);
+
+    expect(await svc.contarRequierenAtencion()).toBe(1);
+  });
+
+  test("las conversaciones con motivo encabezan la lista aunque sean menos recientes", async () => {
     const viejo = await makeLead(leads, { nombre: "Escalado" });
     const sesionVieja = await makeSession(sessions, viejo.id, { current_stage: "requiere_humano" });
     const convVieja = await convs.create({

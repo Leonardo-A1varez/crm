@@ -30,42 +30,43 @@ const FONDO_IA = {
 function AcuseEntrega({ mensaje, claro }: { mensaje: Mensaje; claro: boolean }) {
   if (mensaje.direction !== "out" || mensaje.sender === "sistema") return null;
 
-  const tono = claro ? "text-[#14161b]/45" : "text-ink-ghost";
+  // Sobre la burbuja clara del vendedor el gris del handoff no se ve: ahí el
+  // acuse va en la tinta oscura de esa burbuja, con la misma jerarquia.
+  const tono = claro ? "text-[#14161b]/45" : "text-ink-dim";
 
   switch (mensaje.estado_entrega) {
     case "leido":
-      return <DoneAll size={13} className="text-info shrink-0" aria-label="Leido" />;
+      return <DoneAll size={12} className="text-info shrink-0" aria-label="Leido" />;
     case "entregado":
-      return <DoneAll size={13} className={`${tono} shrink-0`} aria-label="Entregado" />;
+      return <DoneAll size={12} className={`${tono} shrink-0`} aria-label="Entregado" />;
     case "enviado":
-      return <Done size={13} className={`${tono} shrink-0`} aria-label="Enviado" />;
+      return <Done size={12} className={`${tono} shrink-0`} aria-label="Enviado" />;
     case "fallido":
       return (
         <ErrorIcon
-          size={13}
+          size={12}
           className="text-danger shrink-0"
           aria-label={mensaje.error_entrega ?? "No se pudo entregar"}
         />
       );
     default:
-      return <Schedule size={13} className={`${tono} shrink-0`} aria-label="Sin acuse todavia" />;
+      return <Schedule size={12} className={`${tono} shrink-0`} aria-label="Sin acuse todavia" />;
   }
 }
+
+/** Eyebrow del handoff: mono 9px / 600 / .13em / uppercase. */
+const ETIQUETA = "mb-1 font-mono text-[9px] font-semibold tracking-[0.13em] uppercase";
 
 function EtiquetaRemitente({ sender }: { sender: "ia" | "humano" }) {
   if (sender === "ia") {
     return (
-      <span className="text-brand-hover mb-1 flex items-center gap-1 font-mono text-[9px] tracking-wide uppercase">
+      <span className={`text-brand-hover flex items-center gap-1 ${ETIQUETA}`}>
         <AutoAwesome size={12} />
         Agente IA
       </span>
     );
   }
-  return (
-    <span className="text-ink-faint mb-1 block font-mono text-[9px] tracking-wide uppercase">
-      Vendedor
-    </span>
-  );
+  return <span className={`text-ink-faint block ${ETIQUETA}`}>Vendedor</span>;
 }
 
 /**
@@ -99,8 +100,10 @@ export function MessageBubble({ message }: { message: Mensaje }) {
           "max-w-[62%] px-[13px] py-[9px] text-[12.5px]",
           esLead &&
             "bg-surface-bubble-in border-line-input text-ink-body rounded-[15px_15px_15px_5px] border",
+          // El texto de la burbuja del agente es más cálido que `ink-body`
+          // para no chocar con el ámbar del fondo. Sin token en globals.css.
           message.sender === "ia" &&
-            "border-brand/22 text-ink-body rounded-[15px_15px_5px_15px] border",
+            "border-brand/22 text-ink-warm rounded-[15px_15px_5px_15px] border",
           // Burbuja clara sobre fondo oscuro, a propósito: así distingue el
           // handoff al vendedor del agente. El texto no puede ser un token
           // `ink-*` porque todos están pensados para fondo oscuro.

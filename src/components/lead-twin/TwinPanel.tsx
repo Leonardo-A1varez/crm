@@ -1,5 +1,6 @@
-import { AltRoute, ContactEmergency } from "@/components/icons";
+import { AltRoute, ContactEmergency, DirectionsCar, Inventory2, Warning } from "@/components/icons";
 import { CampoEditable } from "@/components/lead-twin/CampoEditable";
+import { ChipProcedencia } from "@/components/lead-twin/ChipProcedencia";
 import { TwinEmptyState } from "@/components/lead-twin/TwinEmptyState";
 import { TwinField } from "@/components/lead-twin/TwinField";
 import { Eyebrow } from "@/components/shared/Eyebrow";
@@ -8,13 +9,18 @@ import { RelativeTime } from "@/components/shared/RelativeTime";
 import { FUNNEL_STAGES, funnelStep, isDetour, stageColor, stageLabel } from "@/lib/ui/stage";
 import type { CurrentStage, MetodoPago, Urgencia } from "@/types/domain";
 import type { EditarCampoTwinInput } from "@/lib/validation/inbox.schema";
-import type { LeadSession, UUID } from "@/types/entities";
+import type { Lead, LeadSession, UUID } from "@/types/entities";
 import type { ActionResult } from "@/types/inbox";
 
-const URGENCIA_CONFIG: Record<Urgencia, { label: string; dotClass: string }> = {
-  baja: { label: "Baja", dotClass: "bg-ink-faint" },
-  media: { label: "Media", dotClass: "bg-caution" },
-  alta: { label: "Alta", dotClass: "bg-danger" },
+/**
+ * Urgencia como tres barras: alta llena las tres, media dos, baja una. La
+ * forma dice el nivel sin leer la palabra, que es lo que se escanea al pasar
+ * por la lista.
+ */
+const URGENCIA_CONFIG: Record<Urgencia, { label: string; llenas: number; clase: string }> = {
+  baja: { label: "Baja", llenas: 1, clase: "text-ink-dim bg-ink-dim" },
+  media: { label: "Media", llenas: 2, clase: "text-caution bg-caution" },
+  alta: { label: "Alta", llenas: 3, clase: "text-warn bg-warn" },
 };
 
 const METODO_PAGO_LABEL: Record<MetodoPago, string> = {
@@ -88,24 +94,30 @@ function RailEmbudo({ stage }: { stage: CurrentStage }) {
         {paso !== null ? <MonoMeta>{`paso ${paso}/${FUNNEL_STAGES.length}`}</MonoMeta> : null}
       </div>
 
-      <div className="flex gap-[3px]" role="presentation">
-        {FUNNEL_STAGES.map((etapa, i) => (
-          <span
-            key={etapa}
-            className={
-              !desvio && paso !== null && i < paso
-                ? "h-[3.5px] flex-1 rounded-full"
-                : "bg-line-card h-[3.5px] flex-1 rounded-full"
-            }
-            style={
-              desvio
-                ? { backgroundColor: RAIL_CONGELADO }
-                : paso !== null && i < paso
-                  ? { backgroundColor: stageColor(stage) }
-                  : undefined
-            }
-          />
-        ))}
+      <div className="flex flex-col gap-1">
+        <div className="flex gap-[3px]" role="presentation">
+          {FUNNEL_STAGES.map((etapa, i) => (
+            <span
+              key={etapa}
+              className={
+                !desvio && paso !== null && i < paso
+                  ? "h-[3.5px] flex-1 rounded-full"
+                  : "bg-line-card h-[3.5px] flex-1 rounded-full"
+              }
+              style={
+                desvio
+                  ? { backgroundColor: RAIL_CONGELADO }
+                  : paso !== null && i < paso
+                    ? { backgroundColor: stageColor(stage) }
+                    : undefined
+              }
+            />
+          ))}
+        </div>
+        <div className="flex items-baseline justify-between">
+          <MonoMeta className="text-ink-fainter text-[9px]">nuevo</MonoMeta>
+          <MonoMeta className="text-ink-fainter text-[9px]">cerrado</MonoMeta>
+        </div>
       </div>
 
       {desvio ? (
@@ -119,14 +131,76 @@ function RailEmbudo({ stage }: { stage: CurrentStage }) {
 }
 
 /**
- * Ficha estructurada de la sesión activa (Lead Twin). Read-only server render;
- * secciones opcionales solo aparecen cuando el extractor pobló los campos.
+ * Vehículo del lead. Es dato del lead y no de la sesión, así que no pasa por
+ * `editarCampoTwin` — de ahí que no tenga lápiz todavía.
+ */
+function Vehiculo({ lead }: { lead: Lead }) {
+  const modelo = [lead.vehiculo_marca, lead.vehiculo_modelo].filter(Boolean).join(" ").trim();
+  if (modelo === "") return null;
+
+  const tecnico = [lead.vehiculo_anio ? String(lead.vehiculo_anio) : null, lead.vehiculo_motor]
+    .filter(Boolean)
+    .join(" · ");
+
+  return (
+    <Seccion>
+      <div className="flex items-center gap-1.5">
+        <span className="text-ink-faint text-[10.5px]">Vehículo</span>
+        <ChipProcedencia
+          Icon={Inventory2}
+          className="text-ink-dim bg-surface-card border-line-input border"
+          titulo="Dato de la ficha del lead."
+        >
+          De la ficha
+        </ChipProcedencia>
+      </div>
+      <div className="bg-surface-elevated border-line-card flex items-center gap-2.5 rounded-[12px] border p-3">
+        <DirectionsCar size={22} className="text-ink-dim shrink-0" />
+        <span className="min-w-0">
+          <span className="text-ink-secondary block truncate text-[12.5px] font-semibold">
+            {modelo}
+          </span>
+          {tecnico ? <MonoMeta className="block truncate">{tecnico}</MonoMeta> : null}
+        </span>
+      </div>
+    </Seccion>
+  );
+}
+
+function BarrasUrgencia({ urgencia }: { urgencia: Urgencia }) {
+  const { label, llenas, clase } = URGENCIA_CONFIG[urgencia];
+  const [color, fondo] = clase.split(" ");
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-ink-faint text-[10.5px]">Urgencia</span>
+      <div className="flex items-center gap-2">
+        <span className="flex gap-1" role="img" aria-label={`Urgencia ${label.toLowerCase()}`}>
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className={`h-1 w-[18px] rounded-[3px] ${i < llenas ? fondo : "bg-line-control"}`}
+            />
+          ))}
+        </span>
+        <span className={`text-[11px] font-semibold ${color}`}>{label}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Ficha estructurada de la sesión activa (Lead Twin). Secciones opcionales
+ * solo aparecen cuando el extractor pobló los campos: una sección vacía ocupa
+ * el mismo espacio que una con dato y no dice nada.
  */
 export function TwinPanel({
+  lead,
   session,
   leadId,
   onEditar,
 }: {
+  lead: Lead;
   session: LeadSession | null;
   leadId: UUID;
   onEditar: (input: EditarCampoTwinInput) => Promise<ActionResult>;
@@ -139,7 +213,6 @@ export function TwinPanel({
     onGuardar: onEditar,
   };
 
-  const urgencia = URGENCIA_CONFIG[session.urgencia];
   const hasCotizacion =
     session.codigo_interno !== null ||
     session.precio_cotizado !== null ||
@@ -157,9 +230,14 @@ export function TwinPanel({
           <ContactEmergency size={14} className="text-brand" />
           Lead Twin
         </span>
+        <p className="text-ink-faint text-[10.5px]">
+          Ficha mantenida por el extractor LLM en cada turno. No hace falta leer el hilo.
+        </p>
       </Seccion>
 
       <RailEmbudo stage={session.current_stage} />
+
+      <Vehiculo lead={lead} />
 
       <Seccion>
         <CampoEditable
@@ -170,58 +248,69 @@ export function TwinPanel({
           procedencia={session.procedencia.consulta}
           multilinea
         />
-        <TwinField
-          label="Urgencia"
-          value={
-            <span className="inline-flex items-center gap-1.5">
-              <span className={`h-2 w-2 rounded-full ${urgencia.dotClass}`} />
-              {urgencia.label}
-            </span>
-          }
-        />
-        <TwinField
-          label="Sesión iniciada"
-          value={<RelativeTime iso={session.started_at.toISOString()} />}
-        />
+        <BarrasUrgencia urgencia={session.urgencia} />
       </Seccion>
 
       {hasCotizacion ? (
         <Seccion>
           <Eyebrow>Cotización</Eyebrow>
-          <CampoEditable
-            {...editable}
-            label="Código interno"
-            campo="codigo_interno"
-            valor={session.codigo_interno}
-            procedencia={session.procedencia.codigo_interno}
-          />
-          <CampoEditable
-            {...editable}
-            label="Precio cotizado"
-            campo="precio_cotizado"
-            valor={session.precio_cotizado !== null ? formatPrecio(session.precio_cotizado) : null}
-            procedencia={session.procedencia.precio_cotizado}
-          />
-          <CampoEditable
-            {...editable}
-            label="Cantidad"
-            campo="cantidad"
-            valor={session.cantidad !== null ? String(session.cantidad) : null}
-            procedencia={session.procedencia.cantidad}
-          />
+          {/* Fondo cálido del handoff, sin token en globals.css: es el único
+              gradiente de superficie del diseño. */}
+          <div
+            className="border-line-control flex flex-col gap-3 rounded-[13px] border p-3"
+            style={{
+              backgroundImage:
+                "linear-gradient(160deg,var(--color-surface-warm),var(--color-surface-elevated))",
+            }}
+          >
+            <CampoEditable
+              {...editable}
+              label="Código interno"
+              campo="codigo_interno"
+              valor={session.codigo_interno}
+              procedencia={session.procedencia.codigo_interno}
+              claseValor="font-mono text-[10px] text-brand"
+            />
+            <CampoEditable
+              {...editable}
+              label="Precio cotizado"
+              campo="precio_cotizado"
+              valor={
+                session.precio_cotizado !== null ? formatPrecio(session.precio_cotizado) : null
+              }
+              procedencia={session.procedencia.precio_cotizado}
+              claseValor="font-mono text-[25px] font-semibold tracking-[-0.03em] text-white"
+            />
+            <CampoEditable
+              {...editable}
+              label="Cantidad"
+              campo="cantidad"
+              valor={session.cantidad !== null ? `IVA incl. · x${session.cantidad}` : null}
+              procedencia={session.procedencia.cantidad}
+              claseValor="text-ink-dim text-[10.5px]"
+            />
+          </div>
         </Seccion>
       ) : null}
 
       {session.bloqueador ? (
         <Seccion>
-          <CampoEditable
-            {...editable}
-            label="Bloqueador"
-            campo="bloqueador"
-            valor={session.bloqueador}
-            procedencia={session.procedencia.bloqueador}
-            multilinea
-          />
+          <div className="border-warn/24 bg-warn/7 flex flex-col gap-1.5 rounded-[12px] border p-3">
+            <span className="text-warn flex items-center gap-1.5">
+              <Warning size={13} className="shrink-0" />
+              <Eyebrow className="text-warn">Bloqueador</Eyebrow>
+            </span>
+            <CampoEditable
+              {...editable}
+              label="Qué lo frena"
+              campo="bloqueador"
+              valor={session.bloqueador}
+              procedencia={session.procedencia.bloqueador}
+              multilinea
+              // Texto cálido sobre el fondo naranja del bloque; sin token.
+              claseValor="text-ink-warm-dim text-[11.5px]"
+            />
+          </div>
         </Seccion>
       ) : null}
 
@@ -265,18 +354,21 @@ export function TwinPanel({
         </Seccion>
       ) : null}
 
-      {session.context_summary ? (
-        <Seccion>
-          <TwinField
-            label="Resumen de contexto"
-            value={
-              <span className="text-ink-dim text-[11.5px] break-words whitespace-pre-wrap">
-                {session.context_summary}
-              </span>
-            }
-          />
-        </Seccion>
-      ) : null}
+      <Seccion>
+        <Eyebrow>Historial</Eyebrow>
+        <TwinField
+          label="Sesión iniciada"
+          value={<RelativeTime iso={session.started_at.toISOString()} />}
+        />
+        {session.context_summary ? (
+          <div className="bg-surface-elevated rounded-[10px] p-2.5 text-[11px]">
+            <span className="text-ink-secondary">Resumen: </span>
+            <span className="text-ink-dim break-words whitespace-pre-wrap">
+              {session.context_summary}
+            </span>
+          </div>
+        ) : null}
+      </Seccion>
     </div>
   );
 }

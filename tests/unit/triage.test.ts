@@ -1,24 +1,15 @@
 import { describe, expect, test } from "vitest";
-import { esperaLegible, triage, UMBRAL_ESPERA_ALTA_MS } from "@/lib/triage";
+import { esperaLegible, pesoMotivo, triage } from "@/lib/triage";
 import type { EntradaTriage } from "@/lib/triage";
-
-const AHORA = new Date("2026-08-10T12:00:00.000Z");
 
 function entrada(over: Partial<EntradaTriage> = {}): EntradaTriage {
   return {
     stage: "identificando",
-    urgencia: "media",
     iaPausada: false,
     bloqueador: null,
-    sinResponder: 0,
-    esperandoDesde: null,
-    ahora: AHORA,
+    comprobantePagoUrl: null,
     ...over,
   };
-}
-
-function haceMinutos(min: number): Date {
-  return new Date(AHORA.getTime() - min * 60_000);
 }
 
 describe("esperaLegible", () => {
@@ -40,79 +31,60 @@ describe("esperaLegible", () => {
 });
 
 describe("triage", () => {
-  test("sin nada que atender es baja y sin motivo", () => {
-    expect(triage(entrada())).toEqual({ prioridad: "baja", motivo: null });
+  test("sin nada que atender no hay motivo", () => {
+    expect(triage(entrada())).toEqual({ motivo: null });
   });
 
   test("requiere_humano gana sobre todo lo demás", () => {
     const r = triage(
-      entrada({
-        stage: "requiere_humano",
-        iaPausada: true,
-        sinResponder: 3,
-        esperandoDesde: haceMinutos(300),
-      }),
+      entrada({ stage: "requiere_humano", iaPausada: true, bloqueador: "sin factura" }),
     );
-    expect(r).toEqual({ prioridad: "alta", motivo: "Escalado a un humano" });
+    expect(r.motivo).toEqual({ tipo: "humano", texto: "Pidió hablar con una persona" });
   });
 
-  test("IA pausada gana sobre el tiempo de espera", () => {
-    const r = triage({
-      ...entrada({ iaPausada: true, sinResponder: 1, esperandoDesde: haceMinutos(300) }),
-    });
-    expect(r).toEqual({ prioridad: "alta", motivo: "IA pausada, contesta un vendedor" });
+  test("la IA pausada también es un motivo de tipo humano", () => {
+    const r = triage(entrada({ iaPausada: true, bloqueador: "sin factura" }));
+    expect(r.motivo).toEqual({ tipo: "humano", texto: "La atiende un vendedor" });
   });
 
-  test("una hora sin responder escala a alta", () => {
-    const justo = triage(
-      entrada({
-        sinResponder: 1,
-        esperandoDesde: new Date(AHORA.getTime() - UMBRAL_ESPERA_ALTA_MS),
-      }),
-    );
-    expect(justo).toEqual({ prioridad: "alta", motivo: "Sin responder hace 1h" });
-  });
-
-  test("un minuto antes del umbral todavía es media", () => {
-    const r = triage(entrada({ sinResponder: 1, esperandoDesde: haceMinutos(59) }));
-    expect(r).toEqual({ prioridad: "media", motivo: "Sin responder hace 59m" });
-  });
-
-  test("urgencia alta escala aunque la espera sea corta", () => {
-    const r = triage(
-      entrada({ urgencia: "alta", sinResponder: 1, esperandoDesde: haceMinutos(2) }),
-    );
-    expect(r).toEqual({ prioridad: "alta", motivo: "Urgencia alta sin responder" });
-  });
-
-  test("urgencia alta sin mensajes pendientes NO escala", () => {
-    // El lead urgente al que ya le contestamos no tiene por qué encabezar la
-    // lista: lo que prioriza es que esté esperando, no que sea importante.
-    expect(triage(entrada({ urgencia: "alta" })).prioridad).toBe("baja");
-  });
-
-  test("el bloqueador prioriza a media aunque no haya nada sin responder", () => {
+  test("el bloqueador entra en el chip con su texto", () => {
     const r = triage(entrada({ bloqueador: "no tiene la factura" }));
-    expect(r).toEqual({ prioridad: "media", motivo: "Con bloqueador" });
+    expect(r.motivo).toEqual({ tipo: "bloqueo", texto: "Bloqueador: no tiene la factura" });
   });
 
   test("un bloqueador en blanco no cuenta como bloqueador", () => {
-    expect(triage(entrada({ bloqueador: "   " })).prioridad).toBe("baja");
+    expect(triage(entrada({ bloqueador: "   " })).motivo).toBeNull();
   });
 
-  test("esperando_pago es media aunque nadie esté esperando respuesta", () => {
+  test("esperando_pago sin comprobante requiere atención", () => {
     const r = triage(entrada({ stage: "esperando_pago" }));
-    expect(r).toEqual({ prioridad: "media", motivo: "Esperando pago" });
+    expect(r.motivo).toEqual({ tipo: "pago", texto: "Pago sin comprobante" });
   });
 
-  test("sin responder gana sobre esperando_pago porque describe mejor", () => {
+  test("esperando_pago CON comprobante ya no requiere atención", () => {
+    // El comprobante es justo lo que se estaba esperando: con él cargado la
+    // conversación deja de ser un pendiente del vendedor.
     const r = triage(
-      entrada({ stage: "esperando_pago", sinResponder: 2, esperandoDesde: haceMinutos(5) }),
+      entrada({ stage: "esperando_pago", comprobantePagoUrl: "https://x.test/c.jpg" }),
     );
-    expect(r).toEqual({ prioridad: "media", motivo: "Sin responder hace 5m" });
+    expect(r.motivo).toBeNull();
   });
 
-  test("esperandoDesde null con sinResponder 0 no calcula espera", () => {
-    expect(triage(entrada({ esperandoDesde: null, sinResponder: 0 })).motivo).toBeNull();
+  test("el bloqueador gana sobre el pago sin comprobante", () => {
+    const r = triage(entrada({ stage: "esperando_pago", bloqueador: "no llega la transferencia" }));
+    expect(r.motivo?.tipo).toBe("bloqueo");
+  });
+});
+
+describe("pesoMotivo", () => {
+  test("respeta el orden del handoff: humano, bloqueo, pago y al final sin motivo", () => {
+    const pesos = [
+      pesoMotivo({ tipo: "humano", texto: "" }),
+      pesoMotivo({ tipo: "bloqueo", texto: "" }),
+      pesoMotivo({ tipo: "pago", texto: "" }),
+      pesoMotivo(null),
+    ];
+    expect(pesos).toEqual([...pesos].sort((a, b) => a - b));
+    expect(new Set(pesos).size).toBe(4);
   });
 });
