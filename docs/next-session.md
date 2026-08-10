@@ -92,6 +92,54 @@ Ledger con el detalle de cada tarea: `.superpowers/sdd/2026-08-09-rediseno-b-ban
 
 **El orden de la bandeja cambió**: ya no es puramente cronológico, primero va lo que espera respuesta. Es el punto de D, pero es un cambio de comportamiento visible — si preferís el orden viejo, se revierte tocando un `sort`.
 
+## 🔴 El handoff apareció: hay desvíos reales
+
+El README del handoff está ahora en `docs/handoff-rediseno-README.md` (antes vivía solo en un zip fuera del repo). Comparado contra lo implementado, **el rediseño NO está completo**. Tres huecos, en orden de costo:
+
+### 1. La nav: corregido
+
+El handoff dice que la consola de Agente IA **reemplaza** el ítem "Intents y reglas" de la nav. G2 había agregado dos entradas propias. Revertido: las rutas `/intents-reglas/*` siguen funcionando, pero la administración de intents pertenece adentro de `/agente`, como pestaña "Reglas IF/THEN".
+
+### 2. Leads: la pantalla no sigue la spec
+
+El handoff la especifica en detalle (`README §2`) y lo implementado se desvía:
+
+| Handoff                                                                         | Lo que hay                                                       |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Título 22px/680/`-.03em` + subtítulo 12px "N esta semana · M con sesión activa" | Título 17px/650 + contador en mono                               |
+| Buscador de 250px **a la derecha del header**                                   | Barra de búsqueda de ancho completo debajo                       |
+| Tabla **en tarjeta**: `radius:15px`, `#0f1116`, borde `#1c1f26`                 | Tabla suelta, sin tarjeta                                        |
+| Grid `1.5fr 1.1fr 1.4fr .9fr .8fr`, `padding:11px 18px`                         | Tabla de shadcn, `padding:9px 20px`                              |
+| 5 columnas: Lead / Teléfono / Vehículo / **Etapa** / Actividad                  | 6: agrega Canales, y en vez de Etapa hay un chip "Sesión activa" |
+| Avatar 28×28 con punto de canal en la fila                                      | Sin avatar                                                       |
+| Separador `#14161b`, hover `#14161b`                                            | Separador `#17191f`, hover `#101218`                             |
+
+**Bloqueo parcial:** la columna Etapa necesita `currentStage` en `LeadListItem`, que hoy no lo trae. Es un cambio chico en `leads.service`.
+
+### 3. Métricas: se diseñó otra pantalla
+
+El handoff (`README §3`) pide **tres pestañas** —Total / Agente IA / Vendedores— con tarjetas KPI con delta, embudo de barras de 22px, volumen por canal, "quién cerró la venta", tarjeta de gasto de IA, "intents sin regla" con costo diario y tabla de rendimiento por vendedor.
+
+Lo implementado son tres secciones planas (embudo, resultado, autoría). **La estructura es distinta y falta la mayor parte del contenido.**
+
+Buena parte de lo que falta **no se puede construir con los datos de hoy**:
+
+| Lo que pide el handoff                                | Qué falta para poder calcularlo                                       |
+| ----------------------------------------------------- | --------------------------------------------------------------------- |
+| Costo de IA por lead, gasto diario, ahorro por reglas | `InMemoryCostTracker` no persiste; sin Upstash no hay serie histórica |
+| Latencia de 1ra respuesta                             | Nadie mide el delta entrante→saliente                                 |
+| Rendimiento por vendedor, ticket promedio             | `mensajes.sender_user_id` está siempre en `null` (nunca se llenó)     |
+| Deltas contra el período anterior                     | Ninguna query compara ventanas                                        |
+| "Intents sin regla" con costo                         | El costo por intent no se registra                                    |
+
+Se puede construir ya, sin datos nuevos: la estructura de 3 pestañas, el embudo al formato del handoff, volumen por canal, y "quién cerró" (IA vs humano) que ya sale de `sender`.
+
+### 4. Pantallas que el handoff nunca diseñó
+
+`README §Pendientes de diseño` las lista: **ficha individual del lead, Productos, Tags, Ajustes, Login**, merge de duplicados y layout móvil. Lo que se hizo ahí es extensión del lenguaje de A y B, no una recreación — no hay contra qué compararlo.
+
+---
+
 ### Deudas de G1 que quedaron sin hacer
 
 1. **Review de rama completa.** En A ese pase encontró un defecto que los 9 reviews por tarea no vieron. G1 no lo tuvo. Se puede hacer sobre master, rango `f5a12f6..3be7398`.
