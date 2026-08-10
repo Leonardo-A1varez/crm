@@ -1,30 +1,29 @@
-import { MonoMeta } from "@/components/shared/MonoMeta";
 import type { ReactNode } from "react";
 
 /**
- * Encabezado de pantalla. Misma tipografía y alturas que el del panel de lista
- * de la bandeja, para que las 7 pantallas del panel arranquen igual: el título
- * a la izquierda con su contador en mono, y las acciones a la derecha.
+ * Encabezado de pantalla, con los valores del handoff (§2, §3 y §4 usan el
+ * mismo patrón): título de 22px con el subtítulo debajo, y las acciones a la
+ * derecha. El contador vive en el subtítulo y no en un chip aparte, que es
+ * como lo especifica el handoff para Leads y Métricas.
  */
 export function PageHeader({
   title,
-  meta,
+  subtitle,
   actions,
 }: {
   title: string;
-  meta?: ReactNode;
+  subtitle?: ReactNode;
   actions?: ReactNode;
 }) {
   return (
-    // Alto fijo y no padding: con padding, las pantallas que traen botones en
-    // las acciones quedan 6px más altas que las que no, y el borde inferior no
-    // coincide al cambiar de pantalla.
-    <header className="border-line-layout bg-surface-panel flex h-[54px] shrink-0 items-center justify-between gap-3 border-b px-5">
-      <div className="flex min-w-0 items-baseline gap-2.5">
-        <h1 className="text-ink-primary truncate text-[17px] font-[650] tracking-[-0.02em]">
+    <header className="border-line-layout bg-surface-panel flex shrink-0 items-center justify-between gap-4 border-b px-5 py-[15px]">
+      <div className="min-w-0">
+        <h1 className="text-ink-primary truncate text-[22px] leading-tight font-[680] tracking-[-0.03em]">
           {title}
         </h1>
-        {meta !== undefined ? <MonoMeta className="shrink-0">{meta}</MonoMeta> : null}
+        {subtitle !== undefined ? (
+          <p className="text-ink-faint mt-[3px] truncate text-[12px]">{subtitle}</p>
+        ) : null}
       </div>
       {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
     </header>

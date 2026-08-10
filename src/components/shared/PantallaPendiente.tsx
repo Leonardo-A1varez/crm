@@ -20,7 +20,7 @@ export function PantallaPendiente({
 }) {
   return (
     <div className="bg-surface-root flex h-full flex-col overflow-hidden">
-      <PageHeader title={titulo} meta="sin construir" />
+      <PageHeader title={titulo} subtitle="sin construir" />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <EmptyState
           icon={icono}

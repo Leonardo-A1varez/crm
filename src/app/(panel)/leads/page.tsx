@@ -24,7 +24,7 @@ export default async function LeadsPage({
     // `h-full` y no `h-screen`: el shell del panel ya mide la pantalla, y
     // anidar otro alto de viewport empuja el pie fuera del área scrolleable.
     <div className="bg-surface-root flex h-full flex-col overflow-hidden">
-      <PageHeader title="Leads" meta={`${page.items.length} leads`} />
+      <PageHeader title="Leads" subtitle={`${page.items.length} leads`} />
       {rol === "admin" ? (
         <DuplicadosBanner count={page.pendingPairs} activo={soloDuplicados} />
       ) : null}

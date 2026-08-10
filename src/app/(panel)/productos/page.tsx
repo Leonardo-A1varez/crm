@@ -28,7 +28,7 @@ export default async function ProductosPage({
     <div className="bg-surface-root flex h-full flex-col overflow-hidden">
       <PageHeader
         title="Productos"
-        meta={`${productos.length} productos`}
+        subtitle={`${productos.length} productos`}
         actions={
           isAdmin ? (
             <>

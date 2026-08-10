@@ -19,7 +19,7 @@ export default async function IntentsPage() {
     <div className="bg-surface-root flex h-full flex-col overflow-hidden">
       <PageHeader
         title="Intents"
-        meta={`${filas.length} intents`}
+        subtitle={`${filas.length} intents`}
         actions={isAdmin ? <NuevoIntent onCrear={crearIntentAction} /> : null}
       />
       <div className="min-h-0 flex-1 overflow-y-auto">

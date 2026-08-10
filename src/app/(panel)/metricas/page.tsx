@@ -26,7 +26,7 @@ export default async function MetricasPage({
     <div className="bg-surface-root flex h-full flex-col overflow-hidden">
       <PageHeader
         title="Métricas"
-        meta={`últimos ${dias} días`}
+        subtitle={`últimos ${dias} días`}
         actions={
           <div className="flex items-center gap-1">
             {VENTANAS.map((v) => (

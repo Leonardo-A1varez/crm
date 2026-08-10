@@ -26,7 +26,7 @@ export default async function ReglasPage() {
     <div className="bg-surface-root flex h-full flex-col overflow-hidden">
       <PageHeader
         title="Reglas"
-        meta={`${filas.length} reglas`}
+        subtitle={`${filas.length} reglas`}
         actions={isAdmin ? <NuevaRegla intents={activos} onCrear={crearReglaAction} /> : null}
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
