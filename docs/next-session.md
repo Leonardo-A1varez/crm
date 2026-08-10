@@ -72,10 +72,21 @@ Ledger con el detalle de cada tarea: `.superpowers/sdd/2026-08-09-rediseno-b-ban
 - **Verificación medida en navegador como criterio de aceptación**, no revisión por lectura.
 - **Regenerar el brief si se corrige el plan** a mitad de ejecución: los briefs no se actualizan solos.
 
-### Deudas abiertas de B
+### Deudas de B — cerradas en D
 
-- Badge de no leídos **omitido**: `InboxItem` no trae el campo. No se inventó ni se tocó el service. Agregarlo es sub-proyecto D.
-- El `ChannelDot` del avatar usa `canales[0]` porque `canales: Canal[]` no tiene orden garantizado ni campo de "canal del último mensaje". Aproximación documentada, no el canal activo real. Resolver en D.
+- Badge de no leídos: ahora cuenta **mensajes del cliente posteriores a nuestra última respuesta**. No hay acuse de lectura en el schema y no se inventó uno; para una bandeja de ventas "sin responder" es mejor señal que "sin abrir".
+- El `ChannelDot` del avatar ya no usa `canales[0]`: es el canal de la conversación del último mensaje.
+
+### Lo que se hizo después de B (misma rama)
+
+| Trabajo                             | Commit    | Notas                                                           |
+| ----------------------------------- | --------- | --------------------------------------------------------------- |
+| Leads y productos al lenguaje nuevo | `ffd9113` | `PageHeader` + `SearchField`; se fue el `h-screen` anidado      |
+| Las 5 rutas sin construir           | `fbd0c90` | `PantallaPendiente`, en vez de `TODO:` crudo en el nav          |
+| D — Triage                          | `874533a` | `lib/triage` pura; la bandeja ordena por lo que hay que atender |
+| F — Métricas                        | `9563f15` | Embudo, resultado y autoría; ventana de 7/30/90 días            |
+
+**El orden de la bandeja cambió**: ya no es puramente cronológico, primero va lo que espera respuesta. Es el punto de D, pero es un cambio de comportamiento visible — si preferís el orden viejo, se revierte tocando un `sort`.
 
 ### Deudas de G1 que quedaron sin hacer
 
@@ -153,16 +164,16 @@ Configurable desde `/agente`: modelo (11 opciones con precio), instrucciones de 
 
 Handoff: `Rediseño UI sala de control.zip` → `design_handoff_crm_control_room/`, referencia `CRM Repuestos v2.dc.html`.
 
-| #   | Sub-proyecto                                 | Estado                                                           |
-| --- | -------------------------------------------- | ---------------------------------------------------------------- |
-| A   | Base visual                                  | ✅ en master                                                     |
-| B   | Bandeja unificada de 3 paneles               | ✅ rama `rediseno-b-bandeja` sin mergear                         |
-| C   | Ventana de 24 h + estados de entrega         | ⚪ requiere migración + persistir webhooks de status de Meta     |
-| D   | Triage (motivo + prioridad)                  | ⚪ **siguiente**: cálculo en server, y absorbe las deudas de B   |
-| E   | Twin con procedencia y edición               | ⚪ requiere migración por campo                                  |
-| F   | Métricas en 3 cortes                         | ⚪ `mensajes` ya tiene `direction` y `sender`: viable sin migrar |
-| G1  | Config del agente                            | ✅ en master                                                     |
-| G2  | Motor de reglas y escalado (absorbe fase 11) | ⚪                                                               |
+| #   | Sub-proyecto                                 | Estado                                                     |
+| --- | -------------------------------------------- | ---------------------------------------------------------- |
+| A   | Base visual                                  | ✅ en master                                               |
+| B   | Bandeja unificada de 3 paneles               | ✅ rama `rediseno-b-bandeja` sin mergear                   |
+| C   | Ventana de 24 h + estados de entrega         | ⚪ **siguiente**: migración + persistir webhooks de status |
+| D   | Triage (motivo + prioridad)                  | ✅ misma rama, sin migrar                                  |
+| E   | Twin con procedencia y edición               | ⚪ requiere migración por campo                            |
+| F   | Métricas en 3 cortes                         | ✅ misma rama, sin migrar                                  |
+| G1  | Config del agente                            | ✅ en master                                               |
+| G2  | Motor de reglas y escalado (absorbe fase 11) | ⚪                                                         |
 
 ### ⚠️ Lección para planear B
 
