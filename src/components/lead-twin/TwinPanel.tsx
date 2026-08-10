@@ -1,4 +1,5 @@
 import { AltRoute, ContactEmergency } from "@/components/icons";
+import { CampoEditable } from "@/components/lead-twin/CampoEditable";
 import { TwinEmptyState } from "@/components/lead-twin/TwinEmptyState";
 import { TwinField } from "@/components/lead-twin/TwinField";
 import { Eyebrow } from "@/components/shared/Eyebrow";
@@ -6,7 +7,9 @@ import { MonoMeta } from "@/components/shared/MonoMeta";
 import { RelativeTime } from "@/components/shared/RelativeTime";
 import { FUNNEL_STAGES, funnelStep, isDetour, stageColor, stageLabel } from "@/lib/ui/stage";
 import type { CurrentStage, MetodoPago, Urgencia } from "@/types/domain";
-import type { LeadSession } from "@/types/entities";
+import type { EditarCampoTwinInput } from "@/lib/validation/inbox.schema";
+import type { LeadSession, UUID } from "@/types/entities";
+import type { ActionResult } from "@/types/inbox";
 
 const URGENCIA_CONFIG: Record<Urgencia, { label: string; dotClass: string }> = {
   baja: { label: "Baja", dotClass: "bg-ink-faint" },
@@ -119,8 +122,22 @@ function RailEmbudo({ stage }: { stage: CurrentStage }) {
  * Ficha estructurada de la sesión activa (Lead Twin). Read-only server render;
  * secciones opcionales solo aparecen cuando el extractor pobló los campos.
  */
-export function TwinPanel({ session }: { session: LeadSession | null }) {
+export function TwinPanel({
+  session,
+  leadId,
+  onEditar,
+}: {
+  session: LeadSession | null;
+  leadId: UUID;
+  onEditar: (input: EditarCampoTwinInput) => Promise<ActionResult>;
+}) {
   if (!session) return <TwinEmptyState />;
+
+  const editable = {
+    leadId,
+    sessionId: session.id,
+    onGuardar: onEditar,
+  };
 
   const urgencia = URGENCIA_CONFIG[session.urgencia];
   const hasCotizacion =
@@ -145,13 +162,13 @@ export function TwinPanel({ session }: { session: LeadSession | null }) {
       <RailEmbudo stage={session.current_stage} />
 
       <Seccion>
-        <TwinField
+        <CampoEditable
+          {...editable}
           label="Consulta"
-          value={
-            session.consulta ? (
-              <span className="break-words whitespace-pre-wrap">{session.consulta}</span>
-            ) : undefined
-          }
+          campo="consulta"
+          valor={session.consulta}
+          procedencia={session.procedencia.consulta}
+          multilinea
         />
         <TwinField
           label="Urgencia"
@@ -171,36 +188,39 @@ export function TwinPanel({ session }: { session: LeadSession | null }) {
       {hasCotizacion ? (
         <Seccion>
           <Eyebrow>Cotización</Eyebrow>
-          <TwinField
+          <CampoEditable
+            {...editable}
             label="Código interno"
-            value={
-              session.codigo_interno ? (
-                <span className="font-mono">{session.codigo_interno}</span>
-              ) : undefined
-            }
+            campo="codigo_interno"
+            valor={session.codigo_interno}
+            procedencia={session.procedencia.codigo_interno}
           />
-          <TwinField
+          <CampoEditable
+            {...editable}
             label="Precio cotizado"
-            value={
-              session.precio_cotizado !== null ? formatPrecio(session.precio_cotizado) : undefined
-            }
+            campo="precio_cotizado"
+            valor={session.precio_cotizado !== null ? formatPrecio(session.precio_cotizado) : null}
+            procedencia={session.procedencia.precio_cotizado}
           />
-          <TwinField
+          <CampoEditable
+            {...editable}
             label="Cantidad"
-            value={session.cantidad !== null ? String(session.cantidad) : undefined}
+            campo="cantidad"
+            valor={session.cantidad !== null ? String(session.cantidad) : null}
+            procedencia={session.procedencia.cantidad}
           />
         </Seccion>
       ) : null}
 
       {session.bloqueador ? (
         <Seccion>
-          <TwinField
+          <CampoEditable
+            {...editable}
             label="Bloqueador"
-            value={
-              <span className="text-warn break-words whitespace-pre-wrap">
-                {session.bloqueador}
-              </span>
-            }
+            campo="bloqueador"
+            valor={session.bloqueador}
+            procedencia={session.procedencia.bloqueador}
+            multilinea
           />
         </Seccion>
       ) : null}

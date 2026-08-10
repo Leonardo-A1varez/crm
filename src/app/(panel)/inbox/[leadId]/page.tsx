@@ -10,6 +10,7 @@ import { NotFoundError } from "@/lib/errors";
 import { estadoVentana } from "@/lib/ventana";
 import { getInboxServiceForRequest } from "@/server/bootstrap/inbox-bootstrap";
 import { closeSessionAction } from "../_actions/close-session.action";
+import { editarCampoTwinAction } from "../_actions/editar-campo-twin.action";
 import { sendMessageAction } from "../_actions/send-message.action";
 import { toggleHandoffAction } from "../_actions/toggle-handoff.action";
 import type { ConversationView } from "@/types/inbox";
@@ -89,7 +90,11 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
           aria-label="Lead Twin"
           className="border-line-layout bg-surface-panel w-[322px] shrink-0 overflow-y-auto border-l"
         >
-          <TwinPanel session={view.session} />
+          <TwinPanel
+            session={view.session}
+            leadId={view.lead.id}
+            onEditar={editarCampoTwinAction}
+          />
         </aside>
       </div>
     </div>

@@ -1,5 +1,5 @@
 import type { ConversationView, InboxItem } from "@/types/inbox";
-import type { Canal, MotivoPerdida, Resultado } from "@/types/domain";
+import type { CampoTwinEditable, Canal, MotivoPerdida, Resultado } from "@/types/domain";
 import type { LeadSession, Mensaje, UUID } from "@/types/entities";
 
 export type { ConversationView, InboxItem };
@@ -20,6 +20,13 @@ export interface CloseSessionServiceInput {
   sessionId: UUID;
   resultado: Resultado;
   motivoPerdida?: MotivoPerdida | null;
+}
+
+export interface EditarCampoTwinServiceInput {
+  sessionId: UUID;
+  campo: CampoTwinEditable;
+  valor: string | number | null;
+  userId: UUID | null;
 }
 
 export interface InboxService {
@@ -56,4 +63,11 @@ export interface InboxService {
    * no-op; cierre con resultado distinto lanza IllegalStateError.
    */
   closeSession(input: CloseSessionServiceInput): Promise<LeadSession>;
+
+  /**
+   * Corrige a mano un campo del Twin y deja la marca de procedencia. Lanza
+   * NotFoundError si la sesión no existe, ConflictError si está cerrada: una
+   * ficha cerrada es historial y no se reescribe.
+   */
+  editarCampoTwin(input: EditarCampoTwinServiceInput): Promise<LeadSession>;
 }

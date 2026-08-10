@@ -29,6 +29,16 @@ export type Direction = (typeof DIRECTION)[number];
 export const SENDER = ["lead", "ia", "humano", "sistema"] as const;
 export type Sender = (typeof SENDER)[number];
 
+/** Campos del Twin que una persona puede corregir a mano. */
+export const CAMPOS_TWIN_EDITABLES = [
+  "consulta",
+  "codigo_interno",
+  "precio_cotizado",
+  "cantidad",
+  "bloqueador",
+] as const;
+export type CampoTwinEditable = (typeof CAMPOS_TWIN_EDITABLES)[number];
+
 /**
  * Escalones de entrega que reporta Meta para un mensaje saliente. `null` en la
  * entidad significa entrante, o saliente cuyo webhook de status no llegó.

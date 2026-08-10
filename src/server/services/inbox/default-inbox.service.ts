@@ -11,6 +11,7 @@ import type { Conversacion, LeadSession, Mensaje, UUID } from "@/types/entities"
 import type {
   CloseSessionServiceInput,
   ConversationView,
+  EditarCampoTwinServiceInput,
   InboxItem,
   InboxService,
   SendMessageServiceInput,
@@ -203,6 +204,18 @@ export class DefaultInboxService implements InboxService {
     return input.action === "pause"
       ? this.deps.handoff.pause(input.sessionId, "handoff manual vendedor")
       : this.deps.handoff.resume(input.sessionId);
+  }
+
+  async editarCampoTwin(input: EditarCampoTwinServiceInput): Promise<LeadSession> {
+    // Reusa la guarda de sesión activa: una ficha cerrada es historial y
+    // reescribirla cambiaría el pasado que se le mostró a alguien.
+    await this.requireActiveSession(input.sessionId);
+    return this.deps.sessions.editarCampoTwin(
+      input.sessionId,
+      input.campo,
+      input.valor,
+      input.userId,
+    );
   }
 
   async closeSession(input: CloseSessionServiceInput): Promise<LeadSession> {
