@@ -23,10 +23,7 @@ export interface ConteoHerramienta {
 }
 
 /**
- * Intent activo que ninguna regla activa cubre: hoy lo contesta el LLM. No trae
- * cuántas veces se usó porque esa cuenta no existe — la clasificación de un
- * turno solo se persiste cuando matchea una regla (`rule_executions`), que es
- * justo el caso contrario al de esta lista.
+ * Intent activo que ninguna regla activa cubre: hoy lo contesta el LLM.
  */
 export interface IntentSinRegla {
   id: string;
@@ -35,6 +32,37 @@ export interface IntentSinRegla {
   /** Lo propuso el detector batch mirando conversaciones reales. */
   autoDetectado: boolean;
   detectadoEl: Date;
+  /**
+   * Turnos de la ventana que el LLM contestó con este intent (tabla
+   * `turn_classifications`). Es lo que costaría dejar de pagar al escribirle
+   * una regla. Cuenta desde que el pipeline empezó a persistir la
+   * clasificación: para ventanas anteriores a eso da cero.
+   */
+  usos: number;
+}
+
+/**
+ * Una fila de "Rendimiento por vendedor" (handoff §3.3). Sale de cruzar
+ * `mensajes.sender_user_id` con las sesiones de la ventana.
+ *
+ * "Ticket promedio" no está: `lead_session.precio_cotizado` es lo que se
+ * cotizó, no lo que se facturó, y no existe tabla de venta ni de orden.
+ */
+export interface FilaVendedor {
+  usuarioId: string;
+  nombre: string;
+  /** Sesiones en las que esta persona fue la primera en escribir. */
+  tomadas: number;
+  /**
+   * Mediana de lo que esperó el cliente hasta la primera respuesta de esta
+   * persona, en segundos. `null` si ninguna de sus sesiones tenía un mensaje
+   * del cliente antes dentro de la ventana.
+   */
+  tomaEnSegundos: number | null;
+  /** De las tomadas, las que terminaron con `resultado = exito`. */
+  cerradas: number;
+  /** Cerradas sobre tomadas, en porcentaje. */
+  cierre: number;
 }
 
 /**
@@ -89,6 +117,22 @@ export interface Metricas {
   };
   /** Sesiones de la ventana en las que una persona llegó a escribir. */
   tomadasPorHumano: number;
+  /** El corte por persona del §3.3. */
+  vendedores: {
+    /** Una fila por vendedor con al menos una sesión tomada, de más a menos. */
+    filas: FilaVendedor[];
+    /**
+     * Sesiones que tomó una persona sin usuario registrado. Son las anteriores
+     * a que el envío del panel propagara `sender_user_id`: no se pueden
+     * repartir entre las filas y desaparecerlas mentiría sobre el total.
+     */
+    sinAtribuir: number;
+    /**
+     * Mediana global de la espera del cliente hasta la primera respuesta de una
+     * persona, en segundos. `null` cuando no hay ninguna sesión medible.
+     */
+    tomaEnSegundos: number | null;
+  };
   /** Sesiones cerradas con éxito, atribuidas según haya escrito un humano. */
   cierres: {
     ia: number;

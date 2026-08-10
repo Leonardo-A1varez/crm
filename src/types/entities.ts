@@ -3,6 +3,7 @@ import type {
   CurrentStage,
   Direction,
   EstadoEntrega,
+  EtapaEmbudo,
   MergeCandidateStatus,
   MetodoPago,
   MotivoPerdida,
@@ -31,11 +32,30 @@ export interface CompatibilidadEntry {
   motor?: string;
 }
 
-/** Quién dejó el valor actual de un campo del Twin. */
+/** Quién escribió el valor actual de un campo del Twin. */
+export type ProcedenciaPor = "ia" | "humano";
+
+/**
+ * De dónde salió el valor actual de un campo del Twin.
+ *
+ * Anota las dos manos, no solo la humana: el panel muestra debajo de cada campo
+ * de qué mensaje se dedujo el dato y, cuando alguien lo corrigió, qué había
+ * inferido el extractor antes. Sin la entrada de la IA esas dos líneas no se
+ * pueden escribir.
+ *
+ * La ausencia de la clave significa que nadie escribió ese campo todavía — NO
+ * que lo puso la IA, que es lo que significaba en el contrato viejo (ver
+ * supabase/migrations/20260810150000).
+ */
 export interface ProcedenciaCampo {
-  por: "humano";
+  por: ProcedenciaPor;
   at: string;
+  /** Solo en `por: "humano"`; el extractor no es un usuario. */
   user_id: UUID | null;
+  /** Mensaje del que salió el dato. `null` cuando no se pudo atribuir. */
+  mensaje_origen_id?: UUID | null;
+  /** Lo que había en el campo antes de esta escritura. */
+  valor_anterior?: string | number | null;
 }
 
 export type Procedencia = Record<string, ProcedenciaCampo>;
@@ -75,6 +95,12 @@ export interface LeadSession {
   id: UUID;
   lead_id: UUID;
   current_stage: CurrentStage;
+  /**
+   * Máximo paso del embudo por el que pasó la sesión. En un desvío
+   * (`current_stage` = `perdido` / `requiere_humano`) el rail del Twin se
+   * congela acá: `current_stage` ya no dice por dónde venía.
+   */
+  etapa_alcanzada: EtapaEmbudo;
   urgencia: Urgencia;
   consulta: string;
   producto_cotizado_id: UUID | null;
@@ -89,9 +115,11 @@ export interface LeadSession {
   ia_pausada: boolean;
   extras: Record<string, unknown>;
   context_summary: string | null;
-  /** Campos del Twin corregidos por una persona; ausente = lo puso el extractor. */
+  /** Quién escribió cada campo del Twin; ausente = nadie lo escribió todavía. */
   procedencia: Procedencia;
   started_at: Date;
+  /** Último cambio de la ficha (trigger en DB). Alimenta el "hace X" del Twin. */
+  updated_at: Date;
   closed_at: Date | null;
 }
 
@@ -164,6 +192,22 @@ export interface RuleExecution {
   regla_id: UUID;
   mensaje_id: UUID;
   matched_intent_id: UUID;
+  created_at: Date;
+}
+
+/**
+ * La otra mitad de `RuleExecution`: el turno que ninguna regla cubrió y
+ * terminó contestando el LLM. Se cuelga del mensaje entrante que lo disparó,
+ * igual que la auditoría de reglas.
+ */
+export interface TurnClassification {
+  id: UUID;
+  mensaje_id: UUID;
+  /** `null` si el clasificador no reconoció ningún intent activo. */
+  intent_id: UUID | null;
+  /** Nombre tal como se clasificó; sobrevive al rename o borrado del intent. */
+  intent_nombre: string | null;
+  confidence: number;
   created_at: Date;
 }
 

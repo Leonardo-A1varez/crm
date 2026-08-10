@@ -12,6 +12,12 @@
 -- y la ausencia de una clave significa que el dato vino del extractor. Se
 -- guarda solo la intervención humana porque es la excepción: anotar cada campo
 -- que tocó la IA sería escribir el caso normal en cada turno.
+--
+-- OBSOLETO desde 20260810150000: esa migración cambia el contrato. `por` pasa a
+-- ser "ia" | "humano", el extractor también deja su entrada (con el mensaje del
+-- que salió el dato y el valor que pisó), y la ausencia de clave ya no
+-- significa "lo puso la IA" sino "nadie escribió ese campo todavía". La forma
+-- vigente está documentada allá y en `ProcedenciaCampo` (src/types/entities.ts).
 
 alter table public.lead_session
   add column procedencia jsonb not null default '{}'::jsonb;

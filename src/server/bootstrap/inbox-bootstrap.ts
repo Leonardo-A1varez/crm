@@ -4,6 +4,8 @@ import { SupabaseConversationsRepository } from "@/server/repositories/conversat
 import { SupabaseLeadSessionRepository } from "@/server/repositories/lead-session.supabase.repo";
 import { SupabaseLeadsRepository } from "@/server/repositories/leads.supabase.repo";
 import { SupabaseMessagesRepository } from "@/server/repositories/messages.supabase.repo";
+import { SupabaseProductsRepository } from "@/server/repositories/productos.supabase.repo";
+import { SupabaseTagsRepository } from "@/server/repositories/tags.supabase.repo";
 import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultInboxService } from "@/server/services/inbox/default-inbox.service";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
@@ -35,6 +37,8 @@ export function makeInboxService(db: AppClient): InboxService {
     messages,
     metaApi: new DefaultMetaApiService(convs, messages, metaClient),
     handoff: new DefaultHandoffService(sessions),
+    productos: new SupabaseProductsRepository(db),
+    tags: new SupabaseTagsRepository(db),
   });
 }
 

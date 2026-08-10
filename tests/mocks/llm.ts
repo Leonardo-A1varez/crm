@@ -1,3 +1,5 @@
+import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
+import type { AgenteConfigValores } from "@/types/agente";
 import type { IntentClassification, LeadTwinUpdate } from "@/lib/validation/ai";
 import type {
   IntentClassifierInput,
@@ -60,7 +62,20 @@ type AgentLLMHandler = (input: AgentLLMInput) => Promise<AgentLLMResult>;
 
 export class FakeAgentLLM implements AgentLLM {
   private readonly handlers: AgentLLMHandler[] = [];
+  private config: AgenteConfigValores | null = null;
   public readonly calls: AgentLLMInput[] = [];
+
+  /**
+   * Enciende `configAgente()`. Sin llamarlo el metodo queda undefined, que es
+   * el caso de `LLM_MODE=mock`: el service cae en la config de fabrica.
+   */
+  conConfig(valores: Partial<AgenteConfigValores>): this {
+    this.config = { ...CONFIG_DE_FABRICA, ...valores };
+    this.configAgente = async () => this.config as AgenteConfigValores;
+    return this;
+  }
+
+  configAgente?: () => Promise<AgenteConfigValores>;
 
   enqueue(handler: AgentLLMHandler): this {
     this.handlers.push(handler);

@@ -84,6 +84,9 @@ export type Database = {
           created_at: string
           descuento_max_pct: number
           emojis: string
+          escalar_cotizacion_desde: number | null
+          escalar_palabras: string[]
+          escalar_umbral_intents: number
           horario: Json
           horario_timezone: string
           id: string
@@ -95,6 +98,7 @@ export type Database = {
           plantilla_fuera_horario: string
           politica_tope: string
           rollback_de: string | null
+          timeout_tool_ms: number
           tono: string
           tope_gasto_diario_usd: number
           umbral_resumen_turnos: number
@@ -107,6 +111,9 @@ export type Database = {
           created_at?: string
           descuento_max_pct: number
           emojis: string
+          escalar_cotizacion_desde?: number | null
+          escalar_palabras?: string[]
+          escalar_umbral_intents?: number
           horario: Json
           horario_timezone: string
           id?: string
@@ -118,6 +125,7 @@ export type Database = {
           plantilla_fuera_horario?: string
           politica_tope: string
           rollback_de?: string | null
+          timeout_tool_ms?: number
           tono: string
           tope_gasto_diario_usd: number
           umbral_resumen_turnos: number
@@ -130,6 +138,9 @@ export type Database = {
           created_at?: string
           descuento_max_pct?: number
           emojis?: string
+          escalar_cotizacion_desde?: number | null
+          escalar_palabras?: string[]
+          escalar_umbral_intents?: number
           horario?: Json
           horario_timezone?: string
           id?: string
@@ -141,6 +152,7 @@ export type Database = {
           plantilla_fuera_horario?: string
           politica_tope?: string
           rollback_de?: string | null
+          timeout_tool_ms?: number
           tono?: string
           tope_gasto_diario_usd?: number
           umbral_resumen_turnos?: number
@@ -299,6 +311,7 @@ export type Database = {
           consulta: string
           context_summary: string | null
           current_stage: Database["public"]["Enums"]["current_stage_enum"]
+          etapa_alcanzada: Database["public"]["Enums"]["current_stage_enum"]
           extras: Json
           ia_pausada: boolean
           id: string
@@ -312,6 +325,7 @@ export type Database = {
           producto_cotizado_id: string | null
           resultado: Database["public"]["Enums"]["resultado_enum"] | null
           started_at: string
+          updated_at: string
           urgencia: Database["public"]["Enums"]["urgencia_enum"]
         }
         Insert: {
@@ -323,6 +337,7 @@ export type Database = {
           consulta?: string
           context_summary?: string | null
           current_stage?: Database["public"]["Enums"]["current_stage_enum"]
+          etapa_alcanzada?: Database["public"]["Enums"]["current_stage_enum"]
           extras?: Json
           ia_pausada?: boolean
           id?: string
@@ -336,6 +351,7 @@ export type Database = {
           producto_cotizado_id?: string | null
           resultado?: Database["public"]["Enums"]["resultado_enum"] | null
           started_at?: string
+          updated_at?: string
           urgencia?: Database["public"]["Enums"]["urgencia_enum"]
         }
         Update: {
@@ -347,6 +363,7 @@ export type Database = {
           consulta?: string
           context_summary?: string | null
           current_stage?: Database["public"]["Enums"]["current_stage_enum"]
+          etapa_alcanzada?: Database["public"]["Enums"]["current_stage_enum"]
           extras?: Json
           ia_pausada?: boolean
           id?: string
@@ -360,6 +377,7 @@ export type Database = {
           producto_cotizado_id?: string | null
           resultado?: Database["public"]["Enums"]["resultado_enum"] | null
           started_at?: string
+          updated_at?: string
           urgencia?: Database["public"]["Enums"]["urgencia_enum"]
         }
         Relationships: [
@@ -870,6 +888,48 @@ export type Database = {
             foreignKeyName: "tool_executions_mensaje_id_fkey"
             columns: ["mensaje_id"]
             isOneToOne: false
+            referencedRelation: "mensajes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      turn_classifications: {
+        Row: {
+          confidence: number
+          created_at: string
+          id: string
+          intent_id: string | null
+          intent_nombre: string | null
+          mensaje_id: string
+        }
+        Insert: {
+          confidence: number
+          created_at?: string
+          id?: string
+          intent_id?: string | null
+          intent_nombre?: string | null
+          mensaje_id: string
+        }
+        Update: {
+          confidence?: number
+          created_at?: string
+          id?: string
+          intent_id?: string | null
+          intent_nombre?: string | null
+          mensaje_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "turn_classifications_intent_id_fkey"
+            columns: ["intent_id"]
+            isOneToOne: false
+            referencedRelation: "intents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "turn_classifications_mensaje_id_fkey"
+            columns: ["mensaje_id"]
+            isOneToOne: true
             referencedRelation: "mensajes"
             referencedColumns: ["id"]
           },

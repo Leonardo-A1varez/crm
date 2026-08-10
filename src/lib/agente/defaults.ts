@@ -29,8 +29,19 @@ export const CONFIG_DE_FABRICA: AgenteConfigValores = {
   max_pasos_tool: 5,
   ventana_contexto_mensajes: 10,
   umbral_resumen_turnos: 20,
+  // El límite de §4.4 que antes no existía. No reproduce una constante previa
+  // porque no había ninguna: la tool de catálogo corría sin corte. 3 s es el
+  // valor del handoff; subirlo lo vuelve inerte, bajarlo corta búsquedas sanas.
+  timeout_tool_ms: 3000,
   tope_gasto_diario_usd: 10,
   politica_tope: "pausar",
+  // 2 y no 3: el handoff pide 2 con rango 1–5. El 3 anterior vivía fijo en
+  // `handoff.service` y nadie podía cambiarlo.
+  escalar_umbral_intents: 2,
+  // Las dos condiciones que agregan escalado nuevo arrancan apagadas: encender
+  // un escalado que el negocio no eligió le esconde conversaciones al agente.
+  escalar_palabras: [],
+  escalar_cotizacion_desde: null,
   horario: horarioAbiertoSiempre(),
   // Explícita a propósito: en Vercel el server es UTC, y heredarlo haría que el
   // agente cierre a la hora equivocada, en silencio, para todos.

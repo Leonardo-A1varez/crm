@@ -2,10 +2,83 @@ import { BarraReparto } from "@/components/metricas/BarraReparto";
 import { BloqueFaltante, KpiFaltante } from "@/components/metricas/Faltante";
 import { Seccion } from "@/components/metricas/Seccion";
 import { TarjetaKpi } from "@/components/metricas/TarjetaKpi";
-import { Group, TaskAlt } from "@/components/icons";
+import { Group, Schedule, TaskAlt } from "@/components/icons";
 import { formatearEntero, formatearPorcentaje, porcentajeDe } from "@/lib/ui/metricas";
 import { stageColor } from "@/lib/ui/stage";
 import type { Metricas } from "@/types/metricas";
+
+/** Segundos como "2 m 30 s" / "45 s". Sin dato, el guion del resto de la pantalla. */
+function formatearEspera(segundos: number | null): string {
+  if (segundos === null) return "—";
+  if (segundos < 60) return `${segundos} s`;
+  const min = Math.floor(segundos / 60);
+  const resto = segundos % 60;
+  return resto === 0 ? `${min} m` : `${min} m ${resto} s`;
+}
+
+/**
+ * La tabla del handoff §3.3, con las columnas que hoy tienen dato. "Ticket
+ * promedio" no está: `precio_cotizado` es lo cotizado y no lo facturado.
+ *
+ * Las sesiones que tomó alguien sin usuario registrado viajan aparte y se
+ * declaran al pie en vez de repartirse: son las anteriores a que el envío del
+ * panel propagara `sender_user_id`, y meterlas en una fila inventaría trabajo.
+ */
+function TablaVendedores({ vendedores }: { vendedores: Metricas["vendedores"] }) {
+  const { filas, sinAtribuir, tomaEnSegundos } = vendedores;
+
+  const nota =
+    sinAtribuir > 0
+      ? `${formatearEntero(sinAtribuir)} ${sinAtribuir === 1 ? "sesión tomada" : "sesiones tomadas"} sin usuario registrado: son anteriores a que el envío del panel guardara quién escribió. No se reparten entre las filas.`
+      : "«Toma» es la mediana de lo que el cliente esperó hasta la primera respuesta de esa persona. «Ticket promedio» no está: lo que la sesión guarda es lo cotizado, no lo facturado.";
+
+  return (
+    <Seccion
+      titulo="Rendimiento por vendedor"
+      extra={tomaEnSegundos !== null ? `toma global ${formatearEspera(tomaEnSegundos)}` : undefined}
+      nota={nota}
+    >
+      {filas.length === 0 ? (
+        <p className="text-ink-faint text-[11.5px]">
+          Ninguna persona tomó una conversación en el período.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[420px] border-collapse text-left">
+            <thead>
+              <tr className="text-ink-ghost font-mono text-[9px] tracking-[0.13em] uppercase">
+                <th className="pb-2 font-semibold">Vendedor</th>
+                <th className="pb-2 text-right font-semibold">Tomadas</th>
+                <th className="pb-2 text-right font-semibold">Toma</th>
+                <th className="pb-2 text-right font-semibold">Cerradas</th>
+                <th className="pb-2 text-right font-semibold">Cierre</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filas.map((f) => (
+                <tr key={f.usuarioId} className="border-line-row border-t">
+                  <td className="text-ink-secondary py-2 text-[11.5px]">{f.nombre}</td>
+                  <td className="text-ink-body py-2 text-right font-mono text-[11.5px]">
+                    {formatearEntero(f.tomadas)}
+                  </td>
+                  <td className="text-ink-dim py-2 text-right font-mono text-[11.5px]">
+                    {formatearEspera(f.tomaEnSegundos)}
+                  </td>
+                  <td className="text-ink-body py-2 text-right font-mono text-[11.5px]">
+                    {formatearEntero(f.cerradas)}
+                  </td>
+                  <td className="text-ink-body py-2 text-right font-mono text-[11.5px]">
+                    {formatearPorcentaje(f.cierre)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Seccion>
+  );
+}
 
 export function PanelVendedores({ m }: { m: Metricas }) {
   // Las escaladas que nadie contestó todavía. Restar en vez de leer el conteo
@@ -32,17 +105,17 @@ export function PanelVendedores({ m }: { m: Metricas }) {
           label="Ticket promedio"
           falta="un monto por sesión cerrada. lead_session.precio_cotizado es lo que se cotizó, no lo que se facturó, y no hay tabla de venta ni de orden."
         />
-        <KpiFaltante
+        {/* Mediana y no promedio: una sesión que quedó abierta de un viernes a
+            un lunes corre el promedio de todos y no dice nada del equipo. */}
+        <TarjetaKpi
           label="Tiempo hasta tomar"
-          falta="marcar cuándo se pidió el humano y cuándo contestó. La sesión guarda la etapa actual, no el instante en que entró en requiere_humano."
+          valor={formatearEspera(m.vendedores.tomaEnSegundos)}
+          subtitulo="mediana de lo que esperó el cliente hasta la primera respuesta de una persona"
+          icono={Schedule}
         />
       </div>
 
-      <BloqueFaltante
-        label="Rendimiento por vendedor"
-        descripcion="La tabla del handoff: vendedor, tomadas, tiempo de toma, cerradas, ticket promedio y tasa de cierre, una fila por persona."
-        falta="saber qué persona mandó cada mensaje. La columna mensajes.sender_user_id existe desde el primer día pero nunca se llenó: el envío la escribe siempre en null porque el panel todavía no le pasa el usuario autenticado. Sin eso, todo lo humano es una sola bolsa anónima y ninguna fila de esta tabla se puede armar."
-      />
+      <TablaVendedores vendedores={m.vendedores} />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Seccion

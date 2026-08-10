@@ -10,6 +10,22 @@ export const CURRENT_STAGE = [
 ] as const;
 export type CurrentStage = (typeof CURRENT_STAGE)[number];
 
+/**
+ * El embudo son estas 6 y nada más. `perdido` y `requiere_humano` NO son los
+ * pasos 7 y 8: son desvíos. Vive acá y no en `lib/ui/stage` (que es de donde se
+ * consume) porque `types/` no puede importar de `lib/` y `LeadSession` necesita
+ * el tipo para que `etapa_alcanzada` no pueda guardar un desvío.
+ */
+export const ETAPAS_EMBUDO = [
+  "nuevo",
+  "identificando",
+  "cotizado",
+  "negociando",
+  "esperando_pago",
+  "cerrado",
+] as const satisfies readonly CurrentStage[];
+export type EtapaEmbudo = (typeof ETAPAS_EMBUDO)[number];
+
 export const URGENCIA = ["baja", "media", "alta"] as const;
 export type Urgencia = (typeof URGENCIA)[number];
 

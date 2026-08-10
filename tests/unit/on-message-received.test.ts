@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { InMemoryRuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
+import { InMemoryTurnClassificationsRepository } from "@/server/repositories/turn-classifications.repo";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
 import { InMemoryConversationsRepository } from "@/server/repositories/conversations.repo";
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
@@ -63,6 +64,7 @@ function makeDeps(
   intents: InMemoryIntentsRepository;
   rules: InMemoryRulesRepository;
   ruleExecutions: InMemoryRuleExecutionsRepository;
+  turnClassifications: InMemoryTurnClassificationsRepository;
   productos: InMemoryProductsRepository;
 } {
   const leads = new InMemoryLeadsRepository();
@@ -73,6 +75,7 @@ function makeDeps(
   const rules = new InMemoryRulesRepository();
   const productos = new InMemoryProductsRepository();
   const ruleExecutions = new InMemoryRuleExecutionsRepository();
+  const turnClassifications = new InMemoryTurnClassificationsRepository();
 
   const intentLLM = new FakeIntentClassifierLLM();
   const agentLLM = new FakeAgentLLM();
@@ -98,6 +101,8 @@ function makeDeps(
     intentClassifier,
     aiAgent,
     ruleExecutions,
+    turnClassifications,
+    intents,
     configProvider,
     emit,
   };
@@ -115,6 +120,7 @@ function makeDeps(
     intents,
     rules,
     ruleExecutions,
+    turnClassifications,
     productos,
   };
 }
@@ -296,6 +302,21 @@ describe("onMessageReceivedHandler", () => {
     expect(turnEvent!.data.conversationTurn.length).toBeGreaterThan(0);
   });
 
+  test("turn.completed viaja con el entrante que lo disparó", async () => {
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("respuesta");
+
+    const out = await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+
+    const turnEvent = ctx.emitted.find((e) => e.name === "lead-session/turn.completed");
+    const delLead = (await ctx.messages.listBySessionId(out.sessionId)).find(
+      (m) => m.direction === "in",
+    );
+    // Sin este id el extractor no puede anotar de qué mensaje salió cada campo
+    // y la línea "origen: mensaje del cliente · 09:12" del Twin queda muda.
+    expect(turnEvent!.data.mensajeOrigenId).toBe(delLead?.id);
+  });
+
   test("emite auto-handoff.evaluate con recentClassifications", async () => {
     ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
     ctx.agentLLM.enqueueText("x");
@@ -374,6 +395,51 @@ describe("onMessageReceivedHandler", () => {
       (m) => m.direction === "in",
     );
     expect(auditoria[0]?.mensaje_id).toBe(delLead?.id);
+
+    // La otra mitad no se escribe: el turno lo resolvió una regla, no el LLM.
+    expect(await ctx.turnClassifications.findByMensajeId(delLead!.id)).toBeNull();
+  });
+
+  test("un turno que resolvió el LLM deja su clasificación persistida", async () => {
+    const intent = await ctx.intents.create({
+      nombre: "consulta_precio",
+      descripcion: "",
+      ejemplos: [],
+      auto_detectado: false,
+      activo: true,
+    });
+    // Clasifica, pero ninguna regla cubre el intent ⇒ contesta el LLM.
+    ctx.intentLLM.enqueue({ intent_nombre: "consulta_precio", confidence: 0.87 });
+    ctx.agentLLM.enqueueText("sale 120.000");
+
+    const out = await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+
+    expect(out.agentSource).toBe("llm");
+    const delLead = (await ctx.messages.listBySessionId(out.sessionId)).find(
+      (m) => m.direction === "in",
+    );
+    const fila = await ctx.turnClassifications.findByMensajeId(delLead!.id);
+    expect(fila).not.toBeNull();
+    expect(fila?.intent_id).toBe(intent.id);
+    expect(fila?.intent_nombre).toBe("consulta_precio");
+    expect(fila?.confidence).toBe(0.87);
+  });
+
+  test("un turno que el clasificador no reconoció se audita con intent nulo", async () => {
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("respuesta");
+
+    const out = await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+
+    const delLead = (await ctx.messages.listBySessionId(out.sessionId)).find(
+      (m) => m.direction === "in",
+    );
+    const fila = await ctx.turnClassifications.findByMensajeId(delLead!.id);
+    // La fila igual se escribe: un turno sin intent reconocido es justamente
+    // el que hay que poder contar para descubrir intents que faltan.
+    expect(fila).not.toBeNull();
+    expect(fila?.intent_id).toBeNull();
+    expect(fila?.intent_nombre).toBeNull();
   });
 });
 

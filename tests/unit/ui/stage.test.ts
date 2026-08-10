@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { CURRENT_STAGE } from "@/types/domain";
 import {
+  esEtapaEmbudo,
+  etapaAlcanzada,
   FUNNEL_LENGTH,
   FUNNEL_STAGES,
   funnelStep,
@@ -89,6 +91,37 @@ describe("embudo", () => {
   test("toda etapa es o paso del embudo o desvio, nunca ambos ni ninguno", () => {
     for (const stage of CURRENT_STAGE) {
       expect(isDetour(stage)).toBe(funnelStep(stage) === null);
+    }
+  });
+
+  test("esEtapaEmbudo es la negacion exacta de isDetour", () => {
+    for (const stage of CURRENT_STAGE) {
+      expect(esEtapaEmbudo(stage)).toBe(!isDetour(stage));
+    }
+  });
+});
+
+describe("etapaAlcanzada", () => {
+  test("avanzar dentro del embudo mueve el maximo", () => {
+    expect(etapaAlcanzada("nuevo", "cotizado")).toBe("cotizado");
+    expect(etapaAlcanzada("cotizado", "cerrado")).toBe("cerrado");
+  });
+
+  test("retroceder no borra por donde ya paso", () => {
+    // El extractor puede devolver una etapa mas atras en un turno confuso; el
+    // rail del Twin no puede desandar por eso.
+    expect(etapaAlcanzada("cotizado", "identificando")).toBe("cotizado");
+    expect(etapaAlcanzada("cerrado", "nuevo")).toBe("cerrado");
+  });
+
+  test("un desvio no avanza nada: congela lo alcanzado", () => {
+    expect(etapaAlcanzada("identificando", "perdido")).toBe("identificando");
+    expect(etapaAlcanzada("negociando", "requiere_humano")).toBe("negociando");
+  });
+
+  test("nunca devuelve un desvio, sea cual sea la entrada", () => {
+    for (const stage of CURRENT_STAGE) {
+      expect(isDetour(etapaAlcanzada("nuevo", stage))).toBe(false);
     }
   });
 });

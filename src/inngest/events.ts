@@ -21,8 +21,16 @@ export const statusReceived = eventType("meta/status.received", {
   }>(),
 });
 
+// `mensajeOrigenId` es el entrante que disparó el turno: el Twin lo anota en la
+// procedencia de cada campo para poder decir de qué mensaje salió el dato.
+// Opcional porque los eventos ya encolados con la forma vieja tienen que seguir
+// procesándose.
 export const turnCompleted = eventType("lead-session/turn.completed", {
-  schema: staticSchema<{ leadSessionId: UUID; conversationTurn: string[] }>(),
+  schema: staticSchema<{
+    leadSessionId: UUID;
+    conversationTurn: string[];
+    mensajeOrigenId?: UUID;
+  }>(),
 });
 
 export const autoHandoffEvaluate = eventType("lead-session/auto-handoff.evaluate", {

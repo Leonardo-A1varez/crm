@@ -37,8 +37,16 @@ export interface AgenteConfigValores {
   max_pasos_tool: number;
   ventana_contexto_mensajes: number;
   umbral_resumen_turnos: number;
+  /** §4.4. Corte de `buscar_repuesto`; al vencer el turno sigue sin catálogo. */
+  timeout_tool_ms: number;
   tope_gasto_diario_usd: number;
   politica_tope: PoliticaTope;
+  /** §4.2. Intents desconocidos consecutivos que pausan la IA. */
+  escalar_umbral_intents: number;
+  /** §4.2. Escalan sin importar el intent detectado. Se comparan normalizadas. */
+  escalar_palabras: string[];
+  /** §4.2. Monto cotizado desde el cual escala. `null` = condición apagada. */
+  escalar_cotizacion_desde: number | null;
   horario: Horario;
   horario_timezone: string;
   plantilla_fuera_horario: string;

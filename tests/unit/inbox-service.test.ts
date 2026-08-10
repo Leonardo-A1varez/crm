@@ -6,6 +6,8 @@ import {
   InMemoryMessagesRepository,
   type MensajeInsert,
 } from "@/server/repositories/messages.repo";
+import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
+import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
 import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultInboxService } from "@/server/services/inbox/default-inbox.service";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
@@ -17,6 +19,8 @@ function makeReadOnlyDeps(
   sessions: InMemoryLeadSessionRepository,
   convs: InMemoryConversationsRepository,
   messages: InMemoryMessagesRepository,
+  productos: InMemoryProductsRepository = new InMemoryProductsRepository(),
+  tags: InMemoryTagsRepository = new InMemoryTagsRepository(),
 ) {
   return {
     leads,
@@ -29,6 +33,8 @@ function makeReadOnlyDeps(
       },
     }),
     handoff: new DefaultHandoffService(sessions),
+    productos,
+    tags,
   };
 }
 
@@ -417,6 +423,139 @@ describe("DefaultInboxService.getConversation", () => {
     const view = await svc.getConversation(lead.id);
 
     expect(view.messages.map((m) => m.id)).toEqual([own.id]);
+  });
+});
+
+describe("DefaultInboxService.getConversation — datos del Lead Twin", () => {
+  let leads: InMemoryLeadsRepository;
+  let sessions: InMemoryLeadSessionRepository;
+  let convs: InMemoryConversationsRepository;
+  let messages: InMemoryMessagesRepository;
+  let productos: InMemoryProductsRepository;
+  let tags: InMemoryTagsRepository;
+  let svc: DefaultInboxService;
+
+  beforeEach(() => {
+    leads = new InMemoryLeadsRepository();
+    sessions = new InMemoryLeadSessionRepository();
+    convs = new InMemoryConversationsRepository();
+    messages = new InMemoryMessagesRepository();
+    productos = new InMemoryProductsRepository();
+    tags = new InMemoryTagsRepository();
+    svc = new DefaultInboxService(
+      makeReadOnlyDeps(leads, sessions, convs, messages, productos, tags),
+    );
+  });
+
+  async function producto(stock: number) {
+    return productos.create({
+      codigo_interno: `PF-${stock}`,
+      sku_proveedor: null,
+      nombre: "Pastilla de freno delantera",
+      descripcion: null,
+      categoria: null,
+      compatibilidad: [],
+      precio: 120_000,
+      stock,
+      imagen_url: null,
+      activo: true,
+    });
+  }
+
+  test("resuelve producto_cotizado_id contra el catálogo", async () => {
+    const lead = await makeLead(leads);
+    const prod = await producto(4);
+    await sessions.create({
+      lead_id: lead.id,
+      current_stage: "cotizado",
+      urgencia: "media",
+      consulta: "",
+      producto_cotizado_id: prod.id,
+      codigo_interno: prod.codigo_interno,
+      precio_cotizado: prod.precio,
+      cantidad: 1,
+      bloqueador: null,
+      comprobante_pago_url: null,
+      metodo_pago: null,
+      resultado: null,
+      motivo_perdida: null,
+      ia_pausada: false,
+    });
+
+    const view = await svc.getConversation(lead.id);
+
+    expect(view.producto?.id).toBe(prod.id);
+    expect(view.producto?.stock).toBe(4);
+  });
+
+  test("sin producto cotizado el Twin no inventa uno", async () => {
+    const lead = await makeLead(leads);
+    await makeSession(sessions, lead.id);
+
+    const view = await svc.getConversation(lead.id);
+
+    expect(view.producto).toBeNull();
+  });
+
+  test("un producto borrado del catálogo no rompe la ficha", async () => {
+    const lead = await makeLead(leads);
+    await sessions.create({
+      lead_id: lead.id,
+      current_stage: "cotizado",
+      urgencia: "media",
+      consulta: "",
+      producto_cotizado_id: crypto.randomUUID(),
+      codigo_interno: null,
+      precio_cotizado: null,
+      cantidad: null,
+      bloqueador: null,
+      comprobante_pago_url: null,
+      metodo_pago: null,
+      resultado: null,
+      motivo_perdida: null,
+      ia_pausada: false,
+    });
+
+    const view = await svc.getConversation(lead.id);
+
+    expect(view.producto).toBeNull();
+  });
+
+  test("trae los tags del lead", async () => {
+    const lead = await makeLead(leads);
+    await makeSession(sessions, lead.id);
+    const tag = await tags.create({ nombre: "mayorista", color: "#38BDF8", descripcion: null });
+    await tags.assignToLead(lead.id, tag.id, "manual", null);
+
+    const view = await svc.getConversation(lead.id);
+
+    expect(view.tags).toEqual([
+      { id: tag.id, nombre: "mayorista", color: "#38BDF8", descripcion: null },
+    ]);
+  });
+
+  test("las sesiones previas no cuentan la abierta", async () => {
+    const lead = await makeLead(leads);
+    const vieja = await makeSession(sessions, lead.id);
+    await sessions.close(vieja.id, { resultado: "exito" });
+    const otra = await makeSession(sessions, lead.id);
+    await sessions.close(otra.id, { resultado: "perdido", motivo_perdida: "precio" });
+    await makeSession(sessions, lead.id);
+
+    const view = await svc.getConversation(lead.id);
+
+    expect(view.sesionesPrevias).toEqual({ total: 2, conCompra: 1 });
+  });
+
+  test("sin sesión abierta las cerradas siguen contando como previas", async () => {
+    const lead = await makeLead(leads);
+    const vieja = await makeSession(sessions, lead.id);
+    await sessions.close(vieja.id, { resultado: "exito" });
+
+    const view = await svc.getConversation(lead.id);
+
+    expect(view.session).toBeNull();
+    expect(view.sesionesPrevias).toEqual({ total: 1, conCompra: 1 });
   });
 });
 

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, test } from "vitest";
+import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
+import { StaticAgentConfigProvider } from "@/server/services/agente/config-provider";
 import { DefaultHandoffService } from "@/server/services/handoff.service";
 import type { LeadSession } from "@/types/entities";
 import type { IntentClassification } from "@/lib/validation/ai";
@@ -84,17 +86,17 @@ describe("HandoffService", () => {
   });
 
   describe("evaluate", () => {
-    test("threshold default = 3 consecutive nulls al final dispara handoff", async () => {
+    test("sin threshold usa el de fabrica (2), no el 3 que estaba fijo en codigo", async () => {
       const decision = svc.evaluate({
-        recentClassifications: [cls("saludo"), cls(null), cls(null), cls(null)],
+        recentClassifications: [cls("saludo"), cls(null), cls(null)],
       });
       expect(decision.pausar_ia).toBe(true);
-      expect(decision.motivo).toMatch(/3 intents desconocidos/i);
+      expect(decision.motivo).toMatch(/2 intents desconocidos/i);
     });
 
-    test("menos de 3 nulls no dispara", async () => {
+    test("menos nulls que el umbral de fabrica no dispara", async () => {
       const decision = svc.evaluate({
-        recentClassifications: [cls(null), cls(null)],
+        recentClassifications: [cls(null)],
       });
       expect(decision.pausar_ia).toBe(false);
     });
@@ -127,6 +129,59 @@ describe("HandoffService", () => {
       });
       expect(decision.pausar_ia).toBe(true);
       expect(decision.motivo).toMatch(/3 intents desconocidos/i);
+    });
+
+    test("umbral fuera del rango 1-5 se acota en vez de desactivar el handoff", async () => {
+      // Una fila editada a mano en la DB puede traer 0 o 99: 0 pausaria cada
+      // conversacion y 99 no pausaria ninguna.
+      expect(svc.evaluate({ recentClassifications: [cls(null)], threshold: 0 }).motivo).toMatch(
+        /1 intents desconocidos/i,
+      );
+      const nueveNulls = Array.from({ length: 9 }, () => cls(null));
+      expect(svc.evaluate({ recentClassifications: nueveNulls, threshold: 99 }).motivo).toMatch(
+        /5 intents desconocidos/i,
+      );
+    });
+  });
+
+  describe("evaluateConConfig", () => {
+    function conUmbral(escalar_umbral_intents: number): DefaultHandoffService {
+      return new DefaultHandoffService(
+        sessions,
+        new StaticAgentConfigProvider({ ...CONFIG_DE_FABRICA, escalar_umbral_intents }),
+      );
+    }
+
+    test("toma el umbral de la config activa y no el de fabrica", async () => {
+      const decision = await conUmbral(4).evaluateConConfig({
+        recentClassifications: [cls(null), cls(null), cls(null), cls(null)],
+      });
+      expect(decision.pausar_ia).toBe(true);
+      expect(decision.motivo).toMatch(/4 intents desconocidos/i);
+    });
+
+    test("con umbral 4 en config, 3 nulls todavia no disparan", async () => {
+      const decision = await conUmbral(4).evaluateConConfig({
+        recentClassifications: [cls(null), cls(null), cls(null)],
+      });
+      expect(decision.pausar_ia).toBe(false);
+    });
+
+    test("un threshold explicito le gana a la config", async () => {
+      const decision = await conUmbral(5).evaluateConConfig({
+        recentClassifications: [cls(null), cls(null)],
+        threshold: 2,
+      });
+      expect(decision.pausar_ia).toBe(true);
+      expect(decision.motivo).toMatch(/2 intents desconocidos/i);
+    });
+
+    test("sin provider inyectado cae en el de fabrica", async () => {
+      const decision = await svc.evaluateConConfig({
+        recentClassifications: [cls(null), cls(null)],
+      });
+      expect(decision.pausar_ia).toBe(true);
+      expect(decision.motivo).toMatch(/2 intents desconocidos/i);
     });
   });
 });

@@ -270,3 +270,144 @@ describe("AiAgentService.respond", () => {
     expect(llm.calls[0].session.urgencia).toBe("alta");
   });
 });
+
+describe("AiAgentService.respond — escalado §4.2", () => {
+  let sessions: InMemoryLeadSessionRepository;
+  let intents: InMemoryIntentsRepository;
+  let rules: InMemoryRulesRepository;
+  let productos: InMemoryProductsRepository;
+  let llm: FakeAgentLLM;
+
+  function armar(): DefaultAiAgentService {
+    return new DefaultAiAgentService(
+      sessions,
+      new DefaultRuleEngineService(intents, rules),
+      new DefaultCatalogMatcherService(productos),
+      llm,
+    );
+  }
+
+  beforeEach(() => {
+    sessions = new InMemoryLeadSessionRepository();
+    intents = new InMemoryIntentsRepository();
+    rules = new InMemoryRulesRepository();
+    productos = new InMemoryProductsRepository();
+    llm = new FakeAgentLLM();
+  });
+
+  test("sin configAgente() el LLM mock no enciende nada: la config de fabrica no escala", async () => {
+    const s = await seedSession(sessions);
+    llm.enqueueText("respuesta normal");
+
+    const result = await svc0(armar(), s.id, ["lead: voy a llamar a mi abogado"]);
+
+    expect(result.source).toBe("llm");
+  });
+
+  test("una palabra de la lista pausa la IA y manda la sesion al triage", async () => {
+    const s = await seedSession(sessions);
+    llm.conConfig({ escalar_palabras: ["abogado"] });
+
+    const result = await svc0(armar(), s.id, ["lead: voy a llamar a mi abogado"]);
+
+    expect(result.source).toBe("handoff");
+    expect(result.respuesta_contenido).toContain("abogado");
+    expect(llm.calls).toHaveLength(0);
+
+    const guardada = await sessions.findById(s.id);
+    expect(guardada?.ia_pausada).toBe(true);
+    expect(guardada?.current_stage).toBe("requiere_humano");
+  });
+
+  test("el escalado le gana a una regla IF/THEN que cubre el intent", async () => {
+    const s = await seedSession(sessions);
+    const i = await intents.create({
+      nombre: "saludo",
+      descripcion: "",
+      ejemplos: [],
+      auto_detectado: false,
+      activo: true,
+    });
+    await rules.create({
+      intent_id: i.id,
+      condiciones_extra: null,
+      respuesta_tipo: "text",
+      respuesta_contenido: "Hola!",
+      prioridad: 0,
+      activa: true,
+    });
+    llm.conConfig({ escalar_palabras: ["reclamo"] });
+
+    const result = await armar().respond({
+      leadSessionId: s.id,
+      conversationTurn: ["lead: hola, vengo a hacer un reclamo"],
+      classification: cls("saludo"),
+    });
+
+    expect(result.source).toBe("handoff");
+  });
+
+  test("textoEntrante explicito gana sobre la ultima linea del turno", async () => {
+    const s = await seedSession(sessions);
+    llm.conConfig({ escalar_palabras: ["abogado"] });
+
+    const result = await armar().respond({
+      leadSessionId: s.id,
+      // La ultima linea NO tiene la palabra; el texto entrante si.
+      conversationTurn: ["lead: hola"],
+      classification: cls(null),
+      textoEntrante: "necesito un abogado",
+    });
+
+    expect(result.source).toBe("handoff");
+  });
+
+  test("un mensaje de la IA con la palabra no escala: solo cuenta lo que escribe el cliente", async () => {
+    const s = await seedSession(sessions);
+    llm.conConfig({ escalar_palabras: ["abogado"] });
+    llm.enqueueText("respuesta normal");
+
+    const result = await svc0(armar(), s.id, ["lead: hola", "ia: te paso con un abogado"]);
+
+    expect(result.source).toBe("llm");
+  });
+
+  test("cotizacion sobre el tope escala en el turno siguiente", async () => {
+    const s = await seedSession(sessions);
+    await sessions.update(s.id, { precio_cotizado: 750_000 });
+    llm.conConfig({ escalar_cotizacion_desde: 500_000 });
+
+    const result = await svc0(armar(), s.id, ["lead: y si me lo dejas mas barato?"]);
+
+    expect(result.source).toBe("handoff");
+    expect(result.respuesta_contenido).toMatch(/750000|750\.000/);
+    const guardada = await sessions.findById(s.id);
+    expect(guardada?.ia_pausada).toBe(true);
+  });
+
+  test("cotizacion por debajo del tope sigue con el agente", async () => {
+    const s = await seedSession(sessions);
+    await sessions.update(s.id, { precio_cotizado: 120_000 });
+    llm.conConfig({ escalar_cotizacion_desde: 500_000 });
+    llm.enqueueText("te confirmo el precio");
+
+    const result = await svc0(armar(), s.id, ["lead: dale"]);
+
+    expect(result.source).toBe("llm");
+  });
+
+  test("la IA ya pausada no vuelve a escribir la sesion", async () => {
+    const s = await seedSession(sessions, { ia_pausada: true });
+    llm.conConfig({ escalar_palabras: ["abogado"] });
+
+    const result = await svc0(armar(), s.id, ["lead: abogado"]);
+
+    // Gana la guarda de ia_pausada, que va antes: el motivo es el manual.
+    expect(result.respuesta_contenido).toMatch(/pausada/i);
+  });
+});
+
+/** Atajo: `respond` con la clasificacion vacia, que es lo que no importa en estos casos. */
+function svc0(svc: DefaultAiAgentService, leadSessionId: string, conversationTurn: string[]) {
+  return svc.respond({ leadSessionId, conversationTurn, classification: cls(null) });
+}

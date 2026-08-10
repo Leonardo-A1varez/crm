@@ -50,7 +50,11 @@ export interface AgenteConfigServiceDeps {
 const ACTION_ACTIVAR = "agente_config.activar";
 const ENTITY_TYPE = "agente_config";
 
-/** Los 13 campos escalares de `AgenteConfigValores`. `horario` se compara aparte por ser anidado. */
+/**
+ * Los campos escalares de `AgenteConfigValores`. `horario` y `escalar_palabras`
+ * se comparan aparte: son estructuras, y `!==` sobre ellas daría "cambió"
+ * siempre porque el repo entrega una copia nueva en cada lectura.
+ */
 const CAMPOS_ESCALARES = [
   "modelo",
   "instrucciones",
@@ -61,11 +65,14 @@ const CAMPOS_ESCALARES = [
   "max_pasos_tool",
   "ventana_contexto_mensajes",
   "umbral_resumen_turnos",
+  "timeout_tool_ms",
   "tope_gasto_diario_usd",
   "politica_tope",
+  "escalar_umbral_intents",
+  "escalar_cotizacion_desde",
   "horario_timezone",
   "plantilla_fuera_horario",
-] as const satisfies readonly (keyof Omit<AgenteConfigValores, "horario">)[];
+] as const satisfies readonly (keyof Omit<AgenteConfigValores, "horario" | "escalar_palabras">)[];
 
 /**
  * Comparación por valor, día a día y rango a rango. Comparar `horario` por
@@ -86,6 +93,16 @@ function horariosIguales(a: Horario, b: Horario): boolean {
   return true;
 }
 
+/**
+ * Comparación posicional. El orden de `escalar_palabras` es significativo —
+ * es el orden en que se evalúan contra el mensaje entrante y el que se ve en
+ * los chips— así que reordenar la lista SÍ es un cambio a auditar.
+ */
+function palabrasIguales(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((p, i) => p === b[i]);
+}
+
 /** Nombres de los campos que difieren entre la activa (si hay) y los nuevos valores. Nunca valores. */
 function camposCambiados(actual: AgenteConfigValores | null, nuevo: AgenteConfigValores): string[] {
   if (!actual) return [];
@@ -94,11 +111,14 @@ function camposCambiados(actual: AgenteConfigValores | null, nuevo: AgenteConfig
   for (const campo of CAMPOS_ESCALARES) {
     if (actual[campo] !== nuevo[campo]) cambiados.push(campo);
   }
+  if (!palabrasIguales(actual.escalar_palabras, nuevo.escalar_palabras)) {
+    cambiados.push("escalar_palabras");
+  }
   if (!horariosIguales(actual.horario, nuevo.horario)) cambiados.push("horario");
   return cambiados;
 }
 
-/** Extrae solo los 14 campos de dominio de una fila persistida, sin metadatos de versión. */
+/** Extrae solo los campos de dominio de una fila persistida, sin metadatos de versión. */
 function soloValores(c: AgenteConfig): AgenteConfigValores {
   return {
     modelo: c.modelo,
@@ -110,8 +130,12 @@ function soloValores(c: AgenteConfig): AgenteConfigValores {
     max_pasos_tool: c.max_pasos_tool,
     ventana_contexto_mensajes: c.ventana_contexto_mensajes,
     umbral_resumen_turnos: c.umbral_resumen_turnos,
+    timeout_tool_ms: c.timeout_tool_ms,
     tope_gasto_diario_usd: c.tope_gasto_diario_usd,
     politica_tope: c.politica_tope,
+    escalar_umbral_intents: c.escalar_umbral_intents,
+    escalar_palabras: c.escalar_palabras,
+    escalar_cotizacion_desde: c.escalar_cotizacion_desde,
     horario: c.horario,
     horario_timezone: c.horario_timezone,
     plantilla_fuera_horario: c.plantilla_fuera_horario,

@@ -9,6 +9,12 @@ export interface SendMessageServiceInput {
   sessionId: UUID;
   canal: Canal;
   body: string;
+  /**
+   * Quién lo manda. Va a `mensajes.sender_user_id` y es la única forma de
+   * saber después qué vendedor atendió qué conversación. `null` solo si la
+   * llamada no viene de una sesión autenticada.
+   */
+  userId: UUID | null;
 }
 
 export interface ToggleHandoffServiceInput {

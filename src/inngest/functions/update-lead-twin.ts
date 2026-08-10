@@ -12,6 +12,7 @@ export interface UpdateLeadTwinDeps {
 export interface UpdateLeadTwinInput {
   leadSessionId: UUID;
   conversationTurn: string[];
+  mensajeOrigenId?: UUID | null;
 }
 
 export async function updateLeadTwinHandler(
@@ -21,6 +22,7 @@ export async function updateLeadTwinHandler(
   return deps.twinExtractor.extract({
     sessionId: input.leadSessionId,
     conversationTurn: input.conversationTurn,
+    mensajeOrigenId: input.mensajeOrigenId ?? null,
   });
 }
 
@@ -34,6 +36,7 @@ export function makeUpdateLeadTwinFn(deps: UpdateLeadTwinDeps) {
             {
               leadSessionId: event.data.leadSessionId,
               conversationTurn: event.data.conversationTurn,
+              mensajeOrigenId: event.data.mensajeOrigenId ?? null,
             },
             deps,
           );

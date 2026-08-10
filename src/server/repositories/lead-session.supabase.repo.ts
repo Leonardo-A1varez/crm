@@ -1,4 +1,5 @@
 import { ConflictError, IllegalStateError, NotFoundError } from "@/lib/errors";
+import { esEtapaEmbudo, etapaAlcanzada } from "@/lib/ui/stage";
 import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { serverNowIso } from "@/server/db/server-time";
@@ -7,6 +8,7 @@ import { isUuid } from "@/server/db/uuid";
 import type {
   CampoTwinEditable,
   CurrentStage,
+  EtapaEmbudo,
   MetodoPago,
   MotivoPerdida,
   Resultado,
@@ -18,6 +20,7 @@ import type {
   LeadSessionInsert,
   LeadSessionRepository,
   LeadSessionUpdate,
+  MarcasProcedencia,
 } from "./lead-session.repo";
 
 type LeadSessionDbUpdate = Database["public"]["Tables"]["lead_session"]["Update"];
@@ -44,6 +47,8 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
       .insert({
         lead_id: input.lead_id,
         current_stage: input.current_stage,
+        // Una sesión que nace ya en una etapa avanzada la alcanzó igual.
+        etapa_alcanzada: etapaAlcanzada("nuevo", input.current_stage),
         urgencia: input.urgencia,
         consulta: input.consulta,
         producto_cotizado_id: input.producto_cotizado_id,
@@ -125,7 +130,15 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
     // concurrentes, y un update entero es mas simple de auditar.
     const procedencia: Procedencia = {
       ...actual.procedencia,
-      [campo]: { por: "humano", at: new Date().toISOString(), user_id: userId },
+      [campo]: {
+        por: "humano",
+        at: new Date().toISOString(),
+        user_id: userId,
+        mensaje_origen_id: null,
+        // Lo que habia antes: es lo que el panel muestra como "el extractor
+        // habia inferido «…»" debajo de un campo corregido.
+        valor_anterior: valorAnterior(actual, campo),
+      },
     };
 
     const { data, error } = await this.db
@@ -138,11 +151,51 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
     return mapRow(data as LeadSessionRow);
   }
 
+  async aplicarExtraccion(
+    id: UUID,
+    patch: LeadSessionUpdate,
+    marcas: MarcasProcedencia,
+  ): Promise<LeadSession> {
+    const actual = await this.findById(id);
+    if (!actual) {
+      throw new NotFoundError(`lead_session no encontrada: ${id}`, "lead_session", id);
+    }
+    return this.escribir(id, patch, actual.etapa_alcanzada, {
+      ...actual.procedencia,
+      ...marcas,
+    });
+  }
+
   async update(id: UUID, patch: LeadSessionUpdate): Promise<LeadSession> {
+    // El read previo solo hace falta para avanzar `etapa_alcanzada`, que
+    // depende del valor que ya estaba. Sin cambio de etapa no hay roundtrip
+    // extra: la mayoría de los updates (pausar la IA, resumen) no la tocan.
+    const alcanzadaActual =
+      patch.current_stage !== undefined ? (await this.requireRow(id)).etapa_alcanzada : "nuevo";
+    return this.escribir(id, patch, alcanzadaActual, null);
+  }
+
+  private async requireRow(id: UUID): Promise<LeadSession> {
+    const actual = await this.findById(id);
+    if (!actual) {
+      throw new NotFoundError(`sesión no encontrada: ${id}`, "lead_session", id);
+    }
+    return actual;
+  }
+
+  private async escribir(
+    id: UUID,
+    patch: LeadSessionUpdate,
+    alcanzadaActual: EtapaEmbudo,
+    procedencia: Procedencia | null,
+  ): Promise<LeadSession> {
     const updatePayload: LeadSessionDbUpdate = {};
     // id, lead_id, started_at, closed_at, resultado, motivo_perdida NO mapeados
     // (defense runtime — type Update<...> los omite igualmente).
-    if (patch.current_stage !== undefined) updatePayload.current_stage = patch.current_stage;
+    if (patch.current_stage !== undefined) {
+      updatePayload.current_stage = patch.current_stage;
+      updatePayload.etapa_alcanzada = etapaAlcanzada(alcanzadaActual, patch.current_stage);
+    }
     if (patch.urgencia !== undefined) updatePayload.urgencia = patch.urgencia;
     if (patch.consulta !== undefined) updatePayload.consulta = patch.consulta;
     if (patch.producto_cotizado_id !== undefined) {
@@ -161,6 +214,7 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
     if (patch.context_summary !== undefined) {
       updatePayload.context_summary = patch.context_summary;
     }
+    if (procedencia !== null) updatePayload.procedencia = procedencia as never;
 
     const { data, error } = await this.db
       .from("lead_session")
@@ -254,6 +308,12 @@ interface LeadSessionRow {
   id: string;
   lead_id: string;
   current_stage: CurrentStage;
+  /**
+   * Del enum completo, como la devuelve Postgres: `current_stage_enum` tiene
+   * las 8 y lo que deja en la columna solo las 6 del embudo es un CHECK, que
+   * el tipo generado no refleja. Se estrecha en `mapRow`, no acá.
+   */
+  etapa_alcanzada: CurrentStage;
   urgencia: Urgencia;
   consulta: string;
   producto_cotizado_id: string | null;
@@ -270,6 +330,7 @@ interface LeadSessionRow {
   context_summary: string | null;
   procedencia: unknown;
   started_at: string;
+  updated_at: string;
   closed_at: string | null;
 }
 
@@ -279,6 +340,7 @@ function mapRow(row: LeadSessionRow): LeadSession {
     id: row.id,
     lead_id: row.lead_id,
     current_stage: row.current_stage,
+    etapa_alcanzada: etapaAlcanzadaDeFila(row.etapa_alcanzada),
     urgencia: row.urgencia,
     consulta: row.consulta,
     producto_cotizado_id: row.producto_cotizado_id,
@@ -295,6 +357,31 @@ function mapRow(row: LeadSessionRow): LeadSession {
     context_summary: row.context_summary,
     procedencia: (row.procedencia ?? {}) as Procedencia,
     started_at: new Date(row.started_at),
+    updated_at: new Date(row.updated_at),
     closed_at: row.closed_at ? new Date(row.closed_at) : null,
   };
+}
+
+/**
+ * Estrecha `etapa_alcanzada` a una etapa del embudo.
+ *
+ * `lead_session_etapa_alcanzada_es_del_embudo` hace imposible que la columna
+ * guarde un desvío, así que el `else` no ocurre contra una base migrada. Se
+ * degrada a `"nuevo"` en vez de romper la lectura entera: es el mismo valor con
+ * el que el backfill de 20260810150000 marca "no se sabe por dónde pasó", y una
+ * ficha con el rail en cero es preferible a un panel que no abre.
+ */
+function etapaAlcanzadaDeFila(stage: CurrentStage): EtapaEmbudo {
+  return esEtapaEmbudo(stage) ? stage : "nuevo";
+}
+
+/**
+ * Valor que tenía el campo antes de pisarlo. Los campos del Twin son escalares
+ * o null; el `unknown` intermedio es solo para no indexar `LeadSession` con un
+ * string arbitrario.
+ */
+function valorAnterior(session: LeadSession, campo: CampoTwinEditable): string | number | null {
+  const previo: unknown = session[campo];
+  if (typeof previo === "string" || typeof previo === "number") return previo;
+  return null;
 }

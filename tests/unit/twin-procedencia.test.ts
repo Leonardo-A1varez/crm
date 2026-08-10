@@ -4,6 +4,8 @@ import { InMemoryConversationsRepository } from "@/server/repositories/conversat
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
 import { InMemoryMessagesRepository } from "@/server/repositories/messages.repo";
+import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
+import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
 import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultInboxService } from "@/server/services/inbox/default-inbox.service";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
@@ -32,6 +34,8 @@ describe("editarCampoTwin", () => {
         },
       }),
       handoff: new DefaultHandoffService(sessions),
+      productos: new InMemoryProductsRepository(),
+      tags: new InMemoryTagsRepository(),
     });
 
     const lead = await leads.create({

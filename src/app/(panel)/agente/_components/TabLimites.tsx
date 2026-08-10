@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Warning } from "@/components/icons";
 import { Eyebrow } from "@/components/shared/Eyebrow";
 import { cn } from "@/lib/utils";
+import { TIMEOUT_TOOL_MAX_MS, TIMEOUT_TOOL_MIN_MS } from "@/lib/agente/escalado";
 import { OPENAI_PRICING } from "@/lib/agente/modelos";
 import { POLITICA_TOPE, type AgenteConfigValores, type PoliticaTope } from "@/types/agente";
 import { EditorHorario } from "./EditorHorario";
@@ -138,6 +139,23 @@ export function TabLimites({
           </FilaLimite>
 
           <FilaLimite
+            label="Timeout de herramienta"
+            subtitulo="Corte de la búsqueda en catálogo. Al vencer, el turno sigue sin resultado."
+          >
+            <input
+              type="number"
+              min={TIMEOUT_TOOL_MIN_MS}
+              max={TIMEOUT_TOOL_MAX_MS}
+              step={100}
+              value={valores.timeout_tool_ms}
+              onChange={(e) => onChange({ timeout_tool_ms: Number(e.target.value) })}
+              disabled={disabled}
+              aria-label="Timeout de herramienta en milisegundos"
+              className={inputNumeroClase}
+            />
+          </FilaLimite>
+
+          <FilaLimite
             label="Umbral de resumen"
             subtitulo="Turnos antes de resumir la conversación."
           >
@@ -164,13 +182,14 @@ export function TabLimites({
             </p>
           ) : null}
 
-          {/* El handoff pide tres filas más. No se maquetan con valores de
-              ejemplo: no existen ni en la config ni en el código. */}
+          {/* El handoff pide dos filas más. No se maquetan con valores de
+              ejemplo: no existen ni en la config ni en el código, y un número
+              guardado que nadie lee promete un control que no está. */}
           <p className="text-ink-ghost mt-3 text-[10.5px]">
-            El diseño pide además «máximo de turnos por sesión», «timeout de herramienta» y
-            «reintentos ante error de Meta». Ninguno existe: la sesión no tiene tope de turnos, la
-            tool de catálogo corre sin timeout propio y los reintentos hacia Meta son los que pone
-            Inngest por defecto, no un número configurable.
+            El diseño pide además «máximo de turnos por sesión» y «reintentos ante error de Meta».
+            No están: nadie cuenta los turnos de una sesión —la ventana de contexto es más corta que
+            cualquier tope razonable, así que tampoco se puede deducir— y los reintentos hacia Meta
+            son los que pone Inngest al definir la función, no un número por turno.
           </p>
         </TarjetaConsola>
 

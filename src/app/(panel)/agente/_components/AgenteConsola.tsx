@@ -25,7 +25,7 @@ interface PreviewResultado {
   respuestaOriginal: string | null;
 }
 
-/** Los 14 campos de dominio, sin metadatos de versión. `useState` no debe arrastrar id/version/activa. */
+/** Los campos de dominio, sin metadatos de versión. `useState` no debe arrastrar id/version/activa. */
 function extraerValores(c: AgenteConfig): AgenteConfigValores {
   return {
     modelo: c.modelo,
@@ -37,8 +37,14 @@ function extraerValores(c: AgenteConfig): AgenteConfigValores {
     max_pasos_tool: c.max_pasos_tool,
     ventana_contexto_mensajes: c.ventana_contexto_mensajes,
     umbral_resumen_turnos: c.umbral_resumen_turnos,
+    timeout_tool_ms: c.timeout_tool_ms,
     tope_gasto_diario_usd: c.tope_gasto_diario_usd,
     politica_tope: c.politica_tope,
+    escalar_umbral_intents: c.escalar_umbral_intents,
+    // Copia: el estado del formulario no puede compartir el array con el
+    // baseline `guardado`, o "Descartar" no tendría a qué volver.
+    escalar_palabras: [...c.escalar_palabras],
+    escalar_cotizacion_desde: c.escalar_cotizacion_desde,
     horario: c.horario,
     horario_timezone: c.horario_timezone,
     plantilla_fuera_horario: c.plantilla_fuera_horario,
@@ -131,7 +137,9 @@ export function AgenteConsola({
           <TabReglas intents={intents} reglas={reglas} esAdmin={esAdmin} />
         ) : null}
 
-        {tab === "escalado" ? <TabEscalado /> : null}
+        {tab === "escalado" ? (
+          <TabEscalado valores={valores} onChange={handleChange} disabled={!esAdmin} />
+        ) : null}
 
         {tab === "comporta" ? (
           <div className="grid grid-cols-[1.35fr_1fr] items-start gap-5">
@@ -157,8 +165,9 @@ export function AgenteConsola({
 
       {/* Fuera del handoff, pero transversal a las tres pestañas de config: el
           historial es de la versión completa, no de una pestaña. Por eso va
-          debajo y no adentro de una columna. */}
-      {tab !== "reglas" && tab !== "escalado" ? (
+          debajo y no adentro de una columna. Reglas queda afuera porque sus
+          filas viven en otra tabla y no entran en la versión de config. */}
+      {tab !== "reglas" ? (
         <div className="mt-5">
           <HistorialVersiones
             versiones={historial}

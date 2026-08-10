@@ -1,4 +1,15 @@
 import { z } from "zod";
+import {
+  COTIZACION_MAX,
+  COTIZACION_MIN,
+  MAX_LARGO_PALABRA,
+  MAX_PALABRAS,
+  TIMEOUT_TOOL_MAX_MS,
+  TIMEOUT_TOOL_MIN_MS,
+  UMBRAL_INTENTS_MAX,
+  UMBRAL_INTENTS_MIN,
+  normalizarPalabrasEscalado,
+} from "@/lib/agente/escalado";
 import { esTimezoneValida, normalizarRangos } from "@/lib/agente/horario";
 import { OPENAI_PRICING } from "@/lib/agente/modelos";
 import { UUIDSchema } from "@/lib/validation/schemas";
@@ -62,6 +73,23 @@ const ModeloSchema = z.string().superRefine((modelo, ctx) => {
   );
 });
 
+/**
+ * La lista llega tal cual la escribió el admin y sale canónica: minúsculas,
+ * sin tildes y sin repetidas. Normalizar acá y no en el componente es lo que
+ * garantiza que lo guardado sea exactamente lo que el pipeline va a comparar
+ * contra el mensaje entrante — si cada lado normalizara por su cuenta, se
+ * guardaría "Devolución" y no coincidiría nunca con "devolucion".
+ *
+ * El `.max()` va DESPUÉS del transform: dedupe primero, cota después, para que
+ * escribir dos veces la misma palabra no consuma cupo.
+ */
+const PalabrasEscaladoSchema = z
+  .array(z.string().max(MAX_LARGO_PALABRA))
+  .transform(normalizarPalabrasEscalado)
+  .refine((p) => p.length <= MAX_PALABRAS, {
+    message: `Como máximo ${MAX_PALABRAS} palabras que escalan.`,
+  });
+
 /** `esTimezoneValida` ya vive en Task 3; acá solo se enchufa con un mensaje. */
 const HorarioTimezoneSchema = z.string().superRefine((tz, ctx) => {
   if (esTimezoneValida(tz)) return;
@@ -78,8 +106,12 @@ export const GuardarConfigSchema = z.object({
   max_pasos_tool: z.number().int().min(1).max(10),
   ventana_contexto_mensajes: z.number().int().min(4).max(40),
   umbral_resumen_turnos: z.number().int().min(10).max(100),
+  timeout_tool_ms: z.number().int().min(TIMEOUT_TOOL_MIN_MS).max(TIMEOUT_TOOL_MAX_MS),
   tope_gasto_diario_usd: z.number().min(0.5).max(1000),
   politica_tope: z.enum(POLITICA_TOPE),
+  escalar_umbral_intents: z.number().int().min(UMBRAL_INTENTS_MIN).max(UMBRAL_INTENTS_MAX),
+  escalar_palabras: PalabrasEscaladoSchema,
+  escalar_cotizacion_desde: z.number().min(COTIZACION_MIN).max(COTIZACION_MAX).nullable(),
   horario: HorarioSchema,
   horario_timezone: HorarioTimezoneSchema,
   plantilla_fuera_horario: z.string().max(1000),

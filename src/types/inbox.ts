@@ -1,5 +1,5 @@
 import type { Canal, CurrentStage, Direction, MotivoAtencion, Urgencia } from "./domain";
-import type { Lead, LeadSession, Mensaje, UUID } from "./entities";
+import type { Lead, LeadSession, Mensaje, Producto, Tag, UUID } from "./entities";
 
 /**
  * Item de inbox: lead con sesión activa + último mensaje + canales vinculados.
@@ -53,4 +53,39 @@ export interface ConversationView {
   canales: Canal[];
   // Canal de la conversación con actividad más reciente; fallback canal_origen.
   canalActivo: Canal;
+  /**
+   * Producto del catálogo que la sesión cotizó, resuelto desde
+   * `producto_cotizado_id`. Es lo único del Twin que NO sale del extractor: por
+   * eso lleva chip "Del catálogo" y no se puede editar a mano. `null` cuando la
+   * sesión no cotizó nada del catálogo (el LLM puede haber dejado precio y
+   * código sueltos sin machear una fila de `productos`).
+   */
+  producto: Producto | null;
+  /** Tags del lead, para la sección Tags del Twin. */
+  tags: Tag[];
+  /** Sesiones anteriores del mismo lead: "4 · 3 con compra" del handoff §1.4. */
+  sesionesPrevias: SesionesPrevias;
+}
+
+/**
+ * Historial del lead reducido a lo que el Twin muestra. No incluye la sesión
+ * abierta: la línea dice qué pasó *antes* de esta conversación.
+ */
+export interface SesionesPrevias {
+  total: number;
+  /** De esas, las que cerraron con `resultado = exito`. */
+  conCompra: number;
+}
+
+/**
+ * De dónde salió el valor actual de un campo del Twin, ya resuelto a algo que
+ * se puede leer. La entidad guarda un `mensaje_origen_id`; la línea que el
+ * vendedor lee ("origen: mensaje del cliente · 09:12") necesita el mensaje
+ * resuelto, y resolverlo es trabajo del server, no del componente.
+ */
+export interface OrigenCampo {
+  /** "mensaje del cliente", "respuesta del agente", "el extractor". */
+  fuente: string;
+  /** Hora local del mensaje de origen, `HH:mm`. `null` si no se pudo atribuir. */
+  hora: string | null;
 }

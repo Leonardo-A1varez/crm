@@ -54,6 +54,9 @@ describe("autoHandoffHandler", () => {
       {
         leadSessionId: ctx.session.id,
         recentClassifications: [cls(null), cls(null), cls(null)],
+        // Explicito: sin threshold el handler usa el de fabrica (2) y el
+        // motivo diria "2", que es otro caso — el de mas abajo.
+        threshold: 3,
       },
       ctx.deps,
     );
@@ -62,6 +65,19 @@ describe("autoHandoffHandler", () => {
     expect(result.motivo).toMatch(/3 intents desconocidos/i);
     const s = await ctx.sessions.findById(ctx.session.id);
     expect(s!.ia_pausada).toBe(true);
+  });
+
+  test("sin threshold el handler usa el de fabrica (2), no el 3 viejo", async () => {
+    const result = await autoHandoffHandler(
+      {
+        leadSessionId: ctx.session.id,
+        recentClassifications: [cls(null), cls(null)],
+      },
+      ctx.deps,
+    );
+
+    expect(result.paused).toBe(true);
+    expect(result.motivo).toMatch(/2 intents desconocidos/i);
   });
 
   test("threshold custom propagado", async () => {

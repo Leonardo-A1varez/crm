@@ -5,10 +5,13 @@ import type { ConversationsRepository } from "@/server/repositories/conversation
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
+import type { ProductsRepository } from "@/server/repositories/productos.repo";
+import type { TagsRepository } from "@/server/repositories/tags.repo";
 import type { HandoffService } from "@/server/services/handoff.service";
 import type { MetaApiService } from "@/server/services/meta-api.service";
 import type { Canal } from "@/types/domain";
-import type { Conversacion, LeadSession, Mensaje, UUID } from "@/types/entities";
+import type { Conversacion, LeadSession, Mensaje, Producto, Tag, UUID } from "@/types/entities";
+import type { SesionesPrevias } from "@/types/inbox";
 import type {
   CloseSessionServiceInput,
   ConversationView,
@@ -65,6 +68,9 @@ export interface DefaultInboxServiceDeps {
   messages: MessagesRepository;
   metaApi: MetaApiService;
   handoff: HandoffService;
+  /** Para resolver `producto_cotizado_id` al producto del catálogo del Twin. */
+  productos: ProductsRepository;
+  tags: TagsRepository;
 }
 
 export class DefaultInboxService implements InboxService {
@@ -170,7 +176,55 @@ export class DefaultInboxService implements InboxService {
         })
       : [];
 
-    return { lead, session, messages, canales, canalActivo };
+    const producto = await this.resolverProducto(session);
+    const tags = await this.deps.tags.listByLead(leadId);
+    const sesionesPrevias = await this.contarSesionesPrevias(leadId, session);
+
+    return {
+      lead,
+      session,
+      messages,
+      canales,
+      canalActivo,
+      producto,
+      // Solo lo que el chip necesita: `AssignedTag` arrastra `assigned_by` y
+      // `source`, que son de la capa de repos y no cruzan a components.
+      tags: tags.map(
+        (t): Tag => ({
+          id: t.id,
+          nombre: t.nombre,
+          color: t.color,
+          descripcion: t.descripcion,
+        }),
+      ),
+      sesionesPrevias,
+    };
+  }
+
+  /**
+   * El producto que la sesión cotizó. Devuelve `null` en vez de romper si el
+   * id apunta a una fila que ya no está: el catálogo se puede editar y el Twin
+   * de una sesión vieja no puede dejar de abrir por eso.
+   */
+  private async resolverProducto(session: LeadSession | null): Promise<Producto | null> {
+    if (!session?.producto_cotizado_id) return null;
+    return this.deps.productos.findById(session.producto_cotizado_id);
+  }
+
+  /**
+   * Sesiones anteriores del lead. La abierta se excluye: el bloque cuenta lo
+   * que pasó antes de esta conversación, no la que se está mirando.
+   */
+  private async contarSesionesPrevias(
+    leadId: UUID,
+    actual: LeadSession | null,
+  ): Promise<SesionesPrevias> {
+    const todas = await this.deps.sessions.listByLeadId(leadId);
+    const previas = todas.filter((s) => s.id !== actual?.id);
+    return {
+      total: previas.length,
+      conCompra: previas.filter((s) => s.resultado === "exito").length,
+    };
   }
 
   async sendMessage(input: SendMessageServiceInput): Promise<Mensaje> {
@@ -199,7 +253,7 @@ export class DefaultInboxService implements InboxService {
       to: conv.canal_thread_id,
       contenido: input.body,
       sender: "humano",
-      // senderUserId llega con auth (Slice 3); hasta entonces null en DB.
+      senderUserId: input.userId ?? undefined,
     });
   }
 

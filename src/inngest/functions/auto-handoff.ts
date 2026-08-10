@@ -32,7 +32,9 @@ export async function autoHandoffHandler(
     return { paused: false, motivo: "auto-handoff desactivado por flag" };
   }
 
-  const decision = deps.handoff.evaluate({
+  // `evaluateConConfig` y no `evaluate`: el umbral lo define el admin desde
+  // la consola, y con `evaluate` el worker seguiría con el de fábrica.
+  const decision = await deps.handoff.evaluateConConfig({
     recentClassifications: input.recentClassifications,
     threshold: input.threshold,
   });

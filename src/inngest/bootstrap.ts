@@ -37,6 +37,7 @@ import { SupabaseReactivationDispatchesRepository } from "@/server/repositories/
 import { SupabaseRuleExecutionsRepository } from "@/server/repositories/rule-executions.supabase.repo";
 import { SupabaseRulesRepository } from "@/server/repositories/rules.supabase.repo";
 import { SupabaseToolExecutionsRepository } from "@/server/repositories/tool-executions.supabase.repo";
+import { SupabaseTurnClassificationsRepository } from "@/server/repositories/turn-classifications.supabase.repo";
 import { SupabaseAgenteConfigRepository } from "@/server/repositories/agente-config.supabase.repo";
 
 import { makeCostTracker } from "@/lib/observability/upstash-cost-tracker";
@@ -86,6 +87,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   const intents = new SupabaseIntentsRepository(db);
   const rules = new SupabaseRulesRepository(db);
   const ruleExecutions = new SupabaseRuleExecutionsRepository(db);
+  const turnClassifications = new SupabaseTurnClassificationsRepository(db);
   const productos = new SupabaseProductsRepository(db);
   const reactivationDispatches = new SupabaseReactivationDispatchesRepository(db);
   const mergeCandidates = new SupabaseMergeCandidatesRepository(db);
@@ -138,7 +140,9 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   const ruleEngine = new DefaultRuleEngineService(intents, rules);
   const intentClassifier = new DefaultIntentClassifierService(intents, llmBundle.intentClassifier);
   const twinExtractor = new DefaultTwinExtractorService(sessions, llmBundle.twinExtractor);
-  const handoff = new DefaultHandoffService(sessions);
+  // Con el provider, el umbral de escalado sale de la config activa en vez
+  // del valor de fábrica: es el mismo cache de 30s que usa el resto del turno.
+  const handoff = new DefaultHandoffService(sessions, agenteConfigProvider);
   const metaApi = new DefaultMetaApiService(conversations, messages, metaClient);
   const mergeDetector = new DefaultLeadMergeDetectorService(leads, mergeCandidates);
   const aiAgent = new DefaultAiAgentService(
@@ -184,6 +188,8 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       // todo el pipeline en vez de duplicar lecturas a la DB.
       configProvider: agenteConfigProvider,
       ruleExecutions,
+      turnClassifications,
+      intents,
       emit,
       logger,
     },

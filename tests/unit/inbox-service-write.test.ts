@@ -4,6 +4,8 @@ import { InMemoryConversationsRepository } from "@/server/repositories/conversat
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
 import { InMemoryMessagesRepository } from "@/server/repositories/messages.repo";
+import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
+import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
 import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultInboxService } from "@/server/services/inbox/default-inbox.service";
 import {
@@ -56,6 +58,9 @@ async function makeSession(
   });
 }
 
+/** El vendedor autenticado que manda desde el panel. Va a `sender_user_id`. */
+const vendedorId: UUID = "00000000-0000-0000-0000-0000000000a1";
+
 describe("DefaultInboxService write path", () => {
   let leads: InMemoryLeadsRepository;
   let sessions: InMemoryLeadSessionRepository;
@@ -81,6 +86,8 @@ describe("DefaultInboxService write path", () => {
       messages,
       metaApi: new DefaultMetaApiService(convs, messages, client),
       handoff: new DefaultHandoffService(sessions),
+      productos: new InMemoryProductsRepository(),
+      tags: new InMemoryTagsRepository(),
     });
   });
 
@@ -99,6 +106,7 @@ describe("DefaultInboxService write path", () => {
         sessionId: session.id,
         canal: "wa",
         body: "Hola, le confirmo stock",
+        userId: vendedorId,
       });
 
       expect(msg.direction).toBe("out");
@@ -115,6 +123,27 @@ describe("DefaultInboxService write path", () => {
       const thread = await messages.listBySessionId(session.id);
       expect(thread).toHaveLength(1);
       expect(thread[0]?.id).toBe(msg.id);
+      // El envío manual tiene que dejar quién lo mandó: es la única fuente del
+      // corte por vendedor en Métricas. Se comprueba sobre la fila persistida y
+      // no sobre lo devuelto, que es lo que la tabla va a leer después.
+      expect(thread[0]?.sender_user_id).toBe(vendedorId);
+    });
+
+    test("sin usuario autenticado el mensaje queda sin atribuir, no falla", async () => {
+      const lead = await makeLead(leads);
+      const session = await makeSession(sessions, lead.id);
+      await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: lead.telefono });
+
+      const msg = await svc.sendMessage({
+        leadId: lead.id,
+        sessionId: session.id,
+        canal: "wa",
+        body: "hola",
+        userId: null,
+      });
+
+      expect(msg.sender).toBe("humano");
+      expect(msg.sender_user_id).toBeNull();
     });
 
     test("NotFoundError cuando sesión no existe", async () => {
@@ -125,6 +154,7 @@ describe("DefaultInboxService write path", () => {
           sessionId: crypto.randomUUID(),
           canal: "wa",
           body: "hola",
+          userId: vendedorId,
         }),
       ).rejects.toBeInstanceOf(NotFoundError);
       expect(sendTextSpy).not.toHaveBeenCalled();
@@ -137,7 +167,13 @@ describe("DefaultInboxService write path", () => {
       await sessions.close(session.id, { resultado: "exito" });
 
       await expect(
-        svc.sendMessage({ leadId: lead.id, sessionId: session.id, canal: "wa", body: "hola" }),
+        svc.sendMessage({
+          leadId: lead.id,
+          sessionId: session.id,
+          canal: "wa",
+          body: "hola",
+          userId: vendedorId,
+        }),
       ).rejects.toBeInstanceOf(ConflictError);
       expect(sendTextSpy).not.toHaveBeenCalled();
     });
@@ -149,7 +185,13 @@ describe("DefaultInboxService write path", () => {
       await convs.create({ lead_id: leadA.id, canal: "wa", canal_thread_id: leadA.telefono });
 
       await expect(
-        svc.sendMessage({ leadId: leadA.id, sessionId: sessionB.id, canal: "wa", body: "hola" }),
+        svc.sendMessage({
+          leadId: leadA.id,
+          sessionId: sessionB.id,
+          canal: "wa",
+          body: "hola",
+          userId: vendedorId,
+        }),
       ).rejects.toBeInstanceOf(ValidationError);
       expect(sendTextSpy).not.toHaveBeenCalled();
     });
@@ -160,7 +202,13 @@ describe("DefaultInboxService write path", () => {
       await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: lead.telefono });
 
       await expect(
-        svc.sendMessage({ leadId: lead.id, sessionId: session.id, canal: "ig", body: "hola" }),
+        svc.sendMessage({
+          leadId: lead.id,
+          sessionId: session.id,
+          canal: "ig",
+          body: "hola",
+          userId: vendedorId,
+        }),
       ).rejects.toBeInstanceOf(NotFoundError);
       expect(sendTextSpy).not.toHaveBeenCalled();
     });
@@ -172,7 +220,13 @@ describe("DefaultInboxService write path", () => {
       sendTextSpy.mockRejectedValueOnce(new Error("meta caída"));
 
       await expect(
-        svc.sendMessage({ leadId: lead.id, sessionId: session.id, canal: "wa", body: "hola" }),
+        svc.sendMessage({
+          leadId: lead.id,
+          sessionId: session.id,
+          canal: "wa",
+          body: "hola",
+          userId: vendedorId,
+        }),
       ).rejects.toThrow("meta caída");
 
       const thread = await messages.listBySessionId(session.id);

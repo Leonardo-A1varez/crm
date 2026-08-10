@@ -34,6 +34,7 @@ const baseSession: LeadSession = {
   id: "00000000-0000-0000-0000-000000000001",
   lead_id: "00000000-0000-0000-0000-000000000002",
   current_stage: "nuevo",
+  etapa_alcanzada: "nuevo",
   urgencia: "media",
   consulta: "",
   producto_cotizado_id: null,
@@ -49,6 +50,7 @@ const baseSession: LeadSession = {
   extras: {},
   context_summary: null,
   procedencia: {},
+  updated_at: new Date(),
   started_at: new Date(),
   closed_at: null,
 };

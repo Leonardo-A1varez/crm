@@ -1,21 +1,47 @@
 import { ConflictError, IllegalStateError, NotFoundError } from "@/lib/errors";
+import { etapaAlcanzada } from "@/lib/ui/stage";
 import type { CampoTwinEditable, MotivoPerdida, Resultado } from "@/types/domain";
-import type { LeadSession, UUID } from "@/types/entities";
+import type { LeadSession, Procedencia, UUID } from "@/types/entities";
 import type { Update } from "./_types";
 
 // `extras` opcional en insert (default `{}`). `context_summary` opcional (default null).
 // DB tiene DEFAULTs equivalentes, mirrored aquí.
 export type LeadSessionInsert = Omit<
   LeadSession,
-  "id" | "started_at" | "closed_at" | "extras" | "context_summary" | "procedencia"
+  | "id"
+  | "started_at"
+  | "updated_at"
+  | "closed_at"
+  | "extras"
+  | "context_summary"
+  | "procedencia"
+  | "etapa_alcanzada"
 > & {
   extras?: Record<string, unknown>;
   context_summary?: string | null;
 };
+// `updated_at` fuera del patch: lo escribe el trigger de la DB. Dejarlo pasar
+// permitiría anotar una edición con una fecha que no es la de la edición.
+// `etapa_alcanzada` tampoco: la deriva el repo de `current_stage` en cada
+// update, y dejarla escribible permitiría hacer retroceder el rail del Twin.
 export type LeadSessionUpdate = Update<
   LeadSession,
-  "id" | "lead_id" | "started_at" | "closed_at" | "resultado" | "motivo_perdida"
+  | "id"
+  | "lead_id"
+  | "started_at"
+  | "updated_at"
+  | "closed_at"
+  | "resultado"
+  | "motivo_perdida"
+  | "etapa_alcanzada"
 >;
+
+/**
+ * Marcas de procedencia que deja una escritura del extractor, por campo. El
+ * caller las arma porque es el único que sabe de qué mensaje salió cada dato;
+ * el repo solo las mergea sobre lo que ya había.
+ */
+export type MarcasProcedencia = Procedencia;
 
 export interface CloseInput {
   resultado: Resultado;
@@ -50,6 +76,15 @@ export interface LeadSessionRepository {
     valor: string | number | null,
     userId: UUID | null,
   ): Promise<LeadSession>;
+  // Escritura del extractor: el patch y sus marcas de procedencia en la misma
+  // operacion, por el mismo motivo que `editarCampoTwin`. Existe aparte de
+  // `update` porque `update` lo usan callers que no extraen nada (pausar la IA,
+  // reasignar) y no tienen mensaje de origen que anotar.
+  aplicarExtraccion(
+    id: UUID,
+    patch: LeadSessionUpdate,
+    marcas: MarcasProcedencia,
+  ): Promise<LeadSession>;
 }
 
 // Deep clone defensivo para extras (jsonb arbitrario LLM-extracted).
@@ -74,8 +109,10 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
       extras: structuredClone(input.extras ?? {}),
       context_summary: input.context_summary ?? null,
       procedencia: {},
+      etapa_alcanzada: etapaAlcanzada("nuevo", input.current_stage),
       id: crypto.randomUUID(),
       started_at: new Date(),
+      updated_at: new Date(),
       closed_at: null,
     };
     this.store.set(session.id, session);
@@ -119,9 +156,15 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
       id: current.id,
       lead_id: current.lead_id,
       started_at: current.started_at,
+      // Espeja el trigger `lead_session_bump_updated_at` de la DB.
+      updated_at: new Date(),
       closed_at: current.closed_at,
       resultado: current.resultado,
       motivo_perdida: current.motivo_perdida,
+      etapa_alcanzada:
+        patch.current_stage !== undefined
+          ? etapaAlcanzada(current.etapa_alcanzada, patch.current_stage)
+          : current.etapa_alcanzada,
     };
     this.store.set(id, next);
     return cloneSession(next);
@@ -148,6 +191,7 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
       resultado: input.resultado,
       motivo_perdida: input.motivo_perdida ?? null,
       closed_at: new Date(),
+      updated_at: new Date(),
     };
     this.store.set(id, closed);
     return cloneSession(closed);
@@ -180,11 +224,36 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
       [campo]: valor,
       procedencia: {
         ...current.procedencia,
-        [campo]: { por: "humano", at: new Date().toISOString(), user_id: userId },
+        [campo]: {
+          por: "humano",
+          at: new Date().toISOString(),
+          user_id: userId,
+          mensaje_origen_id: null,
+          valor_anterior: valorAnterior(current, campo),
+        },
       },
+      updated_at: new Date(),
     } as LeadSession;
     this.store.set(id, next);
     return structuredClone(next);
+  }
+
+  async aplicarExtraccion(
+    id: UUID,
+    patch: LeadSessionUpdate,
+    marcas: MarcasProcedencia,
+  ): Promise<LeadSession> {
+    const current = this.store.get(id);
+    if (!current) {
+      throw new NotFoundError(`lead_session no encontrada: ${id}`, "lead_session", id);
+    }
+    const conPatch = await this.update(id, patch);
+    const next: LeadSession = {
+      ...conPatch,
+      procedencia: { ...conPatch.procedencia, ...marcas },
+    };
+    this.store.set(id, next);
+    return cloneSession(next);
   }
 
   async reassignLead(fromLeadId: UUID, toLeadId: UUID): Promise<number> {
@@ -196,4 +265,15 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
     }
     return moved;
   }
+}
+
+/**
+ * Valor que tenía el campo antes de pisarlo. Los campos del Twin son escalares
+ * o null; el `unknown` intermedio es solo para no indexar `LeadSession` con un
+ * string arbitrario.
+ */
+function valorAnterior(session: LeadSession, campo: CampoTwinEditable): string | number | null {
+  const previo: unknown = session[campo];
+  if (typeof previo === "string" || typeof previo === "number") return previo;
+  return null;
 }

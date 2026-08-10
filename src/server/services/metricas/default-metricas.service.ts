@@ -1,8 +1,10 @@
 import { porcentajeDe } from "@/lib/ui/metricas";
 import { FUNNEL_STAGES } from "@/lib/ui/stage";
 import type {
+  FilaMensajeMetrica,
   FilaSesionMetrica,
   FilaToolExecutionMetrica,
+  FilaUsuarioMetrica,
   MetricsRepository,
 } from "@/server/repositories/metrics.repo";
 import { CANAL, CURRENT_STAGE, SENDER } from "@/types/domain";
@@ -11,6 +13,7 @@ import type {
   ConteoCanal,
   ConteoHerramienta,
   ConteoMotivo,
+  FilaVendedor,
   IntentSinRegla,
   Metricas,
 } from "@/types/metricas";
@@ -55,16 +58,27 @@ export class DefaultMetricsService implements MetricsService {
     // dependen de mensajes viajan con `anterior: null` y la UI no muestra delta.
     const desdeAnterior = new Date(desde.getTime() - ventana);
 
-    const [sesionesAmbas, mensajes, leadsAmbos, reglas, tools, intents, reglasActivas] =
-      await Promise.all([
-        this.deps.metrics.listSesionesDesde(desdeAnterior),
-        this.deps.metrics.listMensajesDesde(desde),
-        this.deps.metrics.listLeadsDesde(desdeAnterior),
-        this.deps.metrics.listRuleExecutionsDesde(desde),
-        this.deps.metrics.listToolExecutionsDesde(desde),
-        this.deps.metrics.listIntentsActivos(),
-        this.deps.metrics.listReglasActivas(),
-      ]);
+    const [
+      sesionesAmbas,
+      mensajes,
+      leadsAmbos,
+      reglas,
+      tools,
+      intents,
+      reglasActivas,
+      clasificaciones,
+      usuarios,
+    ] = await Promise.all([
+      this.deps.metrics.listSesionesDesde(desdeAnterior),
+      this.deps.metrics.listMensajesDesde(desde),
+      this.deps.metrics.listLeadsDesde(desdeAnterior),
+      this.deps.metrics.listRuleExecutionsDesde(desde),
+      this.deps.metrics.listToolExecutionsDesde(desde),
+      this.deps.metrics.listIntentsActivos(),
+      this.deps.metrics.listReglasActivas(),
+      this.deps.metrics.listTurnClassificationsDesde(desde),
+      this.deps.metrics.listUsuarios(),
+    ]);
 
     const corte = desde.getTime();
     const sesiones = sesionesAmbas.filter((s) => s.started_at.getTime() >= corte);
@@ -101,13 +115,22 @@ export class DefaultMetricsService implements MetricsService {
 
     const autoria = Object.fromEntries(SENDER.map((s) => [s, 0])) as Record<Sender, number>;
     const porCanalConteo = new Map<Canal, number>();
-    // Un humano que escribió es la única señal de intervención que hay: la
-    // asignación de vendedor (`mensajes.sender_user_id`) nunca se llenó.
+    // Un humano que escribió es la señal de que alguien intervino; quién fue
+    // sale de `sender_user_id`, que el envío del panel ahora sí propaga.
     const sesionesConHumano = new Set<string>();
+    // El hilo de cada sesión, para poder mirar el orden de los mensajes: quién
+    // contestó primero y cuánto esperó el cliente antes de esa respuesta.
+    const hilos = new Map<string, FilaMensajeMetrica[]>();
     for (const m of mensajes) {
       autoria[m.sender]++;
       porCanalConteo.set(m.canal, (porCanalConteo.get(m.canal) ?? 0) + 1);
       if (m.sender === "humano") sesionesConHumano.add(m.lead_session_id);
+      const hilo = hilos.get(m.lead_session_id);
+      if (hilo) hilo.push(m);
+      else hilos.set(m.lead_session_id, [m]);
+    }
+    for (const hilo of hilos.values()) {
+      hilo.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
     }
 
     // Orden canónico y no por cantidad: la barra apilada se lee comparando
@@ -140,8 +163,17 @@ export class DefaultMetricsService implements MetricsService {
     const turnosRegla = Math.min(reglas.length, autoria.ia);
     const herramientas: ConteoHerramienta[] = agruparHerramientas(tools);
 
-    // Un intent sin regla activa es uno que hoy contesta el LLM. Los más nuevos
-    // primero: son los que el detector acaba de encontrar y nadie miró todavía.
+    // Turnos que el LLM resolvió con cada intent. Los de `intent_id: null` son
+    // los que no reconoció ninguno: no pertenecen a ninguna fila de la lista.
+    const usosPorIntent = new Map<string, number>();
+    for (const c of clasificaciones) {
+      if (c.intent_id === null) continue;
+      usosPorIntent.set(c.intent_id, (usosPorIntent.get(c.intent_id) ?? 0) + 1);
+    }
+
+    // Un intent sin regla activa es uno que hoy contesta el LLM. Ordenados por
+    // uso: el de arriba es el que más turnos está pagando, y por eso el que más
+    // rinde cubrir con una regla. A igual uso, el más nuevo primero.
     const conRegla = new Set(reglasActivas.map((r) => r.intent_id));
     const intentsSinRegla: IntentSinRegla[] = intents
       .filter((i) => !conRegla.has(i.id))
@@ -151,11 +183,16 @@ export class DefaultMetricsService implements MetricsService {
         descripcion: i.descripcion,
         autoDetectado: i.auto_detectado,
         detectadoEl: i.created_at,
+        usos: usosPorIntent.get(i.id) ?? 0,
       }))
       .sort(
         (a, b) =>
-          b.detectadoEl.getTime() - a.detectadoEl.getTime() || a.nombre.localeCompare(b.nombre),
+          b.usos - a.usos ||
+          b.detectadoEl.getTime() - a.detectadoEl.getTime() ||
+          a.nombre.localeCompare(b.nombre),
       );
+
+    const vendedores = repartirPorVendedor(sesiones, hilos, usuarios);
 
     return {
       desde,
@@ -181,6 +218,7 @@ export class DefaultMetricsService implements MetricsService {
         escaladas,
       },
       tomadasPorHumano: tomadas,
+      vendedores,
       cierres: { ia: cierresIa, vendedor: cierresVendedor },
       turnos: {
         regla: turnosRegla,
@@ -205,4 +243,109 @@ function agruparHerramientas(tools: FilaToolExecutionMetrica[]): ConteoHerramien
   return [...acc.values()].sort(
     (a, b) => b.llamadas - a.llamadas || a.nombre.localeCompare(b.nombre),
   );
+}
+
+/** Acumulador mutable de una fila mientras se recorren las sesiones. */
+interface AcumuladorVendedor {
+  nombre: string;
+  tomadas: number;
+  cerradas: number;
+  esperas: number[];
+}
+
+/**
+ * Mediana en segundos, redondeada. Con cantidad par promedia los dos del medio.
+ * Mediana y no promedio: una sola sesión que quedó abierta de un viernes a un
+ * lunes corre el promedio de todos y no dice nada del vendedor.
+ */
+function medianaSegundos(esperas: number[]): number | null {
+  if (esperas.length === 0) return null;
+  const orden = [...esperas].sort((a, b) => a - b);
+  const medio = Math.floor(orden.length / 2);
+  const alto = orden[medio] ?? 0;
+  const valor = orden.length % 2 === 1 ? alto : ((orden[medio - 1] ?? 0) + alto) / 2;
+  return Math.round(valor);
+}
+
+/**
+ * Quién tomó cada sesión, cuánto tardó y cuántas cerró.
+ *
+ * "Tomó" es haber sido **la primera persona en escribir** en esa sesión: si
+ * después entra otro vendedor a rematar, la sesión sigue contando para quien la
+ * levantó — repartirla entre los dos haría que la suma de las filas no dé el
+ * total de tomadas.
+ *
+ * La espera se mide contra el último mensaje del cliente anterior a esa primera
+ * respuesta humana: es lo que el cliente tenía sin contestar en el momento en
+ * que alguien entró. Las sesiones cuyo hilo empieza dentro de la ventana ya
+ * respondido (no hay mensaje del cliente antes) no se miden en vez de contarse
+ * como cero, que rebajaría la mediana de quien atendió rápido.
+ */
+function repartirPorVendedor(
+  sesiones: FilaSesionMetrica[],
+  hilos: Map<string, FilaMensajeMetrica[]>,
+  usuarios: FilaUsuarioMetrica[],
+): Metricas["vendedores"] {
+  const nombrePorId = new Map(usuarios.map((u) => [u.id, u.nombre]));
+  const acc = new Map<string, AcumuladorVendedor>();
+  const esperasGlobales: number[] = [];
+  let sinAtribuir = 0;
+
+  for (const sesion of sesiones) {
+    const hilo = hilos.get(sesion.id);
+    if (!hilo) continue;
+    const indice = hilo.findIndex((m) => m.sender === "humano");
+    if (indice === -1) continue;
+
+    const primeraHumana = hilo[indice];
+    if (!primeraHumana) continue;
+
+    // Espera del cliente: se mide igual esté o no atribuida la sesión, porque
+    // la mediana global cuenta todo lo que una persona atendió.
+    let espera: number | null = null;
+    for (let i = indice - 1; i >= 0; i--) {
+      const previo = hilo[i];
+      if (previo?.sender !== "lead") continue;
+      const delta = (primeraHumana.created_at.getTime() - previo.created_at.getTime()) / 1000;
+      espera = Math.max(0, delta);
+      break;
+    }
+    if (espera !== null) esperasGlobales.push(espera);
+
+    // Mensaje humano sin usuario: es de antes de que el envío del panel
+    // propagara `sender_user_id`. Se cuenta aparte para que las filas no
+    // pretendan cubrir el total.
+    const usuarioId = primeraHumana.sender_user_id;
+    if (usuarioId === null) {
+      sinAtribuir++;
+      continue;
+    }
+
+    const fila = acc.get(usuarioId) ?? {
+      nombre: nombrePorId.get(usuarioId) ?? "Usuario dado de baja",
+      tomadas: 0,
+      cerradas: 0,
+      esperas: [],
+    };
+    fila.tomadas++;
+    if (sesion.resultado === "exito") fila.cerradas++;
+    if (espera !== null) fila.esperas.push(espera);
+    acc.set(usuarioId, fila);
+  }
+
+  const filas: FilaVendedor[] = [...acc.entries()]
+    .map(([usuarioId, fila]) => ({
+      usuarioId,
+      nombre: fila.nombre,
+      tomadas: fila.tomadas,
+      tomaEnSegundos: medianaSegundos(fila.esperas),
+      cerradas: fila.cerradas,
+      cierre: porcentajeDe(fila.cerradas, fila.tomadas),
+    }))
+    .sort(
+      (a, b) =>
+        b.tomadas - a.tomadas || b.cerradas - a.cerradas || a.nombre.localeCompare(b.nombre),
+    );
+
+  return { filas, sinAtribuir, tomaEnSegundos: medianaSegundos(esperasGlobales) };
 }

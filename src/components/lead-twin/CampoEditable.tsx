@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import type { EditarCampoTwinInput } from "@/lib/validation/inbox.schema";
 import type { CampoTwinEditable } from "@/types/domain";
 import type { ProcedenciaCampo, UUID } from "@/types/entities";
-import type { ActionResult } from "@/types/inbox";
+import type { ActionResult, OrigenCampo } from "@/types/inbox";
 
 /**
  * Un campo del Twin con su procedencia y edición en el lugar.
@@ -24,6 +24,7 @@ export function CampoEditable({
   leadId,
   sessionId,
   procedencia,
+  origen,
   multilinea = false,
   claseValor,
   onGuardar,
@@ -34,6 +35,8 @@ export function CampoEditable({
   leadId: UUID;
   sessionId: UUID;
   procedencia?: ProcedenciaCampo;
+  /** De qué mensaje salió el dato, ya resuelto por el server. */
+  origen?: OrigenCampo | null;
   multilinea?: boolean;
   /** Tipografía del valor cuando el handoff la especifica (precio, bloqueador). */
   claseValor?: string;
@@ -108,12 +111,13 @@ export function CampoEditable({
   }
 
   const conValor = Boolean(valor?.trim());
+  const corregido = procedencia?.por === "humano";
 
   return (
     <div className="group">
       <div className="flex items-center gap-1.5">
         <span className="text-ink-faint text-[10.5px]">{label}</span>
-        {procedencia ? (
+        {corregido ? (
           <ChipProcedencia
             Icon={Edit}
             className="text-info bg-info/12"
@@ -147,6 +151,42 @@ export function CampoEditable({
       >
         {conValor ? valor : "—"}
       </div>
+      <LineaProcedencia procedencia={procedencia} origen={origen} />
     </div>
+  );
+}
+
+/**
+ * La línea de abajo del campo: de dónde salió el dato.
+ *
+ * Es la mitad chica del panel y la que hace que el chip signifique algo. Un
+ * campo corregido cuenta qué había inferido el extractor —para que el vendedor
+ * pueda ver que su corrección sigue en pie—; uno extraído cuenta de qué mensaje
+ * se dedujo. Sin procedencia guardada no se dibuja nada: inventar un origen
+ * sería peor que no declarar ninguno.
+ */
+function LineaProcedencia({
+  procedencia,
+  origen,
+}: {
+  procedencia?: ProcedenciaCampo;
+  origen?: OrigenCampo | null;
+}) {
+  if (procedencia?.por === "humano") {
+    const previo = procedencia.valor_anterior;
+    if (previo === null || previo === undefined || previo === "") return null;
+    return (
+      <p className="text-ink-fainter mt-1 font-mono text-[9.5px] break-words">
+        el extractor había inferido «{previo}» · tu corrección tiene prioridad
+      </p>
+    );
+  }
+
+  if (!origen) return null;
+  return (
+    <p className="text-ink-fainter mt-1 font-mono text-[9.5px]">
+      origen: {origen.fuente}
+      {origen.hora !== null ? ` · ${origen.hora}` : ""}
+    </p>
   );
 }

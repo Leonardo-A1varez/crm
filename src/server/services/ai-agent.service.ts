@@ -7,6 +7,9 @@ import {
 } from "@/server/repositories/tool-executions.repo";
 import { ConflictError, NotFoundError } from "@/lib/errors";
 import { AllEnabledFeatureFlags, FLAGS, type FeatureFlags } from "@/lib/feature-flags";
+import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
+import { evaluarEscalado, textoDelCliente, type CondicionEscalado } from "@/lib/agente/escalado";
+import type { AgenteConfigValores } from "@/types/agente";
 import type { RespuestaTipo } from "@/types/domain";
 import type { LeadSession, UUID } from "@/types/entities";
 import type {
@@ -19,6 +22,12 @@ export interface AgentTurnInput {
   leadSessionId: UUID;
   conversationTurn: string[];
   classification: IntentClassification;
+  /**
+   * Texto crudo del mensaje que abrió este turno. Opcional porque hoy el
+   * pipeline no lo manda: sin él, el escalado por palabra lo deduce de la
+   * última línea de `conversationTurn` (ver `textoDelCliente`).
+   */
+  textoEntrante?: string;
 }
 
 export interface ToolCallRecord {
@@ -55,6 +64,21 @@ export interface AgentLLMResult {
 
 export interface AgentLLM {
   generate(input: AgentLLMInput): Promise<AgentLLMResult>;
+  /**
+   * La config activa del agente para este turno.
+   *
+   * Vive en este puerto y no en un `AgentConfigProvider` inyectado aparte por
+   * una razón concreta: de los cinco colaboradores de `DefaultAiAgentService`,
+   * el `AgentLLM` es el único que arma `llm-factory` —el resto los arma el
+   * bootstrap de Inngest—, y es además el único que YA lee la config en cada
+   * turno para elegir modelo y prompt. Exponerla acá le da al service la misma
+   * config, de la misma lectura cacheada, sin una segunda fuente que pueda
+   * quedar un turno atrás de la primera.
+   *
+   * Opcional: las implementaciones de test y `LLM_MODE=mock` no la definen y
+   * el service cae en la config de fábrica, con las dos condiciones apagadas.
+   */
+  configAgente?(): Promise<AgenteConfigValores>;
 }
 
 export interface AiAgentService {
@@ -98,6 +122,25 @@ export class DefaultAiAgentService implements AiAgentService {
       };
     }
 
+    // §4.2 — Antes de las reglas y antes del LLM: una palabra que escala o una
+    // cotización sobre el tope tienen que ganarle a cualquier respuesta
+    // automática, incluida una regla IF/THEN que "cubra" el intent.
+    const escalado = await this.evaluarEscalado(session, input);
+    if (escalado) {
+      // Mismo par de campos que la guarda de descuento del pipeline: pausada
+      // para que el próximo mensaje tampoco lo conteste la IA, y en
+      // `requiere_humano` para que la conversación aparezca en el triage.
+      await this.sessions.update(session.id, {
+        ia_pausada: true,
+        current_stage: "requiere_humano",
+      });
+      return {
+        source: "handoff",
+        respuesta_tipo: "handoff",
+        respuesta_contenido: escalado.motivo,
+      };
+    }
+
     const ruleMatch = await this.rules.match({
       intent_nombre: input.classification.intent_nombre,
       context: { current_stage: session.current_stage, urgencia: session.urgencia },
@@ -133,6 +176,24 @@ export class DefaultAiAgentService implements AiAgentService {
       respuesta_contenido: result.text,
       tool_calls: result.toolCalls,
     };
+  }
+
+  /**
+   * Resuelve las condiciones del §4.2 con la config activa. Sin
+   * `configAgente()` cae en la de fábrica, que las trae apagadas: el escalado
+   * nuevo nunca se enciende solo.
+   */
+  private async evaluarEscalado(
+    session: LeadSession,
+    input: AgentTurnInput,
+  ): Promise<CondicionEscalado | null> {
+    const config = (await this.llm.configAgente?.()) ?? CONFIG_DE_FABRICA;
+    return evaluarEscalado({
+      palabras: config.escalar_palabras,
+      cotizacionDesde: config.escalar_cotizacion_desde,
+      precioCotizado: session.precio_cotizado,
+      textoEntrante: input.textoEntrante ?? textoDelCliente(input.conversationTurn),
+    });
   }
 
   // Wrap tool call con timing + audit. Persiste resultado o error en tool_executions.

@@ -8,10 +8,12 @@ import { NoopLogger, type Logger } from "@/lib/observability/logger";
 import type { ParsedMessage } from "@/lib/meta/parse-webhook";
 import type { IntentClassification } from "@/lib/validation/ai";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
+import type { IntentsRepository } from "@/server/repositories/intents.repo";
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { RuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
+import type { TurnClassificationsRepository } from "@/server/repositories/turn-classifications.repo";
 import type { AgentConfigProvider } from "@/server/services/agente/config-provider";
 import type { AiAgentService } from "@/server/services/ai-agent.service";
 import type { IntentClassifierService } from "@/server/services/intent-classifier.service";
@@ -22,7 +24,7 @@ import type { Lead, LeadSession, MetaUserIds, UUID } from "@/types/entities";
 export type EmittedEvent =
   | {
       name: "lead-session/turn.completed";
-      data: { leadSessionId: UUID; conversationTurn: string[] };
+      data: { leadSessionId: UUID; conversationTurn: string[]; mensajeOrigenId?: UUID };
     }
   | {
       name: "lead-session/auto-handoff.evaluate";
@@ -42,6 +44,9 @@ export interface OnMessageReceivedDeps {
   intentClassifier: IntentClassifierService;
   aiAgent: AiAgentService;
   ruleExecutions: RuleExecutionsRepository;
+  turnClassifications: TurnClassificationsRepository;
+  /** Solo para resolver el intent clasificado a su id al auditar el turno. */
+  intents: IntentsRepository;
   configProvider: AgentConfigProvider;
   emit: (event: EmittedEvent) => Promise<void>;
   logger?: Logger;
@@ -204,6 +209,29 @@ export async function onMessageReceivedHandler(
       tool_calls_count: agentResult.tool_calls?.length ?? 0,
     });
 
+    // Turno resuelto por el LLM: ninguna regla lo cubrió. Sin esta fila la
+    // clasificación se pierde y `rule_executions` termina registrando, por
+    // construcción, solo los intents que YA tienen regla — justo los que no
+    // hace falta descubrir. Se audita contra el mensaje ENTRANTE, igual que la
+    // auditoría de reglas, y antes de la guarda de descuento: el modelo ya
+    // corrió y ya se pagó, aunque después la respuesta se descarte.
+    if (agentResult.source === "llm") {
+      await step.run("auditar-clasificacion", async () => {
+        // El clasificador ya validó el nombre contra los intents activos, así
+        // que un nombre no nulo resuelve; nulo = no reconoció ninguno.
+        const intent =
+          classification.intent_nombre !== null
+            ? await deps.intents.findByNombre(classification.intent_nombre)
+            : null;
+        await deps.turnClassifications.create({
+          mensaje_id: inbound.id,
+          intent_id: intent?.id ?? null,
+          intent_nombre: classification.intent_nombre,
+          confidence: classification.confidence,
+        });
+      });
+    }
+
     let sent = false;
     if (agentResult.source !== "handoff") {
       const descuentoOfrecido = excedeDescuento(
@@ -275,7 +303,14 @@ export async function onMessageReceivedHandler(
     await step.run("emit-turn", () =>
       deps.emit({
         name: "lead-session/turn.completed",
-        data: { leadSessionId: session.id, conversationTurn },
+        data: {
+          leadSessionId: session.id,
+          conversationTurn,
+          // El entrante que disparó el turno. Sin esto la procedencia que
+          // escribe el extractor queda con `mensaje_origen_id: null` y el Twin
+          // no puede decir de qué mensaje ni de qué hora salió cada dato.
+          mensajeOrigenId: inbound.id,
+        },
       }),
     );
 

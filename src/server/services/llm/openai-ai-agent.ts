@@ -2,7 +2,7 @@ import { generateText, stepCountIs, tool, type LanguageModel } from "ai";
 import type { CostTracker } from "@/lib/observability/cost-tracker";
 import type { Logger } from "@/lib/observability/logger";
 import { withSpan } from "@/lib/observability/tracing";
-import { BuscarRepuestoInputSchema } from "@/lib/validation/ai";
+import { BuscarRepuestoInputSchema, type BuscarRepuestoOutput } from "@/lib/validation/ai";
 import { componerSystemPrompt } from "@/lib/agente/prompt";
 import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
 import type { AgentConfigProvider } from "@/server/services/agente/config-provider";
@@ -14,6 +14,40 @@ import type {
 } from "@/server/services/ai-agent.service";
 import { recordLlmUsage } from "./cost-tracker-bridge";
 import { OPENAI_PRICING } from "./pricing";
+import type { AgenteConfigValores } from "@/types/agente";
+
+/**
+ * Lo que ve el modelo cuando `buscar_repuesto` no contestó dentro de
+ * `timeout_tool_ms`. NO es `{matches: [], count: 0}` a secas: ese objeto
+ * significa "el catálogo contestó y no tiene nada", y el modelo le diría al
+ * cliente que el repuesto no existe. Con `error: "timeout"` el turno sigue,
+ * pero el modelo sabe que le falta el dato en vez de afirmar una ausencia.
+ */
+interface CatalogoSinRespuesta {
+  matches: [];
+  count: 0;
+  error: "timeout";
+  detalle: string;
+}
+
+/**
+ * Corta la espera en `ms`. La promesa perdedora sigue corriendo —una consulta
+ * a Postgres no se cancela desde acá— así que se le engancha un `catch` vacío:
+ * sin él, un rechazo posterior a la carrera queda sin manejar y tumba el
+ * proceso en Node.
+ */
+async function conCorte<T>(promesa: Promise<T>, ms: number, alVencer: () => T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const corte = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(alVencer()), ms);
+  });
+  try {
+    return await Promise.race([promesa, corte]);
+  } finally {
+    clearTimeout(timer);
+    promesa.catch(() => {});
+  }
+}
 
 export interface OpenAiAgentConfig {
   /** El modelo concreto se elige por turno segun la config, no al construir. */
@@ -50,6 +84,11 @@ export interface OpenAiAgentConfig {
  */
 export class OpenAiAgentLLM implements AgentLLM {
   constructor(private readonly cfg: OpenAiAgentConfig) {}
+
+  /** La misma lectura cacheada (30 s) que usa `generate` para modelo y prompt. */
+  async configAgente(): Promise<AgenteConfigValores> {
+    return this.cfg.configProvider.get();
+  }
 
   async generate(input: AgentLLMInput): Promise<AgentLLMResult> {
     const config = await this.cfg.configProvider.get();
@@ -103,7 +142,29 @@ export class OpenAiAgentLLM implements AgentLLM {
               description:
                 "Busca repuestos en catálogo por texto + filtros opcionales marca/modelo/año. Devuelve matches con precio + stock.",
               inputSchema: BuscarRepuestoInputSchema,
-              execute: async (args) => input.tools.buscar_repuesto(args),
+              // §4.4 "Timeout de herramienta". Antes la búsqueda corría sin
+              // corte propio: una consulta lenta dejaba al cliente esperando
+              // hasta que Inngest mataba la función entera y el turno se
+              // perdía. Ahora vence acá y el turno termina igual, sin catálogo.
+              execute: async (args) =>
+                conCorte<BuscarRepuestoOutput | CatalogoSinRespuesta>(
+                  input.tools.buscar_repuesto(args),
+                  config.timeout_tool_ms,
+                  () => {
+                    this.cfg.logger?.warn("agente.tool_timeout", {
+                      tool: "buscar_repuesto",
+                      timeout_ms: config.timeout_tool_ms,
+                      sessionId: input.session.id,
+                    });
+                    return {
+                      matches: [],
+                      count: 0,
+                      error: "timeout",
+                      detalle:
+                        "El catálogo no respondió a tiempo. No hay información de stock ni precio para esta búsqueda.",
+                    };
+                  },
+                ),
             }),
           },
           stopWhen: stepCountIs(config.max_pasos_tool),

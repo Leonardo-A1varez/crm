@@ -17,6 +17,7 @@
 
 import { vi } from "vitest";
 import { InMemoryRuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
+import { InMemoryTurnClassificationsRepository } from "@/server/repositories/turn-classifications.repo";
 import { DefaultAiAgentService } from "@/server/services/ai-agent.service";
 import { DefaultCatalogMatcherService } from "@/server/services/catalog-matcher.service";
 import { DefaultHandoffService } from "@/server/services/handoff.service";
@@ -179,6 +180,8 @@ export function makeSmokeBundle(): SmokeBundle {
       intentClassifier,
       aiAgent,
       ruleExecutions: new InMemoryRuleExecutionsRepository(),
+      turnClassifications: new InMemoryTurnClassificationsRepository(),
+      intents,
       configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
       emit,
       logger,

@@ -23,8 +23,13 @@ interface Row {
   max_pasos_tool: number;
   ventana_contexto_mensajes: number;
   umbral_resumen_turnos: number;
+  timeout_tool_ms: number;
   tope_gasto_diario_usd: number | string;
   politica_tope: string;
+  escalar_umbral_intents: number;
+  // `text[]` llega como array real por PostgREST, no como el literal `{a,b}`.
+  escalar_palabras: string[] | null;
+  escalar_cotizacion_desde: number | string | null;
   horario: unknown;
   horario_timezone: string;
   plantilla_fuera_horario: string;
@@ -43,6 +48,15 @@ function aNumero(v: number | string): number {
   return typeof v === "number" ? v : Number(v);
 }
 
+/**
+ * `escalar_cotizacion_desde` es `numeric` NULL-able: mismo problema de
+ * precision que `aNumero`, pero NULL significa "condicion apagada" y no puede
+ * colapsar a 0 — un 0 escalaria cada cotizacion.
+ */
+function aNumeroOpcional(v: number | string | null): number | null {
+  return v === null ? null : aNumero(v);
+}
+
 function aDominio(row: Row): AgenteConfig {
   return {
     id: row.id,
@@ -56,8 +70,15 @@ function aDominio(row: Row): AgenteConfig {
     max_pasos_tool: row.max_pasos_tool,
     ventana_contexto_mensajes: row.ventana_contexto_mensajes,
     umbral_resumen_turnos: row.umbral_resumen_turnos,
+    timeout_tool_ms: row.timeout_tool_ms,
     tope_gasto_diario_usd: aNumero(row.tope_gasto_diario_usd),
     politica_tope: row.politica_tope as AgenteConfig["politica_tope"],
+    escalar_umbral_intents: row.escalar_umbral_intents,
+    // El `not null default '{}'` de la migracion hace que el null no ocurra;
+    // el `?? []` cubre una fila escrita antes de ese default sin romper el
+    // recorrido por palabra de cada turno.
+    escalar_palabras: row.escalar_palabras ?? [],
+    escalar_cotizacion_desde: aNumeroOpcional(row.escalar_cotizacion_desde),
     horario: row.horario as Horario,
     horario_timezone: row.horario_timezone,
     plantilla_fuera_horario: row.plantilla_fuera_horario,

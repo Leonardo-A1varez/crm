@@ -228,6 +228,94 @@ describe("GuardarConfigSchema", () => {
       expect(r.success).toBe(false);
     });
   });
+
+  describe("escalar_umbral_intents (1-5, §4.2)", () => {
+    test("acepta los dos extremos del rango", () => {
+      for (const escalar_umbral_intents of [1, 5]) {
+        expect(GuardarConfigSchema.safeParse(valores({ escalar_umbral_intents })).success).toBe(
+          true,
+        );
+      }
+    });
+
+    test("rechaza fuera de rango y no entero", () => {
+      for (const escalar_umbral_intents of [0, 6, 2.5]) {
+        expect(GuardarConfigSchema.safeParse(valores({ escalar_umbral_intents })).success).toBe(
+          false,
+        );
+      }
+    });
+  });
+
+  describe("escalar_palabras", () => {
+    test("normaliza y deduplica: lo guardado es lo que el agente va a comparar", () => {
+      const r = GuardarConfigSchema.parse(
+        valores({ escalar_palabras: ["Devolución", "  FACTURA   A ", "devolucion", ""] }),
+      );
+      expect(r.escalar_palabras).toEqual(["devolucion", "factura a"]);
+    });
+
+    test("acepta la lista vacia (condicion apagada)", () => {
+      expect(GuardarConfigSchema.safeParse(valores({ escalar_palabras: [] })).success).toBe(true);
+    });
+
+    test("rechaza una palabra mas larga que el maximo", () => {
+      expect(
+        GuardarConfigSchema.safeParse(valores({ escalar_palabras: ["a".repeat(61)] })).success,
+      ).toBe(false);
+    });
+
+    test("la cota de cantidad se aplica DESPUES de deduplicar", () => {
+      // 60 entradas pero una sola palabra distinta: no consume 60 de cupo.
+      const repetida = Array.from({ length: 60 }, () => "reclamo");
+      expect(GuardarConfigSchema.safeParse(valores({ escalar_palabras: repetida })).success).toBe(
+        true,
+      );
+
+      const distintas = Array.from({ length: 51 }, (_, i) => `palabra${i}`);
+      expect(GuardarConfigSchema.safeParse(valores({ escalar_palabras: distintas })).success).toBe(
+        false,
+      );
+    });
+  });
+
+  describe("escalar_cotizacion_desde", () => {
+    test("null es la condicion apagada y se acepta", () => {
+      expect(
+        GuardarConfigSchema.safeParse(valores({ escalar_cotizacion_desde: null })).success,
+      ).toBe(true);
+    });
+
+    test("acepta los extremos del rango del handoff", () => {
+      for (const escalar_cotizacion_desde of [100_000, 2_000_000]) {
+        expect(GuardarConfigSchema.safeParse(valores({ escalar_cotizacion_desde })).success).toBe(
+          true,
+        );
+      }
+    });
+
+    test("rechaza montos fuera del rango", () => {
+      for (const escalar_cotizacion_desde of [0, 99_999, 2_000_001]) {
+        expect(GuardarConfigSchema.safeParse(valores({ escalar_cotizacion_desde })).success).toBe(
+          false,
+        );
+      }
+    });
+  });
+
+  describe("timeout_tool_ms (§4.4)", () => {
+    test("acepta los extremos del CHECK", () => {
+      for (const timeout_tool_ms of [500, 30_000]) {
+        expect(GuardarConfigSchema.safeParse(valores({ timeout_tool_ms })).success).toBe(true);
+      }
+    });
+
+    test("rechaza fuera del CHECK", () => {
+      for (const timeout_tool_ms of [499, 30_001]) {
+        expect(GuardarConfigSchema.safeParse(valores({ timeout_tool_ms })).success).toBe(false);
+      }
+    });
+  });
 });
 
 describe("RollbackConfigSchema", () => {

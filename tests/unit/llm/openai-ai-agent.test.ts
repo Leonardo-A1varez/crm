@@ -67,6 +67,7 @@ const baseSession: LeadSession = {
   id: "00000000-0000-0000-0000-000000000001",
   lead_id: "00000000-0000-0000-0000-000000000002",
   current_stage: "identificando",
+  etapa_alcanzada: "identificando",
   urgencia: "media",
   consulta: "pastilla de freno",
   producto_cotizado_id: null,
@@ -82,6 +83,7 @@ const baseSession: LeadSession = {
   extras: {},
   context_summary: null,
   procedencia: {},
+  updated_at: new Date(),
   started_at: new Date(),
   closed_at: null,
 };
@@ -234,6 +236,58 @@ describe("OpenAiAgentLLM", () => {
   });
 });
 
+describe("timeout de tool (§4.4)", () => {
+  /**
+   * Un turno de un solo paso que pide la tool. `max_pasos_tool: 1` corta ahí,
+   * así que `result.toolCalls` —que refleja el último step— conserva la
+   * llamada junto al resultado que el SDK recibió de vuelta. Con dos pasos el
+   * step final sería texto y el par call/result quedaría fuera del resultado.
+   */
+  function llmConToolLenta(opts: { timeoutMs: number; demoraMs: number }) {
+    const buscar = vi.fn(
+      () =>
+        new Promise<{ matches: []; count: 0 }>((resolve) =>
+          setTimeout(() => resolve({ matches: [], count: 0 }), opts.demoraMs),
+        ),
+    );
+    const llm = makeAgentLLM({
+      configProvider: new StaticAgentConfigProvider({
+        ...CONFIG_DE_FABRICA,
+        timeout_tool_ms: opts.timeoutMs,
+        max_pasos_tool: 1,
+      }),
+      doGenerate: async () => rawToolCallResult("c1", "buscar_repuesto", { query: "pastilla" }),
+    });
+    return { llm, buscar };
+  }
+
+  test("la tool que no contesta a tiempo devuelve error=timeout y el turno igual termina", async () => {
+    const { llm, buscar } = llmConToolLenta({ timeoutMs: 20, demoraMs: 400 });
+
+    const result = await llm.generate({ ...baseInput, tools: { buscar_repuesto: buscar } });
+
+    expect(result.toolCalls[0]?.result).toMatchObject({ error: "timeout", count: 0 });
+  });
+
+  test("el resultado del corte NO es un 'no hay stock': lleva el error para que el modelo no lo afirme", async () => {
+    const { llm, buscar } = llmConToolLenta({ timeoutMs: 20, demoraMs: 400 });
+
+    const result = await llm.generate({ ...baseInput, tools: { buscar_repuesto: buscar } });
+
+    expect(result.toolCalls[0]?.result).toHaveProperty("detalle");
+    expect(result.toolCalls[0]?.result).not.toEqual({ matches: [], count: 0 });
+  });
+
+  test("una tool que contesta dentro del plazo pasa entera", async () => {
+    const { llm, buscar } = llmConToolLenta({ timeoutMs: 3000, demoraMs: 1 });
+
+    const result = await llm.generate({ ...baseInput, tools: { buscar_repuesto: buscar } });
+
+    expect(result.toolCalls[0]?.result).toEqual({ matches: [], count: 0 });
+    expect(buscar).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("config en runtime", () => {
   test("usa el modelo que devuelve el provider, no uno fijo", async () => {
     const capturado: { modelo?: string } = {};
@@ -248,6 +302,12 @@ describe("config en runtime", () => {
     });
     await llm.generate(agentInputFalso());
     expect(capturado.modelo).toBe("gpt-4.1-mini");
+  });
+
+  test("configAgente() expone la misma config que usa generate", async () => {
+    const valores = { ...CONFIG_DE_FABRICA, escalar_palabras: ["abogado"] };
+    const llm = makeAgentLLM({ configProvider: new StaticAgentConfigProvider(valores) });
+    await expect(llm.configAgente()).resolves.toEqual(valores);
   });
 
   test("consulta el provider en CADA generate, no una sola vez", async () => {

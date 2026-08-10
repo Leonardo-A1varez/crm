@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { InMemoryRuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
+import { InMemoryTurnClassificationsRepository } from "@/server/repositories/turn-classifications.repo";
 import { InMemoryConversationsRepository } from "@/server/repositories/conversations.repo";
 import { InMemoryEventOutboxRepository } from "@/server/repositories/event-outbox.repo";
 import { InMemoryIntentsRepository } from "@/server/repositories/intents.repo";
@@ -62,6 +63,8 @@ describe("makeCrmInngestFunctions", () => {
         intentClassifier,
         aiAgent,
         ruleExecutions: new InMemoryRuleExecutionsRepository(),
+        turnClassifications: new InMemoryTurnClassificationsRepository(),
+        intents,
         configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
         emit: async () => {},
       },

@@ -9,6 +9,8 @@ import type {
   FilaRuleExecutionMetrica,
   FilaSesionMetrica,
   FilaToolExecutionMetrica,
+  FilaTurnClassificationMetrica,
+  FilaUsuarioMetrica,
   MetricsRepository,
 } from "./metrics.repo";
 
@@ -45,7 +47,7 @@ export class SupabaseMetricsRepository implements MetricsRepository {
   async listMensajesDesde(desde: Date): Promise<FilaMensajeMetrica[]> {
     const { data, error } = await this.db
       .from("mensajes")
-      .select("sender, created_at, lead_session_id, conversaciones!inner(canal)")
+      .select("sender, created_at, lead_session_id, sender_user_id, conversaciones!inner(canal)")
       .gte("created_at", desde.toISOString());
     if (error) throw mapPostgrestError(error, { resource: "mensajes" });
     return (data ?? []).map((r) => ({
@@ -53,6 +55,7 @@ export class SupabaseMetricsRepository implements MetricsRepository {
       created_at: new Date(r.created_at),
       canal: r.conversaciones.canal as Canal,
       lead_session_id: r.lead_session_id,
+      sender_user_id: r.sender_user_id,
     }));
   }
 
@@ -72,6 +75,18 @@ export class SupabaseMetricsRepository implements MetricsRepository {
       .gte("created_at", desde.toISOString());
     if (error) throw mapPostgrestError(error, { resource: "rule_executions" });
     return (data ?? []).map((r) => ({ created_at: new Date(r.created_at) }));
+  }
+
+  async listTurnClassificationsDesde(desde: Date): Promise<FilaTurnClassificationMetrica[]> {
+    const { data, error } = await this.db
+      .from("turn_classifications")
+      .select("intent_id, created_at")
+      .gte("created_at", desde.toISOString());
+    if (error) throw mapPostgrestError(error, { resource: "turn_classifications" });
+    return (data ?? []).map((r) => ({
+      intent_id: r.intent_id,
+      created_at: new Date(r.created_at),
+    }));
   }
 
   async listToolExecutionsDesde(desde: Date): Promise<FilaToolExecutionMetrica[]> {
@@ -106,5 +121,13 @@ export class SupabaseMetricsRepository implements MetricsRepository {
     const { data, error } = await this.db.from("reglas").select("intent_id").eq("activa", true);
     if (error) throw mapPostgrestError(error, { resource: "reglas" });
     return (data ?? []).map((r) => ({ intent_id: r.intent_id }));
+  }
+
+  async listUsuarios(): Promise<FilaUsuarioMetrica[]> {
+    // Sin filtrar por `activo`: las sesiones que atendió alguien dado de baja
+    // siguen siendo suyas, y esconder la fila haría desaparecer trabajo hecho.
+    const { data, error } = await this.db.from("usuarios").select("id, nombre");
+    if (error) throw mapPostgrestError(error, { resource: "usuarios" });
+    return (data ?? []).map((r) => ({ id: r.id, nombre: r.nombre }));
   }
 }

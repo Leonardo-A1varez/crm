@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { InMemoryRuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
+import { InMemoryTurnClassificationsRepository } from "@/server/repositories/turn-classifications.repo";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
 import { InMemoryConversationsRepository } from "@/server/repositories/conversations.repo";
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
@@ -70,6 +71,8 @@ function makeDeps() {
     intentClassifier,
     aiAgent,
     ruleExecutions: new InMemoryRuleExecutionsRepository(),
+    turnClassifications: new InMemoryTurnClassificationsRepository(),
+    intents,
     configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
     emit,
   };
