@@ -155,12 +155,12 @@ Configurable desde `/agente`: modelo (11 opciones con precio), instrucciones de 
 
 ## 🔴 Lo que impide que el producto haga lo que promete
 
-| Tabla       | Filas | Impacto                                                                                                |
-| ----------- | ----- | ------------------------------------------------------------------------------------------------------ |
-| `productos` | **0** | El agente llama a `buscar_repuesto`, recibe cero resultados y responde "no lo tenemos" siempre         |
-| `intents`   | **0** | El clasificador se saltea                                                                              |
-| `reglas`    | **0** | **Cada turno pasa por el LLM**, incluidos saludos. Es exactamente el costo que el diseño quería evitar |
-| `empresas`  | **0** | El schema declara single-org y no hay ninguna. Confirmar que nada dependa                              |
+| Tabla       | Filas | Impacto                                                                                          |
+| ----------- | ----- | ------------------------------------------------------------------------------------------------ |
+| `productos` | **0** | El agente llama a `buscar_repuesto`, recibe cero resultados y responde "no lo tenemos" siempre   |
+| `intents`   | **1** | `saludo`, cargado al probar G2                                                                   |
+| `reglas`    | **1** | Cargada una regla de `saludo` para probar G2 end to end. Se borra desde `/intents-reglas/reglas` |
+| `empresas`  | **0** | El schema declara single-org y no hay ninguna. Confirmar que nada dependa                        |
 
 ---
 
