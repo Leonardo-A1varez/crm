@@ -14,6 +14,7 @@ import type {
 } from "@/server/services/ai-agent.service";
 import { recordLlmUsage } from "./cost-tracker-bridge";
 import { OPENAI_PRICING } from "./pricing";
+import { WORKFLOW_LLM } from "@/types/domain";
 import type { AgenteConfigValores } from "@/types/agente";
 
 /**
@@ -173,8 +174,9 @@ export class OpenAiAgentLLM implements AgentLLM {
 
     await recordLlmUsage(this.cfg.costTracker, result, {
       model: modelo,
-      workflow: this.cfg.workflow ?? "ai-agent",
+      workflow: this.cfg.workflow ?? WORKFLOW_LLM.agente,
       sessionId: input.session.id,
+      ...(input.mensajeOrigenId ? { mensajeId: input.mensajeOrigenId } : {}),
     });
 
     return {

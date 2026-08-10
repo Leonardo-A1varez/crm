@@ -247,6 +247,28 @@ export interface ToolExecution {
   created_at: Date;
 }
 
+/**
+ * Una llamada al modelo, con lo que costó. Append-only.
+ *
+ * `lead_session_id` y `mensaje_id` son nulables por dos motivos distintos: hay
+ * llamadas que no nacen de una conversación (el detector batch de intents, el
+ * preview de la consola), y la purga de sesiones a los 29 días pone el FK en
+ * NULL en vez de arrastrarse la fila — el gasto sobrevive a la conversación.
+ */
+export interface LlmUsage {
+  id: UUID;
+  lead_session_id: UUID | null;
+  mensaje_id: UUID | null;
+  /** Modelo tal como se facturó; texto y no enum para sobrevivir a la lista blanca. */
+  modelo: string;
+  input_tokens: number;
+  output_tokens: number;
+  costo_usd: number;
+  /** "ai-agent", "intent-classifier", "twin-extractor", "agente-preview", … */
+  workflow: string;
+  created_at: Date;
+}
+
 export interface AdminAction {
   id: UUID;
   actor_user_id: UUID | null;

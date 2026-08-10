@@ -5,6 +5,7 @@ import type {
   IntentClassifierInput,
   IntentClassifierLLM,
 } from "@/server/services/intent-classifier.service";
+import { WORKFLOW_LLM } from "@/types/domain";
 import { recordLlmUsage } from "./cost-tracker-bridge";
 import { NON_STRICT_JSON_SCHEMA } from "./structured-output";
 
@@ -57,7 +58,9 @@ export class OpenAiIntentClassifierLLM implements IntentClassifierLLM {
 
     await recordLlmUsage(this.cfg.costTracker, result, {
       model: this.cfg.modelName,
-      workflow: "intent-classifier",
+      workflow: WORKFLOW_LLM.clasificador,
+      ...(input.leadSessionId ? { sessionId: input.leadSessionId } : {}),
+      ...(input.mensajeId ? { mensajeId: input.mensajeId } : {}),
     });
 
     return result.object;

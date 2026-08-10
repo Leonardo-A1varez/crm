@@ -4,13 +4,14 @@ import { KpiFaltante } from "@/components/metricas/Faltante";
 import { Seccion } from "@/components/metricas/Seccion";
 import { TarjetaKpi } from "@/components/metricas/TarjetaKpi";
 import { VolumenCanal } from "@/components/metricas/VolumenCanal";
-import { ContactEmergency, TaskAlt } from "@/components/icons";
+import { ContactEmergency, Savings, TaskAlt } from "@/components/icons";
 import { MonoMeta } from "@/components/shared/MonoMeta";
 import {
   deltaPuntos,
   deltaRelativo,
   formatearEntero,
   formatearPorcentaje,
+  formatearUsd,
 } from "@/lib/ui/metricas";
 import type { Metricas } from "@/types/metricas";
 
@@ -38,10 +39,19 @@ export function PanelTotal({ m }: { m: Metricas }) {
           label="1ra respuesta"
           falta="medir el tiempo entre el mensaje entrante y el saliente que lo contesta. Hoy mensajes.created_at es la hora en que el webhook insertó la fila, no la hora en que el cliente escribió."
         />
-        <KpiFaltante
-          label="Costo IA / lead"
-          falta="persistir el gasto de cada turno. El CostTracker acumula un total diario en memoria y se pierde en cada cold start; no hay columna de costo en ninguna tabla."
-        />
+        {m.gasto.porLeadUsd === null ? (
+          <KpiFaltante
+            label="Costo IA / lead"
+            falta="leads en el período. El gasto sí está registrado; sin leads nuevos la división no tiene denominador y un cero diría que la IA salió gratis."
+          />
+        ) : (
+          <TarjetaKpi
+            label="Costo IA / lead"
+            valor={formatearUsd(m.gasto.porLeadUsd)}
+            subtitulo={`${formatearUsd(m.gasto.totalUsd)} en modelo sobre ${formatearEntero(m.leadsNuevos.valor)} leads nuevos`}
+            icono={Savings}
+          />
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">

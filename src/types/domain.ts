@@ -101,3 +101,24 @@ export type RespuestaTipo = (typeof RESPUESTA_TIPO)[number];
 
 export const MERGE_CANDIDATE_STATUS = ["pending", "approved", "rejected", "superseded"] as const;
 export type MergeCandidateStatus = (typeof MERGE_CANDIDATE_STATUS)[number];
+
+/**
+ * Con qué etiqueta queda registrada cada llamada al modelo en `llm_usage`.
+ *
+ * No es un enum de la base a propósito: la columna es `text` para que un
+ * workflow nuevo no exija una migración, y el historial sobreviva a que uno
+ * deje de existir. Estas son las que hoy escribe el código, y las que la UI
+ * sabe nombrar en castellano.
+ */
+export const WORKFLOW_LLM = {
+  /** Agente vendedor en un turno real. Es el gasto que las reglas evitan. */
+  agente: "ai-agent",
+  /** Preview de una config candidata desde la consola: gasto de prueba, no de producción. */
+  agentePreview: "agente-preview",
+  clasificador: "intent-classifier",
+  extractorTwin: "twin-extractor",
+  resumidor: "conversation-summarizer",
+  detectorBatch: "intent-batch-detector",
+} as const;
+
+export type WorkflowLlm = (typeof WORKFLOW_LLM)[keyof typeof WORKFLOW_LLM];

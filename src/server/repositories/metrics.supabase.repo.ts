@@ -4,6 +4,7 @@ import type { Canal, CurrentStage, Sender } from "@/types/domain";
 import type {
   FilaIntentMetrica,
   FilaLeadMetrica,
+  FilaLlmUsageMetrica,
   FilaMensajeMetrica,
   FilaReglaActivaMetrica,
   FilaRuleExecutionMetrica,
@@ -99,6 +100,29 @@ export class SupabaseMetricsRepository implements MetricsRepository {
       tool_name: r.tool_name,
       created_at: new Date(r.created_at),
       error: r.error,
+    }));
+  }
+
+  /**
+   * `costo_usd` es `numeric`: PostgREST lo puede serializar como string y sumar
+   * strings daría una concatenación silenciosa. Se normaliza acá.
+   */
+  async listLlmUsageDesde(desde: Date): Promise<FilaLlmUsageMetrica[]> {
+    const { data, error } = await this.db
+      .from("llm_usage")
+      .select(
+        "lead_session_id, modelo, input_tokens, output_tokens, costo_usd, workflow, created_at",
+      )
+      .gte("created_at", desde.toISOString());
+    if (error) throw mapPostgrestError(error, { resource: "llm_usage" });
+    return (data ?? []).map((r) => ({
+      lead_session_id: r.lead_session_id,
+      modelo: r.modelo,
+      input_tokens: r.input_tokens,
+      output_tokens: r.output_tokens,
+      costo_usd: typeof r.costo_usd === "string" ? Number(r.costo_usd) : r.costo_usd,
+      workflow: r.workflow,
+      created_at: new Date(r.created_at),
     }));
   }
 

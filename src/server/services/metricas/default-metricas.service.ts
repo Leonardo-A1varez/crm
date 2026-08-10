@@ -1,19 +1,22 @@
 import { porcentajeDe } from "@/lib/ui/metricas";
 import { FUNNEL_STAGES } from "@/lib/ui/stage";
 import type {
+  FilaLlmUsageMetrica,
   FilaMensajeMetrica,
   FilaSesionMetrica,
   FilaToolExecutionMetrica,
   FilaUsuarioMetrica,
   MetricsRepository,
 } from "@/server/repositories/metrics.repo";
-import { CANAL, CURRENT_STAGE, SENDER } from "@/types/domain";
+import { CANAL, CURRENT_STAGE, SENDER, WORKFLOW_LLM } from "@/types/domain";
 import type { Canal, CurrentStage, Sender } from "@/types/domain";
 import type {
   ConteoCanal,
   ConteoHerramienta,
   ConteoMotivo,
+  ConteoWorkflow,
   FilaVendedor,
+  GastoIa,
   IntentSinRegla,
   Metricas,
 } from "@/types/metricas";
@@ -68,6 +71,7 @@ export class DefaultMetricsService implements MetricsService {
       reglasActivas,
       clasificaciones,
       usuarios,
+      gastos,
     ] = await Promise.all([
       this.deps.metrics.listSesionesDesde(desdeAnterior),
       this.deps.metrics.listMensajesDesde(desde),
@@ -78,6 +82,7 @@ export class DefaultMetricsService implements MetricsService {
       this.deps.metrics.listReglasActivas(),
       this.deps.metrics.listTurnClassificationsDesde(desde),
       this.deps.metrics.listUsuarios(),
+      this.deps.metrics.listLlmUsageDesde(desde),
     ]);
 
     const corte = desde.getTime();
@@ -225,10 +230,73 @@ export class DefaultMetricsService implements MetricsService {
         llm: autoria.ia - turnosRegla,
         escalado: autoria.humano,
       },
+      gasto: resumirGasto(gastos, ahora, leadsNuevos, turnosRegla),
       herramientas,
       intentsSinRegla,
     };
   }
+}
+
+/**
+ * Reduce las filas de `llm_usage` a lo que muestran los §3.1 y §3.2.
+ *
+ * El corte de "hoy" usa el día UTC, el mismo que usa el contador diario del
+ * `CostTracker`: si acá se usara la hora local del server, el número de la
+ * pantalla y el que decide el kill switch discreparían durante horas.
+ *
+ * `ahorroReglasUsd` es una estimación, y su base está elegida a conciencia: un
+ * turno que contestó una regla es exactamente un turno que, sin esa regla,
+ * habría ido al agente —el pipeline consulta reglas antes del LLM y sigue de
+ * largo si ninguna matchea—. Lo que la estimación no puede corregir es que el
+ * promedio se calcula sobre turnos que ninguna regla cubrió, que tienden a ser
+ * los más caros; el número queda por encima del ahorro real y la UI lo dice.
+ */
+function resumirGasto(
+  gastos: FilaLlmUsageMetrica[],
+  ahora: Date,
+  leadsNuevos: number,
+  turnosRegla: number,
+): GastoIa {
+  const hoy = ahora.toISOString().slice(0, 10);
+  const porWorkflow = new Map<string, ConteoWorkflow>();
+
+  let totalUsd = 0;
+  let hoyUsd = 0;
+  let tokensEntrada = 0;
+  let tokensSalida = 0;
+  let usdAgente = 0;
+  let turnosAgente = 0;
+
+  for (const g of gastos) {
+    totalUsd += g.costo_usd;
+    tokensEntrada += g.input_tokens;
+    tokensSalida += g.output_tokens;
+    if (g.created_at.toISOString().slice(0, 10) === hoy) hoyUsd += g.costo_usd;
+    if (g.workflow === WORKFLOW_LLM.agente) {
+      usdAgente += g.costo_usd;
+      turnosAgente++;
+    }
+    const fila = porWorkflow.get(g.workflow) ?? { workflow: g.workflow, usd: 0, llamadas: 0 };
+    fila.usd += g.costo_usd;
+    fila.llamadas++;
+    porWorkflow.set(g.workflow, fila);
+  }
+
+  const promedioTurnoUsd = turnosAgente > 0 ? usdAgente / turnosAgente : null;
+
+  return {
+    totalUsd,
+    hoyUsd,
+    porLeadUsd: leadsNuevos > 0 ? totalUsd / leadsNuevos : null,
+    tokensEntrada,
+    tokensSalida,
+    llamadas: gastos.length,
+    porWorkflow: [...porWorkflow.values()].sort(
+      (a, b) => b.usd - a.usd || a.workflow.localeCompare(b.workflow),
+    ),
+    promedioTurnoUsd,
+    ahorroReglasUsd: promedioTurnoUsd === null ? null : promedioTurnoUsd * turnosRegla,
+  };
 }
 
 /** Llamadas y fallas por herramienta, de la más usada a la menos. */

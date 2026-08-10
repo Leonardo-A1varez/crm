@@ -28,6 +28,12 @@ export interface AgentTurnInput {
    * última línea de `conversationTurn` (ver `textoDelCliente`).
    */
   textoEntrante?: string;
+  /**
+   * Id del mensaje entrante que abrió el turno. Viaja hasta el registro de
+   * gasto: es lo que permite decir qué mensaje disparó cada dólar. Opcional
+   * porque hay callers sin mensaje detrás (el preview de la consola).
+   */
+  mensajeOrigenId?: UUID | null;
 }
 
 export interface ToolCallRecord {
@@ -55,6 +61,8 @@ export interface AgentLLMInput {
   conversationTurn: string[];
   classification: IntentClassification;
   tools: AgentTools;
+  /** Mensaje entrante del turno; solo se usa para atribuir el gasto. */
+  mensajeOrigenId?: UUID | null;
 }
 
 export interface AgentLLMResult {
@@ -168,6 +176,7 @@ export class DefaultAiAgentService implements AiAgentService {
       conversationTurn: input.conversationTurn,
       classification: input.classification,
       tools,
+      mensajeOrigenId: input.mensajeOrigenId ?? null,
     });
 
     return {

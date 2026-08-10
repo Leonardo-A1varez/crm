@@ -6,6 +6,7 @@ import type {
   IntentBatchDetectorInput,
   IntentBatchDetectorLLM,
 } from "@/server/services/intent-batch-detector.service";
+import { WORKFLOW_LLM } from "@/types/domain";
 import { recordLlmUsage } from "./cost-tracker-bridge";
 import { NON_STRICT_JSON_SCHEMA } from "./structured-output";
 
@@ -78,7 +79,7 @@ export class OpenAiIntentBatchDetectorLLM implements IntentBatchDetectorLLM {
 
     await recordLlmUsage(this.cfg.costTracker, result, {
       model: this.cfg.modelName,
-      workflow: "intent-batch-detector",
+      workflow: WORKFLOW_LLM.detectorBatch,
     });
 
     return result.object.intents;

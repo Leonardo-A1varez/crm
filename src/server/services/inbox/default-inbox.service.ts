@@ -4,14 +4,16 @@ import type { EntradaTriage } from "@/lib/triage";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
+import type { LlmUsageRepository } from "@/server/repositories/llm-usage.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { ProductsRepository } from "@/server/repositories/productos.repo";
 import type { TagsRepository } from "@/server/repositories/tags.repo";
 import type { HandoffService } from "@/server/services/handoff.service";
 import type { MetaApiService } from "@/server/services/meta-api.service";
+import { WORKFLOW_LLM } from "@/types/domain";
 import type { Canal } from "@/types/domain";
 import type { Conversacion, LeadSession, Mensaje, Producto, Tag, UUID } from "@/types/entities";
-import type { SesionesPrevias } from "@/types/inbox";
+import type { GastoSesion, SesionesPrevias } from "@/types/inbox";
 import type {
   CloseSessionServiceInput,
   ConversationView,
@@ -71,6 +73,8 @@ export interface DefaultInboxServiceDeps {
   /** Para resolver `producto_cotizado_id` al producto del catálogo del Twin. */
   productos: ProductsRepository;
   tags: TagsRepository;
+  /** Gasto del modelo por sesión: el "cuánto va costando" del panel del Twin. */
+  llmUsage: LlmUsageRepository;
 }
 
 export class DefaultInboxService implements InboxService {
@@ -179,6 +183,7 @@ export class DefaultInboxService implements InboxService {
     const producto = await this.resolverProducto(session);
     const tags = await this.deps.tags.listByLead(leadId);
     const sesionesPrevias = await this.contarSesionesPrevias(leadId, session);
+    const gastoIa = await this.resolverGastoIa(session);
 
     return {
       lead,
@@ -198,7 +203,54 @@ export class DefaultInboxService implements InboxService {
         }),
       ),
       sesionesPrevias,
+      gastoIa,
     };
+  }
+
+  /**
+   * Cuánto costó esta conversación, o por qué no se puede decir.
+   *
+   * Las filas de `llm_usage` se suman por sesión: ahí está el gasto del agente,
+   * el del clasificador de intents, el del extractor del Twin y el del
+   * resumidor, que son las llamadas que un turno dispara. (El detector batch de
+   * intents no entra: corre sobre muchas sesiones a la vez y no le pertenece a
+   * ninguna, así que su fila va sin `lead_session_id`.)
+   *
+   * El preview de la consola sí queda afuera y a mano: replaya una sesión real
+   * para probar una config candidata, así que sus filas llevan el id de esta
+   * sesión aunque no le hayan mandado ni un mensaje al cliente. Sumarlo haría
+   * que un lead se volviera "caro" porque un admin estuvo probando prompts.
+   * Sigue contando en Métricas, con su propia franja.
+   *
+   * Cuando no hay ninguna fila hay que elegir entre dos respuestas opuestas, y
+   * la frontera la marca la primera llamada anotada de la historia: si la
+   * sesión empezó después, el registro ya estaba andando y el cero es real —la
+   * conversación se resolvió con reglas, o la atendió una persona—; si empezó
+   * antes, lo único honesto es decir que no hay dato. Con la tabla vacía no hay
+   * frontera y todo cae en "sin registro", que es exactamente lo que se sabe.
+   *
+   * El caso de borde de la purga: a los 29 días el cron borra las sesiones
+   * cerradas y las filas de gasto quedan con `lead_session_id` en NULL. Esa
+   * conversación ya no se puede abrir, así que nadie ve el gasto huérfano acá
+   * —sigue contando en Métricas, que es donde importa que no se pierda.
+   */
+  private async resolverGastoIa(session: LeadSession | null): Promise<GastoSesion | null> {
+    if (!session) return null;
+
+    const [resumen, primerRegistro] = await Promise.all([
+      this.deps.llmUsage.resumenPorLeadSession(session.id, {
+        excluirWorkflows: [WORKFLOW_LLM.agentePreview],
+      }),
+      this.deps.llmUsage.primerRegistroAt(),
+    ]);
+
+    if (resumen.llamadas > 0) {
+      return { estado: "medido", usd: resumen.usd, llamadas: resumen.llamadas };
+    }
+    if (primerRegistro && session.started_at.getTime() >= primerRegistro.getTime()) {
+      return { estado: "sin_gasto" };
+    }
+    return { estado: "sin_registro" };
   }
 
   /**

@@ -4,6 +4,7 @@ import {
   ContactEmergency,
   DirectionsCar,
   Inventory2,
+  Savings,
   Sell,
   Warning,
 } from "@/components/icons";
@@ -14,6 +15,7 @@ import { TwinField } from "@/components/lead-twin/TwinField";
 import { Eyebrow } from "@/components/shared/Eyebrow";
 import { MonoMeta } from "@/components/shared/MonoMeta";
 import { RelativeTime } from "@/components/shared/RelativeTime";
+import { formatearUsd } from "@/lib/ui/metricas";
 import { FUNNEL_STAGES, funnelStep, isDetour, stageColor, stageLabel } from "@/lib/ui/stage";
 import type {
   CampoTwinEditable,
@@ -32,7 +34,7 @@ import type {
   Tag,
   UUID,
 } from "@/types/entities";
-import type { ActionResult, OrigenCampo, SesionesPrevias } from "@/types/inbox";
+import type { ActionResult, GastoSesion, OrigenCampo, SesionesPrevias } from "@/types/inbox";
 
 /**
  * Urgencia como tres barras: alta llena las tres, media dos, baja una. La
@@ -257,6 +259,84 @@ function Vehiculo({ lead }: { lead: Lead }) {
   );
 }
 
+/**
+ * Qué muestra la tarjeta de costo en cada estado.
+ *
+ * El monto en dólares solo aparece cuando hay algo medido. Un "$0,00" puesto
+ * donde no hay registro se leería como "esta conversación salió gratis", que es
+ * la conclusión contraria a la verdadera: no se sabe cuánto costó. Por eso el
+ * caso sin registro muestra una raya y lo dice con todas las letras, mientras
+ * que el cero real —ningún turno llamó al modelo— sí se muestra, y en verde,
+ * porque es exactamente lo que las reglas IF/THEN vienen a lograr.
+ */
+function lecturaGasto(gasto: GastoSesion): {
+  valor: string;
+  claseValor: string;
+  meta: string;
+  nota: string;
+} {
+  if (gasto.estado === "medido") {
+    return {
+      valor: formatearUsd(gasto.usd),
+      claseValor: "text-ink-primary",
+      meta: gasto.llamadas === 1 ? "1 llamada" : `${gasto.llamadas} llamadas`,
+      nota: "Llamadas al modelo de esta sesión: agente, clasificador, extractor de la ficha y resumen.",
+    };
+  }
+  if (gasto.estado === "sin_gasto") {
+    return {
+      valor: formatearUsd(0),
+      claseValor: "text-ok",
+      meta: "sin llamadas",
+      nota: "Ningún turno necesitó el modelo: la resolvieron las reglas o un vendedor.",
+    };
+  }
+  return {
+    valor: "—",
+    claseValor: "text-ink-faint",
+    meta: "sin registro",
+    nota: "La conversación es anterior a que se anotara el gasto. No es cero: es que no se midió.",
+  };
+}
+
+/**
+ * Lo que la IA lleva gastado en esta conversación.
+ *
+ * Es la tarjeta de gasto del handoff §3.2 a escala del Twin: mismo borde ámbar
+ * y mismo gradiente, pero el número en Geist Mono 15px y no en 30. Acá es un
+ * dato de control —cuánto sale atender a este lead— y no el titular de la
+ * pantalla; el titular es la conversación.
+ */
+function CostoIa({ gasto }: { gasto: GastoSesion }) {
+  const { valor, claseValor, meta, nota } = lecturaGasto(gasto);
+
+  return (
+    <Seccion>
+      <span className="text-ink-faint flex items-center gap-1.5">
+        <Savings size={12} className="shrink-0" />
+        <Eyebrow>Costo de IA</Eyebrow>
+      </span>
+      <div
+        className="border-brand/22 flex flex-col gap-1.5 rounded-[12px] border p-3"
+        style={{
+          backgroundImage:
+            "linear-gradient(160deg,var(--color-surface-glow),var(--color-surface-card))",
+        }}
+      >
+        <div className="flex items-baseline justify-between gap-2">
+          <span
+            className={`font-mono text-[15px] leading-none font-semibold tracking-[-0.02em] ${claseValor}`}
+          >
+            {valor}
+          </span>
+          <MonoMeta className="shrink-0">{meta}</MonoMeta>
+        </div>
+        <p className="text-ink-ghost text-[10px] leading-relaxed">{nota}</p>
+      </div>
+    </Seccion>
+  );
+}
+
 function BarrasUrgencia({ urgencia }: { urgencia: Urgencia }) {
   const { label, llenas, clase } = URGENCIA_CONFIG[urgencia];
   const [color, fondo] = clase.split(" ");
@@ -292,6 +372,7 @@ export function TwinPanel({
   producto,
   tags,
   sesionesPrevias,
+  gastoIa,
   onEditar,
 }: {
   lead: Lead;
@@ -302,6 +383,8 @@ export function TwinPanel({
   producto: Producto | null;
   tags: Tag[];
   sesionesPrevias: SesionesPrevias;
+  /** Gasto del modelo en esta sesión; `null` cuando no hay sesión activa. */
+  gastoIa: GastoSesion | null;
   onEditar: (input: EditarCampoTwinInput) => Promise<ActionResult>;
 }) {
   if (!session) return <TwinEmptyState />;
@@ -503,6 +586,10 @@ export function TwinPanel({
           </div>
         </Seccion>
       ) : null}
+
+      {/* Después de la ficha y antes del historial: es meta de la sesión, como
+          "sesión iniciada", y no un dato de la conversación. */}
+      {gastoIa ? <CostoIa gasto={gastoIa} /> : null}
 
       <Seccion>
         <Eyebrow>Historial</Eyebrow>

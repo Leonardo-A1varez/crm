@@ -3,6 +3,7 @@ import { ConflictError, NotFoundError } from "@/lib/errors";
 import { InMemoryConversationsRepository } from "@/server/repositories/conversations.repo";
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
+import { InMemoryLlmUsageRepository } from "@/server/repositories/llm-usage.repo";
 import { InMemoryMessagesRepository } from "@/server/repositories/messages.repo";
 import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
 import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
@@ -36,6 +37,7 @@ describe("editarCampoTwin", () => {
       handoff: new DefaultHandoffService(sessions),
       productos: new InMemoryProductsRepository(),
       tags: new InMemoryTagsRepository(),
+      llmUsage: new InMemoryLlmUsageRepository(),
     });
 
     const lead = await leads.create({

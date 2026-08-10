@@ -5,6 +5,7 @@ import type {
   TwinExtractorLLM,
   TwinExtractorLLMInput,
 } from "@/server/services/twin-extractor.service";
+import { WORKFLOW_LLM } from "@/types/domain";
 import { recordLlmUsage } from "./cost-tracker-bridge";
 import { NON_STRICT_JSON_SCHEMA } from "./structured-output";
 
@@ -77,8 +78,9 @@ export class OpenAiTwinExtractorLLM implements TwinExtractorLLM {
 
     await recordLlmUsage(this.cfg.costTracker, result, {
       model: this.cfg.modelName,
-      workflow: "twin-extractor",
+      workflow: WORKFLOW_LLM.extractorTwin,
       sessionId: input.current.id,
+      ...(input.mensajeOrigenId ? { mensajeId: input.mensajeOrigenId } : {}),
     });
 
     return result.object;

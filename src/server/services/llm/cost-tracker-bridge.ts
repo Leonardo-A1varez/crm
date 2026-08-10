@@ -20,6 +20,11 @@ export interface RecordUsageContext {
   model: string;
   workflow: string;
   sessionId?: UUID;
+  /**
+   * Mensaje entrante que originó el turno. Lo que ancla el gasto a un punto del
+   * hilo: sin él, una sesión con 20 turnos solo puede decir su total.
+   */
+  mensajeId?: UUID;
 }
 
 /**
@@ -43,5 +48,6 @@ export async function recordLlmUsage(
     workflow: ctx.workflow,
   };
   if (ctx.sessionId !== undefined) record.sessionId = ctx.sessionId;
+  if (ctx.mensajeId !== undefined) record.mensajeId = ctx.mensajeId;
   await tracker.record(record);
 }

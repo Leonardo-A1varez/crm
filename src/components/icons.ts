@@ -33,6 +33,7 @@ export {
   LockKeyhole as LockClock,
   LogOut as Logout,
   Minus as Remove,
+  PiggyBank as Savings,
   Package as Inventory2,
   Paperclip as AttachFile,
   Pause as PauseIcon,

@@ -77,6 +77,22 @@ export interface FilaUsuarioMetrica {
 }
 
 /**
+ * Una llamada al modelo con lo que costó (`llm_usage`). Es la única fuente del
+ * gasto: el contador en memoria del `CostTracker` no sobrevive al proceso ni
+ * atribuye nada a una conversación.
+ */
+export interface FilaLlmUsageMetrica {
+  /** `null` en las llamadas que no nacen de una sesión, o cuya sesión se purgó. */
+  lead_session_id: string | null;
+  modelo: string;
+  input_tokens: number;
+  output_tokens: number;
+  costo_usd: number;
+  workflow: string;
+  created_at: Date;
+}
+
+/**
  * Lectura para métricas. Devuelve filas flacas y agrega en el service, no en
  * SQL: a la escala de un CRM single-org son miles de filas, y tener el corte en
  * TypeScript lo vuelve testeable sin una base al lado. Si el volumen crece, lo
@@ -89,6 +105,7 @@ export interface MetricsRepository {
   listRuleExecutionsDesde(desde: Date): Promise<FilaRuleExecutionMetrica[]>;
   listTurnClassificationsDesde(desde: Date): Promise<FilaTurnClassificationMetrica[]>;
   listToolExecutionsDesde(desde: Date): Promise<FilaToolExecutionMetrica[]>;
+  listLlmUsageDesde(desde: Date): Promise<FilaLlmUsageMetrica[]>;
   /**
    * Sin ventana: intents y reglas son configuración, no eventos. Cuáles tienen
    * regla es una foto del estado de hoy y no algo que haya pasado en el período.
@@ -110,6 +127,7 @@ export interface MetricsFixture {
   reglasActivas?: FilaReglaActivaMetrica[];
   clasificaciones?: FilaTurnClassificationMetrica[];
   usuarios?: FilaUsuarioMetrica[];
+  gastos?: FilaLlmUsageMetrica[];
 }
 
 export class InMemoryMetricsRepository implements MetricsRepository {
@@ -122,6 +140,7 @@ export class InMemoryMetricsRepository implements MetricsRepository {
   private readonly reglasActivas: FilaReglaActivaMetrica[];
   private readonly clasificaciones: FilaTurnClassificationMetrica[];
   private readonly usuarios: FilaUsuarioMetrica[];
+  private readonly gastos: FilaLlmUsageMetrica[];
 
   // Un objeto y no 9 parámetros posicionales: con nueve listas del mismo tipo
   // base, equivocarse de posición compila y falla en silencio.
@@ -135,6 +154,7 @@ export class InMemoryMetricsRepository implements MetricsRepository {
     this.reglasActivas = fixture.reglasActivas ?? [];
     this.clasificaciones = fixture.clasificaciones ?? [];
     this.usuarios = fixture.usuarios ?? [];
+    this.gastos = fixture.gastos ?? [];
   }
 
   async listSesionesDesde(desde: Date): Promise<FilaSesionMetrica[]> {
@@ -159,6 +179,10 @@ export class InMemoryMetricsRepository implements MetricsRepository {
 
   async listToolExecutionsDesde(desde: Date): Promise<FilaToolExecutionMetrica[]> {
     return this.tools.filter((t) => t.created_at.getTime() >= desde.getTime());
+  }
+
+  async listLlmUsageDesde(desde: Date): Promise<FilaLlmUsageMetrica[]> {
+    return this.gastos.filter((g) => g.created_at.getTime() >= desde.getTime());
   }
 
   async listIntentsActivos(): Promise<FilaIntentMetrica[]> {

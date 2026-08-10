@@ -10,6 +10,26 @@ export function formatearEntero(n: number): string {
   return ENTERO.format(n);
 }
 
+/**
+ * USD con la precisión que el número necesita. Un turno con un modelo nano
+ * cuesta del orden de una milésima de dólar: con dos decimales fijos, todo el
+ * gasto por lead se leería "$0,00" y la pantalla no serviría para nada. Por eso
+ * los montos chicos muestran cuatro decimales y los grandes dos.
+ */
+export function formatearUsd(n: number): string {
+  const decimales = n !== 0 && Math.abs(n) < 1 ? 4 : 2;
+  return `$${n.toLocaleString("es-AR", {
+    minimumFractionDigits: decimales,
+    maximumFractionDigits: decimales,
+  })}`;
+}
+
+/** Miles con sufijo `k`, para los conteos de tokens del handoff §3.2 (412k). */
+export function formatearTokens(n: number): string {
+  if (n < 1000) return ENTERO.format(n);
+  return `${DECIMAL.format(n / 1000)}k`;
+}
+
 /** Porcentaje con un decimal: `23,4%`. */
 export function formatearPorcentaje(n: number): string {
   return `${DECIMAL.format(n)}%`;

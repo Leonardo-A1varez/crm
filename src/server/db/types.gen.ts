@@ -502,6 +502,57 @@ export type Database = {
           },
         ]
       }
+      llm_usage: {
+        Row: {
+          costo_usd: number
+          created_at: string
+          id: string
+          input_tokens: number
+          lead_session_id: string | null
+          mensaje_id: string | null
+          modelo: string
+          output_tokens: number
+          workflow: string
+        }
+        Insert: {
+          costo_usd: number
+          created_at?: string
+          id?: string
+          input_tokens?: number
+          lead_session_id?: string | null
+          mensaje_id?: string | null
+          modelo: string
+          output_tokens?: number
+          workflow: string
+        }
+        Update: {
+          costo_usd?: number
+          created_at?: string
+          id?: string
+          input_tokens?: number
+          lead_session_id?: string | null
+          mensaje_id?: string | null
+          modelo?: string
+          output_tokens?: number
+          workflow?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "llm_usage_lead_session_id_fkey"
+            columns: ["lead_session_id"]
+            isOneToOne: false
+            referencedRelation: "lead_session"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "llm_usage_mensaje_id_fkey"
+            columns: ["mensaje_id"]
+            isOneToOne: false
+            referencedRelation: "mensajes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       mensajes: {
         Row: {
           contenido: string | null

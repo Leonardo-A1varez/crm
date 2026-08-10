@@ -39,8 +39,10 @@ import { SupabaseRulesRepository } from "@/server/repositories/rules.supabase.re
 import { SupabaseToolExecutionsRepository } from "@/server/repositories/tool-executions.supabase.repo";
 import { SupabaseTurnClassificationsRepository } from "@/server/repositories/turn-classifications.supabase.repo";
 import { SupabaseAgenteConfigRepository } from "@/server/repositories/agente-config.supabase.repo";
+import { SupabaseLlmUsageRepository } from "@/server/repositories/llm-usage.supabase.repo";
 
 import { makeCostTracker } from "@/lib/observability/upstash-cost-tracker";
+import { PersistingCostTracker } from "@/server/services/llm/persisting-cost-tracker";
 import { getLogger } from "@/lib/observability/get-logger";
 import type { Logger } from "@/lib/observability/logger";
 import { makeLlmFactory, type LlmBundle } from "@/server/services/llm/llm-factory";
@@ -95,12 +97,22 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   const toolExecutions = new SupabaseToolExecutionsRepository(db);
 
   // ===== Infrastructure (cost tracker, LLM bundle) =====
-  // Upstash con creds reales (persistente cross cold-start); fallback InMemory+warn dev.
-  const costTracker = makeCostTracker({
+  // Dos responsabilidades distintas, deliberadamente separadas:
+  //   - el contador de adentro resuelve el total del día y el kill switch;
+  //   - el decorador deja una fila por llamada en `llm_usage`, que es lo único
+  //     con lo que se puede responder cuánto costó una conversación o un lead.
+  // El segundo no reemplaza al primero: un total diario no se desagrega, y una
+  // suma de filas no sirve para cortar a mitad de turno.
+  const costTracker = new PersistingCostTracker({
+    inner: makeCostTracker({
+      pricing: OPENAI_PRICING,
+      dailyCapUsd: env.LLM_DAILY_CAP_USD,
+      upstashUrl: env.UPSTASH_REDIS_REST_URL,
+      upstashToken: env.UPSTASH_REDIS_REST_TOKEN,
+      logger,
+    }),
+    repo: new SupabaseLlmUsageRepository(db),
     pricing: OPENAI_PRICING,
-    dailyCapUsd: env.LLM_DAILY_CAP_USD,
-    upstashUrl: env.UPSTASH_REDIS_REST_URL,
-    upstashToken: env.UPSTASH_REDIS_REST_TOKEN,
     logger,
   });
 

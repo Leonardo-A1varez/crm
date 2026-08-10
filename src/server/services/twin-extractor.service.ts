@@ -20,6 +20,8 @@ export interface TwinExtractorInput {
 export interface TwinExtractorLLMInput {
   current: LeadSession;
   conversationTurn: string[];
+  /** Mismo mensaje que ancla la procedencia; acá ancla además el gasto. */
+  mensajeOrigenId?: UUID | null;
 }
 
 export interface TwinExtractorLLM {
@@ -57,7 +59,7 @@ export class DefaultTwinExtractorService implements TwinExtractorService {
       throw new NotFoundError(`sesión no encontrada: ${sessionId}`, "lead_session", sessionId);
     if (current.resultado !== null) return current;
 
-    const raw = await this.llm.extract({ current, conversationTurn });
+    const raw = await this.llm.extract({ current, conversationTurn, mensajeOrigenId });
     const parseResult = LeadTwinUpdateSchema.safeParse(raw);
     if (!parseResult.success) {
       throw new ValidationError(

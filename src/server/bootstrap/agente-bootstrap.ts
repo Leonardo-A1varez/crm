@@ -7,6 +7,7 @@ import { createSupabaseServerClient } from "@/server/auth/supabase-ssr";
 import { SupabaseAdminAuditRepository } from "@/server/repositories/admin-audit.supabase.repo";
 import { SupabaseAgenteConfigRepository } from "@/server/repositories/agente-config.supabase.repo";
 import { SupabaseLeadSessionRepository } from "@/server/repositories/lead-session.supabase.repo";
+import { SupabaseLlmUsageRepository } from "@/server/repositories/llm-usage.supabase.repo";
 import { SupabaseMessagesRepository } from "@/server/repositories/messages.supabase.repo";
 import { SupabaseProductsRepository } from "@/server/repositories/productos.supabase.repo";
 import { DefaultAdminAuditService } from "@/server/services/admin-audit.service";
@@ -18,6 +19,8 @@ import { CachedAgentConfigProvider } from "@/server/services/agente/config-provi
 import { DefaultAgentePreviewService } from "@/server/services/agente/preview.service";
 import { DefaultCatalogMatcherService } from "@/server/services/catalog-matcher.service";
 import { OpenAiAgentLLM } from "@/server/services/llm/openai-ai-agent";
+import { PersistingCostTracker } from "@/server/services/llm/persisting-cost-tracker";
+import { WORKFLOW_LLM } from "@/types/domain";
 import type { AppClient } from "@/server/db/client";
 import type { AdminAuditService } from "@/server/services/admin-audit.service";
 import type { AgenteConfigService } from "@/server/services/agente/agente-config.service";
@@ -74,11 +77,18 @@ export async function getAgentePreviewServiceForRequest(): Promise<AgentePreview
   const db = await createSupabaseServerClient();
   const logger = getLogger({ scope: "agente-preview" });
 
-  const costTracker = makeCostTracker({
+  // El preview también se persiste: es gasto real contra la misma API key. Lo
+  // separa el `workflow: "agente-preview"`, no que no se anote.
+  const costTracker = new PersistingCostTracker({
+    inner: makeCostTracker({
+      pricing: OPENAI_PRICING,
+      dailyCapUsd: env.LLM_DAILY_CAP_USD,
+      upstashUrl: env.UPSTASH_REDIS_REST_URL,
+      upstashToken: env.UPSTASH_REDIS_REST_TOKEN,
+      logger,
+    }),
+    repo: new SupabaseLlmUsageRepository(db),
     pricing: OPENAI_PRICING,
-    dailyCapUsd: env.LLM_DAILY_CAP_USD,
-    upstashUrl: env.UPSTASH_REDIS_REST_URL,
-    upstashToken: env.UPSTASH_REDIS_REST_TOKEN,
     logger,
   });
   const openaiProvider = createOpenAI({ apiKey: env.OPENAI_API_KEY });
@@ -92,7 +102,7 @@ export async function getAgentePreviewServiceForRequest(): Promise<AgentePreview
         provider: openaiProvider,
         configProvider,
         costTracker,
-        workflow: "agente-preview",
+        workflow: WORKFLOW_LLM.agentePreview,
         logger,
       }),
   );

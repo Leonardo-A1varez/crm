@@ -15,6 +15,52 @@ export interface ConteoCanal {
   cantidad: number;
 }
 
+/** Gasto de un tipo de llamada al modelo dentro de la ventana. */
+export interface ConteoWorkflow {
+  /** Valor crudo de `llm_usage.workflow`; la UI lo traduce. */
+  workflow: string;
+  usd: number;
+  llamadas: number;
+}
+
+/**
+ * Lo que costó la IA en la ventana. Sale de `llm_usage`, una fila por llamada
+ * al modelo, así que todos estos números son plata efectivamente gastada — no
+ * proyecciones.
+ */
+export interface GastoIa {
+  /** USD de la ventana completa. */
+  totalUsd: number;
+  /** USD del día de hoy (día UTC, igual que el corte del contador diario). */
+  hoyUsd: number;
+  /**
+   * Costo IA sobre los leads que entraron en la ventana (handoff §3.1/§3.2).
+   * `null` cuando no entró ninguno: dividir por cero daría un infinito y
+   * mostrar 0 diría que la IA salió gratis.
+   */
+  porLeadUsd: number | null;
+  tokensEntrada: number;
+  tokensSalida: number;
+  /** Llamadas al modelo registradas, de cualquier workflow. */
+  llamadas: number;
+  /** Reparto por tipo de llamada, de más caro a menos. */
+  porWorkflow: ConteoWorkflow[];
+  /**
+   * Costo promedio de un turno del agente vendedor (`workflow = ai-agent`).
+   * `null` si no hubo ninguno en la ventana.
+   */
+  promedioTurnoUsd: number | null;
+  /**
+   * Ahorro estimado de las reglas IF/THEN: los turnos que contestó una regla
+   * por el costo promedio de un turno del agente. **Es una estimación con
+   * sesgo conocido y hacia arriba**: el promedio se calcula sobre los turnos
+   * que el agente sí atendió, que son justamente los que ninguna regla cubrió
+   * —normalmente más largos y con más llamadas a catálogo—. `null` cuando no
+   * hay turnos del agente con los que estimar.
+   */
+  ahorroReglasUsd: number | null;
+}
+
 export interface ConteoHerramienta {
   nombre: string;
   llamadas: number;
@@ -140,14 +186,15 @@ export interface Metricas {
   };
   /**
    * Cómo se resolvió cada turno saliente. `regla` y `llm` reparten lo que mandó
-   * la IA; `escalado` es lo que mandó una persona. El costo de cada franja no
-   * está: no se persiste el gasto por turno en ningún lado.
+   * la IA; `escalado` es lo que mandó una persona.
    */
   turnos: {
     regla: number;
     llm: number;
     escalado: number;
   };
+  /** Lo que costó la IA en la ventana (`llm_usage`). */
+  gasto: GastoIa;
   /** Llamadas del agente a sus herramientas, de la más usada a la menos. */
   herramientas: ConteoHerramienta[];
   /** Intents que hoy resuelve el LLM por no tener regla activa, del más nuevo al más viejo. */

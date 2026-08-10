@@ -4,6 +4,7 @@ import type {
   ConversationSummarizerLLM,
   ConversationSummarizerLLMInput,
 } from "@/server/services/conversation-summarizer.service";
+import { WORKFLOW_LLM } from "@/types/domain";
 import { recordLlmUsage } from "./cost-tracker-bridge";
 
 export interface OpenAiConversationSummarizerConfig {
@@ -52,7 +53,7 @@ export class OpenAiConversationSummarizerLLM implements ConversationSummarizerLL
 
     await recordLlmUsage(this.cfg.costTracker, result, {
       model: this.cfg.modelName,
-      workflow: "conversation-summarizer",
+      workflow: WORKFLOW_LLM.resumidor,
       sessionId: input.sessionId,
     });
 

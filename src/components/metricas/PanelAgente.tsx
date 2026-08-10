@@ -1,14 +1,25 @@
 import { BarraReparto } from "@/components/metricas/BarraReparto";
-import { BloqueFaltante, KpiFaltante } from "@/components/metricas/Faltante";
+import { KpiFaltante } from "@/components/metricas/Faltante";
+import { GastoIa } from "@/components/metricas/GastoIa";
 import { IntentsSinRegla } from "@/components/metricas/IntentsSinRegla";
 import { Seccion } from "@/components/metricas/Seccion";
 import { TarjetaKpi } from "@/components/metricas/TarjetaKpi";
-import { DatabaseSearch, PanTool, SmartToy } from "@/components/icons";
-import { formatearEntero, formatearPorcentaje, porcentajeDe } from "@/lib/ui/metricas";
+import { DatabaseSearch, PanTool, Savings, SmartToy } from "@/components/icons";
+import {
+  formatearEntero,
+  formatearPorcentaje,
+  formatearUsd,
+  porcentajeDe,
+} from "@/lib/ui/metricas";
+import { WORKFLOW_LLM } from "@/types/domain";
 import type { Metricas } from "@/types/metricas";
 
 export function PanelAgente({ m }: { m: Metricas }) {
   const turnos = m.turnos.regla + m.turnos.llm + m.turnos.escalado;
+  // Lo que costó la franja "LLM" de la barra. Es el gasto del agente vendedor y
+  // no el total de IA: el clasificador corre igual cuando contesta una regla, y
+  // cargárselo a esta franja diría que las reglas ahorran más de lo que ahorran.
+  const usdAgente = m.gasto.porWorkflow.find((w) => w.workflow === WORKFLOW_LLM.agente)?.usd ?? 0;
 
   return (
     <div className="flex flex-col gap-4 p-5">
@@ -29,17 +40,26 @@ export function PanelAgente({ m }: { m: Metricas }) {
           label="Latencia 1ra respuesta"
           falta="registrar cuándo llegó el mensaje del cliente. mensajes.created_at marca la inserción del webhook, así que el delta entrante→saliente mediría el tiempo de proceso y no la espera real."
         />
-        <KpiFaltante
-          label="Costo por lead"
-          falta="persistir el gasto de cada turno junto al lead. El CostTracker solo lleva un total diario en memoria (Upstash no está configurado) y no lo atribuye a ninguna conversación."
-        />
+        {m.gasto.porLeadUsd === null ? (
+          <KpiFaltante
+            label="Costo por lead"
+            falta="leads en el período. El gasto de cada turno sí queda registrado; lo que falta es el denominador."
+          />
+        ) : (
+          <TarjetaKpi
+            label="Costo por lead"
+            valor={formatearUsd(m.gasto.porLeadUsd)}
+            subtitulo={`${formatearUsd(m.gasto.totalUsd)} en modelo sobre ${formatearEntero(m.leadsNuevos.valor)} leads nuevos`}
+            icono={Savings}
+          />
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">
         <Seccion
           titulo="Cómo resolvió cada turno"
           extra={`${formatearEntero(turnos)} turnos`}
-          nota="Las reglas IF/THEN no consumen tokens: cada punto que sube esa franja baja el costo. Cuánto baja no se puede decir todavía — el gasto por turno no se guarda."
+          nota="Las reglas IF/THEN no llaman al modelo para generar la respuesta: cada punto que sube esa franja baja el costo. El clasificador de intents sí corre en los tres casos, así que su gasto no se le imputa a ninguna franja."
         >
           <BarraReparto
             vacio="Sin turnos contestados en el período."
@@ -48,9 +68,14 @@ export function PanelAgente({ m }: { m: Metricas }) {
                 label: "Regla IF/THEN",
                 cantidad: m.turnos.regla,
                 color: "var(--color-ok)",
-                detalle: "sin tokens",
+                detalle: `${formatearUsd(0)} en generación`,
               },
-              { label: "LLM", cantidad: m.turnos.llm, color: "var(--color-brand)" },
+              {
+                label: "LLM",
+                cantidad: m.turnos.llm,
+                color: "var(--color-brand)",
+                detalle: formatearUsd(usdAgente),
+              },
               {
                 label: "Escalado a humano",
                 cantidad: m.turnos.escalado,
@@ -102,16 +127,16 @@ export function PanelAgente({ m }: { m: Metricas }) {
         <Seccion
           titulo="Intents sin regla"
           extra={`${formatearEntero(m.intentsSinRegla.length)} sin cubrir`}
-          nota="Cada uno se responde con LLM hoy: escribirle una regla lo vuelve gratis. Cuántas veces se usó cada uno y cuánto cuesta por día no se puede mostrar todavía — la clasificación de un turno solo queda registrada cuando matchea una regla, que es justo el caso opuesto al de esta lista, y el gasto por turno no se persiste."
+          nota="Cada uno se responde con LLM hoy: escribirle una regla le saca el costo de generación. El costo diario es un reparto del gasto real usando el promedio de un turno del agente, porque el gasto se registra por turno y no por intent."
         >
-          <IntentsSinRegla intents={m.intentsSinRegla} />
+          <IntentsSinRegla
+            intents={m.intentsSinRegla}
+            promedioTurnoUsd={m.gasto.promedioTurnoUsd}
+            dias={m.dias}
+          />
         </Seccion>
 
-        <BloqueFaltante
-          label="Gasto de IA hoy"
-          descripcion="La tarjeta destacada del handoff: gastado contra el tope diario, barra de consumo, estado del kill switch, tokens de entrada y salida, y el ahorro que generaron las reglas."
-          falta="un contador de gasto que sobreviva al proceso. InMemoryCostTracker es el que está activo y se reinicia en cada cold start; UpstashCostTracker ya está escrito pero necesita UPSTASH_REDIS_REST_URL y UPSTASH_REDIS_REST_TOKEN. Los tokens de entrada/salida tampoco se guardan por turno."
-        />
+        <GastoIa gasto={m.gasto} dias={m.dias} />
       </div>
     </div>
   );

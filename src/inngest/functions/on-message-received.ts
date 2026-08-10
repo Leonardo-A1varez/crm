@@ -179,8 +179,14 @@ export async function onMessageReceivedHandler(
       };
     }
 
+    // El entrante viaja junto al texto: no cambia la clasificación, pero es lo
+    // que hace que el gasto del clasificador quede atribuido a esta sesión en
+    // vez de aparecer como costo sin dueño en el reporte por lead.
     const classification = await step.run("classify", () =>
-      deps.intentClassifier.classify(parsed.contenido ?? ""),
+      deps.intentClassifier.classify(parsed.contenido ?? "", {
+        mensajeId: inbound.id,
+        leadSessionId: session.id,
+      }),
     );
     logger.info("classified", {
       intent: classification.intent_nombre,
@@ -201,6 +207,7 @@ export async function onMessageReceivedHandler(
         leadSessionId: session.id,
         conversationTurn,
         classification,
+        mensajeOrigenId: inbound.id,
       }),
     );
     logger.info("agent-decision", {

@@ -1,16 +1,30 @@
 import Link from "next/link";
 import { AutoAwesome } from "@/components/icons";
+import { formatearEntero, formatearUsd } from "@/lib/ui/metricas";
 import type { IntentSinRegla } from "@/types/metricas";
 
 const FECHA = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short" });
 
 /**
  * Los intents que hoy contesta el LLM porque nadie les escribió una regla
- * (handoff §3.2). El handoff pide además el costo diario de cada uno y un botón
- * "Aprobar"; acá va la lista y el enlace a donde se escribe la regla, que es lo
- * accionable sin gasto por turno persistido.
+ * (handoff §3.2), con lo que cuesta cada uno por día.
+ *
+ * El costo diario reparte gasto real, no un contrafáctico: estos turnos SÍ
+ * pasaron por el modelo. Lo aproximado es el reparto —se usa el costo promedio
+ * de un turno del agente, porque `llm_usage` guarda el gasto por turno y no por
+ * intent—, así que un intent con turnos más largos que la media queda
+ * subestimado y uno con turnos cortos, sobreestimado.
  */
-export function IntentsSinRegla({ intents }: { intents: IntentSinRegla[] }) {
+export function IntentsSinRegla({
+  intents,
+  promedioTurnoUsd,
+  dias,
+}: {
+  intents: IntentSinRegla[];
+  /** Costo promedio de un turno del agente. `null` = no hay con qué estimar. */
+  promedioTurnoUsd: number | null;
+  dias: number;
+}) {
   if (intents.length === 0) {
     return (
       <p className="text-ink-faint text-[11.5px]">
@@ -47,6 +61,14 @@ export function IntentsSinRegla({ intents }: { intents: IntentSinRegla[] }) {
             </div>
             {i.descripcion ? (
               <p className="text-ink-faint mt-0.5 line-clamp-2 text-[10.5px]">{i.descripcion}</p>
+            ) : null}
+            {i.usos > 0 ? (
+              <p className="text-ink-ghost mt-1 font-mono text-[9.5px] tabular-nums">
+                {`${formatearEntero(i.usos)} turnos`}
+                {promedioTurnoUsd !== null && dias > 0
+                  ? ` · ${formatearUsd((i.usos * promedioTurnoUsd) / dias)}/día`
+                  : ""}
+              </p>
             ) : null}
           </div>
           <span className="text-ink-ghost shrink-0 font-mono text-[10px] tabular-nums">

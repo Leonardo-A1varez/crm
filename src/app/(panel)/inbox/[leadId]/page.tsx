@@ -101,6 +101,7 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
           producto={view.producto}
           tags={view.tags}
           sesionesPrevias={view.sesionesPrevias}
+          gastoIa={view.gastoIa}
           onEditar={editarCampoTwinAction}
         />
       </aside>

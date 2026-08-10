@@ -65,7 +65,31 @@ export interface ConversationView {
   tags: Tag[];
   /** Sesiones anteriores del mismo lead: "4 · 3 con compra" del handoff §1.4. */
   sesionesPrevias: SesionesPrevias;
+  /**
+   * Lo que la IA lleva gastado en esta conversación. `null` cuando no hay
+   * sesión activa: sin sesión no hay a qué atribuirle gasto, y el Twin muestra
+   * su estado vacío igual.
+   */
+  gastoIa: GastoSesion | null;
 }
+
+/**
+ * Cuánto costó la conversación, o por qué no se puede decir.
+ *
+ * Es una unión y no un número porque cero no es un solo caso. Una conversación
+ * que resolvieron las reglas costó cero de verdad —esa es la buena noticia del
+ * producto— y una anterior a que existiera el registro también suma cero, pero
+ * ahí el cero es ignorancia. Mostrar "$0,00" en los dos lugares haría pasar lo
+ * segundo por lo primero, que es justo la lectura equivocada: el vendedor
+ * concluiría que el agente sale gratis.
+ */
+export type GastoSesion =
+  /** Hay filas: `usd` es plata efectivamente gastada en `llamadas` llamadas. */
+  | { estado: "medido"; usd: number; llamadas: number }
+  /** Sin filas, pero la sesión es posterior al inicio del registro: gastó cero. */
+  | { estado: "sin_gasto" }
+  /** Sin filas y la sesión es anterior al registro: no hay dato, no hay cero. */
+  | { estado: "sin_registro" };
 
 /**
  * Historial del lead reducido a lo que el Twin muestra. No incluye la sesión

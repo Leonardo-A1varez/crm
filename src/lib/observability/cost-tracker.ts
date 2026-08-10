@@ -16,6 +16,8 @@ export interface UsageRecord {
   inputTokens: number;
   outputTokens: number;
   sessionId?: UUID;
+  /** Mensaje entrante que originó el turno; ancla el gasto a un punto del hilo. */
+  mensajeId?: UUID;
   workflow?: string;
   at?: Date;
 }
@@ -44,20 +46,38 @@ interface StoredRecord extends UsageRecord {
   day: string;
 }
 
+/**
+ * Lo que cuesta un uso, en USD. Exportada porque el tracker que persiste en
+ * Postgres necesita el mismo número que el contador en memoria: si cada uno lo
+ * calculara por su cuenta, el total diario y la suma de las filas guardadas se
+ * separarían sin que nadie lo note.
+ *
+ * @throws ValidationError si el modelo no está en la tabla de precios.
+ */
+export function costoUsdDe(
+  pricing: PricingTable,
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+): number {
+  const price = pricing[model];
+  if (!price) {
+    throw new ValidationError(`model sin pricing configurado: ${model}`);
+  }
+  return (
+    (inputTokens / 1_000_000) * price.inputUsdPer1M +
+    (outputTokens / 1_000_000) * price.outputUsdPer1M
+  );
+}
+
 export class InMemoryCostTracker implements CostTracker {
   private readonly records: StoredRecord[] = [];
 
   constructor(private readonly config: CostTrackerConfig) {}
 
   async record(usage: UsageRecord): Promise<void> {
-    const price = this.config.pricing[usage.model];
-    if (!price) {
-      throw new ValidationError(`model sin pricing configurado: ${usage.model}`);
-    }
     const at = usage.at ?? this.currentTime();
-    const usd =
-      (usage.inputTokens / 1_000_000) * price.inputUsdPer1M +
-      (usage.outputTokens / 1_000_000) * price.outputUsdPer1M;
+    const usd = costoUsdDe(this.config.pricing, usage.model, usage.inputTokens, usage.outputTokens);
     this.records.push({ ...usage, usd, day: dayKey(at) });
   }
 

@@ -1,5 +1,6 @@
 import type { IntentsRepository } from "@/server/repositories/intents.repo";
 import type { IntentClassification } from "@/lib/validation/ai";
+import type { UUID } from "@/types/entities";
 
 export interface IntentCandidate {
   nombre: string;
@@ -10,14 +11,28 @@ export interface IntentCandidate {
 export interface IntentClassifierInput {
   text: string;
   candidates: IntentCandidate[];
+  /**
+   * Mensaje entrante que se está clasificando. No cambia la clasificación: es
+   * lo que le permite al registro de gasto decir a qué turno y a qué sesión
+   * pertenece esta llamada. Sin él, el clasificador aparece como gasto
+   * huérfano y el costo por lead queda incompleto.
+   */
+  mensajeId?: UUID;
+  leadSessionId?: UUID;
 }
 
 export interface IntentClassifierLLM {
   classify(input: IntentClassifierInput): Promise<IntentClassification>;
 }
 
+/** Origen del mensaje que se clasifica; solo se usa para atribuir el gasto. */
+export interface ClassifyOrigen {
+  mensajeId?: UUID;
+  leadSessionId?: UUID;
+}
+
 export interface IntentClassifierService {
-  classify(text: string): Promise<IntentClassification>;
+  classify(text: string, origen?: ClassifyOrigen): Promise<IntentClassification>;
 }
 
 export class DefaultIntentClassifierService implements IntentClassifierService {
@@ -26,7 +41,7 @@ export class DefaultIntentClassifierService implements IntentClassifierService {
     private readonly llm: IntentClassifierLLM,
   ) {}
 
-  async classify(text: string): Promise<IntentClassification> {
+  async classify(text: string, origen: ClassifyOrigen = {}): Promise<IntentClassification> {
     const activos = await this.intents.list({ activo: true });
     if (activos.length === 0) {
       return {
@@ -42,7 +57,12 @@ export class DefaultIntentClassifierService implements IntentClassifierService {
       ejemplos: i.ejemplos,
     }));
 
-    const result = await this.llm.classify({ text, candidates });
+    const result = await this.llm.classify({
+      text,
+      candidates,
+      ...(origen.mensajeId ? { mensajeId: origen.mensajeId } : {}),
+      ...(origen.leadSessionId ? { leadSessionId: origen.leadSessionId } : {}),
+    });
 
     if (result.intent_nombre !== null) {
       const known = activos.some((i) => i.nombre === result.intent_nombre);

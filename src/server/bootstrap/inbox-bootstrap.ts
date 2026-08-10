@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/server/auth/supabase-ssr";
 import { SupabaseConversationsRepository } from "@/server/repositories/conversations.supabase.repo";
 import { SupabaseLeadSessionRepository } from "@/server/repositories/lead-session.supabase.repo";
 import { SupabaseLeadsRepository } from "@/server/repositories/leads.supabase.repo";
+import { SupabaseLlmUsageRepository } from "@/server/repositories/llm-usage.supabase.repo";
 import { SupabaseMessagesRepository } from "@/server/repositories/messages.supabase.repo";
 import { SupabaseProductsRepository } from "@/server/repositories/productos.supabase.repo";
 import { SupabaseTagsRepository } from "@/server/repositories/tags.supabase.repo";
@@ -39,6 +40,10 @@ export function makeInboxService(db: AppClient): InboxService {
     handoff: new DefaultHandoffService(sessions),
     productos: new SupabaseProductsRepository(db),
     tags: new SupabaseTagsRepository(db),
+    // Solo lectura desde acá: quien escribe `llm_usage` es el pipeline con
+    // service-role. La policy de SELECT alcanza al vendedor autenticado, que es
+    // quien mira el panel.
+    llmUsage: new SupabaseLlmUsageRepository(db),
   });
 }
 

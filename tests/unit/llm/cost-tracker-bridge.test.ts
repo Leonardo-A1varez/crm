@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { InMemoryCostTracker } from "@/lib/observability/cost-tracker";
+import type { CostTracker, UsageRecord } from "@/lib/observability/cost-tracker";
 import { OPENAI_PRICING } from "@/server/services/llm/pricing";
 import { recordLlmUsage } from "@/server/services/llm/cost-tracker-bridge";
 
@@ -51,5 +52,56 @@ describe("recordLlmUsage", () => {
     // Smoke: no throws + record persisted (verificable via spend > 0).
     const spend = await tracker.getDailySpendUsd();
     expect(spend).toBeGreaterThan(0);
+  });
+
+  test("la sesión y el mensaje del turno llegan al registro: sin eso no hay gasto por lead", async () => {
+    const recibidos: UsageRecord[] = [];
+    const espia: CostTracker = {
+      async record(usage) {
+        recibidos.push(usage);
+      },
+      async getDailySpendUsd() {
+        return 0;
+      },
+      async exceedsCap() {
+        return false;
+      },
+    };
+
+    await recordLlmUsage(
+      espia,
+      { usage: { inputTokens: 10, outputTokens: 20 } },
+      {
+        model: "gpt-4o-mini",
+        workflow: "ai-agent",
+        sessionId: "00000000-0000-0000-0000-000000000001",
+        mensajeId: "00000000-0000-0000-0000-000000000002",
+      },
+    );
+
+    expect(recibidos[0]).toMatchObject({
+      sessionId: "00000000-0000-0000-0000-000000000001",
+      mensajeId: "00000000-0000-0000-0000-000000000002",
+    });
+  });
+
+  test("sin sesión ni mensaje las claves no viajan vacías", async () => {
+    const recibidos: UsageRecord[] = [];
+    const espia: CostTracker = {
+      async record(usage) {
+        recibidos.push(usage);
+      },
+      async getDailySpendUsd() {
+        return 0;
+      },
+      async exceedsCap() {
+        return false;
+      },
+    };
+
+    await recordLlmUsage(espia, {}, { model: "gpt-4o-mini", workflow: "intent-batch-detector" });
+
+    expect(recibidos[0]).not.toHaveProperty("sessionId");
+    expect(recibidos[0]).not.toHaveProperty("mensajeId");
   });
 });

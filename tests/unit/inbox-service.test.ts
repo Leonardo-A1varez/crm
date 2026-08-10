@@ -6,11 +6,13 @@ import {
   InMemoryMessagesRepository,
   type MensajeInsert,
 } from "@/server/repositories/messages.repo";
+import { InMemoryLlmUsageRepository } from "@/server/repositories/llm-usage.repo";
 import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
 import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
 import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultInboxService } from "@/server/services/inbox/default-inbox.service";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
+import { WORKFLOW_LLM } from "@/types/domain";
 import type { Lead, LeadSession, UUID } from "@/types/entities";
 
 // Read path no toca Meta; client jamás debería invocarse en esta suite.
@@ -21,6 +23,7 @@ function makeReadOnlyDeps(
   messages: InMemoryMessagesRepository,
   productos: InMemoryProductsRepository = new InMemoryProductsRepository(),
   tags: InMemoryTagsRepository = new InMemoryTagsRepository(),
+  llmUsage: InMemoryLlmUsageRepository = new InMemoryLlmUsageRepository(),
 ) {
   return {
     leads,
@@ -35,6 +38,7 @@ function makeReadOnlyDeps(
     handoff: new DefaultHandoffService(sessions),
     productos,
     tags,
+    llmUsage,
   };
 }
 
@@ -556,6 +560,175 @@ describe("DefaultInboxService.getConversation — datos del Lead Twin", () => {
 
     expect(view.session).toBeNull();
     expect(view.sesionesPrevias).toEqual({ total: 1, conCompra: 1 });
+  });
+});
+
+describe("DefaultInboxService.getConversation — gasto de IA de la conversación", () => {
+  let leads: InMemoryLeadsRepository;
+  let sessions: InMemoryLeadSessionRepository;
+  let convs: InMemoryConversationsRepository;
+  let messages: InMemoryMessagesRepository;
+  let llmUsage: InMemoryLlmUsageRepository;
+  let svc: DefaultInboxService;
+
+  beforeEach(() => {
+    leads = new InMemoryLeadsRepository();
+    sessions = new InMemoryLeadSessionRepository();
+    convs = new InMemoryConversationsRepository();
+    messages = new InMemoryMessagesRepository();
+    llmUsage = new InMemoryLlmUsageRepository();
+    svc = new DefaultInboxService(
+      makeReadOnlyDeps(
+        leads,
+        sessions,
+        convs,
+        messages,
+        new InMemoryProductsRepository(),
+        new InMemoryTagsRepository(),
+        llmUsage,
+      ),
+    );
+  });
+
+  /** Una llamada al modelo anotada. `at` mueve la fila en el tiempo. */
+  async function anotarGasto(
+    sessionId: UUID | null,
+    costoUsd: number,
+    opts: { workflow?: string; at?: Date } = {},
+  ) {
+    return llmUsage.create({
+      lead_session_id: sessionId,
+      mensaje_id: null,
+      modelo: "gpt-4o-mini",
+      input_tokens: 1200,
+      output_tokens: 300,
+      costo_usd: costoUsd,
+      workflow: opts.workflow ?? WORKFLOW_LLM.agente,
+      ...(opts.at ? { created_at: opts.at } : {}),
+    });
+  }
+
+  const HACE_UNA_HORA = () => new Date(Date.now() - 60 * 60 * 1000);
+  const EN_UNA_HORA = () => new Date(Date.now() + 60 * 60 * 1000);
+
+  test("suma las llamadas de la sesión: es el 'cuánto va gastando' del panel", async () => {
+    const lead = await makeLead(leads);
+    const session = await makeSession(sessions, lead.id);
+
+    // Los tres tipos de llamada que dispara un turno real.
+    await anotarGasto(session.id, 0.004, { workflow: WORKFLOW_LLM.agente });
+    await anotarGasto(session.id, 0.0005, { workflow: WORKFLOW_LLM.clasificador });
+    await anotarGasto(session.id, 0.0015, { workflow: WORKFLOW_LLM.extractorTwin });
+
+    const view = await svc.getConversation(lead.id);
+
+    expect(view.gastoIa).toEqual({ estado: "medido", usd: 0.006, llamadas: 3 });
+  });
+
+  test("no se le imputa el gasto de otra sesión ni el que no pertenece a ninguna", async () => {
+    const lead = await makeLead(leads);
+    const session = await makeSession(sessions, lead.id);
+    const otroLead = await makeLead(leads, { nombre: "Otro" });
+    const otraSesion = await makeSession(sessions, otroLead.id);
+
+    await anotarGasto(session.id, 0.002);
+    await anotarGasto(otraSesion.id, 9.99);
+    // El detector batch corre sobre muchas sesiones y no pertenece a ninguna.
+    await anotarGasto(null, 0.5, { workflow: WORKFLOW_LLM.detectorBatch });
+
+    const view = await svc.getConversation(lead.id);
+
+    expect(view.gastoIa).toEqual({ estado: "medido", usd: 0.002, llamadas: 1 });
+  });
+
+  test("las pruebas de la consola no encarecen al lead: el preview no se le imputa", async () => {
+    const lead = await makeLead(leads);
+    const session = await makeSession(sessions, lead.id);
+
+    await anotarGasto(session.id, 0.003, { workflow: WORKFLOW_LLM.agente });
+    // El preview replaya esta misma sesión para probar una config candidata:
+    // lleva su id, pero no le mandó nada al cliente.
+    await anotarGasto(session.id, 2.5, { workflow: WORKFLOW_LLM.agentePreview });
+
+    const view = await svc.getConversation(lead.id);
+
+    expect(view.gastoIa).toEqual({ estado: "medido", usd: 0.003, llamadas: 1 });
+  });
+
+  test("una sesión donde solo se probó la consola no tiene gasto propio", async () => {
+    const lead = await makeLead(leads);
+    // Ya hay registro andando desde antes: el cero de esta sesión es real.
+    const otroLead = await makeLead(leads, { nombre: "Otro" });
+    const otraSesion = await makeSession(sessions, otroLead.id);
+    await anotarGasto(otraSesion.id, 0.01, { at: HACE_UNA_HORA() });
+
+    const session = await makeSession(sessions, lead.id);
+    await anotarGasto(session.id, 2.5, { workflow: WORKFLOW_LLM.agentePreview });
+
+    const view = await svc.getConversation(lead.id);
+
+    expect(view.gastoIa).toEqual({ estado: "sin_gasto" });
+  });
+
+  test("lo que manda es que haya filas, no que sumen algo: cero con llamadas sigue siendo medido", async () => {
+    const lead = await makeLead(leads);
+    const session = await makeSession(sessions, lead.id);
+    await anotarGasto(session.id, 0);
+
+    const view = await svc.getConversation(lead.id);
+
+    expect(view.gastoIa).toEqual({ estado: "medido", usd: 0, llamadas: 1 });
+  });
+
+  test("sin llamadas pero con el registro ya andando, el cero es real", async () => {
+    const lead = await makeLead(leads);
+    // Otra conversación ya dejó gasto anotado antes de que esta empezara: el
+    // registro estaba funcionando, así que que esta no tenga filas significa
+    // que ningún turno suyo llamó al modelo.
+    const otroLead = await makeLead(leads, { nombre: "Otro" });
+    const otraSesion = await makeSession(sessions, otroLead.id);
+    await anotarGasto(otraSesion.id, 0.01, { at: HACE_UNA_HORA() });
+
+    await makeSession(sessions, lead.id);
+
+    const view = await svc.getConversation(lead.id);
+
+    expect(view.gastoIa).toEqual({ estado: "sin_gasto" });
+  });
+
+  test("una sesión anterior a la primera llamada anotada no dice cero: dice que no hay dato", async () => {
+    const lead = await makeLead(leads);
+    await makeSession(sessions, lead.id);
+    // La primera fila de la tabla es posterior al inicio de esta sesión: es la
+    // conversación vieja, de antes de que se instrumentara el gasto.
+    const otroLead = await makeLead(leads, { nombre: "Otro" });
+    const otraSesion = await makeSession(sessions, otroLead.id);
+    await anotarGasto(otraSesion.id, 0.01, { at: EN_UNA_HORA() });
+
+    const view = await svc.getConversation(lead.id);
+
+    expect(view.gastoIa).toEqual({ estado: "sin_registro" });
+  });
+
+  test("con la tabla vacía nada se midió todavía, así que tampoco hay cero", async () => {
+    const lead = await makeLead(leads);
+    await makeSession(sessions, lead.id);
+
+    const view = await svc.getConversation(lead.id);
+
+    expect(view.gastoIa).toEqual({ estado: "sin_registro" });
+  });
+
+  test("sin sesión activa no hay a qué atribuirle gasto", async () => {
+    const lead = await makeLead(leads);
+    const cerrada = await makeSession(sessions, lead.id);
+    await anotarGasto(cerrada.id, 0.01);
+    await sessions.close(cerrada.id, { resultado: "exito" });
+
+    const view = await svc.getConversation(lead.id);
+
+    expect(view.session).toBeNull();
+    expect(view.gastoIa).toBeNull();
   });
 });
 

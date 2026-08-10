@@ -1,8 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { InMemoryMetricsRepository } from "@/server/repositories/metrics.repo";
 import { DefaultMetricsService } from "@/server/services/metricas/default-metricas.service";
+import { WORKFLOW_LLM } from "@/types/domain";
 import type {
   FilaIntentMetrica,
+  FilaLlmUsageMetrica,
   FilaMensajeMetrica,
   FilaSesionMetrica,
   FilaUsuarioMetrica,
@@ -555,6 +557,148 @@ describe("DefaultMetricsService.obtener", () => {
       }).obtener(30, AHORA);
 
       expect(m.turnos).toEqual({ regla: 1, llm: 1, escalado: 0 });
+    });
+  });
+
+  describe("gasto de IA", () => {
+    /** Una llamada al modelo anotada en `llm_usage`. */
+    function uso(over: Partial<FilaLlmUsageMetrica> = {}): FilaLlmUsageMetrica {
+      return {
+        lead_session_id: "s1",
+        modelo: "gpt-4o-mini",
+        input_tokens: 1000,
+        output_tokens: 200,
+        costo_usd: 0.01,
+        workflow: WORKFLOW_LLM.agente,
+        created_at: haceDias(1),
+        ...over,
+      };
+    }
+
+    test("sin llamadas registradas todo queda en cero y lo que se divide, en null", async () => {
+      const m = await svc().obtener(30, AHORA);
+
+      expect(m.gasto).toEqual({
+        totalUsd: 0,
+        hoyUsd: 0,
+        porLeadUsd: null,
+        tokensEntrada: 0,
+        tokensSalida: 0,
+        llamadas: 0,
+        porWorkflow: [],
+        promedioTurnoUsd: null,
+        ahorroReglasUsd: null,
+      });
+    });
+
+    test("suma costo y tokens de la ventana", async () => {
+      const m = await svc({
+        gastos: [
+          uso({ costo_usd: 0.01, input_tokens: 1000, output_tokens: 200 }),
+          uso({ costo_usd: 0.02, input_tokens: 500, output_tokens: 100 }),
+        ],
+      }).obtener(30, AHORA);
+
+      expect(m.gasto.totalUsd).toBeCloseTo(0.03, 10);
+      expect(m.gasto.tokensEntrada).toBe(1500);
+      expect(m.gasto.tokensSalida).toBe(300);
+      expect(m.gasto.llamadas).toBe(2);
+    });
+
+    test("«hoy» corta por día UTC, el mismo día que usa el contador diario", async () => {
+      const m = await svc({
+        gastos: [
+          // Mismo día UTC que AHORA (12:00Z), a las dos puntas.
+          uso({ costo_usd: 0.05, created_at: new Date("2026-08-10T00:00:00.000Z") }),
+          uso({ costo_usd: 0.07, created_at: new Date("2026-08-10T23:59:59.000Z") }),
+          // Ayer: entra en el total de la ventana, no en el de hoy.
+          uso({ costo_usd: 1, created_at: new Date("2026-08-09T23:59:59.000Z") }),
+        ],
+      }).obtener(30, AHORA);
+
+      expect(m.gasto.hoyUsd).toBeCloseTo(0.12, 10);
+      expect(m.gasto.totalUsd).toBeCloseTo(1.12, 10);
+    });
+
+    test("lo anterior a la ventana no entra", async () => {
+      const m = await svc({
+        gastos: [uso({ created_at: haceDias(5) }), uso({ created_at: haceDias(40) })],
+      }).obtener(30, AHORA);
+
+      expect(m.gasto.llamadas).toBe(1);
+    });
+
+    test("agrupa por workflow, del más caro al menos", async () => {
+      const m = await svc({
+        gastos: [
+          uso({ workflow: WORKFLOW_LLM.clasificador, costo_usd: 0.001 }),
+          uso({ workflow: WORKFLOW_LLM.agente, costo_usd: 0.02 }),
+          uso({ workflow: WORKFLOW_LLM.agente, costo_usd: 0.03 }),
+          uso({ workflow: WORKFLOW_LLM.extractorTwin, costo_usd: 0.004 }),
+        ],
+      }).obtener(30, AHORA);
+
+      expect(m.gasto.porWorkflow.map((w) => w.workflow)).toEqual([
+        WORKFLOW_LLM.agente,
+        WORKFLOW_LLM.extractorTwin,
+        WORKFLOW_LLM.clasificador,
+      ]);
+      expect(m.gasto.porWorkflow[0]).toEqual({
+        workflow: WORKFLOW_LLM.agente,
+        usd: 0.05,
+        llamadas: 2,
+      });
+    });
+
+    test("el costo por lead reparte sobre los leads de la ventana", async () => {
+      const m = await svc({
+        leads: [{ created_at: haceDias(2) }, { created_at: haceDias(3) }],
+        gastos: [uso({ costo_usd: 0.05 }), uso({ costo_usd: 0.05 })],
+      }).obtener(30, AHORA);
+
+      expect(m.gasto.porLeadUsd).toBeCloseTo(0.05, 10);
+    });
+
+    test("sin leads en la ventana el costo por lead es null y no un infinito", async () => {
+      const m = await svc({ gastos: [uso({ costo_usd: 0.05 })] }).obtener(30, AHORA);
+
+      expect(m.gasto.porLeadUsd).toBeNull();
+    });
+
+    test("el promedio del turno sale solo de las llamadas del agente", async () => {
+      const m = await svc({
+        gastos: [
+          uso({ workflow: WORKFLOW_LLM.agente, costo_usd: 0.02 }),
+          uso({ workflow: WORKFLOW_LLM.agente, costo_usd: 0.04 }),
+          // Ni el clasificador ni el preview de la consola son turnos del agente.
+          uso({ workflow: WORKFLOW_LLM.clasificador, costo_usd: 9 }),
+          uso({ workflow: WORKFLOW_LLM.agentePreview, costo_usd: 9 }),
+        ],
+      }).obtener(30, AHORA);
+
+      expect(m.gasto.promedioTurnoUsd).toBeCloseTo(0.03, 10);
+    });
+
+    test("el ahorro por reglas es el promedio del turno por los turnos que contestó una regla", async () => {
+      const m = await svc({
+        mensajes: [mensaje({ sender: "ia" }), mensaje({ sender: "ia" })],
+        reglas: [{ created_at: haceDias(1) }, { created_at: haceDias(2) }],
+        gastos: [uso({ costo_usd: 0.02 }), uso({ costo_usd: 0.04 })],
+      }).obtener(30, AHORA);
+
+      // 2 turnos de regla × $0,03 de promedio.
+      expect(m.gasto.ahorroReglasUsd).toBeCloseTo(0.06, 10);
+    });
+
+    test("sin turnos del agente no hay con qué estimar el ahorro: null y no cero", async () => {
+      const m = await svc({
+        mensajes: [mensaje({ sender: "ia" })],
+        reglas: [{ created_at: haceDias(1) }],
+        gastos: [uso({ workflow: WORKFLOW_LLM.clasificador, costo_usd: 0.001 })],
+      }).obtener(30, AHORA);
+
+      expect(m.gasto.promedioTurnoUsd).toBeNull();
+      expect(m.gasto.ahorroReglasUsd).toBeNull();
     });
   });
 
