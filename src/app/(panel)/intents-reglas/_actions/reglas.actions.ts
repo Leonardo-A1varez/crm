@@ -33,6 +33,13 @@ const CrearReglaSchema = z.object({
 const ToggleSchema = z.object({ id: UUIDSchema, valor: z.boolean() });
 
 /**
+ * Las cuatro acciones revalidan `/agente` y no `/intents-reglas/*`: intents y
+ * reglas se administran desde la pestaña "Reglas IF/THEN" de la consola
+ * (handoff §4.1) y las rutas viejas quedaron solo como redirección. Las
+ * acciones siguen viviendo acá para no mover su ruta pública.
+ */
+
+/**
  * Gate de rol en el server. RLS lo vuelve a enforcear en la DB: esto existe
  * para dar un mensaje entendible, no como única defensa.
  */
@@ -63,7 +70,7 @@ export async function crearIntentAction(raw: unknown): Promise<ActionResult> {
   } catch (e) {
     return fallo(e, "No se pudo crear el intent.");
   }
-  revalidatePath("/intents-reglas/intents");
+  revalidatePath("/agente");
   return { ok: true };
 }
 
@@ -77,7 +84,7 @@ export async function setIntentActivoAction(raw: unknown): Promise<ActionResult>
   } catch (e) {
     return fallo(e, "No se pudo cambiar el intent.");
   }
-  revalidatePath("/intents-reglas/intents");
+  revalidatePath("/agente");
   return { ok: true };
 }
 
@@ -93,7 +100,7 @@ export async function crearReglaAction(raw: unknown): Promise<ActionResult> {
   } catch (e) {
     return fallo(e, "No se pudo crear la regla.");
   }
-  revalidatePath("/intents-reglas/reglas");
+  revalidatePath("/agente");
   return { ok: true };
 }
 
@@ -107,6 +114,6 @@ export async function setReglaActivaAction(raw: unknown): Promise<ActionResult> 
   } catch (e) {
     return fallo(e, "No se pudo cambiar la regla.");
   }
-  revalidatePath("/intents-reglas/reglas");
+  revalidatePath("/agente");
   return { ok: true };
 }

@@ -3,17 +3,22 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 import { guardarConfigAction } from "../_actions/guardar-config.action";
 import { previsualizarAction } from "../_actions/previsualizar.action";
 import { rollbackConfigAction } from "../_actions/rollback-config.action";
 import { HistorialVersiones } from "./HistorialVersiones";
 import { PanelPreview } from "./PanelPreview";
 import { TabComportamiento } from "./TabComportamiento";
+import { TabEscalado } from "./TabEscalado";
 import { TabLimites } from "./TabLimites";
+import { TabReglas } from "./TabReglas";
+import { TabsConsola } from "./TabsConsola";
+import type { TabAgente } from "./tabs";
+import type {
+  IntentConReglas,
+  ReglaConIntent,
+} from "@/server/services/reglas/reglas-admin.service";
 import type { AgenteConfig, AgenteConfigValores } from "@/types/agente";
-
-type Tab = "comportamiento" | "limites";
 
 interface PreviewResultado {
   respuesta: string;
@@ -45,14 +50,20 @@ export function AgenteConsola({
   historial,
   sesiones,
   esAdmin,
+  intents,
+  reglas,
+  tabInicial,
 }: {
   configActiva: AgenteConfig;
   historial: AgenteConfig[];
   sesiones: { id: string; etiqueta: string }[];
   esAdmin: boolean;
+  intents: IntentConReglas[];
+  reglas: ReglaConIntent[];
+  tabInicial: TabAgente;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>("comportamiento");
+  const [tab, setTab] = useState<TabAgente>(tabInicial);
   const [activaId, setActivaId] = useState(configActiva.id);
   const [valores, setValores] = useState<AgenteConfigValores>(() => extraerValores(configActiva));
   const [guardado, setGuardado] = useState<AgenteConfigValores>(() => extraerValores(configActiva));
@@ -113,48 +124,49 @@ export function AgenteConsola({
 
   return (
     <div className="flex flex-col">
-      <div className="grid grid-cols-[1fr_360px] items-start gap-5">
-        <div>
-          <div className="border-line-control bg-surface-input mb-4 inline-flex gap-1 rounded-[10px] border p-[3px]">
-            {(["comportamiento", "limites"] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setTab(t)}
-                className={cn(
-                  "rounded-[7px] px-4 py-2 text-[11.5px] font-semibold transition-colors",
-                  tab === t
-                    ? "bg-brand text-brand-ink"
-                    : "text-ink-dim hover:text-ink-primary bg-transparent",
-                )}
-              >
-                {t === "comportamiento" ? "Comportamiento" : "Límites"}
-              </button>
-            ))}
+      <TabsConsola activa={tab} onChange={setTab} />
+
+      <div className="pt-5">
+        {tab === "reglas" ? (
+          <TabReglas intents={intents} reglas={reglas} esAdmin={esAdmin} />
+        ) : null}
+
+        {tab === "escalado" ? <TabEscalado /> : null}
+
+        {tab === "comporta" ? (
+          <div className="grid grid-cols-[1.35fr_1fr] items-start gap-5">
+            <div className="min-w-0">
+              <TabComportamiento valores={valores} onChange={handleChange} disabled={!esAdmin} />
+            </div>
+            <div className="sticky top-[22px] min-w-0">
+              <PanelPreview
+                valores={valores}
+                sesiones={sesiones}
+                onPrevisualizar={handlePrevisualizar}
+                resultado={previewResultado}
+                cargando={previewCargando}
+              />
+            </div>
           </div>
+        ) : null}
 
-          {tab === "comportamiento" ? (
-            <TabComportamiento valores={valores} onChange={handleChange} disabled={!esAdmin} />
-          ) : (
-            <TabLimites valores={valores} onChange={handleChange} disabled={!esAdmin} />
-          )}
-        </div>
+        {tab === "limites" ? (
+          <TabLimites valores={valores} onChange={handleChange} disabled={!esAdmin} />
+        ) : null}
+      </div>
 
-        <div className="flex flex-col gap-5">
-          <PanelPreview
-            valores={valores}
-            sesiones={sesiones}
-            onPrevisualizar={handlePrevisualizar}
-            resultado={previewResultado}
-            cargando={previewCargando}
-          />
+      {/* Fuera del handoff, pero transversal a las tres pestañas de config: el
+          historial es de la versión completa, no de una pestaña. Por eso va
+          debajo y no adentro de una columna. */}
+      {tab !== "reglas" && tab !== "escalado" ? (
+        <div className="mt-5">
           <HistorialVersiones
             versiones={historial}
             onRestaurar={handleRestaurar}
             puedeRestaurar={esAdmin}
           />
         </div>
-      </div>
+      ) : null}
 
       {sucio ? (
         <div className="bg-surface-elevated border-line-card sticky bottom-0 -mx-5 mt-5 -mb-5 flex items-center gap-3 border-t px-5 py-3">

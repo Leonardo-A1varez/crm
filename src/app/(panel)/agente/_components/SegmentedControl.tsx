@@ -22,10 +22,9 @@ export function SegmentedControl<T extends string>({
   disabled?: boolean;
 }) {
   return (
-    <div
-      role="radiogroup"
-      className="border-line-control bg-surface-input flex gap-1 rounded-[10px] border p-[3px]"
-    >
+    // Sin contenedor con borde: el handoff §4.3 le da borde y fondo propios a
+    // cada botón inactivo, no a la caja que los agrupa.
+    <div role="radiogroup" className="flex gap-1.5">
       {opciones.map((opcion) => {
         const activo = opcion === valor;
         return (
@@ -37,10 +36,10 @@ export function SegmentedControl<T extends string>({
             disabled={disabled}
             onClick={() => onChange(opcion)}
             className={cn(
-              "flex-1 rounded-[7px] py-2 text-[11.5px] font-semibold transition-colors",
+              "flex-1 rounded-[9px] py-2 text-[11.5px] font-semibold transition-colors duration-[160ms] disabled:opacity-50",
               activo
                 ? "bg-brand text-brand-ink"
-                : "text-ink-dim hover:text-ink-primary bg-transparent",
+                : "bg-surface-input border-line-control text-ink-dim hover:text-ink-primary border",
             )}
           >
             {etiquetas[opcion]}
