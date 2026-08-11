@@ -12,12 +12,14 @@ export interface ToolExecutionsRepository {
    * Las herramientas que se llamaron dentro de una ventana de la sesión, orden
    * cronológico.
    *
-   * Existe porque `mensaje_id` no sirve para atar una llamada a su turno: el
-   * agente audita las herramientas con `mensaje_id: null` desde Slice 1 y
-   * ninguna fila lo tiene cargado. La ventana **sí** identifica el turno sin
-   * ambigüedad: las herramientas corren entre que se persiste el entrante y que
-   * se persiste el saliente, y el pipeline serializa por `meta_user_id`
-   * (`concurrency.limit: 1`), así que dos turnos del mismo lead no se solapan.
+   * Existe porque `mensaje_id` no sirve para atar las llamadas **viejas** a su
+   * turno: desde Slice 1 y hasta que el agente lo empezó a cargar, todas las
+   * filas se escribieron con `mensaje_id: null` y esas se quedan así para
+   * siempre. La ventana **sí** las identifica sin ambigüedad: las herramientas
+   * corren entre que se persiste el entrante y que se persiste el saliente, y
+   * el pipeline serializa por `meta_user_id` (`concurrency.limit: 1`), así que
+   * dos turnos del mismo lead no se solapan. Por eso sigue siendo la lectura de
+   * la auditoría aunque las filas nuevas ya tengan el ancla exacta.
    *
    * Bordes inclusive: las tres marcas de tiempo las pone la base con la misma
    * granularidad y un turno rápido puede empatar contra el entrante.

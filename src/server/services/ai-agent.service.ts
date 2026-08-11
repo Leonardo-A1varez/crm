@@ -30,8 +30,10 @@ export interface AgentTurnInput {
   textoEntrante?: string;
   /**
    * Id del mensaje entrante que abrió el turno. Viaja hasta el registro de
-   * gasto: es lo que permite decir qué mensaje disparó cada dólar. Opcional
-   * porque hay callers sin mensaje detrás (el preview de la consola).
+   * gasto —es lo que permite decir qué mensaje disparó cada dólar— y hasta
+   * `tool_executions.mensaje_id`, que ata cada llamada a herramienta a su
+   * turno sin depender de la ventana de tiempo. Opcional porque hay callers
+   * sin mensaje detrás (el preview de la consola).
    */
   mensajeOrigenId?: UUID | null;
 }
@@ -166,8 +168,12 @@ export class DefaultAiAgentService implements AiAgentService {
 
     const tools: AgentTools = {
       buscar_repuesto: (toolInput) =>
-        this.invokeWithAudit("buscar_repuesto", session.id, toolInput, () =>
-          this.catalog.buscar(toolInput),
+        this.invokeWithAudit(
+          "buscar_repuesto",
+          session.id,
+          input.mensajeOrigenId ?? null,
+          toolInput,
+          () => this.catalog.buscar(toolInput),
         ),
     };
 
@@ -207,10 +213,19 @@ export class DefaultAiAgentService implements AiAgentService {
 
   // Wrap tool call con timing + audit. Persiste resultado o error en tool_executions.
   // Si tool throws, persiste error y re-throws (LLM upstream maneja).
+  //
+  // `mensajeId` es el entrante que abrió el turno: sin él la fila queda sin
+  // ancla y la auditoría por turno solo puede atarla por ventana de tiempo.
   private async invokeWithAudit<
     TArgs extends Record<string, unknown>,
     TResult extends Record<string, unknown>,
-  >(toolName: string, sessionId: UUID, args: TArgs, fn: () => Promise<TResult>): Promise<TResult> {
+  >(
+    toolName: string,
+    sessionId: UUID,
+    mensajeId: UUID | null,
+    args: TArgs,
+    fn: () => Promise<TResult>,
+  ): Promise<TResult> {
     const start = Date.now();
     let resultPayload: Record<string, unknown> | null = null;
     let errorMessage: string | null = null;
@@ -224,7 +239,7 @@ export class DefaultAiAgentService implements AiAgentService {
     } finally {
       await this.toolExecutions.create({
         lead_session_id: sessionId,
-        mensaje_id: null,
+        mensaje_id: mensajeId,
         tool_name: toolName,
         args: args as Record<string, unknown>,
         result: resultPayload,

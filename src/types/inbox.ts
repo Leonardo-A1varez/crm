@@ -3,6 +3,7 @@ import type {
   Lead,
   LeadSession,
   Mensaje,
+  PlantillaSaliente,
   Producto,
   SessionRecordatorio,
   Tag,
@@ -242,8 +243,18 @@ export type DecisionTurno =
  * Twin: si el turno es anterior a que la auditoría existiera, o si el saliente
  * no salió del pipeline, se dice que no se midió en vez de dibujar un turno que
  * nadie registró.
+ *
+ * `plantilla` es lo contrario de `sin_registro` y por eso es una variante y no
+ * un motivo más: el turno no dejó filas de auditoría porque el pipeline cortó
+ * antes de gastar en el clasificador y en el agente, pero quién lo resolvió se
+ * sabe con certeza.
  */
 export type AuditoriaTurno =
+  | {
+      estado: "plantilla";
+      /** Cuál de las plantillas fijas contestó. Hoy hay una sola. */
+      tipo: PlantillaSaliente;
+    }
   | {
       estado: "sin_registro";
       /**

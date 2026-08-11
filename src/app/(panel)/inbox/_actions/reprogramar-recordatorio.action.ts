@@ -9,11 +9,15 @@ import { toActionError } from "./action-error";
 import type { ActionResult } from "@/types/inbox";
 
 /**
- * Le mueve la fecha al recordatorio de seguimiento, sin cancelarlo.
+ * Le mueve la fecha —y, si se pidió, la nota— al recordatorio de seguimiento,
+ * sin cancelarlo.
  *
  * Antes había que apagarlo y poner otro: dos clicks, dos confirmaciones y una
  * ventana en el medio donde la conversación no tenía ninguna cita. Acá es un
  * paso y la misma fila.
+ *
+ * La nota **no se borra por venir vacía**: sólo un `null` explícito la saca.
+ * Ver `ReprogramarRecordatorioSchema`.
  *
  * Al vencer sigue sin mandarle nada al cliente: enciende el motivo
  * `seguimiento` en el triage y la conversación sube en el Inbox.
@@ -36,6 +40,7 @@ export async function reprogramarRecordatorioAction(raw: unknown): Promise<Actio
     await svc.reprogramarRecordatorio({
       recordatorioId: parsed.data.recordatorioId,
       recordarAt: new Date(parsed.data.recordarAt),
+      nota: parsed.data.nota,
     });
   } catch (e) {
     // "Ya no está activo" es el caso real de dos pestañas o de un cliente que

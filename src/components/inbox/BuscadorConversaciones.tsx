@@ -188,10 +188,9 @@ function FilaResultado({
  * contenido, `useCerrarAlSalir` en el contenedor (click afuera + Escape) y sin
  * botón "Cerrar" propio más que la cruz del encabezado.
  *
- * Una arista conocida: con la mini-pantalla de etiquetas abierta, Escape cierra
- * las dos —los dos `useCerrarAlSalir` escuchan el mismo `keydown` de
- * `document`—. Se prefirió eso antes que copiar el selector para desactivarle
- * la tecla.
+ * Con el selector de etapa o de etiqueta abierto, el primer Escape cierra solo
+ * ése y el segundo esta mini-pantalla: lo resuelve `useCerrarAlSalir`, que sabe
+ * cuál de los popovers abiertos es el más interno.
  */
 export function BuscadorConversaciones({
   etiquetas,

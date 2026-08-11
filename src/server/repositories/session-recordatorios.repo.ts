@@ -46,8 +46,9 @@ export interface SessionRecordatoriosRepository {
   ): Promise<SessionRecordatorio | null>;
 
   /**
-   * Le cambia la fecha a un recordatorio vivo sin cancelarlo ni crear otro.
-   * Devuelve `null` si la fila no existe o ya no está viva.
+   * Le cambia la fecha —y opcionalmente la nota— a un recordatorio vivo sin
+   * cancelarlo ni crear otro. Devuelve `null` si la fila no existe o ya no está
+   * viva.
    *
    * Un `avisado` vuelve a `pendiente` y pierde `avisado_at`: posponer el que ya
    * sonó es el caso más común de reprogramar —"hoy no llegué, mañana"— y
@@ -55,8 +56,12 @@ export interface SessionRecordatoriosRepository {
    * dos filas donde el producto dice que hay una cita. Se pierde el sello del
    * aviso anterior; lo que se quería medir —cuántos seguimientos se apagaron
    * porque el cliente volvió— vive en `motivo_cancelacion` y no se toca.
+   *
+   * `nota` en `undefined` deja la columna como está: el default de este repo es
+   * no tocarla, y quien la quiera vaciar tiene que mandar `""` a propósito. La
+   * decisión de qué cuenta como "a propósito" es del service (`notaAEscribir`).
    */
-  reprogramar(id: UUID, recordarAt: Date): Promise<SessionRecordatorio | null>;
+  reprogramar(id: UUID, recordarAt: Date, nota?: string): Promise<SessionRecordatorio | null>;
 
   /**
    * Apaga el recordatorio. Devuelve `null` si no existe o ya estaba cancelado
@@ -117,7 +122,11 @@ export class NoopSessionRecordatoriosRepository implements SessionRecordatoriosR
   ): Promise<SessionRecordatorio | null> {
     return null;
   }
-  async reprogramar(_id: UUID, _recordarAt: Date): Promise<SessionRecordatorio | null> {
+  async reprogramar(
+    _id: UUID,
+    _recordarAt: Date,
+    _nota?: string,
+  ): Promise<SessionRecordatorio | null> {
     return null;
   }
   async cancelar(
@@ -198,10 +207,15 @@ export class InMemorySessionRecordatoriosRepository implements SessionRecordator
     return { ...r };
   }
 
-  async reprogramar(id: UUID, recordarAt: Date): Promise<SessionRecordatorio | null> {
+  async reprogramar(
+    id: UUID,
+    recordarAt: Date,
+    nota?: string,
+  ): Promise<SessionRecordatorio | null> {
     const r = this.store.get(id);
     if (!r || !esVivo(r)) return null;
     r.recordar_at = recordarAt;
+    if (nota !== undefined) r.nota = nota;
     r.estado = "pendiente";
     r.avisado_at = null;
     return { ...r };

@@ -185,6 +185,11 @@ export async function onMessageReceivedHandler(
             contenido: config.plantilla_fuera_horario,
             sender: "ia",
             idempotencyKey: claveSaliente(parsed.meta_message_id),
+            // Este camino corta antes del clasificador y de las reglas, así que
+            // no deja fila en ninguna de las cuatro tablas de auditoría. Sin la
+            // marca, el saliente es indistinguible de un turno que nadie midió
+            // y la auditoría tiene que decir que no sabe — cuando sí se sabe.
+            plantilla: "fuera_horario",
           }),
         );
         templateSent = true;

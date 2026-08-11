@@ -967,6 +967,91 @@ describe("DefaultInboxService write path", () => {
         ).rejects.toBeInstanceOf(ConflictError);
       });
 
+      /** Un recordatorio vivo con nota, listo para moverse. */
+      async function conNota(nota: string) {
+        const lead = await makeLead(leads);
+        const session = await makeSession(sessions, lead.id);
+        const r = await svc.programarRecordatorio({
+          sessionId: session.id,
+          recordarAt: EN_DOS_DIAS,
+          nota,
+          userId: vendedorId,
+        });
+        return { session, r };
+      }
+
+      test("la nota se corrige en el mismo paso que la fecha", async () => {
+        const { r } = await conNota("dijo que lo pensaba");
+
+        const movido = await svc.reprogramarRecordatorio({
+          recordatorioId: r.id,
+          recordarAt: EN_UNA_SEMANA,
+          nota: "dijo que lo pensaba, llamar al taller antes",
+        });
+
+        expect(movido.nota).toBe("dijo que lo pensaba, llamar al taller antes");
+        expect(movido.recordar_at).toEqual(EN_UNA_SEMANA);
+      });
+
+      test("la nota vacía NO borra la anterior: el descuido no puede costar el motivo", async () => {
+        const { r } = await conNota("dijo que lo pensaba");
+
+        const movido = await svc.reprogramarRecordatorio({
+          recordatorioId: r.id,
+          recordarAt: EN_UNA_SEMANA,
+          nota: "",
+        });
+
+        expect(movido.nota).toBe("dijo que lo pensaba");
+      });
+
+      test("una nota de solo espacios tampoco borra", async () => {
+        const { r } = await conNota("dijo que lo pensaba");
+
+        const movido = await svc.reprogramarRecordatorio({
+          recordatorioId: r.id,
+          recordarAt: EN_UNA_SEMANA,
+          nota: "   ",
+        });
+
+        expect(movido.nota).toBe("dijo que lo pensaba");
+      });
+
+      test("sin mandar nota, la anterior queda intacta", async () => {
+        const { r } = await conNota("dijo que lo pensaba");
+
+        const movido = await svc.reprogramarRecordatorio({
+          recordatorioId: r.id,
+          recordarAt: EN_UNA_SEMANA,
+        });
+
+        expect(movido.nota).toBe("dijo que lo pensaba");
+      });
+
+      test("`null` sí la borra: es el único camino, y es explícito", async () => {
+        const { r } = await conNota("dijo que lo pensaba");
+
+        const movido = await svc.reprogramarRecordatorio({
+          recordatorioId: r.id,
+          recordarAt: EN_UNA_SEMANA,
+          nota: null,
+        });
+
+        expect(movido.nota).toBe("");
+      });
+
+      test("se le puede poner nota a uno que no tenía", async () => {
+        const { r } = await conNota("");
+
+        const movido = await svc.reprogramarRecordatorio({
+          recordatorioId: r.id,
+          recordarAt: EN_UNA_SEMANA,
+          nota: "pidió que lo llame el lunes",
+        });
+
+        expect(movido.nota).toBe("pidió que lo llame el lunes");
+      });
+
       test("si falla no arranca ningún workflow", async () => {
         programarAvisoSpy.mockClear();
         await expect(

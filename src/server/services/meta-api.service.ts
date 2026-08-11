@@ -2,7 +2,7 @@ import type { ConversationsRepository } from "@/server/repositories/conversation
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { ParsedMessage } from "@/lib/meta/parse-webhook";
 import type { Canal, Sender } from "@/types/domain";
-import type { Mensaje, UUID } from "@/types/entities";
+import type { Mensaje, MensajeMetadata, PlantillaSaliente, UUID } from "@/types/entities";
 
 /**
  * Prefijo de `mensajes.idempotency_key` en los salientes que produce el
@@ -56,12 +56,27 @@ export interface SendOutboundInput {
   // Dedup outbound. Si presente y ya existe mensaje out con esta key, retorna
   // existing sin invocar Meta client. Convención: "out:<inbound_meta_message_id>".
   idempotencyKey?: string;
+  /**
+   * Qué plantilla fija produjo este saliente, cuando no lo produjo el agente.
+   * Se guarda en `mensajes.metadata` y es lo que la auditoría del turno lee
+   * para decir quién resolvió el turno.
+   */
+  plantilla?: PlantillaSaliente;
 }
 
 export interface RecordInboundInput {
   conversacionId: UUID;
   leadSessionId: UUID;
   parsed: ParsedMessage;
+}
+
+/**
+ * La clave se omite cuando no hay plantilla en vez de escribirla en `null`: un
+ * `{}` es "este saliente lo produjo el agente o una persona", y una clave
+ * presente con valor nulo obligaría a distinguir dos formas del mismo hecho.
+ */
+function metadataDelSaliente(plantilla: PlantillaSaliente | undefined): MensajeMetadata {
+  return plantilla === undefined ? {} : { plantilla };
 }
 
 export interface MetaApiService {
@@ -99,7 +114,7 @@ export class DefaultMetaApiService implements MetaApiService {
       media_url: null,
       meta_message_id: result.meta_message_id,
       idempotency_key: input.idempotencyKey ?? null,
-      metadata: {},
+      metadata: metadataDelSaliente(input.plantilla),
     });
 
     await this.conversations.touch(input.conversacionId);

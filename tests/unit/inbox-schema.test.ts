@@ -520,6 +520,46 @@ describe("ProgramarRecordatorioSchema", () => {
       expect(r.success).toBe(false);
       expect(r.success === false && r.error.issues[0]?.message).toContain("futura");
     });
+
+    describe("la nota", () => {
+      function parse(nota: unknown) {
+        return ReprogramarRecordatorioSchema.safeParse({
+          leadId: LEAD_ID,
+          recordatorioId: RECORDATORIO_ID,
+          recordarAt: enDias(5),
+          nota,
+        });
+      }
+
+      test("puede venir con texto: se corrige en el mismo paso que la fecha", () => {
+        const r = parse("llamar al taller antes");
+        expect(r.success && r.data.nota).toBe("llamar al taller antes");
+      });
+
+      test("puede no venir: mover la fecha no obliga a hablar de la nota", () => {
+        const r = ReprogramarRecordatorioSchema.safeParse({
+          leadId: LEAD_ID,
+          recordatorioId: RECORDATORIO_ID,
+          recordarAt: enDias(5),
+        });
+        expect(r.success && r.data.nota).toBeUndefined();
+      });
+
+      test("vacía llega como vacía: quien decide que eso conserva es el service", () => {
+        const r = parse("");
+        expect(r.success && r.data.nota).toBe("");
+      });
+
+      test("`null` pasa: es el único camino al borrado, y un input no lo produce", () => {
+        const r = parse(null);
+        expect(r.success && r.data.nota).toBeNull();
+      });
+
+      test("respeta el mismo tope de largo que al programar", () => {
+        expect(parse("a".repeat(MAX_LARGO_NOTA_RECORDATORIO)).success).toBe(true);
+        expect(parse("a".repeat(MAX_LARGO_NOTA_RECORDATORIO + 1)).success).toBe(false);
+      });
+    });
   });
 });
 

@@ -23,6 +23,7 @@ import type { HandoffService } from "@/server/services/handoff.service";
 import type { MetaApiService } from "@/server/services/meta-api.service";
 import { WORKFLOW_LLM } from "@/types/domain";
 import type { Canal } from "@/types/domain";
+import { PLANTILLA_SALIENTE } from "@/types/entities";
 import type {
   Conversacion,
   Lead,
@@ -141,6 +142,23 @@ export interface DefaultInboxServiceDeps {
 
 /** Turno sin ancla: el saliente no se puede atar a ningún mensaje entrante. */
 const SIN_ANCLA: AuditoriaTurno = { estado: "sin_registro", motivo: "sin_ancla" };
+
+/**
+ * Qué nota escribir al reprogramar, o `undefined` para no tocar la que hay.
+ *
+ * El vacío **no** borra. Reprogramar abre el formulario con la nota adentro, y
+ * un campo que se vació sin querer —o un caller que no manda la clave— no puede
+ * llevarse el único texto que explica por qué hay que volver a contactar. El
+ * borrado necesita decirlo con todas las letras, y `null` es esa palabra: un
+ * `<input>` de texto devuelve `""` y nunca `null`, así que no hay descuido que
+ * lo produzca.
+ */
+function notaAEscribir(nota: string | null | undefined): string | undefined {
+  if (nota === null) return "";
+  if (nota === undefined) return undefined;
+  const limpia = nota.trim();
+  return limpia === "" ? undefined : limpia;
+}
 
 export class DefaultInboxService implements InboxService {
   constructor(private readonly deps: DefaultInboxServiceDeps) {}
@@ -372,6 +390,7 @@ export class DefaultInboxService implements InboxService {
     const movido = await this.deps.recordatorios.reprogramar(
       input.recordatorioId,
       input.recordarAt,
+      notaAEscribir(input.nota),
     );
     if (!movido) {
       throw new ConflictError(
@@ -417,14 +436,27 @@ export class DefaultInboxService implements InboxService {
    * escalado, el descuento excedido—: sin saliente no hay burbuja desde donde
    * preguntar.
    *
+   * **La plantilla de fuera de horario se contesta sin ir a la base.** Ese
+   * camino del pipeline corta antes del clasificador y de las reglas, así que
+   * las cuatro tablas quedan mudas y el turno se leería como "no se midió"
+   * —que es falso: se sabe exactamente qué lo resolvió—. El saliente trae la
+   * marca en su propio `metadata`, así que responder cuesta cero queries: la
+   * fila ya está leída. Un turno viejo, anterior a la marca, sigue cayendo en
+   * `sin_medicion`; de ese efectivamente no hay dato.
+   *
    * **Las herramientas se atan por ventana y no por id.** `tool_executions`
-   * tiene columna `mensaje_id` y el agente la escribe siempre en `null` desde
-   * Slice 1. Ver `listBySessionEntre` para por qué la ventana identifica el
-   * turno igual.
+   * tiene columna `mensaje_id` y el agente ya la carga, pero las filas escritas
+   * entre Slice 1 y ese arreglo la tienen en `null` para siempre. Ver
+   * `listBySessionEntre` para por qué la ventana identifica el turno igual.
    */
   async getAuditoriaTurno(mensajeId: UUID): Promise<AuditoriaTurno> {
     const saliente = await this.deps.messages.findById(mensajeId);
     if (!saliente || saliente.direction !== "out" || saliente.sender !== "ia") return SIN_ANCLA;
+
+    // La marca sale de un jsonb: se coteja contra la lista en vez de confiar en
+    // el tipo, que acá es una promesa del mapper y no una garantía de la base.
+    const plantilla = PLANTILLA_SALIENTE.find((p) => p === saliente.metadata.plantilla);
+    if (plantilla !== undefined) return { estado: "plantilla", tipo: plantilla };
 
     const metaEntrante = entranteDeClave(saliente.idempotency_key);
     if (metaEntrante === null) return SIN_ANCLA;

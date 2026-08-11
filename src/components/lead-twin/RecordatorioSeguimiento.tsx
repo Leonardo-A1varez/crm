@@ -76,7 +76,7 @@ function yaPaso(instante: Date): boolean {
  * sin que nadie lo haya pedido es de las cosas que salen caras.
  *
  * Uno solo por conversación. Con uno vivo el bloque muestra ese, ofrece moverle
- * la fecha —un paso, la misma cita— y ofrece cancelarlo.
+ * la fecha y corregirle la nota —un paso, la misma cita— y ofrece cancelarlo.
  *
  * ## La zona horaria
  *
@@ -135,20 +135,21 @@ export function RecordatorioSeguimiento({
     });
   };
 
-  const reprogramar = (recordatorioId: UUID, recordarAt: Date) => {
+  const reprogramar = (recordatorioId: UUID, recordarAt: Date, nota: string | null) => {
     if (isPending) return;
     startTransition(async () => {
       const r = await onReprogramar({
         leadId,
         recordatorioId,
         recordarAt: recordarAt.toISOString(),
+        nota,
       });
       if (!r.ok) {
         toast.error(r.error);
         return;
       }
       cerrarSelector();
-      toast.success("Recordatorio movido");
+      toast.success(nota === null ? "Recordatorio movido y nota borrada" : "Recordatorio movido");
     });
   };
 
@@ -211,9 +212,10 @@ export function RecordatorioSeguimiento({
             <SelectorFecha
               timezone={timezone}
               inicial={recordatorio.recordar_at}
+              notaActual={recordatorio.nota}
               isPending={isPending}
               etiquetaConfirmar={vencido ? "Posponer" : "Mover"}
-              onConfirmar={(fecha) => reprogramar(recordatorio.id, fecha)}
+              onConfirmar={(fecha, notaNueva) => reprogramar(recordatorio.id, fecha, notaNueva)}
               onCerrar={cerrarSelector}
             />
           ) : (
@@ -289,6 +291,9 @@ export function RecordatorioSeguimiento({
           <SelectorFecha
             timezone={timezone}
             inicial={null}
+            // Al crear, la nota se escribe en el campo de arriba: repetirla acá
+            // adentro daría dos inputs para el mismo dato.
+            notaActual={null}
             isPending={isPending}
             etiquetaConfirmar="Programar"
             onConfirmar={programar}
@@ -329,10 +334,21 @@ export function RecordatorioSeguimiento({
  * el recordatorio a las 7:30, o uno que lo pone un domingo para revisar el
  * lunes temprano, están haciendo exactamente lo correcto. Bloquearlo o alertarlo
  * sería aplicar la regla de una conversación a una nota personal.
+ *
+ * ## La nota, al mover
+ *
+ * Antes no se podía tocar: un typo en la nota obligaba a cancelar la cita y
+ * crear otra. Ahora se edita en el mismo paso, con una asimetría deliberada —
+ * **dejar el campo vacío NO borra la nota**. El campo se abre con el texto
+ * actual adentro, y la forma más fácil de perderlo sería seleccionarlo, empezar
+ * a escribir otra cosa y confirmar a mitad de camino. Borrar es un botón
+ * aparte, con su propia confirmación visible, y es lo único que manda `null` al
+ * server (ver `ReprogramarRecordatorioSchema`).
  */
 function SelectorFecha({
   timezone,
   inicial,
+  notaActual,
   isPending,
   etiquetaConfirmar,
   onConfirmar,
@@ -341,9 +357,15 @@ function SelectorFecha({
   timezone: string;
   /** La fecha actual del recordatorio cuando se está moviendo; `null` al crear. */
   inicial: Date | null;
+  /**
+   * La nota actual del recordatorio que se mueve. `null` al crear: ahí la nota
+   * se escribe en el campo de afuera y este selector no la toca.
+   */
+  notaActual: string | null;
   isPending: boolean;
   etiquetaConfirmar: string;
-  onConfirmar: (recordarAt: Date) => void;
+  /** `nota`: texto nuevo, `""` para dejar la anterior como está, `null` para borrarla. */
+  onConfirmar: (recordarAt: Date, nota: string | null) => void;
   onCerrar: () => void;
 }) {
   const ahora = new Date();
@@ -355,9 +377,14 @@ function SelectorFecha({
   const [hora, setHora] = useState(() =>
     inicial ? campoHoraEnZona(timezone, inicial) : HORA_POR_DEFECTO,
   );
+  const [nota, setNota] = useState(notaActual ?? "");
+  const [borrarNota, setBorrarNota] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const elegido = instanteDesdeCampos(timezone, fecha, hora);
+  const editaNota = notaActual !== null;
+  // Solo hay algo que conservar —y algo que ofrecerse a borrar— si había nota.
+  const habiaNota = (notaActual ?? "").trim() !== "";
 
   const confirmar = () => {
     if (elegido === null) {
@@ -369,7 +396,9 @@ function SelectorFecha({
       return;
     }
     setError(null);
-    onConfirmar(elegido);
+    // `""` cuando este selector no edita la nota: el server lo lee como "no la
+    // toques", que es exactamente lo que corresponde al crear.
+    onConfirmar(elegido, !editaNota ? "" : borrarNota ? null : nota);
   };
 
   return (
@@ -410,6 +439,48 @@ function SelectorFecha({
       <MonoMeta>
         {elegido ? fechaLegibleEnZona(timezone, elegido) : "—"} · hora de {ciudadDeZona(timezone)}
       </MonoMeta>
+
+      {editaNota ? (
+        <div className="flex flex-col gap-1">
+          <input
+            value={borrarNota ? "" : nota}
+            disabled={isPending || borrarNota}
+            maxLength={MAX_LARGO_NOTA_RECORDATORIO}
+            aria-label="Nota del recordatorio"
+            placeholder={habiaNota ? "Vacío deja la nota como está" : "Por qué volver (opcional)"}
+            onChange={(e) => setNota(e.target.value)}
+            className="text-ink-body border-line-input bg-surface-input w-full rounded-[8px] border px-2 py-1 text-[11.5px] outline-none disabled:opacity-50"
+          />
+
+          {borrarNota ? (
+            <p className="text-warn flex flex-wrap items-baseline gap-1.5 text-[10px]">
+              La nota se borra al confirmar.
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => setBorrarNota(false)}
+                className="text-ink-dim hover:text-ink-secondary underline underline-offset-2 disabled:opacity-50"
+              >
+                Dejarla
+              </button>
+            </p>
+          ) : habiaNota ? (
+            // El vacío no borra, y decirlo acá es lo que evita el descuido: sin
+            // esta línea, alguien que limpia el campo cree que ya la borró.
+            <p className="text-ink-ghost flex flex-wrap items-baseline gap-1.5 text-[10px]">
+              Si lo dejás vacío, la nota queda como está.
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => setBorrarNota(true)}
+                className="text-ink-dim hover:text-warn underline underline-offset-2 disabled:opacity-50"
+              >
+                Borrar la nota
+              </button>
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {error !== null ? <p className="text-danger text-[10.5px]">{error}</p> : null}
 

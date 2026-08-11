@@ -566,6 +566,38 @@ describe("config del agente en el pipeline", () => {
     expect(local.metaClient.calls.at(-1)?.text).toBe("Estamos cerrados, te respondemos manana.");
   });
 
+  test("el saliente de la plantilla queda marcado como tal", async () => {
+    // Este camino corta antes del clasificador y de las reglas: sin la marca,
+    // la auditoría del turno no puede distinguirlo de un turno sin medir.
+    const local = makeDeps(
+      new StaticAgentConfigProvider({
+        ...CONFIG_DE_FABRICA,
+        horario: horarioCerradoSiempre(),
+        plantilla_fuera_horario: "Estamos cerrados, te respondemos manana.",
+      }),
+    );
+
+    const out = await onMessageReceivedHandler({ parsed: parsed() }, local.deps);
+
+    const saliente = (await local.messages.listBySessionId(out.sessionId)).find(
+      (m) => m.direction === "out",
+    );
+    expect(saliente?.metadata.plantilla).toBe("fuera_horario");
+  });
+
+  test("un turno normal NO lleva la marca de plantilla", async () => {
+    const local = makeDeps();
+    local.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    local.agentLLM.enqueueText("respuesta del agente");
+
+    const out = await onMessageReceivedHandler({ parsed: parsed() }, local.deps);
+
+    const saliente = (await local.messages.listBySessionId(out.sessionId)).find(
+      (m) => m.direction === "out",
+    );
+    expect(saliente?.metadata.plantilla).toBeUndefined();
+  });
+
   test("fuera de horario sin plantilla no responde nada", async () => {
     const local = makeDeps(
       new StaticAgentConfigProvider({

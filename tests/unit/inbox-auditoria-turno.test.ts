@@ -408,6 +408,61 @@ describe("DefaultInboxService.getAuditoriaTurno", () => {
     });
   });
 
+  test("la plantilla de fuera de horario dice quién resolvió el turno", async () => {
+    // Mismas cuatro tablas mudas que el caso de arriba, y la respuesta opuesta:
+    // acá se sabe perfectamente qué contestó, así que decir "no se midió"
+    // sería mentir por omisión.
+    vi.setSystemTime(T_ENTRANTE);
+    await crearMensaje({ meta_message_id: "wamid.entrante-plantilla", contenido: "hola?" });
+    vi.setSystemTime(T_SALIENTE);
+    const conPlantilla = await crearMensaje({
+      direction: "out",
+      sender: "ia",
+      contenido: "Estamos cerrados, te respondemos mañana.",
+      meta_message_id: "wamid.saliente-plantilla",
+      idempotency_key: claveSaliente("wamid.entrante-plantilla"),
+      metadata: { plantilla: "fuera_horario" },
+    });
+
+    expect(await svc.getAuditoriaTurno(conPlantilla.id)).toEqual({
+      estado: "plantilla",
+      tipo: "fuera_horario",
+    });
+  });
+
+  test("una marca de plantilla que no está en la lista no se cree", async () => {
+    // El `metadata` es jsonb: nada en la base impide escribir cualquier cosa.
+    vi.setSystemTime(T_ENTRANTE);
+    await crearMensaje({ meta_message_id: "wamid.entrante-corrupto", contenido: "hola?" });
+    vi.setSystemTime(T_SALIENTE);
+    const corrupto = await crearMensaje({
+      direction: "out",
+      sender: "ia",
+      contenido: "?",
+      meta_message_id: "wamid.saliente-corrupto",
+      idempotency_key: claveSaliente("wamid.entrante-corrupto"),
+      metadata: { plantilla: "inventada" } as unknown as Mensaje["metadata"],
+    });
+
+    expect(await svc.getAuditoriaTurno(corrupto.id)).toEqual({
+      estado: "sin_registro",
+      motivo: "sin_medicion",
+    });
+  });
+
+  test("un saliente del pipeline sin marca sigue leyéndose como turno del agente", async () => {
+    await turnClassifications.create({
+      mensaje_id: entrante.id,
+      intent_id: null,
+      intent_nombre: "consulta_precio",
+      confidence: 0.9,
+    });
+
+    const auditoria = await svc.getAuditoriaTurno(saliente.id);
+
+    expect(auditoria.estado).toBe("medido");
+  });
+
   test("gasto anotado sin clasificación: la decisión queda sin registro, el turno no", async () => {
     await llmUsage.create({
       lead_session_id: session.id,

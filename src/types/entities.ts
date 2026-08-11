@@ -62,10 +62,28 @@ export interface ProcedenciaCampo {
 
 export type Procedencia = Record<string, ProcedenciaCampo>;
 
+/**
+ * Salientes que no los escribió ni el agente ni una persona: los produjo una
+ * plantilla fija del pipeline. Hoy hay una sola.
+ *
+ * Existe para que la auditoría del turno pueda decir quién resolvió el turno en
+ * vez de decir que no se midió: la plantilla de fuera de horario corta antes
+ * del clasificador y del agente, así que no deja fila en ninguna de las cuatro
+ * tablas de auditoría, pero se sabe perfectamente qué contestó.
+ */
+export const PLANTILLA_SALIENTE = ["fuera_horario"] as const;
+export type PlantillaSaliente = (typeof PLANTILLA_SALIENTE)[number];
+
 export interface MensajeMetadata {
   reply_to?: string;
   context?: Record<string, unknown>;
   raw?: Record<string, unknown>;
+  /**
+   * Marca del saliente producido por una plantilla. Ausente en todo lo demás,
+   * incluidos los salientes anteriores a que esto se marcara: la auditoría de
+   * esos sigue diciendo que no se midió, porque de esos no se sabe.
+   */
+  plantilla?: PlantillaSaliente;
   [k: string]: unknown;
 }
 

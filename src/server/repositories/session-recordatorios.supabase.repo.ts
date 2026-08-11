@@ -104,12 +104,19 @@ export class SupabaseSessionRecordatoriosRepository implements SessionRecordator
     return data ? mapRow(data) : null;
   }
 
-  async reprogramar(id: UUID, recordarAt: Date): Promise<SessionRecordatorio | null> {
+  async reprogramar(
+    id: UUID,
+    recordarAt: Date,
+    nota?: string,
+  ): Promise<SessionRecordatorio | null> {
     if (!isUuid(id)) return null;
     const { data, error } = await this.db
       .from(TABLA)
       .update({
         recordar_at: recordarAt.toISOString(),
+        // La columna solo entra al UPDATE cuando hay nota que escribir: un
+        // `nota: undefined` en el patch viajaría igual y la pisaría con null.
+        ...(nota === undefined ? {} : { nota }),
         // Posponer uno ya avisado lo devuelve a pendiente. `avisado_at` tiene
         // que volver a null o el CHECK de coherencia rechaza la fila.
         estado: "pendiente",

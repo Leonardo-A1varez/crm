@@ -2,12 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { format } from "date-fns";
-import { Close, Handyman, HelpIcon, Psychology, Speed } from "@/components/icons";
+import { Close, Handyman, HelpIcon, Psychology, Schedule, Speed } from "@/components/icons";
 import { Eyebrow } from "@/components/shared/Eyebrow";
 import { MonoMeta } from "@/components/shared/MonoMeta";
 import { etiquetaWorkflow, formatearPorcentaje, formatearUsd } from "@/lib/ui/metricas";
 import type { AuditoriaTurnoInput } from "@/lib/validation/inbox.schema";
-import type { UUID } from "@/types/entities";
+import type { PlantillaSaliente, UUID } from "@/types/entities";
 import type {
   AuditoriaTurno as Auditoria,
   DecisionTurno,
@@ -92,7 +92,32 @@ export function AuditoriaTurno({
   );
 }
 
+/**
+ * Qué decir de cada plantilla fija. Un `Record` sobre la unión y no un `if`:
+ * agregar una plantilla nueva sin escribirle el texto no compila.
+ */
+const PLANTILLA: Record<PlantillaSaliente, { chip: string; explicacion: string }> = {
+  fuera_horario: {
+    chip: "Plantilla de fuera de horario",
+    explicacion:
+      "Cuando entró el mensaje el negocio estaba cerrado, así que se contestó con el texto configurado y el turno terminó ahí: no corrió el clasificador, ni las reglas, ni el agente vendedor. Por eso no hay decisión, herramientas ni gasto para mostrar.",
+  },
+};
+
 function Detalle({ auditoria }: { auditoria: Auditoria }) {
+  if (auditoria.estado === "plantilla") {
+    const { chip, explicacion } = PLANTILLA[auditoria.tipo];
+    return (
+      <div className="flex flex-col gap-1.5">
+        <span className="text-caution bg-caution/10 border-caution/28 inline-flex w-fit items-center gap-1 rounded-[7px] border px-[7px] py-[2px] text-[10px] font-semibold">
+          <Schedule size={11} />
+          {chip}
+        </span>
+        <p className="text-ink-faint text-[11px] leading-relaxed">{explicacion}</p>
+      </div>
+    );
+  }
+
   if (auditoria.estado === "sin_registro") {
     return (
       <p className="text-ink-faint text-[11px] leading-relaxed">

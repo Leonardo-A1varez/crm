@@ -242,18 +242,33 @@ export const ProgramarRecordatorioSchema = z.object({
 export type ProgramarRecordatorioInput = z.infer<typeof ProgramarRecordatorioSchema>;
 
 /**
- * Cambiarle la fecha a un recordatorio que ya existe, sin cancelarlo.
+ * Cambiarle la fecha —y, si hace falta, la nota— a un recordatorio que ya
+ * existe, sin cancelarlo.
  *
  * No viaja `sessionId`: la fila ya sabe de qué conversación es, y el service la
  * lee de ahí en vez de confiar en lo que mande el cliente. `leadId` viaja solo
- * para revalidar la ruta, igual que en cancelar. La nota tampoco viaja: mover
- * la fecha no es reescribir el motivo, y mandarla vacía por accidente borraría
- * lo único que le da sentido al aviso cuando salte.
+ * para revalidar la ruta, igual que en cancelar.
+ *
+ * ## Por qué la nota tiene tres estados y no dos
+ *
+ * La nota es lo único que le da sentido al aviso cuando salte, y el formulario
+ * la abre con el texto actual adentro: un campo que se vacía sin querer, o un
+ * cliente que manda el objeto sin la clave, borrarían el motivo del seguimiento
+ * en el mismo gesto con el que se lo corre un día. Por eso:
+ *
+ * - **ausente** (`undefined`) — el caller no habla de la nota: se conserva.
+ * - **texto vacío** (`""`) — el campo quedó vacío: se conserva igual. Es el
+ *   descuido, no una decisión.
+ * - **texto** — reemplaza la anterior.
+ * - **`null`** — se borra. Es el **único** camino al borrado, y un input de
+ *   texto no lo produce nunca: un `<input>` vacío da `""`, jamás `null`. Del
+ *   lado del formulario hay que apretar algo que diga "borrar la nota".
  */
 export const ReprogramarRecordatorioSchema = z.object({
   leadId: UUIDSchema,
   recordatorioId: UUIDSchema,
   recordarAt: FechaRecordatorioSchema,
+  nota: z.union([z.string().trim().max(MAX_LARGO_NOTA_RECORDATORIO), z.null()]).optional(),
 });
 export type ReprogramarRecordatorioInput = z.infer<typeof ReprogramarRecordatorioSchema>;
 

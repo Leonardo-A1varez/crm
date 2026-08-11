@@ -105,7 +105,69 @@ describe("ai-agent tool execution audit", () => {
     expect(rows[0].error).toBeNull();
     expect(rows[0].duration_ms).toBeGreaterThanOrEqual(0);
     expect(rows[0].lead_session_id).toBe(s.id);
+    // Sin `mensajeOrigenId` no hay ancla que guardar: es el caller sin mensaje
+    // detrás (el preview de la consola), no un turno del pipeline.
     expect(rows[0].mensaje_id).toBeNull();
+  });
+
+  test("la fila queda atada al entrante que abrió el turno", async () => {
+    const s = await seedSession(sessions);
+    const mensajeOrigenId = crypto.randomUUID();
+
+    llm.enqueue(async (input) => {
+      await input.tools.buscar_repuesto({ query: "PAS-001" });
+      return { text: "ok", toolCalls: [] };
+    });
+
+    await svc.respond({
+      leadSessionId: s.id,
+      conversationTurn: ["tienes PAS-001?"],
+      classification: cls(null),
+      mensajeOrigenId,
+    });
+
+    const rows = await toolExecutions.listBySession(s.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].mensaje_id).toBe(mensajeOrigenId);
+  });
+
+  test("la herramienta que falla también queda atada al entrante", async () => {
+    const s = await seedSession(sessions);
+    const mensajeOrigenId = crypto.randomUUID();
+    const failingCatalog = {
+      async buscar() {
+        throw new Error("catalog crash");
+      },
+    };
+    const failingSvc = new DefaultAiAgentService(
+      sessions,
+      new DefaultRuleEngineService(intents, rules),
+      failingCatalog as unknown as DefaultCatalogMatcherService,
+      llm,
+      new AllEnabledFeatureFlags(),
+      toolExecutions,
+    );
+
+    llm.enqueue(async (input) => {
+      try {
+        await input.tools.buscar_repuesto({ query: "x" });
+      } catch {
+        // El agente sigue sin catálogo; la fila de auditoría ya se escribió.
+      }
+      return { text: "fallback", toolCalls: [] };
+    });
+
+    await failingSvc.respond({
+      leadSessionId: s.id,
+      conversationTurn: ["x"],
+      classification: cls(null),
+      mensajeOrigenId,
+    });
+
+    const rows = await toolExecutions.listBySession(s.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].mensaje_id).toBe(mensajeOrigenId);
+    expect(rows[0].error).toBe("catalog crash");
   });
 
   test("multiples tool calls misma respond persisten N rows", async () => {

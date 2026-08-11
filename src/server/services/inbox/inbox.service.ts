@@ -109,6 +109,12 @@ export interface ReprogramarRecordatorioServiceInput {
   recordatorioId: UUID;
   /** La fecha nueva. Que sea futura lo valida el schema, igual que al programar. */
   recordarAt: Date;
+  /**
+   * La nota nueva. `undefined` y `""` conservan la anterior; `null` la borra.
+   * La asimetría es deliberada y es del dominio, no del formulario: ver
+   * `ReprogramarRecordatorioSchema`.
+   */
+  nota?: string | null;
 }
 
 /**
