@@ -3,14 +3,22 @@ import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { calcularSinResponder } from "@/lib/sin-responder";
 import { pesoMotivo, triage } from "@/lib/triage";
 import { canalesDelLead } from "@/lib/ui/canal";
+import { nombreDeRegla } from "@/lib/ui/regla";
+import { entranteDeClave } from "@/server/services/meta-api.service";
 import type { EntradaTriage } from "@/lib/triage";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
+import type { IntentsRepository } from "@/server/repositories/intents.repo";
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { LlmUsageRepository } from "@/server/repositories/llm-usage.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { ProductsRepository } from "@/server/repositories/productos.repo";
+import type { RuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
+import type { RulesRepository } from "@/server/repositories/rules.repo";
+import type { SessionRecordatoriosRepository } from "@/server/repositories/session-recordatorios.repo";
 import type { TagsRepository } from "@/server/repositories/tags.repo";
+import type { ToolExecutionsRepository } from "@/server/repositories/tool-executions.repo";
+import type { TurnClassificationsRepository } from "@/server/repositories/turn-classifications.repo";
 import type { HandoffService } from "@/server/services/handoff.service";
 import type { MetaApiService } from "@/server/services/meta-api.service";
 import { WORKFLOW_LLM } from "@/types/domain";
@@ -21,13 +29,23 @@ import type {
   LeadSession,
   Mensaje,
   Producto,
+  RuleExecution,
+  SessionRecordatorio,
   Tag,
+  TurnClassification,
   UUID,
 } from "@/types/entities";
-import type { GastoSesion, SesionesPrevias } from "@/types/inbox";
+import type {
+  AuditoriaTurno,
+  DecisionTurno,
+  GastoSesion,
+  GastoTurno,
+  SesionesPrevias,
+} from "@/types/inbox";
 import type {
   AgregarDatoLeadServiceInput,
   BorrarDatoExtraServiceInput,
+  CancelarRecordatorioServiceInput,
   CloseSessionServiceInput,
   ConversationView,
   CrearEtiquetaServiceInput,
@@ -36,6 +54,8 @@ import type {
   InboxItem,
   InboxService,
   MoverEtapaServiceInput,
+  ProgramarAvisoRecordatorioFn,
+  ProgramarRecordatorioServiceInput,
   RenombrarLeadServiceInput,
   SendMessageServiceInput,
   ToggleHandoffServiceInput,
@@ -71,13 +91,21 @@ function colorParaEtiqueta(nombre: string): string {
   return COLORES_ETIQUETA[acumulado % COLORES_ETIQUETA.length] ?? COLORES_ETIQUETA[0];
 }
 
-/** El triage mira solo la sesión, así que contar no obliga a leer hilos. */
-function entradaTriage(session: LeadSession): EntradaTriage {
+/**
+ * El triage mira solo la sesión y el recordatorio ya vencido de esa sesión, así
+ * que contar no obliga a leer hilos: son dos queries para toda la bandeja.
+ */
+function entradaTriage(
+  session: LeadSession,
+  recordatorios: Map<UUID, SessionRecordatorio>,
+): EntradaTriage {
+  const recordatorio = recordatorios.get(session.id);
   return {
     stage: session.current_stage,
     iaPausada: session.ia_pausada,
     bloqueador: session.bloqueador,
     comprobantePagoUrl: session.comprobante_pago_url,
+    recordatorio: recordatorio ? { nota: recordatorio.nota } : null,
   };
 }
 
@@ -93,18 +121,52 @@ export interface DefaultInboxServiceDeps {
   tags: TagsRepository;
   /** Gasto del modelo por sesión: el "cuánto va costando" del panel del Twin. */
   llmUsage: LlmUsageRepository;
+  // Las cuatro tablas de auditoría del turno, más las dos que le ponen nombre a
+  // lo que decidió. Solo las lee `getAuditoriaTurno`, bajo demanda: no
+  // participan de `getConversation` ni de `listActiveLeads`.
+  ruleExecutions: RuleExecutionsRepository;
+  turnClassifications: TurnClassificationsRepository;
+  toolExecutions: ToolExecutionsRepository;
+  rules: RulesRepository;
+  intents: IntentsRepository;
+  /** Recordatorios de seguimiento: el chip del Inbox y el bloque del Twin. */
+  recordatorios: SessionRecordatoriosRepository;
+  /** Arranca el workflow durable. Ver `ProgramarAvisoRecordatorioFn`. */
+  programarAviso: ProgramarAvisoRecordatorioFn;
+  /** Inyectable para poder testear el vencimiento sin esperar dos días. */
+  now?: () => Date;
 }
+
+/** Turno sin ancla: el saliente no se puede atar a ningún mensaje entrante. */
+const SIN_ANCLA: AuditoriaTurno = { estado: "sin_registro", motivo: "sin_ancla" };
 
 export class DefaultInboxService implements InboxService {
   constructor(private readonly deps: DefaultInboxServiceDeps) {}
 
   async contarRequierenAtencion(): Promise<number> {
-    const activeSessions = await this.deps.sessions.listActive();
-    return activeSessions.filter((s) => triage(entradaTriage(s)).motivo !== null).length;
+    const [activeSessions, recordatorios] = await Promise.all([
+      this.deps.sessions.listActive(),
+      this.recordatoriosVencidos(),
+    ]);
+    return activeSessions.filter((s) => triage(entradaTriage(s, recordatorios)).motivo !== null)
+      .length;
+  }
+
+  /**
+   * Los seguimientos que ya tienen que verse, indexados por sesión.
+   *
+   * Una query para toda la bandeja, no una por lead: el badge del SideNav se
+   * pinta en las 7 pantallas del panel y no puede costar N consultas.
+   */
+  private async recordatoriosVencidos(): Promise<Map<UUID, SessionRecordatorio>> {
+    const now = (this.deps.now ?? (() => new Date()))();
+    const filas = await this.deps.recordatorios.listPorAvisar(now);
+    return new Map(filas.map((r) => [r.lead_session_id, r]));
   }
 
   async listActiveLeads(): Promise<InboxItem[]> {
     const activeSessions = await this.deps.sessions.listActive();
+    const recordatorios = await this.recordatoriosVencidos();
 
     const items: InboxItem[] = [];
     for (const session of activeSessions) {
@@ -140,7 +202,7 @@ export class DefaultInboxService implements InboxService {
         limit: TRIAGE_MESSAGES_LIMIT,
       });
       const { sinResponder, esperandoDesde } = calcularSinResponder(thread);
-      const { motivo } = triage(entradaTriage(session));
+      const { motivo } = triage(entradaTriage(session, recordatorios));
 
       items.push({
         leadId: lead.id,
@@ -212,6 +274,11 @@ export class DefaultInboxService implements InboxService {
     ]);
     const sesionesPrevias = await this.contarSesionesPrevias(leadId, session);
     const gastoIa = await this.resolverGastoIa(session);
+    // El vivo, no el vencido: el Twin muestra igual el que todavía no llegó
+    // ("faltan 2 días") para que se pueda cancelar antes de que moleste.
+    const recordatorio = session
+      ? await this.deps.recordatorios.findVivoBySessionId(session.id)
+      : null;
 
     return {
       lead,
@@ -232,7 +299,170 @@ export class DefaultInboxService implements InboxService {
       tagsDisponibles: [...tagsDisponibles].sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
       sesionesPrevias,
       gastoIa,
+      recordatorio,
     };
+  }
+
+  async programarRecordatorio(
+    input: ProgramarRecordatorioServiceInput,
+  ): Promise<SessionRecordatorio> {
+    // Misma guarda que `editarCampoTwin`: una sesión cerrada sale del Inbox, y
+    // un recordatorio sobre ella no lo vería nunca nadie.
+    await this.requireActiveSession(input.sessionId);
+
+    // El índice único parcial de la tabla es el que cierra la carrera de dos
+    // pestañas; esta guarda existe para dar el mensaje que el vendedor entiende
+    // en vez del texto crudo de una violación de unicidad.
+    const vivo = await this.deps.recordatorios.findVivoBySessionId(input.sessionId);
+    if (vivo) {
+      throw new ConflictError(
+        "Esta conversación ya tiene un recordatorio. Cancelalo antes de poner otro.",
+        "recordatorio_duplicado",
+      );
+    }
+
+    const recordatorio = await this.deps.recordatorios.create({
+      lead_session_id: input.sessionId,
+      recordar_at: input.recordarAt,
+      nota: input.nota,
+      creado_por: input.userId,
+    });
+
+    // La fila primero y el workflow después: si esto reventara, la fila queda
+    // `pendiente` y `listPorAvisar` la levanta igual cuando venza. Se pierde la
+    // puntualidad del sello, no el aviso — que es el único modo de falla que no
+    // se puede aceptar acá.
+    await this.deps.programarAviso({
+      recordatorioId: recordatorio.id,
+      leadSessionId: input.sessionId,
+      recordarAt: input.recordarAt,
+    });
+
+    return recordatorio;
+  }
+
+  async cancelarRecordatorio(input: CancelarRecordatorioServiceInput): Promise<void> {
+    // Sin `requireActiveSession` y sin error cuando ya no está vivo: apagar un
+    // recordatorio siempre tiene que poder terminar bien. El workflow que sigue
+    // durmiendo se despierta, encuentra la fila cancelada y no hace nada.
+    await this.deps.recordatorios.cancelar(input.recordatorioId, "manual");
+  }
+
+  /**
+   * Por qué el agente contestó lo que contestó, para un mensaje saliente.
+   *
+   * **Cómo se encuentra el turno.** Las cuatro tablas de auditoría cuelgan del
+   * mensaje **entrante** que disparó el turno, no de la respuesta: es el ancla
+   * que eligió el pipeline y es la correcta —un turno tiene un disparador y
+   * puede no tener respuesta—. Pero quien pregunta señala la respuesta. El
+   * puente es `mensajes.idempotency_key`, que en los salientes del pipeline
+   * vale `out:<meta_message_id del entrante>` (ver `claveSaliente`). No hay
+   * columna que ate una cosa con la otra, y ésta es la única evidencia
+   * persistida del vínculo.
+   *
+   * **Qué no se audita.** Los salientes del vendedor no pasan por acá: no hay
+   * decisión del agente que explicar, y su clave viene en `null` de todas
+   * formas. Tampoco los turnos en los que el agente decidió no responder —el
+   * escalado, el descuento excedido—: sin saliente no hay burbuja desde donde
+   * preguntar.
+   *
+   * **Las herramientas se atan por ventana y no por id.** `tool_executions`
+   * tiene columna `mensaje_id` y el agente la escribe siempre en `null` desde
+   * Slice 1. Ver `listBySessionEntre` para por qué la ventana identifica el
+   * turno igual.
+   */
+  async getAuditoriaTurno(mensajeId: UUID): Promise<AuditoriaTurno> {
+    const saliente = await this.deps.messages.findById(mensajeId);
+    if (!saliente || saliente.direction !== "out" || saliente.sender !== "ia") return SIN_ANCLA;
+
+    const metaEntrante = entranteDeClave(saliente.idempotency_key);
+    if (metaEntrante === null) return SIN_ANCLA;
+
+    const entrante = await this.deps.messages.findByMetaMessageId(metaEntrante);
+    if (!entrante) return SIN_ANCLA;
+
+    const [ejecucion, clasificacion, llamadas, herramientas] = await Promise.all([
+      this.deps.ruleExecutions.findByMensajeId(entrante.id),
+      this.deps.turnClassifications.findByMensajeId(entrante.id),
+      this.deps.llmUsage.listByMensajeId(entrante.id),
+      this.deps.toolExecutions.listBySessionEntre(
+        saliente.lead_session_id,
+        entrante.created_at,
+        saliente.created_at,
+      ),
+    ]);
+
+    const decision = await this.resolverDecisionTurno(ejecucion, clasificacion);
+
+    // Las cuatro tablas mudas significan lo mismo que un gasto sin filas: el
+    // turno es anterior a que esto se midiera. Decirlo una sola vez es más
+    // honesto que dibujar tres secciones vacías que se leen como ceros.
+    if (decision.tipo === "sin_registro" && llamadas.length === 0 && herramientas.length === 0) {
+      return { estado: "sin_registro", motivo: "sin_medicion" };
+    }
+
+    const gasto: GastoTurno =
+      llamadas.length === 0
+        ? { estado: "sin_registro" }
+        : {
+            estado: "medido",
+            usd: llamadas.reduce((total, l) => total + l.costo_usd, 0),
+            llamadas: llamadas.map((l) => ({
+              workflow: l.workflow,
+              modelo: l.modelo,
+              inputTokens: l.input_tokens,
+              outputTokens: l.output_tokens,
+              usd: l.costo_usd,
+            })),
+          };
+
+    return {
+      estado: "medido",
+      decision,
+      // Ni `args` ni `result`: son el jsonb crudo de la llamada y de la
+      // respuesta del catálogo, y lo que la pregunta necesita es qué se llamó,
+      // si funcionó y cuánto tardó.
+      herramientas: herramientas.map((h) => ({
+        nombre: h.tool_name,
+        error: h.error,
+        duracionMs: h.duration_ms,
+      })),
+      gasto,
+      turnoAt: entrante.created_at,
+    };
+  }
+
+  /**
+   * Regla o LLM, con nombre. Las dos tablas son excluyentes por construcción
+   * —el pipeline escribe `rule_executions` cuando `source` es `rule` y
+   * `turn_classifications` cuando es `llm`—, así que el orden acá no arbitra
+   * un empate: solo fija cuál se mira primero.
+   */
+  private async resolverDecisionTurno(
+    ejecucion: RuleExecution | null,
+    clasificacion: TurnClassification | null,
+  ): Promise<DecisionTurno> {
+    if (ejecucion) {
+      const [regla, intent] = await Promise.all([
+        this.deps.rules.findById(ejecucion.regla_id),
+        this.deps.intents.findById(ejecucion.matched_intent_id),
+      ]);
+      return {
+        tipo: "regla",
+        // `regla_id` es CASCADE: borrar la regla se lleva su auditoría, así que
+        // el `null` acá no es "la borraron" sino que no se pudo leer.
+        nombre: regla ? nombreDeRegla(regla.respuesta_contenido) : "regla no disponible",
+        intent: intent?.nombre ?? null,
+      };
+    }
+    if (clasificacion) {
+      return {
+        tipo: "llm",
+        intent: clasificacion.intent_nombre,
+        confianza: clasificacion.confidence,
+      };
+    }
+    return { tipo: "sin_registro" };
   }
 
   /**

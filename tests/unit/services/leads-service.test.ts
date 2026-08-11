@@ -251,9 +251,69 @@ describe("DefaultLeadsService", () => {
 
     const page = await svc.listLeads({ vehiculoMarca: "Toyota", vehiculoModelo: "Hilux" });
     expect(page.items).toHaveLength(1);
-    expect(page.marcas).toEqual(["Ford", "Toyota"]);
-    // Los modelos sí se acotan a la marca elegida: "Ranger" no es un Toyota.
-    expect(page.modelos).toEqual(["Corolla", "Hilux"]);
+    // La mini-pantalla sigue ofreciendo los tres: elegir uno no puede dejarla
+    // con ese solo, o no habría con qué cambiarlo.
+    expect(page.vehiculos.map((v) => v.texto)).toEqual([
+      "Ford Ranger 2018",
+      "Toyota Corolla 2018",
+      "Toyota Hilux 2018",
+    ]);
+  });
+
+  test("los vehículos llevan el año y no se repiten", async () => {
+    await leads.create(baseLead({ vehiculo_modelo: "Corolla", vehiculo_anio: 2018 }));
+    await leads.create(baseLead({ vehiculo_modelo: "Corolla", vehiculo_anio: 2018 }));
+    await leads.create(baseLead({ vehiculo_modelo: "Corolla", vehiculo_anio: 2021 }));
+    // Sin año cargado: la opción existe igual, sin inventarle uno.
+    await leads.create(baseLead({ vehiculo_modelo: "Hilux", vehiculo_anio: 0 }));
+    // Sin vehículo: no aporta opción, ni una vacía.
+    await leads.create(baseLead({ vehiculo_marca: "", vehiculo_modelo: "", vehiculo_anio: 0 }));
+
+    const page = await svc.listLeads();
+    expect(page.vehiculos.map((v) => v.texto)).toEqual([
+      "Toyota Corolla 2018",
+      "Toyota Corolla 2021",
+      "Toyota Hilux",
+    ]);
+    expect(page.vehiculos.map((v) => v.anio)).toEqual([2018, 2021, 0]);
+  });
+
+  test("el año filtra: dos Corolla del mismo modelo se separan por año", async () => {
+    const viejo = await leads.create(baseLead({ vehiculo_anio: 2018 }));
+    await leads.create(baseLead({ vehiculo_anio: 2021 }));
+
+    const page = await svc.listLeads({
+      vehiculoMarca: "Toyota",
+      vehiculoModelo: "Corolla",
+      vehiculoAnio: 2018,
+    });
+    expect(page.items.map((i) => i.leadId)).toEqual([viejo.id]);
+  });
+
+  test("los motivos ofrecidos son los registrados, no el enum entero", async () => {
+    const porPrecio = await leads.create(baseLead());
+    const porStock = await leads.create(baseLead());
+    const ganado = await leads.create(baseLead());
+    const s1 = await sessions.create(baseSession(porPrecio.id));
+    await sessions.close(s1.id, { resultado: "perdido", motivo_perdida: "precio" });
+    const s2 = await sessions.create(baseSession(porStock.id));
+    await sessions.close(s2.id, { resultado: "perdido", motivo_perdida: "stock" });
+    const s3 = await sessions.create(baseSession(ganado.id));
+    await sessions.close(s3.id, { resultado: "exito" });
+
+    const page = await svc.listLeads();
+    // Orden del enum, no alfabético: "tiempo", "no_responde" y "otro" no
+    // aparecen porque nadie perdió por eso y filtrarlos no devolvería nada.
+    expect(page.motivos).toEqual(["precio", "stock"]);
+
+    // Con un motivo puesto la lista no se recorta a ese: se arma antes.
+    expect((await svc.listLeads({ motivoPerdida: "precio" })).motivos).toEqual(["precio", "stock"]);
+  });
+
+  test("sin sesiones cerradas no hay motivos que ofrecer", async () => {
+    const lead = await leads.create(baseLead());
+    await sessions.create(baseSession(lead.id));
+    expect((await svc.listLeads()).motivos).toEqual([]);
   });
 
   test("con TODOS los filtros puestos la pantalla no hace una consulta por lead", async () => {
@@ -290,12 +350,18 @@ describe("DefaultLeadsService", () => {
       sinResponder: true,
       vehiculoMarca: "Toyota",
       vehiculoModelo: "Corolla",
+      vehiculoAnio: 2018,
     });
 
     const total = espias.reduce((n, e) => n + e.mock.calls.length, 0);
     // 8 lecturas fijas: códigos + leads + sesiones activas + cierres + duplicados
     // + catálogo de etiquetas + pivot de la etiqueta + hilos en tanda. Ninguna
     // depende de cuántos leads hay: agregar filas no agrega consultas.
+    //
+    // Las mini-pantallas de vehículo y de cierre no suman ninguna: sus listas
+    // se arman en memoria sobre `leads.list` y `listCierres`, que ya están en
+    // vuelo. Un `distinct` aparte para cada una habría dejado esto en 10 y las
+    // opciones ofrecidas habrían dejado de coincidir con las que dan resultado.
     expect(total).toBe(8);
     expect(leads.findById).not.toHaveBeenCalled();
     expect(sessions.listByLeadId).not.toHaveBeenCalled();

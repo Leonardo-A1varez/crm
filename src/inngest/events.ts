@@ -53,6 +53,26 @@ export const leadsReactivationRequested = eventType("leads/reactivation.requeste
   schema: staticSchema<Record<string, never>>(),
 });
 
+/**
+ * Un vendedor se puso una cita sobre una conversación ("volver a contactar en 2
+ * días"). Lo emite el panel al programar el recordatorio y arranca el workflow
+ * que duerme hasta `recordarAt`.
+ *
+ * `recordarAt` viaja en ISO porque una `Date` no sobrevive la serialización del
+ * evento — mismo criterio que `meta/status.received`.
+ *
+ * Idempotency key al emitir: `recordatorio:<recordatorioId>`. El id lo genera
+ * la fila, así que dos clicks sobre el mismo recordatorio no pueden abrir dos
+ * workflows.
+ */
+export const recordatorioProgramado = eventType("lead-session/recordatorio.programado", {
+  schema: staticSchema<{
+    recordatorioId: UUID;
+    leadSessionId: UUID;
+    recordarAt: string;
+  }>(),
+});
+
 // Emit cuando un lead nuevo es creado durante `on-message-received` (resolve-lead
 // stage). Dispara `detect-merge-candidates` per-lead (cheap heurística rápida).
 // Idempotency event id (Slice 1): `lead-created:<leadId>`.

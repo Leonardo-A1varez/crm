@@ -11,11 +11,14 @@ import { estadoVentana } from "@/lib/ventana";
 import { getInboxServiceForRequest } from "@/server/bootstrap/inbox-bootstrap";
 import { agregarDatoLeadAction } from "../_actions/agregar-dato-lead.action";
 import { asignarEtiquetaAction } from "../_actions/asignar-etiqueta.action";
+import { auditoriaTurnoAction } from "../_actions/auditoria-turno.action";
 import { borrarDatoLeadAction } from "../_actions/borrar-dato-lead.action";
+import { cancelarRecordatorioAction } from "../_actions/cancelar-recordatorio.action";
 import { closeSessionAction } from "../_actions/close-session.action";
 import { crearEtiquetaAction } from "../_actions/crear-etiqueta.action";
 import { editarCampoTwinAction } from "../_actions/editar-campo-twin.action";
 import { moverEtapaAction } from "../_actions/mover-etapa.action";
+import { programarRecordatorioAction } from "../_actions/programar-recordatorio.action";
 import { quitarEtiquetaAction } from "../_actions/quitar-etiqueta.action";
 import { renombrarLeadAction } from "../_actions/renombrar-lead.action";
 import { sendMessageAction } from "../_actions/send-message.action";
@@ -72,7 +75,7 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
         {view.session ? (
           <>
             <div className="flex-1 overflow-hidden">
-              <ChatThread messages={view.messages} />
+              <ChatThread messages={view.messages} onAuditoria={auditoriaTurnoAction} />
             </div>
             <MessageInput
               leadId={view.lead.id}
@@ -104,6 +107,7 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
           tagsDisponibles={view.tagsDisponibles}
           sesionesPrevias={view.sesionesPrevias}
           gastoIa={view.gastoIa}
+          recordatorio={view.recordatorio}
           onEditar={editarCampoTwinAction}
           onMoverEtapa={moverEtapaAction}
           onCerrarSesion={closeSessionAction}
@@ -113,6 +117,8 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
           onAsignarEtiqueta={asignarEtiquetaAction}
           onQuitarEtiqueta={quitarEtiquetaAction}
           onCrearEtiqueta={crearEtiquetaAction}
+          onProgramarRecordatorio={programarRecordatorioAction}
+          onCancelarRecordatorio={cancelarRecordatorioAction}
         />
       </aside>
     </div>

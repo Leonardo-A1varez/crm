@@ -16,6 +16,10 @@ import {
   type MetaSendResult,
   type MetaSendTextInput,
 } from "@/server/services/meta-api.service";
+import { InMemorySessionRecordatoriosRepository } from "@/server/repositories/session-recordatorios.repo";
+import { reposAuditoria } from "../mocks/inbox-auditoria";
+import { depsRecordatorios } from "../mocks/inbox-recordatorios";
+import type { ProgramarAvisoRecordatorioFn } from "@/server/services/inbox/inbox.service";
 import type { Lead, LeadSession, UUID } from "@/types/entities";
 
 async function makeLead(
@@ -69,6 +73,8 @@ describe("DefaultInboxService write path", () => {
   let convs: InMemoryConversationsRepository;
   let messages: InMemoryMessagesRepository;
   let tags: InMemoryTagsRepository;
+  let recordatorios: InMemorySessionRecordatoriosRepository;
+  let programarAvisoSpy: Mock<ProgramarAvisoRecordatorioFn>;
   let client: MetaApiClient;
   let sendTextSpy: Mock<(input: MetaSendTextInput) => Promise<MetaSendResult>>;
   let svc: DefaultInboxService;
@@ -79,6 +85,8 @@ describe("DefaultInboxService write path", () => {
     convs = new InMemoryConversationsRepository();
     messages = new InMemoryMessagesRepository();
     tags = new InMemoryTagsRepository();
+    recordatorios = new InMemorySessionRecordatoriosRepository();
+    programarAvisoSpy = vi.fn(async () => {});
     sendTextSpy = vi.fn(async (_input: MetaSendTextInput) => ({
       meta_message_id: `wamid.${crypto.randomUUID()}`,
     }));
@@ -93,6 +101,9 @@ describe("DefaultInboxService write path", () => {
       productos: new InMemoryProductsRepository(),
       tags,
       llmUsage: new InMemoryLlmUsageRepository(),
+      ...reposAuditoria(),
+      ...depsRecordatorios(recordatorios),
+      programarAviso: programarAvisoSpy,
     });
   });
 
@@ -754,6 +765,114 @@ describe("DefaultInboxService write path", () => {
           userId: vendedorId,
         }),
       ).rejects.toBeInstanceOf(NotFoundError);
+    });
+  });
+  describe("recordatorios de seguimiento", () => {
+    const EN_DOS_DIAS = new Date(Date.now() + 48 * 60 * 60 * 1000);
+
+    test("programar crea la cita y arranca el workflow con esa fecha", async () => {
+      const lead = await makeLead(leads);
+      const session = await makeSession(sessions, lead.id);
+
+      const r = await svc.programarRecordatorio({
+        sessionId: session.id,
+        recordarAt: EN_DOS_DIAS,
+        nota: "dijo que lo pensaba",
+        userId: vendedorId,
+      });
+
+      expect(r.estado).toBe("pendiente");
+      expect(r.creado_por).toBe(vendedorId);
+      // El workflow durable arranca con el id de la fila: sin esto el
+      // `sleepUntil` no sabría a qué recordatorio volver.
+      expect(programarAvisoSpy).toHaveBeenCalledWith({
+        recordatorioId: r.id,
+        leadSessionId: session.id,
+        recordarAt: EN_DOS_DIAS,
+      });
+    });
+
+    test("una sola cita por conversación: la segunda es ConflictError", async () => {
+      const lead = await makeLead(leads);
+      const session = await makeSession(sessions, lead.id);
+      await svc.programarRecordatorio({
+        sessionId: session.id,
+        recordarAt: EN_DOS_DIAS,
+        nota: "",
+        userId: vendedorId,
+      });
+
+      await expect(
+        svc.programarRecordatorio({
+          sessionId: session.id,
+          recordarAt: EN_DOS_DIAS,
+          nota: "otra",
+          userId: vendedorId,
+        }),
+      ).rejects.toBeInstanceOf(ConflictError);
+    });
+
+    test("no se programa sobre una sesión cerrada", async () => {
+      // Una cita sobre una conversación que salió del inbox no la ve nadie, y
+      // a los 29 días la purga se la lleva.
+      const lead = await makeLead(leads);
+      const session = await makeSession(sessions, lead.id);
+      await sessions.resolver(session.id, { resultado: "exito" }, vendedorId);
+
+      await expect(
+        svc.programarRecordatorio({
+          sessionId: session.id,
+          recordarAt: EN_DOS_DIAS,
+          nota: "",
+          userId: vendedorId,
+        }),
+      ).rejects.toBeInstanceOf(ConflictError);
+    });
+
+    test("una sesión cerrada no llega ni a arrancar el workflow", async () => {
+      const lead = await makeLead(leads);
+      const session = await makeSession(sessions, lead.id);
+      await sessions.resolver(session.id, { resultado: "exito" }, vendedorId);
+
+      await expect(
+        svc.programarRecordatorio({
+          sessionId: session.id,
+          recordarAt: EN_DOS_DIAS,
+          nota: "",
+          userId: vendedorId,
+        }),
+      ).rejects.toThrow();
+      expect(programarAvisoSpy).not.toHaveBeenCalled();
+    });
+
+    test("cancelar apaga la cita y deja programar otra", async () => {
+      const lead = await makeLead(leads);
+      const session = await makeSession(sessions, lead.id);
+      const r = await svc.programarRecordatorio({
+        sessionId: session.id,
+        recordarAt: EN_DOS_DIAS,
+        nota: "",
+        userId: vendedorId,
+      });
+
+      await svc.cancelarRecordatorio({ recordatorioId: r.id });
+
+      expect((await recordatorios.findById(r.id))?.motivo_cancelacion).toBe("manual");
+      await expect(
+        svc.programarRecordatorio({
+          sessionId: session.id,
+          recordarAt: EN_DOS_DIAS,
+          nota: "",
+          userId: vendedorId,
+        }),
+      ).resolves.toBeDefined();
+    });
+
+    test("cancelar uno que ya no está vivo termina bien", async () => {
+      // Otra pestaña pudo apagarlo, o el cliente pudo contestar en el medio.
+      await expect(
+        svc.cancelarRecordatorio({ recordatorioId: crypto.randomUUID() }),
+      ).resolves.toBeUndefined();
     });
   });
 });

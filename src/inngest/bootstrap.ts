@@ -35,6 +35,7 @@ import { SupabaseMessagesRepository } from "@/server/repositories/messages.supab
 import { SupabaseProductsRepository } from "@/server/repositories/productos.supabase.repo";
 import { SupabaseReactivationDispatchesRepository } from "@/server/repositories/reactivation-dispatches.supabase.repo";
 import { SupabaseRuleExecutionsRepository } from "@/server/repositories/rule-executions.supabase.repo";
+import { SupabaseSessionRecordatoriosRepository } from "@/server/repositories/session-recordatorios.supabase.repo";
 import { SupabaseRulesRepository } from "@/server/repositories/rules.supabase.repo";
 import { SupabaseToolExecutionsRepository } from "@/server/repositories/tool-executions.supabase.repo";
 import { SupabaseTurnClassificationsRepository } from "@/server/repositories/turn-classifications.supabase.repo";
@@ -95,6 +96,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   const mergeCandidates = new SupabaseMergeCandidatesRepository(db);
   const eventOutbox = new SupabaseEventOutboxRepository(db);
   const toolExecutions = new SupabaseToolExecutionsRepository(db);
+  const recordatorios = new SupabaseSessionRecordatoriosRepository(db);
 
   // ===== Infrastructure (cost tracker, LLM bundle) =====
   // Dos responsabilidades distintas, deliberadamente separadas:
@@ -202,6 +204,8 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       ruleExecutions,
       turnClassifications,
       intents,
+      // Apaga el seguimiento apenas el cliente vuelve a escribir.
+      recordatorios,
       emit,
       logger,
     },
@@ -229,6 +233,13 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       sessions,
       dispatches: reactivationDispatches,
       sendReactivation,
+    },
+    recordatorioSeguimiento: {
+      recordatorios,
+      // `avisarAlCliente` NO se wirea a propósito: el recordatorio avisa al
+      // vendedor y no le manda nada al cliente. Ver el comentario largo en
+      // `recordatorio-seguimiento.ts`.
+      logger,
     },
     detectMergeCandidatesPerLead: {
       detector: mergeDetector,

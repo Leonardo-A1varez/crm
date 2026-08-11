@@ -12,6 +12,9 @@ import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
 import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultInboxService } from "@/server/services/inbox/default-inbox.service";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
+import { reposAuditoria } from "../mocks/inbox-auditoria";
+import { InMemorySessionRecordatoriosRepository } from "@/server/repositories/session-recordatorios.repo";
+import { depsRecordatorios } from "../mocks/inbox-recordatorios";
 import { WORKFLOW_LLM } from "@/types/domain";
 import type { Lead, LeadSession, UUID } from "@/types/entities";
 
@@ -24,6 +27,7 @@ function makeReadOnlyDeps(
   productos: InMemoryProductsRepository = new InMemoryProductsRepository(),
   tags: InMemoryTagsRepository = new InMemoryTagsRepository(),
   llmUsage: InMemoryLlmUsageRepository = new InMemoryLlmUsageRepository(),
+  recordatorios: InMemorySessionRecordatoriosRepository = new InMemorySessionRecordatoriosRepository(),
 ) {
   return {
     leads,
@@ -39,6 +43,8 @@ function makeReadOnlyDeps(
     productos,
     tags,
     llmUsage,
+    ...reposAuditoria(),
+    ...depsRecordatorios(recordatorios),
   };
 }
 
@@ -973,5 +979,110 @@ describe("DefaultInboxService.listActiveLeads — triage (sub-proyecto D)", () =
     const out = await svc.listActiveLeads();
 
     expect(out.map((i) => i.nombre)).toEqual(["Escalado", "Tranquilo"]);
+  });
+});
+
+describe("DefaultInboxService — recordatorios de seguimiento en la bandeja", () => {
+  let leads: InMemoryLeadsRepository;
+  let sessions: InMemoryLeadSessionRepository;
+  let convs: InMemoryConversationsRepository;
+  let messages: InMemoryMessagesRepository;
+  let recordatorios: InMemorySessionRecordatoriosRepository;
+  let svc: DefaultInboxService;
+
+  const AYER = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const EN_DOS_DIAS = new Date(Date.now() + 48 * 60 * 60 * 1000);
+
+  beforeEach(() => {
+    leads = new InMemoryLeadsRepository();
+    sessions = new InMemoryLeadSessionRepository();
+    convs = new InMemoryConversationsRepository();
+    messages = new InMemoryMessagesRepository();
+    recordatorios = new InMemorySessionRecordatoriosRepository();
+    svc = new DefaultInboxService(
+      makeReadOnlyDeps(
+        leads,
+        sessions,
+        convs,
+        messages,
+        new InMemoryProductsRepository(),
+        new InMemoryTagsRepository(),
+        new InMemoryLlmUsageRepository(),
+        recordatorios,
+      ),
+    );
+  });
+
+  async function conRecordatorio(recordarAt: Date, nota = "dijo que lo pensaba") {
+    const lead = await makeLead(leads, { nombre: "Pensativo" });
+    const session = await makeSession(sessions, lead.id);
+    const r = await recordatorios.create({
+      lead_session_id: session.id,
+      recordar_at: recordarAt,
+      nota,
+      creado_por: null,
+    });
+    return { lead, session, recordatorio: r };
+  }
+
+  test("un recordatorio vencido sube la conversación al grupo de atención", async () => {
+    await conRecordatorio(AYER);
+
+    const [item] = await svc.listActiveLeads();
+
+    expect(item?.motivo).toEqual({
+      tipo: "seguimiento",
+      texto: "Seguimiento: dijo que lo pensaba",
+    });
+  });
+
+  test("un recordatorio que todavía no venció no molesta a nadie", async () => {
+    await conRecordatorio(EN_DOS_DIAS);
+
+    const [item] = await svc.listActiveLeads();
+
+    expect(item?.motivo).toBeNull();
+  });
+
+  test("el cancelado no vuelve a aparecer aunque la fecha haya pasado", async () => {
+    const { recordatorio } = await conRecordatorio(AYER);
+    await recordatorios.cancelar(recordatorio.id, "respondio");
+
+    const [item] = await svc.listActiveLeads();
+
+    expect(item?.motivo).toBeNull();
+  });
+
+  test("el badge del SideNav cuenta los seguimientos vencidos", async () => {
+    await conRecordatorio(AYER);
+    expect(await svc.contarRequierenAtencion()).toBe(1);
+  });
+
+  test("la ficha muestra el recordatorio aunque falten dos días para que venza", async () => {
+    // El Twin muestra el vivo y no el vencido: hay que poder cancelarlo antes
+    // de que moleste.
+    const { lead, recordatorio } = await conRecordatorio(EN_DOS_DIAS);
+
+    const view = await svc.getConversation(lead.id);
+
+    expect(view.recordatorio?.id).toBe(recordatorio.id);
+  });
+
+  test("sin recordatorio la ficha lo dice con null", async () => {
+    const lead = await makeLead(leads);
+    await makeSession(sessions, lead.id);
+
+    const view = await svc.getConversation(lead.id);
+
+    expect(view.recordatorio).toBeNull();
+  });
+
+  test("la ficha no arrastra el recordatorio ya cancelado", async () => {
+    const { lead, recordatorio } = await conRecordatorio(EN_DOS_DIAS);
+    await recordatorios.cancelar(recordatorio.id, "manual");
+
+    const view = await svc.getConversation(lead.id);
+
+    expect(view.recordatorio).toBeNull();
   });
 });

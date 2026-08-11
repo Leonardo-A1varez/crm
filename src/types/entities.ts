@@ -3,9 +3,11 @@ import type {
   CurrentStage,
   Direction,
   EstadoEntrega,
+  EstadoRecordatorio,
   EtapaEmbudo,
   MergeCandidateStatus,
   MetodoPago,
+  MotivoCancelacionRecordatorio,
   MotivoPerdida,
   RespuestaTipo,
   Resultado,
@@ -314,6 +316,34 @@ export interface ReactivationDispatch {
   meta_message_id: string | null;
   status: ReactivationDispatchStatus;
   created_at: Date;
+}
+
+/**
+ * "Volver a contactar en 2 días": una cita que el vendedor se pone sobre una
+ * conversación que quedó en el aire.
+ *
+ * Cuelga de la sesión y no del lead: el recordatorio nace de algo que se dijo
+ * en *esta* conversación ("lo pienso"), y cuando la sesión cierra deja de tener
+ * sentido — por eso la FK va con CASCADE.
+ */
+export interface SessionRecordatorio {
+  id: UUID;
+  lead_session_id: UUID;
+  /** Cuándo hay que volver. Es la fecha a la que duerme el workflow. */
+  recordar_at: Date;
+  /**
+   * La línea que el vendedor va a leer cuando esto se dispare. Puede tener
+   * datos del cliente: nunca se loguea, ni siquiera en un warn.
+   */
+  nota: string;
+  estado: EstadoRecordatorio;
+  /** Solo con `estado` en `cancelado`. */
+  motivo_cancelacion: MotivoCancelacionRecordatorio | null;
+  /** Quién lo puso. `null` si el usuario se dio de baja. */
+  creado_por: UUID | null;
+  created_at: Date;
+  avisado_at: Date | null;
+  cancelado_at: Date | null;
 }
 
 export type OutboxEventStatus = "pending" | "sent" | "failed";

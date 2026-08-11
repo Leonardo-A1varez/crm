@@ -58,6 +58,17 @@ export interface LlmUsageRepository {
   primerRegistroAt(): Promise<Date | null>;
   /** Filas desde `desde` inclusive, para los cortes por ventana de tiempo. */
   listDesde(desde: Date): Promise<LlmUsage[]>;
+  /**
+   * Las llamadas al modelo de un turno, ancladas al mensaje entrante que lo
+   * abrió. Orden cronológico: es el orden en el que corrieron —clasificador,
+   * agente, extractor— y así se lee el turno.
+   *
+   * Es un listado y no una suma, a diferencia de `resumenPorLeadSession`: la
+   * pregunta de la auditoría no es cuánto salió sino en qué se fue, y sin el
+   * desglose por workflow no se puede decir que las reglas ahorran el agente
+   * pero no el clasificador.
+   */
+  listByMensajeId(mensajeId: UUID): Promise<LlmUsage[]>;
 }
 
 /**
@@ -79,6 +90,9 @@ export class NoopLlmUsageRepository implements LlmUsageRepository {
     return null;
   }
   async listDesde(_desde: Date): Promise<LlmUsage[]> {
+    return [];
+  }
+  async listByMensajeId(_mensajeId: UUID): Promise<LlmUsage[]> {
     return [];
   }
 }
@@ -123,6 +137,13 @@ export class InMemoryLlmUsageRepository implements LlmUsageRepository {
   async listDesde(desde: Date): Promise<LlmUsage[]> {
     return this.rows
       .filter((r) => r.created_at.getTime() >= desde.getTime())
+      .map((r) => ({ ...r }));
+  }
+
+  async listByMensajeId(mensajeId: UUID): Promise<LlmUsage[]> {
+    return this.rows
+      .filter((r) => r.mensaje_id === mensajeId)
+      .sort((a, b) => a.created_at.getTime() - b.created_at.getTime())
       .map((r) => ({ ...r }));
   }
 }

@@ -6,7 +6,7 @@ import {
   ValidationError,
 } from "@/lib/errors";
 import { getLogger } from "@/lib/observability/get-logger";
-import type { ActionResult } from "@/types/inbox";
+import type { ActionError } from "@/types/inbox";
 
 const logger = getLogger({ scope: "inbox-actions" });
 
@@ -25,7 +25,7 @@ export function toActionError(
    * pista falsa.
    */
   opciones: { permisoDenegado?: string; conflicto?: string } = {},
-): ActionResult {
+): ActionError {
   if (e instanceof NotFoundError) {
     return { ok: false, error: "Lead, sesión o conversación no encontrada. Refrescá la página." };
   }

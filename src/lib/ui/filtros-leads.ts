@@ -1,9 +1,7 @@
 import { UUIDSchema } from "@/lib/validation/schemas";
 import { CANAL, CURRENT_STAGE, MOTIVO_PERDIDA, RESULTADO } from "@/types/domain";
-import { VENTANA_ACTIVIDAD } from "@/types/leads";
 import type { Canal, CurrentStage, MotivoPerdida, Resultado } from "@/types/domain";
 import type { UUID } from "@/types/entities";
-import type { VentanaActividad } from "@/types/leads";
 
 /**
  * Los filtros de `/leads` viven en la URL y nada más.
@@ -12,7 +10,11 @@ import type { VentanaActividad } from "@/types/leads";
  * `searchParams` es su única entrada, así que un filtro puesto se comparte por
  * link y sobrevive al refresh. Este módulo es el único traductor entre esa URL
  * y la forma que espera `LeadsService.listLeads`, para que la pantalla y los
- * chips no puedan discrepar sobre qué significa `?sesion=activa`.
+ * chips no puedan discrepar sobre qué significa `?motivo=precio`.
+ *
+ * `actividad` y `sesion` salieron de acá cuando salieron de la barra: el
+ * service los sigue soportando (`LeadsListInput.actividad` y
+ * `conSesionActiva`), pero ya nadie los produce.
  */
 
 /** Nombre de cada filtro en la URL. Fuente única: los chips y la página leen de acá. */
@@ -22,14 +24,20 @@ export const PARAM = {
   canal: "canal",
   etapa: "etapa",
   etiqueta: "etiqueta",
-  sesion: "sesion",
   resultado: "resultado",
   motivo: "motivo",
-  actividad: "actividad",
   sinResponder: "sin_responder",
   marca: "marca",
   modelo: "modelo",
+  anio: "anio",
 } as const;
+
+/**
+ * Los tres params que describen un vehículo. Se ponen y se sacan juntos: la
+ * mini-pantalla ofrece "Toyota Corolla 2018" como una sola opción, así que
+ * dejar la marca puesta al quitar el modelo sería un filtro que nadie eligió.
+ */
+export const PARAMS_VEHICULO = [PARAM.marca, PARAM.modelo, PARAM.anio] as const;
 
 /** Lo que Next entrega en `searchParams`: repetido llega como array. */
 export type ValorParam = string | string[] | undefined;
@@ -46,13 +54,12 @@ export interface FiltrosLeads {
   canal?: Canal;
   etapa?: CurrentStage;
   etiquetaId?: UUID;
-  conSesionActiva?: boolean;
   resultado?: Resultado;
   motivoPerdida?: MotivoPerdida;
-  actividad?: VentanaActividad;
   sinResponder?: boolean;
   vehiculoMarca?: string;
   vehiculoModelo?: string;
+  vehiculoAnio?: number;
 }
 
 /** Tope del texto libre de marca/modelo: la URL no es un campo de datos. */
@@ -78,8 +85,13 @@ function bandera(valor: ValorParam): true | undefined {
   return texto(valor) === "1" ? true : undefined;
 }
 
+/** Año del vehículo: cuatro dígitos o nada. `vehiculo_anio` es un `int`. */
+function anio(valor: ValorParam): number | undefined {
+  const s = texto(valor);
+  return s !== undefined && /^\d{4}$/.test(s) ? Number(s) : undefined;
+}
+
 export function parseFiltrosLeads(params: Record<string, ValorParam>): FiltrosLeads {
-  const sesion = opcion(params[PARAM.sesion], ["activa", "cerrada"] as const);
   const etiqueta = texto(params[PARAM.etiqueta]);
 
   return {
@@ -92,13 +104,12 @@ export function parseFiltrosLeads(params: Record<string, ValorParam>): FiltrosLe
     // puede escribir a mano en la barra de direcciones.
     etiquetaId:
       etiqueta !== undefined && UUIDSchema.safeParse(etiqueta).success ? etiqueta : undefined,
-    conSesionActiva: sesion === undefined ? undefined : sesion === "activa",
     resultado: opcion(params[PARAM.resultado], RESULTADO),
     motivoPerdida: opcion(params[PARAM.motivo], MOTIVO_PERDIDA),
-    actividad: opcion(params[PARAM.actividad], VENTANA_ACTIVIDAD),
     sinResponder: bandera(params[PARAM.sinResponder]),
     vehiculoMarca: texto(params[PARAM.marca]),
     vehiculoModelo: texto(params[PARAM.modelo]),
+    vehiculoAnio: anio(params[PARAM.anio]),
   };
 }
 
@@ -106,26 +117,34 @@ export function parseFiltrosLeads(params: Record<string, ValorParam>): FiltrosLe
  * Cuántos filtros hay puestos. `q` no cuenta: tiene su propia caja en el
  * encabezado y su propio estado vacío, y sumarlo haría que el contador de los
  * chips mintiera sobre cuántos chips hay encendidos.
+ *
+ * El vehículo cuenta uno aunque ocupe tres params: quien eligió "Toyota Corolla
+ * 2018" hizo un solo gesto y ve un solo control encendido.
  */
 export function contarFiltrosActivos(filtros: FiltrosLeads): number {
-  const { q: _q, ...chips } = filtros;
-  return Object.values(chips).filter((v) => v !== undefined).length;
+  const { q: _q, vehiculoMarca, vehiculoModelo, vehiculoAnio, ...chips } = filtros;
+  const hayVehiculo =
+    vehiculoMarca !== undefined || vehiculoModelo !== undefined || vehiculoAnio !== undefined;
+  return Object.values(chips).filter((v) => v !== undefined).length + (hayVehiculo ? 1 : 0);
 }
 
-const LABEL_ACTIVIDAD: Record<VentanaActividad, string> = {
-  hoy: "Hoy",
-  semana: "Esta semana",
-  mas_30: "Hace más de 30 días",
-};
+/**
+ * "Toyota Corolla 2018" con lo que haya en la URL, o nada si no hay vehículo.
+ *
+ * Se arma de los params y no de la lista de opciones para que un link viejo
+ * —con la marca sola, de cuando eran dos `<select>`— siga diciendo qué filtra.
+ */
+export function vehiculoLabel(filtros: FiltrosLeads): string | undefined {
+  const partes = [filtros.vehiculoMarca, filtros.vehiculoModelo, filtros.vehiculoAnio]
+    .filter((p) => p !== undefined)
+    .map(String);
+  return partes.length > 0 ? partes.join(" ") : undefined;
+}
 
 const LABEL_RESULTADO: Record<Resultado, string> = {
   exito: "Ganado",
   perdido: "Perdido",
 };
-
-export function actividadLabel(ventana: VentanaActividad): string {
-  return LABEL_ACTIVIDAD[ventana];
-}
 
 export function resultadoLabel(resultado: Resultado): string {
   return LABEL_RESULTADO[resultado];

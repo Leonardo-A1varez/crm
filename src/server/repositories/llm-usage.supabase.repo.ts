@@ -114,4 +114,15 @@ export class SupabaseLlmUsageRepository implements LlmUsageRepository {
     if (error) throw mapPostgrestError(error, { resource: "llm_usage" });
     return (data ?? []).map((r) => mapRow(r as LlmUsageRow));
   }
+
+  async listByMensajeId(mensajeId: UUID): Promise<LlmUsage[]> {
+    if (!isUuid(mensajeId)) return [];
+    const { data, error } = await this.db
+      .from("llm_usage")
+      .select()
+      .eq("mensaje_id", mensajeId)
+      .order("created_at", { ascending: true });
+    if (error) throw mapPostgrestError(error, { resource: "llm_usage" });
+    return (data ?? []).map((r) => mapRow(r as LlmUsageRow));
+  }
 }

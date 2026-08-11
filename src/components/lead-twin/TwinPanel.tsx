@@ -6,6 +6,7 @@ import { CampoEditable } from "@/components/lead-twin/CampoEditable";
 import { ChipProcedencia } from "@/components/lead-twin/ChipProcedencia";
 import { NombreLead } from "@/components/lead-twin/NombreLead";
 import { RailEmbudo } from "@/components/lead-twin/RailEmbudo";
+import { RecordatorioSeguimiento } from "@/components/lead-twin/RecordatorioSeguimiento";
 import { SeccionEtiquetas } from "@/components/lead-twin/SeccionEtiquetas";
 import { TwinEmptyState } from "@/components/lead-twin/TwinEmptyState";
 import { TwinField } from "@/components/lead-twin/TwinField";
@@ -22,10 +23,12 @@ import type {
   AgregarDatoLeadInput,
   AsignarEtiquetaInput,
   BorrarDatoExtraInput,
+  CancelarRecordatorioInput,
   CloseSessionInput,
   CrearEtiquetaInput,
   EditarCampoTwinInput,
   MoverEtapaInput,
+  ProgramarRecordatorioInput,
   QuitarEtiquetaInput,
   RenombrarLeadInput,
 } from "@/lib/validation/inbox.schema";
@@ -35,6 +38,7 @@ import type {
   Mensaje,
   ProcedenciaCampo,
   Producto,
+  SessionRecordatorio,
   Tag,
   UUID,
 } from "@/types/entities";
@@ -423,6 +427,7 @@ export function TwinPanel({
   tagsDisponibles,
   sesionesPrevias,
   gastoIa,
+  recordatorio,
   onEditar,
   onMoverEtapa,
   onCerrarSesion,
@@ -432,6 +437,8 @@ export function TwinPanel({
   onAsignarEtiqueta,
   onQuitarEtiqueta,
   onCrearEtiqueta,
+  onProgramarRecordatorio,
+  onCancelarRecordatorio,
 }: {
   lead: Lead;
   session: LeadSession | null;
@@ -445,6 +452,8 @@ export function TwinPanel({
   sesionesPrevias: SesionesPrevias;
   /** Gasto del modelo en esta sesión; `null` cuando no hay sesión activa. */
   gastoIa: GastoSesion | null;
+  /** El seguimiento vivo de la sesión; `null` = no hay ninguno programado. */
+  recordatorio: SessionRecordatorio | null;
   onEditar: (input: EditarCampoTwinInput) => Promise<ActionResult>;
   onMoverEtapa: (input: MoverEtapaInput) => Promise<ActionResult>;
   /** Cierre en dos pasos que abre el segmento "Cerrado" del rail. */
@@ -455,6 +464,8 @@ export function TwinPanel({
   onAsignarEtiqueta: (input: AsignarEtiquetaInput) => Promise<ActionResult>;
   onQuitarEtiqueta: (input: QuitarEtiquetaInput) => Promise<ActionResult>;
   onCrearEtiqueta: (input: CrearEtiquetaInput) => Promise<ActionResult>;
+  onProgramarRecordatorio: (input: ProgramarRecordatorioInput) => Promise<ActionResult>;
+  onCancelarRecordatorio: (input: CancelarRecordatorioInput) => Promise<ActionResult>;
 }) {
   const identidad = (
     <Seccion>
@@ -567,6 +578,20 @@ export function TwinPanel({
           multilinea
         />
         <BarrasUrgencia urgencia={session.urgencia} />
+      </Seccion>
+
+      {/* Pegado a la consulta y no al final de la ficha: la pregunta "¿cuándo
+          vuelvo?" es de la misma familia que "¿qué quería?", y una cita que hay
+          que ir a buscar tres pantallas abajo no se pone. Se dibuja siempre,
+          con dato y sin dato: acá el estado vacío es la invitación a usarlo. */}
+      <Seccion>
+        <RecordatorioSeguimiento
+          leadId={leadId}
+          sessionId={session.id}
+          recordatorio={recordatorio}
+          onProgramar={onProgramarRecordatorio}
+          onCancelar={onCancelarRecordatorio}
+        />
       </Seccion>
 
       {hasCotizacion ? (

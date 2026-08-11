@@ -199,6 +199,127 @@ describe("RLS — vendedor", () => {
   });
 });
 
+describe("RLS — session_recordatorios (recordatorio de seguimiento)", () => {
+  /**
+   * Se cubren las tres operaciones que el panel ejecuta, y se fija que DELETE
+   * NO tenga policy. Ese último caso es el que se escapó una vez en este repo
+   * —`tags` sin policy de DELETE borraba 0 filas mientras la UI decía
+   * "listo"—: acá el borrado silencioso es la conducta buscada, porque nada
+   * borra recordatorios. Si alguien agrega un borrado real desde el panel, este
+   * test se cae y le recuerda que le falta la policy.
+   */
+  // Lead nuevo por sesión: `lead_session_unique_activa_idx` no deja dos
+  // sesiones abiertas para el mismo lead.
+  async function sesionDePrueba(): Promise<string> {
+    const sufijo = crypto.randomUUID().replace(/-/g, "").slice(0, 9);
+    const { data: lead, error: leadError } = await service
+      .from("leads")
+      .insert({
+        nombre: "Lead RLS recordatorio",
+        telefono: `+5959${sufijo}`,
+        vehiculo_marca: "Toyota",
+        vehiculo_modelo: "Hilux",
+        vehiculo_anio: 2019,
+        canal_origen: "wa",
+        meta_user_ids: {},
+      })
+      .select()
+      .single();
+    if (leadError) throw new Error(leadError.message);
+
+    const { data, error } = await service
+      .from("lead_session")
+      .insert({
+        lead_id: lead.id,
+        current_stage: "negociando",
+        urgencia: "media",
+        consulta: "rls recordatorios",
+      })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return data.id;
+  }
+
+  test("vendedor: INSERT, SELECT y UPDATE permitidos", async () => {
+    const sessionId = await sesionDePrueba();
+
+    const { data: creado, error } = await vendedor
+      .from("session_recordatorios")
+      .insert({
+        lead_session_id: sessionId,
+        recordar_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+        nota: "volver en 2 días",
+      })
+      .select()
+      .single();
+    expect(error).toBeNull();
+    expect(creado?.estado).toBe("pendiente");
+
+    const { data: leidos, error: e2 } = await vendedor
+      .from("session_recordatorios")
+      .select("id")
+      .eq("id", creado!.id);
+    expect(e2).toBeNull();
+    expect(leidos).toHaveLength(1);
+
+    // Cancelar es un UPDATE, no un DELETE: es la operación que la UI ejecuta.
+    const { data: cancelados, error: e3 } = await vendedor
+      .from("session_recordatorios")
+      .update({
+        estado: "cancelado",
+        motivo_cancelacion: "manual",
+        cancelado_at: new Date().toISOString(),
+      })
+      .eq("id", creado!.id)
+      .select();
+    expect(e3).toBeNull();
+    expect(cancelados).toHaveLength(1);
+  });
+
+  test("DELETE sin policy: 0 filas y ningún caller lo usa", async () => {
+    const sessionId = await sesionDePrueba();
+    const { data: creado } = await service
+      .from("session_recordatorios")
+      .insert({
+        lead_session_id: sessionId,
+        recordar_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+        nota: "",
+      })
+      .select()
+      .single();
+
+    const { data: borrados, error } = await vendedor
+      .from("session_recordatorios")
+      .delete()
+      .eq("id", creado!.id)
+      .select();
+    expect(error).toBeNull();
+    expect(borrados).toHaveLength(0);
+
+    // Y sigue ahí: el borrado silencioso no se llevó nada por delante.
+    const { data: sigue } = await service
+      .from("session_recordatorios")
+      .select("id")
+      .eq("id", creado!.id);
+    expect(sigue).toHaveLength(1);
+  });
+
+  test("authenticated sin rol: no ve ni escribe recordatorios", async () => {
+    const { data, error } = await sinRol.from("session_recordatorios").select("id");
+    expect(error).toBeNull();
+    expect(data).toHaveLength(0);
+
+    const sessionId = await sesionDePrueba();
+    const { error: e2 } = await sinRol.from("session_recordatorios").insert({
+      lead_session_id: sessionId,
+      recordar_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      nota: "",
+    });
+    expect(e2?.code).toBe("42501");
+  });
+});
+
 describe("RLS — admin", () => {
   test("INSERT + UPDATE productos permitidos", async () => {
     const { error } = await admin.from("productos").insert({

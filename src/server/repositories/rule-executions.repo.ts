@@ -11,6 +11,15 @@ export type RuleExecutionInsert = Insert<RuleExecution, "id" | "created_at">;
 export interface RuleExecutionsRepository {
   create(input: RuleExecutionInsert): Promise<RuleExecution>;
   listByRegla(reglaId: UUID): Promise<RuleExecution[]>;
+  /**
+   * La regla que contestó ese mensaje entrante, si hubo alguna. Devuelve una
+   * sola: el pipeline audita una vez por turno y `rule_executions` es la mitad
+   * excluyente de `turn_classifications`. La tabla no tiene UNIQUE sobre
+   * `mensaje_id` (deuda anotada en la migración de `turn_classifications`), así
+   * que un replay viejo puede haber dejado dos filas idénticas; se devuelve la
+   * primera, que dice lo mismo que la segunda.
+   */
+  findByMensajeId(mensajeId: UUID): Promise<RuleExecution | null>;
 }
 
 export class InMemoryRuleExecutionsRepository implements RuleExecutionsRepository {
@@ -27,5 +36,12 @@ export class InMemoryRuleExecutionsRepository implements RuleExecutionsRepositor
       .filter((r) => r.regla_id === reglaId)
       .sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
       .map((r) => ({ ...r }));
+  }
+
+  async findByMensajeId(mensajeId: UUID): Promise<RuleExecution | null> {
+    for (const r of this.store.values()) {
+      if (r.mensaje_id === mensajeId) return { ...r };
+    }
+    return null;
   }
 }

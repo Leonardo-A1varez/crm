@@ -1,11 +1,13 @@
 import { cotasActividad } from "@/lib/actividad";
 import { NotFoundError } from "@/lib/errors";
 import { calcularSinResponder } from "@/lib/sin-responder";
+import { MOTIVO_PERDIDA } from "@/types/domain";
 import type { CierreSesion, LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MergeCandidatesRepository } from "@/server/repositories/merge-candidates.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { TagsRepository } from "@/server/repositories/tags.repo";
+import type { MotivoPerdida } from "@/types/domain";
 import type { Lead, LeadSession, Mensaje, UUID } from "@/types/entities";
 import type {
   DuplicadoPendiente,
@@ -13,6 +15,7 @@ import type {
   LeadDetail,
   LeadListItem,
   LeadsPage,
+  VehiculoOpcion,
 } from "@/types/leads";
 import type { LeadsListInput, LeadsService } from "./leads.service";
 
@@ -29,19 +32,55 @@ export interface DefaultLeadsServiceDeps {
   messages: MessagesRepository;
 }
 
-function vehiculoDe(lead: Lead): string {
-  return [lead.vehiculo_marca, lead.vehiculo_modelo, lead.vehiculo_anio || ""]
-    .map(String)
+/** "Toyota Corolla 2018". El año se omite cuando la fila no lo tiene. */
+function textoVehiculo(marca: string, modelo: string, anio: number): string {
+  return [marca, modelo, anio > 0 ? String(anio) : ""]
     .map((s) => s.trim())
     .filter(Boolean)
     .join(" ");
 }
 
-/** Valores presentes, sin repetir y en orden alfabético castellano. */
-function opciones(valores: readonly string[]): string[] {
-  return Array.from(new Set(valores.map((v) => v.trim()).filter((v) => v !== ""))).sort((a, b) =>
-    a.localeCompare(b, "es"),
-  );
+function vehiculoDe(lead: Lead): string {
+  return textoVehiculo(lead.vehiculo_marca, lead.vehiculo_modelo, lead.vehiculo_anio);
+}
+
+/**
+ * Los vehículos distintos de estas filas, en orden alfabético castellano.
+ *
+ * Una pasada sobre las filas que ya están en memoria, no una consulta por lead
+ * ni un `distinct` aparte: agregar leads no agrega consultas.
+ */
+function vehiculosDe(leads: readonly Lead[]): VehiculoOpcion[] {
+  const out = new Map<string, VehiculoOpcion>();
+  for (const l of leads) {
+    const marca = l.vehiculo_marca.trim();
+    const modelo = l.vehiculo_modelo.trim();
+    const anio = l.vehiculo_anio > 0 ? l.vehiculo_anio : 0;
+    const texto = textoVehiculo(marca, modelo, anio);
+    if (texto === "") continue;
+    const clave = `${marca}|${modelo}|${anio}`;
+    if (!out.has(clave)) out.set(clave, { clave, texto, marca, modelo, anio });
+  }
+  return Array.from(out.values()).sort((a, b) => a.texto.localeCompare(b.texto, "es"));
+}
+
+/**
+ * Los motivos que aparecen en el último cierre de alguno de estos leads, en el
+ * orden del enum.
+ *
+ * Sale del mismo `listCierres()` que ya alimenta la columna de resultado: la
+ * lista de motivos ofrecidos es exactamente la que puede devolver filas.
+ */
+function motivosDe(
+  leads: readonly Lead[],
+  cierrePorLead: Map<UUID, CierreSesion>,
+): MotivoPerdida[] {
+  const vistos = new Set<MotivoPerdida>();
+  for (const l of leads) {
+    const motivo = cierrePorLead.get(l.id)?.motivo_perdida;
+    if (motivo) vistos.add(motivo);
+  }
+  return MOTIVO_PERDIDA.filter((m) => vistos.has(m));
 }
 
 /**
@@ -107,15 +146,11 @@ export class DefaultLeadsService implements LeadsService {
     const cierrePorLead = ultimosCierres(cierres);
     const involucrados = new Set(pendientes.flatMap((c) => [c.src_lead_id, c.dst_lead_id]));
 
-    // Las opciones de vehículo salen de lo que hay ANTES de filtrar por
-    // vehículo: si salieran de después, elegir una marca dejaría el selector
-    // con esa sola marca y no habría forma de cambiarla.
-    const marcas = opciones(rows.map((l) => l.vehiculo_marca));
-    const modelos = opciones(
-      rows
-        .filter((l) => !input.vehiculoMarca || l.vehiculo_marca === input.vehiculoMarca)
-        .map((l) => l.vehiculo_modelo),
-    );
+    // Las dos listas de opciones salen de lo que hay ANTES de filtrar por
+    // ellas: si salieran de después, elegir un vehículo dejaría la
+    // mini-pantalla con ese solo y no habría forma de cambiarlo.
+    const vehiculos = vehiculosDe(rows);
+    const motivos = motivosDe(rows, cierrePorLead);
 
     let leads = rows;
     if (input.vehiculoMarca) {
@@ -123,6 +158,9 @@ export class DefaultLeadsService implements LeadsService {
     }
     if (input.vehiculoModelo) {
       leads = leads.filter((l) => l.vehiculo_modelo === input.vehiculoModelo);
+    }
+    if (input.vehiculoAnio !== undefined) {
+      leads = leads.filter((l) => l.vehiculo_anio === input.vehiculoAnio);
     }
     if (input.soloDuplicados) {
       leads = leads.filter((l) => involucrados.has(l.id));
@@ -180,7 +218,7 @@ export class DefaultLeadsService implements LeadsService {
       .map((t) => ({ id: t.id, nombre: t.nombre, color: t.color }))
       .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 
-    return { items, pendingPairs: pendientes.length, marcas, modelos, etiquetas };
+    return { items, pendingPairs: pendientes.length, vehiculos, motivos, etiquetas };
   }
 
   async getLeadDetail(leadId: UUID): Promise<LeadDetail> {

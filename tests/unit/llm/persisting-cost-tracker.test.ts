@@ -126,6 +126,9 @@ describe("PersistingCostTracker", () => {
       async primerRegistroAt(): Promise<Date | null> {
         return null;
       },
+      async listByMensajeId(_mensajeId: UUID): Promise<LlmUsage[]> {
+        return [];
+      },
       async listDesde(_desde: Date): Promise<LlmUsage[]> {
         return [];
       },

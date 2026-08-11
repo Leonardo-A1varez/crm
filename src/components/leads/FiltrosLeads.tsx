@@ -3,48 +3,37 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { Close, Tune } from "@/components/icons";
+import { ChipFiltro, CHIP_BASE, CHIP_OFF, CHIP_ON } from "@/components/leads/ChipFiltro";
+import { SelectorBuscable } from "@/components/leads/SelectorBuscable";
 import { ChannelDot } from "@/components/shared/ChannelDot";
 import {
-  actividadLabel,
   contarFiltrosActivos,
   PARAM,
+  PARAMS_VEHICULO,
   parseFiltrosLeads,
   resultadoLabel,
+  vehiculoLabel,
 } from "@/lib/ui/filtros-leads";
 import { motivoPerdidaLabel } from "@/lib/ui/motivo-perdida";
 import { canalLabel } from "@/lib/ui/canal";
 import { stageLabel } from "@/lib/ui/stage";
 import { cn } from "@/lib/utils";
-import { CANAL, CURRENT_STAGE, MOTIVO_PERDIDA, RESULTADO } from "@/types/domain";
-import { VENTANA_ACTIVIDAD } from "@/types/leads";
-import type { EtiquetaOpcion } from "@/types/leads";
+import { CANAL, CURRENT_STAGE, RESULTADO } from "@/types/domain";
+import type { OpcionBuscable } from "@/components/leads/SelectorBuscable";
+import type { MotivoPerdida } from "@/types/domain";
+import type { EtiquetaOpcion, VehiculoOpcion } from "@/types/leads";
 import type { ReactNode } from "react";
 
-const CHIP_BASE =
-  "inline-flex shrink-0 items-center gap-1.5 rounded-[20px] border px-[10px] py-[4.5px] text-[11.5px] font-[550] transition-colors";
-const CHIP_ON = "bg-surface-avatar border-line-control text-ink-primary";
-const CHIP_OFF = "border-line-card text-ink-dim bg-transparent hover:text-ink-secondary";
-
-function Chip({
-  activo,
-  onClick,
-  children,
-}: {
-  activo: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={activo}
-      onClick={onClick}
-      className={cn(CHIP_BASE, activo ? CHIP_ON : CHIP_OFF)}
-    >
-      {children}
-    </button>
-  );
-}
+/**
+ * Cómo se codifica una opción del selector de cierre.
+ *
+ * El control es uno solo —"cómo terminó"— pero escribe dos params distintos:
+ * "Ganado" es un resultado y "Perdido: Precio" es un motivo. El prefijo dice
+ * cuál de los dos, y elegir uno siempre limpia el otro: `resultado=exito` con
+ * `motivo=precio` es una combinación que no puede devolver nada.
+ */
+const PREFIJO_RESULTADO = "resultado:";
+const PREFIJO_MOTIVO = "motivo:";
 
 function Grupo({ titulo, children }: { titulo: string; children: ReactNode }) {
   return (
@@ -58,53 +47,14 @@ function Grupo({ titulo, children }: { titulo: string; children: ReactNode }) {
 }
 
 /**
- * El desplegable de marca/modelo es un `<select>` nativo y no chips.
- *
- * Es la única dimensión de vocabulario abierto —sale de los datos, no de un
- * enum— y con mil leads en pantalla puede traer decenas de marcas: como chips
- * la barra de filtros taparía la lista que filtra. El nativo además trae gratis
- * el teclado y el scroll de la lista larga.
- */
-function SelectorTexto({
-  etiqueta,
-  valor,
-  opciones,
-  vacio,
-  onChange,
-}: {
-  etiqueta: string;
-  valor: string | undefined;
-  opciones: string[];
-  vacio: string;
-  onChange: (valor: string | null) => void;
-}) {
-  return (
-    <select
-      aria-label={etiqueta}
-      value={valor ?? ""}
-      onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
-      className={cn(
-        CHIP_BASE,
-        "appearance-none pr-[10px] outline-none",
-        valor !== undefined ? CHIP_ON : CHIP_OFF,
-        // El popup del `<select>` lo pinta el sistema: sin esto las opciones
-        // salen en claro sobre el panel oscuro.
-        "[&>option]:bg-surface-panel [&>option]:text-ink-body",
-      )}
-    >
-      <option value="">{vacio}</option>
-      {opciones.map((o) => (
-        <option key={o} value={o}>
-          {o}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-/**
  * Chips de filtro de `/leads`. Todos combinables y todos en la URL: lo que se
  * ve en pantalla se comparte pegando el link.
+ *
+ * Tres dimensiones no son chips sino mini-pantallas con buscador —cierre,
+ * etiquetas y vehículos—: son las que crecen y se reducen con los datos, y
+ * como chips inline llenaban la barra con una lista que cambia sola. Las otras
+ * dos son enums cerrados de pocos valores y siguen siendo chips, que se leen y
+ * se tocan en un gesto.
  *
  * Navega con `router.replace` —no `push`— porque tocar seis chips seguidos no
  * son seis pasos atrás para el vendedor; y la pantalla es un server component,
@@ -113,12 +63,13 @@ function SelectorTexto({
  */
 export function FiltrosLeads({
   etiquetas,
-  marcas,
-  modelos,
+  vehiculos,
+  motivos,
 }: {
   etiquetas: EtiquetaOpcion[];
-  marcas: string[];
-  modelos: string[];
+  vehiculos: VehiculoOpcion[];
+  /** Motivos presentes en los datos, no el enum entero. */
+  motivos: MotivoPerdida[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -154,13 +105,81 @@ export function FiltrosLeads({
       [PARAM.canal, null],
       [PARAM.etapa, null],
       [PARAM.etiqueta, null],
-      [PARAM.sesion, null],
       [PARAM.resultado, null],
       [PARAM.motivo, null],
-      [PARAM.actividad, null],
       [PARAM.sinResponder, null],
-      [PARAM.marca, null],
-      [PARAM.modelo, null],
+      ...PARAMS_VEHICULO.map((clave) => [clave, null] as const),
+    ]);
+  }
+
+  const opcionesCierre: OpcionBuscable[] = [
+    ...RESULTADO.map((r) => ({ valor: `${PREFIJO_RESULTADO}${r}`, texto: resultadoLabel(r) })),
+    ...motivos.map((m) => ({
+      valor: `${PREFIJO_MOTIVO}${m}`,
+      texto: `Perdido: ${motivoPerdidaLabel(m)}`,
+    })),
+  ];
+  const valorCierre =
+    filtros.motivoPerdida !== undefined
+      ? `${PREFIJO_MOTIVO}${filtros.motivoPerdida}`
+      : filtros.resultado !== undefined
+        ? `${PREFIJO_RESULTADO}${filtros.resultado}`
+        : undefined;
+
+  function elegirCierre(valor: string | null) {
+    if (valor === null) {
+      navegar([
+        [PARAM.resultado, null],
+        [PARAM.motivo, null],
+      ]);
+      return;
+    }
+    navegar(
+      valor.startsWith(PREFIJO_MOTIVO)
+        ? [
+            [PARAM.resultado, null],
+            [PARAM.motivo, valor.slice(PREFIJO_MOTIVO.length)],
+          ]
+        : [
+            [PARAM.resultado, valor.slice(PREFIJO_RESULTADO.length)],
+            [PARAM.motivo, null],
+          ],
+    );
+  }
+
+  const opcionesEtiquetas: OpcionBuscable[] = etiquetas.map((e) => ({
+    valor: e.id,
+    texto: e.nombre,
+    adorno: (
+      <span
+        aria-hidden
+        className="size-[6px] shrink-0 rounded-full"
+        style={{ backgroundColor: e.color }}
+      />
+    ),
+  }));
+
+  const opcionesVehiculos: OpcionBuscable[] = vehiculos.map((v) => ({
+    valor: v.clave,
+    texto: v.texto,
+  }));
+  const vehiculoElegido = vehiculos.find(
+    (v) =>
+      v.marca === filtros.vehiculoMarca &&
+      v.modelo === filtros.vehiculoModelo &&
+      v.anio === (filtros.vehiculoAnio ?? 0),
+  );
+
+  function elegirVehiculo(clave: string | null) {
+    const v = clave === null ? undefined : vehiculos.find((o) => o.clave === clave);
+    if (!v) {
+      navegar(PARAMS_VEHICULO.map((p) => [p, null] as const));
+      return;
+    }
+    navegar([
+      [PARAM.marca, v.marca || null],
+      [PARAM.modelo, v.modelo || null],
+      [PARAM.anio, v.anio > 0 ? String(v.anio) : null],
     ]);
   }
 
@@ -197,13 +216,13 @@ export function FiltrosLeads({
 
         {/* Resumen plegado: qué está filtrando y cómo sacarlo, sin abrir nada. */}
         {!abierto
-          ? resumen(filtros, etiquetas).map(({ clave, texto }) => (
-              <span key={clave} className={cn(CHIP_BASE, CHIP_ON)}>
+          ? resumen(filtros, etiquetas).map(({ claves, texto }) => (
+              <span key={claves.join("+")} className={cn(CHIP_BASE, CHIP_ON)}>
                 {texto}
                 <button
                   type="button"
                   aria-label={`Quitar filtro ${texto}`}
-                  onClick={() => navegar([[clave, null]])}
+                  onClick={() => navegar(claves.map((c) => [c, null] as const))}
                   className="text-ink-faint hover:text-ink-primary -mr-[3px] shrink-0"
                 >
                   <Close size={12} />
@@ -215,132 +234,83 @@ export function FiltrosLeads({
 
       {abierto ? (
         <div className="mt-2.5 flex flex-col gap-2">
-          <Grupo titulo="Actividad">
-            {VENTANA_ACTIVIDAD.map((v) => (
-              <Chip
-                key={v}
-                activo={filtros.actividad === v}
-                onClick={() => alternar(PARAM.actividad, v, filtros.actividad === v)}
-              >
-                {actividadLabel(v)}
-              </Chip>
-            ))}
-            <Chip
-              activo={filtros.sinResponder === true}
-              onClick={() => alternar(PARAM.sinResponder, "1", filtros.sinResponder === true)}
-            >
-              Sin responder
-            </Chip>
-          </Grupo>
-
-          <Grupo titulo="Sesión">
-            <Chip
-              activo={filtros.conSesionActiva === true}
-              onClick={() => alternar(PARAM.sesion, "activa", filtros.conSesionActiva === true)}
-            >
-              Con sesión activa
-            </Chip>
-            <Chip
-              activo={filtros.conSesionActiva === false}
-              onClick={() => alternar(PARAM.sesion, "cerrada", filtros.conSesionActiva === false)}
-            >
-              Sin sesión activa
-            </Chip>
-            <Chip
-              activo={filtros.soloDuplicados === true}
-              onClick={() => alternar(PARAM.duplicados, "1", filtros.soloDuplicados === true)}
-            >
-              Posibles duplicados
-            </Chip>
-          </Grupo>
-
           <Grupo titulo="Etapa">
             {CURRENT_STAGE.map((s) => (
-              <Chip
+              <ChipFiltro
                 key={s}
                 activo={filtros.etapa === s}
                 onClick={() => alternar(PARAM.etapa, s, filtros.etapa === s)}
               >
                 {stageLabel(s)}
-              </Chip>
+              </ChipFiltro>
             ))}
           </Grupo>
 
           <Grupo titulo="Cierre">
-            {RESULTADO.map((r) => (
-              <Chip
-                key={r}
-                activo={filtros.resultado === r}
-                onClick={() => alternar(PARAM.resultado, r, filtros.resultado === r)}
-              >
-                {resultadoLabel(r)}
-              </Chip>
-            ))}
-            {MOTIVO_PERDIDA.map((m) => (
-              <Chip
-                key={m}
-                activo={filtros.motivoPerdida === m}
-                onClick={() => alternar(PARAM.motivo, m, filtros.motivoPerdida === m)}
-              >
-                {motivoPerdidaLabel(m)}
-              </Chip>
-            ))}
+            <SelectorBuscable
+              etiqueta="Cierre"
+              vacio="Cómo terminó"
+              placeholder="Buscar cierre o motivo…"
+              opciones={opcionesCierre}
+              valor={valorCierre}
+              sinOpciones="Todavía no hay sesiones cerradas."
+              onElegir={elegirCierre}
+            />
           </Grupo>
 
-          <Grupo titulo="Canal">
+          <Grupo titulo="Canales">
             {CANAL.map((c) => (
-              <Chip
+              <ChipFiltro
                 key={c}
                 activo={filtros.canal === c}
                 onClick={() => alternar(PARAM.canal, c, filtros.canal === c)}
               >
                 <ChannelDot canal={c} size={6} />
                 {canalLabel(c)}
-              </Chip>
+              </ChipFiltro>
             ))}
           </Grupo>
 
-          {etiquetas.length > 0 ? (
-            <Grupo titulo="Etiquetas">
-              {etiquetas.map((e) => (
-                <Chip
-                  key={e.id}
-                  activo={filtros.etiquetaId === e.id}
-                  onClick={() => alternar(PARAM.etiqueta, e.id, filtros.etiquetaId === e.id)}
-                >
-                  <span
-                    aria-hidden
-                    className="size-[6px] shrink-0 rounded-full"
-                    style={{ backgroundColor: e.color }}
-                  />
-                  {e.nombre}
-                </Chip>
-              ))}
-            </Grupo>
-          ) : null}
+          <Grupo titulo="Etiquetas">
+            <SelectorBuscable
+              etiqueta="Etiquetas"
+              vacio="Etiqueta"
+              placeholder="Buscar etiqueta…"
+              opciones={opcionesEtiquetas}
+              valor={filtros.etiquetaId}
+              sinOpciones="Todavía no hay etiquetas."
+              onElegir={(id) => navegar([[PARAM.etiqueta, id]])}
+            />
+          </Grupo>
 
-          <Grupo titulo="Vehículo">
-            <SelectorTexto
-              etiqueta="Marca del vehículo"
-              valor={filtros.vehiculoMarca}
-              opciones={marcas}
-              vacio="Marca"
-              // Cambiar de marca invalida el modelo elegido: "Corolla" no existe
-              // bajo "Ford" y dejarlo puesto vaciaría la lista sin explicación.
-              onChange={(v) =>
-                navegar([
-                  [PARAM.marca, v],
-                  [PARAM.modelo, null],
-                ])
-              }
+          <Grupo titulo="Vehículos">
+            <SelectorBuscable
+              etiqueta="Vehículos"
+              vacio="Vehículo"
+              placeholder="Buscar marca, modelo o año…"
+              opciones={opcionesVehiculos}
+              valor={vehiculoElegido?.clave}
+              textoActivo={vehiculoLabel(filtros)}
+              sinOpciones="Ningún lead del resultado tiene vehículo cargado."
+              onElegir={elegirVehiculo}
             />
-            <SelectorTexto
-              etiqueta="Modelo del vehículo"
-              valor={filtros.vehiculoModelo}
-              opciones={modelos}
-              vacio="Modelo"
-              onChange={(v) => navegar([[PARAM.modelo, v]])}
-            />
+          </Grupo>
+
+          {/* Las dos banderas que no son una dimensión sino un pendiente: no
+              recortan por un atributo del lead sino por trabajo sin hacer. */}
+          <Grupo titulo="Pendientes">
+            <ChipFiltro
+              activo={filtros.sinResponder === true}
+              onClick={() => alternar(PARAM.sinResponder, "1", filtros.sinResponder === true)}
+            >
+              Sin responder
+            </ChipFiltro>
+            <ChipFiltro
+              activo={filtros.soloDuplicados === true}
+              onClick={() => alternar(PARAM.duplicados, "1", filtros.soloDuplicados === true)}
+            >
+              Posibles duplicados
+            </ChipFiltro>
           </Grupo>
         </div>
       ) : null}
@@ -352,34 +322,31 @@ export function FiltrosLeads({
 function resumen(
   filtros: ReturnType<typeof parseFiltrosLeads>,
   etiquetas: EtiquetaOpcion[],
-): { clave: string; texto: string }[] {
-  const out: { clave: string; texto: string }[] = [];
-  if (filtros.actividad)
-    out.push({ clave: PARAM.actividad, texto: actividadLabel(filtros.actividad) });
-  if (filtros.sinResponder) out.push({ clave: PARAM.sinResponder, texto: "Sin responder" });
-  if (filtros.conSesionActiva !== undefined) {
-    out.push({
-      clave: PARAM.sesion,
-      texto: filtros.conSesionActiva ? "Con sesión activa" : "Sin sesión activa",
-    });
+): { claves: readonly string[]; texto: string }[] {
+  const out: { claves: readonly string[]; texto: string }[] = [];
+  if (filtros.etapa) {
+    out.push({ claves: [PARAM.etapa], texto: `Etapa: ${stageLabel(filtros.etapa)}` });
   }
-  if (filtros.soloDuplicados) out.push({ clave: PARAM.duplicados, texto: "Posibles duplicados" });
-  if (filtros.etapa) out.push({ clave: PARAM.etapa, texto: `Etapa: ${stageLabel(filtros.etapa)}` });
   if (filtros.resultado) {
-    out.push({ clave: PARAM.resultado, texto: resultadoLabel(filtros.resultado) });
+    out.push({ claves: [PARAM.resultado], texto: resultadoLabel(filtros.resultado) });
   }
   if (filtros.motivoPerdida) {
     out.push({
-      clave: PARAM.motivo,
+      claves: [PARAM.motivo],
       texto: `Motivo: ${motivoPerdidaLabel(filtros.motivoPerdida)}`,
     });
   }
-  if (filtros.canal) out.push({ clave: PARAM.canal, texto: canalLabel(filtros.canal) });
+  if (filtros.canal) out.push({ claves: [PARAM.canal], texto: canalLabel(filtros.canal) });
   if (filtros.etiquetaId !== undefined) {
     const nombre = etiquetas.find((e) => e.id === filtros.etiquetaId)?.nombre;
-    out.push({ clave: PARAM.etiqueta, texto: `Etiqueta: ${nombre ?? "—"}` });
+    out.push({ claves: [PARAM.etiqueta], texto: `Etiqueta: ${nombre ?? "—"}` });
   }
-  if (filtros.vehiculoMarca) out.push({ clave: PARAM.marca, texto: filtros.vehiculoMarca });
-  if (filtros.vehiculoModelo) out.push({ clave: PARAM.modelo, texto: filtros.vehiculoModelo });
+  // Los tres params del vehículo salen juntos: son un solo filtro elegido.
+  const vehiculo = vehiculoLabel(filtros);
+  if (vehiculo !== undefined) out.push({ claves: PARAMS_VEHICULO, texto: vehiculo });
+  if (filtros.sinResponder) out.push({ claves: [PARAM.sinResponder], texto: "Sin responder" });
+  if (filtros.soloDuplicados) {
+    out.push({ claves: [PARAM.duplicados], texto: "Posibles duplicados" });
+  }
   return out;
 }

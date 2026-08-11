@@ -97,7 +97,7 @@ export default async function LeadsPage({
           />
         }
       />
-      <FiltrosLeads etiquetas={page.etiquetas} marcas={page.marcas} modelos={page.modelos} />
+      <FiltrosLeads etiquetas={page.etiquetas} vehiculos={page.vehiculos} motivos={page.motivos} />
       {rol === "admin" ? (
         <DuplicadosBanner
           count={page.pendingPairs}

@@ -8,6 +8,7 @@ import { InMemoryMessagesRepository } from "@/server/repositories/messages.repo"
 import { InMemoryIntentsRepository } from "@/server/repositories/intents.repo";
 import { InMemoryRulesRepository } from "@/server/repositories/rules.repo";
 import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
+import { InMemorySessionRecordatoriosRepository } from "@/server/repositories/session-recordatorios.repo";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
 import { DefaultIntentClassifierService } from "@/server/services/intent-classifier.service";
 import { DefaultRuleEngineService } from "@/server/services/rule-engine.service";
@@ -67,6 +68,7 @@ function makeDeps(
   ruleExecutions: InMemoryRuleExecutionsRepository;
   turnClassifications: InMemoryTurnClassificationsRepository;
   productos: InMemoryProductsRepository;
+  recordatorios: InMemorySessionRecordatoriosRepository;
 } {
   const leads = new InMemoryLeadsRepository();
   const conversations = new InMemoryConversationsRepository();
@@ -77,6 +79,7 @@ function makeDeps(
   const productos = new InMemoryProductsRepository();
   const ruleExecutions = new InMemoryRuleExecutionsRepository();
   const turnClassifications = new InMemoryTurnClassificationsRepository();
+  const recordatorios = new InMemorySessionRecordatoriosRepository();
 
   const intentLLM = new FakeIntentClassifierLLM();
   const agentLLM = new FakeAgentLLM();
@@ -104,6 +107,7 @@ function makeDeps(
     ruleExecutions,
     turnClassifications,
     intents,
+    recordatorios,
     configProvider,
     emit,
   };
@@ -123,6 +127,7 @@ function makeDeps(
     ruleExecutions,
     turnClassifications,
     productos,
+    recordatorios,
   };
 }
 
@@ -602,5 +607,81 @@ describe("config del agente en el pipeline", () => {
     await onMessageReceivedHandler({ parsed: parsed() }, local.deps);
 
     expect(local.metaClient.calls).toHaveLength(1);
+  });
+});
+
+describe("onMessageReceivedHandler — el cliente que vuelve apaga su seguimiento", () => {
+  let ctx: ReturnType<typeof makeDeps>;
+
+  beforeEach(() => {
+    ctx = makeDeps();
+  });
+
+  /** Deja al lead con sesión abierta y una cita de seguimiento encima. */
+  async function conRecordatorio() {
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("hola");
+    const primero = await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+
+    const recordatorio = await ctx.recordatorios.create({
+      lead_session_id: primero.sessionId,
+      recordar_at: new Date(Date.now() + 48 * 60 * 60 * 1000),
+      nota: "dijo que lo pensaba",
+      creado_por: null,
+    });
+    return { sessionId: primero.sessionId, recordatorio };
+  }
+
+  test("un mensaje del cliente cancela el recordatorio de la sesión", async () => {
+    // El sentido del recordatorio es "se quedó callado": si escribió, ya no
+    // hace falta perseguirlo.
+    const { recordatorio } = await conRecordatorio();
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("dale");
+
+    await onMessageReceivedHandler(
+      { parsed: parsed({ meta_message_id: "wamid.IN-2", contenido: "lo pensé, lo llevo" }) },
+      ctx.deps,
+    );
+
+    const despues = await ctx.recordatorios.findById(recordatorio.id);
+    expect(despues?.estado).toBe("cancelado");
+    expect(despues?.motivo_cancelacion).toBe("respondio");
+  });
+
+  test("cancela aunque el mensaje llegue fuera de horario y nadie conteste", async () => {
+    // La cancelación va pegada al entrante y antes de todas las salidas
+    // tempranas: un mensaje a las 3 AM cuenta igual como "el cliente volvió".
+    const local = makeDeps(
+      new StaticAgentConfigProvider({
+        ...CONFIG_DE_FABRICA,
+        horario: horarioCerradoSiempre(),
+        plantilla_fuera_horario: "",
+      }),
+    );
+    local.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    const primero = await onMessageReceivedHandler({ parsed: parsed() }, local.deps);
+    const recordatorio = await local.recordatorios.create({
+      lead_session_id: primero.sessionId,
+      recordar_at: new Date(Date.now() + 48 * 60 * 60 * 1000),
+      nota: "",
+      creado_por: null,
+    });
+
+    await onMessageReceivedHandler(
+      { parsed: parsed({ meta_message_id: "wamid.IN-3" }) },
+      local.deps,
+    );
+
+    expect((await local.recordatorios.findById(recordatorio.id))?.estado).toBe("cancelado");
+  });
+
+  test("sin recordatorios el pipeline sigue igual", async () => {
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("hola");
+
+    const r = await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+
+    expect(r.sent).toBe(true);
   });
 });

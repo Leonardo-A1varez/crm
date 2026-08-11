@@ -70,6 +70,39 @@ export interface Tramo {
  * El contenido viene de un tercero por WhatsApp: nunca se inyecta como HTML.
  * Quien dibuja recibe strings y decide qué etiqueta usa para cada tramo.
  */
+export interface IndiceHilo {
+  /**
+   * Por cada texto, cuántas coincidencias quedaron antes que él. Es el
+   * `ordinalInicial` que hay que pasarle a `partirTexto` para que la numeración
+   * de los tramos sea global al hilo y no local al mensaje.
+   */
+  ordinalInicial: number[];
+  total: number;
+}
+
+/**
+ * Numera las coincidencias de todo el hilo de una sola pasada.
+ *
+ * Recibe textos y no mensajes: lo que se resalta es el contenido, y el llamador
+ * es quien sabe cuáles se dibujan resaltados y cuáles no. Un mensaje que no
+ * pasa por el resaltado —el separador de sistema, por ejemplo— entra como
+ * cadena vacía; contarlo acá inventaría ordinales sin ancla en el DOM y el
+ * contador diría "5/8" con tres coincidencias imposibles de alcanzar.
+ *
+ * El orden de `textos` es el orden de la numeración. El hilo lo pasa en
+ * cronológico (viejo→nuevo), que es el mismo orden en el que se leen en
+ * pantalla pese al `flex-col-reverse`.
+ */
+export function indexarHilo(textos: readonly string[], consulta: string): IndiceHilo {
+  const ordinalInicial: number[] = [];
+  let total = 0;
+  for (const texto of textos) {
+    ordinalInicial.push(total);
+    total += contarCoincidencias(texto, consulta);
+  }
+  return { ordinalInicial, total };
+}
+
 export function partirTexto(texto: string, consulta: string, ordinalInicial: number): Tramo[] {
   const coincidencias = buscarCoincidencias(texto, consulta);
   if (coincidencias.length === 0) return [{ texto, ordinal: null }];

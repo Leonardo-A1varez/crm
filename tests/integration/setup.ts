@@ -17,6 +17,7 @@ export type TestClient = SupabaseClient<Database>;
 // Tables with single `id` PK ordered: children → parents (CASCADE handles rest).
 // lead_tags (composite PK lead_id+tag_id) NOT listed — cascades from leads/tags.
 const TABLES_TO_TRUNCATE = [
+  "session_recordatorios",
   "event_outbox",
   "merge_candidates",
   "admin_actions",

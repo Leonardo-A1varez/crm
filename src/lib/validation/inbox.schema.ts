@@ -14,6 +14,14 @@ export const SendMessageSchema = z.object({
 });
 export type SendMessageInput = z.infer<typeof SendMessageSchema>;
 
+/**
+ * Lectura de la auditoría de un turno. Solo viaja el id del saliente: el
+ * entrante, la sesión y las cuatro tablas los resuelve el service. Que el
+ * cliente mandara el ancla sería dejarle elegir de qué turno lee.
+ */
+export const AuditoriaTurnoSchema = z.object({ mensajeId: UUIDSchema });
+export type AuditoriaTurnoInput = z.infer<typeof AuditoriaTurnoSchema>;
+
 export const ToggleHandoffSchema = z.object({
   leadId: UUIDSchema,
   sessionId: UUIDSchema,
@@ -169,3 +177,56 @@ export const BorrarDatoExtraSchema = z.object({
   clave: z.string().trim().min(1).max(MAX_LARGO_CLAVE),
 });
 export type BorrarDatoExtraInput = z.infer<typeof BorrarDatoExtraSchema>;
+
+/**
+ * Cuánto puede vivir un recordatorio hacia adelante.
+ *
+ * Seis meses no es una restricción de Inngest —`sleepUntil` aguanta más— sino
+ * del producto: una cita a un año sobre una sesión que la purga borra a los 29
+ * días del cierre es una fila que nadie va a ver nunca. El tope convierte un
+ * dedazo en la fecha ("2027" en vez de "2026") en un error visible.
+ */
+export const MAX_DIAS_RECORDATORIO = 180;
+
+/** La nota entra en un chip de 322 px y en una línea de la fila del Inbox. */
+export const MAX_LARGO_NOTA_RECORDATORIO = 140;
+
+/**
+ * "Volver a contactar en 2 días" sobre una conversación.
+ *
+ * La fecha viaja en ISO con offset y no como `Date`: el payload de una Server
+ * Action se serializa, y una fecha sin zona la interpretaría el server con la
+ * suya, que puede no ser la del vendedor.
+ *
+ * Las dos guardas de rango van acá y no en el service porque son del formulario
+ * —qué fecha tiene sentido pedir— y porque el `refine` es lo que impide que un
+ * POST a mano programe un recordatorio en el pasado, que se dispararía apenas
+ * el workflow arranque. `nota` acepta vacío: la fecha sola ya sirve.
+ */
+export const ProgramarRecordatorioSchema = z.object({
+  leadId: UUIDSchema,
+  sessionId: UUIDSchema,
+  recordarAt: z
+    .string()
+    .datetime({ offset: true })
+    .refine((iso) => new Date(iso).getTime() > Date.now(), {
+      message: "La fecha del recordatorio tiene que ser futura.",
+    })
+    .refine(
+      (iso) => new Date(iso).getTime() <= Date.now() + MAX_DIAS_RECORDATORIO * 24 * 60 * 60 * 1000,
+      { message: `El recordatorio no puede ir a más de ${MAX_DIAS_RECORDATORIO} días.` },
+    ),
+  nota: z.string().trim().max(MAX_LARGO_NOTA_RECORDATORIO),
+});
+export type ProgramarRecordatorioInput = z.infer<typeof ProgramarRecordatorioSchema>;
+
+/**
+ * El "Cancelar" del bloque de seguimiento del Twin. `leadId` viaja solo para
+ * revalidar la ruta de la conversación: el que identifica la fila es
+ * `recordatorioId`.
+ */
+export const CancelarRecordatorioSchema = z.object({
+  leadId: UUIDSchema,
+  recordatorioId: UUIDSchema,
+});
+export type CancelarRecordatorioInput = z.infer<typeof CancelarRecordatorioSchema>;

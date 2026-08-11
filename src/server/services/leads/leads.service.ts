@@ -14,15 +14,24 @@ export interface LeadsListInput {
   /** Etapa de la sesión abierta. Una sesión cerrada no tiene etapa vigente. */
   etapa?: CurrentStage;
   etiquetaId?: UUID;
+  /**
+   * Sin consumidor desde que la barra de filtros dejó de ofrecerlo: la UI ya no
+   * pregunta por sesión abierta. Se mantiene porque está testeado y porque el
+   * criterio "abierta o cerrada" no dejó de ser cierto, no porque alguien lo
+   * use — el único caller vivo es `parseFiltrosLeads`, que ya no lo produce.
+   */
   conSesionActiva?: boolean;
   /** Resultado de la última sesión cerrada del lead. */
   resultado?: Resultado;
   motivoPerdida?: MotivoPerdida;
+  /** Sin consumidor: misma historia que `conSesionActiva`. */
   actividad?: VentanaActividad;
   /** Conversaciones con entrantes posteriores a nuestra última respuesta. */
   sinResponder?: boolean;
   vehiculoMarca?: string;
   vehiculoModelo?: string;
+  /** Año exacto. `0` en la fila significa "sin año", no "año cero". */
+  vehiculoAnio?: number;
   /** Reloj contra el que se mide `actividad`. Inyectable para tests. */
   ahora?: Date;
 }
@@ -31,8 +40,8 @@ export interface LeadsService {
   /**
    * Página /leads: los leads que pasan los filtros (cap 1000; orden
    * `updated_at DESC` lo garantiza el repo) + count de pares duplicados
-   * pendientes + las opciones que pueblan los filtros (vehículos del resultado
-   * y catálogo de etiquetas).
+   * pendientes + las opciones que pueblan los filtros (vehículos y motivos de
+   * pérdida presentes en el resultado, y catálogo de etiquetas).
    *
    * Ningún filtro dispara una consulta por fila: lo que no puede resolver la
    * consulta de `leads` se cruza en memoria contra lecturas agrupadas

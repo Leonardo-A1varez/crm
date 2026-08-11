@@ -3,9 +3,13 @@ import {
   AgregarDatoLeadSchema,
   AsignarEtiquetaSchema,
   BorrarDatoExtraSchema,
+  CancelarRecordatorioSchema,
   CloseSessionSchema,
   CrearEtiquetaSchema,
+  MAX_DIAS_RECORDATORIO,
+  MAX_LARGO_NOTA_RECORDATORIO,
   MoverEtapaSchema,
+  ProgramarRecordatorioSchema,
   QuitarEtiquetaSchema,
   RenombrarLeadSchema,
   SendMessageSchema,
@@ -377,5 +381,86 @@ describe("BorrarDatoExtraSchema", () => {
       campo: "telefono",
     });
     expect(parsed).toEqual({ leadId: LEAD_ID, clave: "Patente" });
+  });
+});
+
+describe("ProgramarRecordatorioSchema", () => {
+  const DIA_MS = 24 * 60 * 60 * 1000;
+  const RECORDATORIO_ID = "33333333-3333-4333-8333-333333333333";
+
+  function enDias(dias: number): string {
+    return new Date(Date.now() + dias * DIA_MS).toISOString();
+  }
+
+  test("acepta el 'en 2 días' del pedido del dueño", () => {
+    const parsed = ProgramarRecordatorioSchema.parse({
+      leadId: LEAD_ID,
+      sessionId: SESSION_ID,
+      recordarAt: enDias(2),
+      nota: "  dijo que lo pensaba  ",
+    });
+    expect(parsed.nota).toBe("dijo que lo pensaba");
+  });
+
+  test("la nota vacía es válida: la fecha sola ya sirve", () => {
+    expect(() =>
+      ProgramarRecordatorioSchema.parse({
+        leadId: LEAD_ID,
+        sessionId: SESSION_ID,
+        recordarAt: enDias(2),
+        nota: "",
+      }),
+    ).not.toThrow();
+  });
+
+  test("rechaza una fecha pasada", () => {
+    // Un POST a mano con fecha vieja se dispararía apenas arranque el workflow.
+    const r = ProgramarRecordatorioSchema.safeParse({
+      leadId: LEAD_ID,
+      sessionId: SESSION_ID,
+      recordarAt: enDias(-1),
+      nota: "",
+    });
+    expect(r.success).toBe(false);
+  });
+
+  test("rechaza una fecha más allá del tope", () => {
+    const r = ProgramarRecordatorioSchema.safeParse({
+      leadId: LEAD_ID,
+      sessionId: SESSION_ID,
+      recordarAt: enDias(MAX_DIAS_RECORDATORIO + 1),
+      nota: "",
+    });
+    expect(r.success).toBe(false);
+  });
+
+  test("rechaza una fecha sin zona horaria", () => {
+    // Sin offset la interpretaría el server con la suya, que puede no ser la
+    // del vendedor: dos horas de diferencia en un recordatorio del día.
+    const r = ProgramarRecordatorioSchema.safeParse({
+      leadId: LEAD_ID,
+      sessionId: SESSION_ID,
+      recordarAt: "2026-12-01T10:00:00",
+      nota: "",
+    });
+    expect(r.success).toBe(false);
+  });
+
+  test("rechaza una nota más larga que el chip", () => {
+    const r = ProgramarRecordatorioSchema.safeParse({
+      leadId: LEAD_ID,
+      sessionId: SESSION_ID,
+      recordarAt: enDias(2),
+      nota: "x".repeat(MAX_LARGO_NOTA_RECORDATORIO + 1),
+    });
+    expect(r.success).toBe(false);
+  });
+
+  test("CancelarRecordatorioSchema exige los dos ids", () => {
+    expect(
+      CancelarRecordatorioSchema.safeParse({ leadId: LEAD_ID, recordatorioId: RECORDATORIO_ID })
+        .success,
+    ).toBe(true);
+    expect(CancelarRecordatorioSchema.safeParse({ leadId: LEAD_ID }).success).toBe(false);
   });
 });

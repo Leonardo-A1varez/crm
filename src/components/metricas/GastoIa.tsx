@@ -1,23 +1,12 @@
 import { Eyebrow } from "@/components/shared/Eyebrow";
 import { MonoMeta } from "@/components/shared/MonoMeta";
-import { formatearEntero, formatearTokens, formatearUsd } from "@/lib/ui/metricas";
-import { WORKFLOW_LLM } from "@/types/domain";
+import {
+  etiquetaWorkflow,
+  formatearEntero,
+  formatearTokens,
+  formatearUsd,
+} from "@/lib/ui/metricas";
 import type { GastoIa as GastoIaDatos } from "@/types/metricas";
-
-/**
- * Nombre en castellano de cada tipo de llamada al modelo. La columna de la base
- * guarda el identificador técnico —tiene que sobrevivir a renombres— y la
- * traducción vive acá. Un workflow que no esté en el mapa se muestra crudo en
- * vez de desaparecer: preferimos un nombre feo antes que gasto invisible.
- */
-const LABEL_WORKFLOW: Record<string, string> = {
-  [WORKFLOW_LLM.agente]: "Agente vendedor",
-  [WORKFLOW_LLM.agentePreview]: "Pruebas desde la consola",
-  [WORKFLOW_LLM.clasificador]: "Clasificador de intents",
-  [WORKFLOW_LLM.extractorTwin]: "Extractor del Twin",
-  [WORKFLOW_LLM.resumidor]: "Resumidor de conversación",
-  [WORKFLOW_LLM.detectorBatch]: "Detector de intents (semanal)",
-};
 
 function Cifra({ valor, label, color }: { valor: string; label: string; color?: string }) {
   return (
@@ -87,7 +76,7 @@ export function GastoIa({ gasto, dias }: { gasto: GastoIaDatos; dias: number }) 
             {gasto.porWorkflow.map((w) => (
               <li key={w.workflow} className="flex items-baseline gap-2">
                 <span className="text-ink-dim min-w-0 flex-1 truncate text-[11.5px]">
-                  {LABEL_WORKFLOW[w.workflow] ?? w.workflow}
+                  {etiquetaWorkflow(w.workflow)}
                 </span>
                 <MonoMeta className="shrink-0">{formatearEntero(w.llamadas)}</MonoMeta>
                 <span className="text-ink-secondary w-20 shrink-0 text-right font-mono text-[11.5px] tabular-nums">

@@ -36,6 +36,7 @@ import { InMemoryMergeCandidatesRepository } from "@/server/repositories/merge-c
 import { InMemoryMessagesRepository } from "@/server/repositories/messages.repo";
 import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
 import { InMemoryReactivationDispatchesRepository } from "@/server/repositories/reactivation-dispatches.repo";
+import { InMemorySessionRecordatoriosRepository } from "@/server/repositories/session-recordatorios.repo";
 import { InMemoryRulesRepository } from "@/server/repositories/rules.repo";
 import { InMemoryToolExecutionsRepository } from "@/server/repositories/tool-executions.repo";
 
@@ -115,6 +116,7 @@ export function makeSmokeBundle(): SmokeBundle {
   const rules = new InMemoryRulesRepository();
   const productos = new InMemoryProductsRepository();
   const reactivationDispatches = new InMemoryReactivationDispatchesRepository();
+  const recordatorios = new InMemorySessionRecordatoriosRepository();
   const mergeCandidates = new InMemoryMergeCandidatesRepository();
   const eventOutbox = new InMemoryEventOutboxRepository();
   const toolExecutions = new InMemoryToolExecutionsRepository();
@@ -182,6 +184,7 @@ export function makeSmokeBundle(): SmokeBundle {
       ruleExecutions: new InMemoryRuleExecutionsRepository(),
       turnClassifications: new InMemoryTurnClassificationsRepository(),
       intents,
+      recordatorios,
       configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
       emit,
       logger,
@@ -202,6 +205,7 @@ export function makeSmokeBundle(): SmokeBundle {
       dispatches: reactivationDispatches,
       sendReactivation,
     },
+    recordatorioSeguimiento: { recordatorios, logger },
     detectMergeCandidatesPerLead: { detector: mergeDetector, logger },
     detectMergeCandidatesGlobal: { leads, detector: mergeDetector, logger },
     dispatchOutboxEvents: { outbox: eventOutbox, inngestEmit, logger },

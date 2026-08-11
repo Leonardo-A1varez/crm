@@ -113,6 +113,7 @@ describe("onMessageReceivedHandler granular steps", () => {
       "upsert-conv",
       "resolve-session",
       "record-inbound",
+      "cancelar-recordatorios",
       "classify",
       "build-turn",
       "respond",
@@ -142,6 +143,7 @@ describe("onMessageReceivedHandler granular steps", () => {
       "upsert-conv",
       "resolve-session",
       "record-inbound",
+      "cancelar-recordatorios",
     ]);
   });
 
@@ -172,6 +174,7 @@ describe("onMessageReceivedHandler granular steps", () => {
       "upsert-conv",
       "resolve-session",
       "record-inbound",
+      "cancelar-recordatorios",
       "classify",
       "build-turn",
       "respond",

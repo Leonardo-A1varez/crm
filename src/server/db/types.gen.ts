@@ -875,6 +875,60 @@ export type Database = {
           },
         ]
       }
+      session_recordatorios: {
+        Row: {
+          avisado_at: string | null
+          cancelado_at: string | null
+          creado_por: string | null
+          created_at: string
+          estado: string
+          id: string
+          lead_session_id: string
+          motivo_cancelacion: string | null
+          nota: string
+          recordar_at: string
+        }
+        Insert: {
+          avisado_at?: string | null
+          cancelado_at?: string | null
+          creado_por?: string | null
+          created_at?: string
+          estado?: string
+          id?: string
+          lead_session_id: string
+          motivo_cancelacion?: string | null
+          nota?: string
+          recordar_at: string
+        }
+        Update: {
+          avisado_at?: string | null
+          cancelado_at?: string | null
+          creado_por?: string | null
+          created_at?: string
+          estado?: string
+          id?: string
+          lead_session_id?: string
+          motivo_cancelacion?: string | null
+          nota?: string
+          recordar_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "session_recordatorios_creado_por_fkey"
+            columns: ["creado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "session_recordatorios_lead_session_id_fkey"
+            columns: ["lead_session_id"]
+            isOneToOne: false
+            referencedRelation: "lead_session"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tags: {
         Row: {
           color: string

@@ -5,6 +5,7 @@ import { isNonRetriable } from "@/lib/errors";
 import { excedeDescuento } from "@/lib/agente/descuento";
 import { estaAbierto } from "@/lib/agente/horario";
 import { NoopLogger, type Logger } from "@/lib/observability/logger";
+import { claveSaliente } from "@/server/services/meta-api.service";
 import type { ParsedMessage } from "@/lib/meta/parse-webhook";
 import type { IntentClassification } from "@/lib/validation/ai";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
@@ -13,6 +14,10 @@ import type { LeadSessionRepository } from "@/server/repositories/lead-session.r
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { RuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
+import {
+  NoopSessionRecordatoriosRepository,
+  type SessionRecordatoriosRepository,
+} from "@/server/repositories/session-recordatorios.repo";
 import type { TurnClassificationsRepository } from "@/server/repositories/turn-classifications.repo";
 import type { AgentConfigProvider } from "@/server/services/agente/config-provider";
 import type { AiAgentService } from "@/server/services/ai-agent.service";
@@ -47,6 +52,12 @@ export interface OnMessageReceivedDeps {
   turnClassifications: TurnClassificationsRepository;
   /** Solo para resolver el intent clasificado a su id al auditar el turno. */
   intents: IntentsRepository;
+  /**
+   * Para apagar el seguimiento cuando el cliente vuelve solo. Opcional con
+   * default Noop —mismo criterio que `dispatches` en el cron de reactivación—
+   * para que los callers viejos sigan compilando; `bootstrap.ts` lo wirea.
+   */
+  recordatorios?: SessionRecordatoriosRepository;
   configProvider: AgentConfigProvider;
   emit: (event: EmittedEvent) => Promise<void>;
   logger?: Logger;
@@ -127,6 +138,22 @@ export async function onMessageReceivedHandler(
       }),
     );
 
+    // El cliente escribió: el seguimiento que alguien se puso sobre esta
+    // conversación deja de tener sentido. Un recordatorio es "se quedó
+    // callado", y este mensaje es la prueba de que no.
+    //
+    // Va acá arriba, pegado al entrante y antes de todas las salidas tempranas
+    // —duplicado, fuera de horario, descuento excedido—: un mensaje del cliente
+    // a las 3 de la mañana cancela igual, aunque el agente no lo conteste
+    // hasta que abra. Cancelar de más no rompe nada; no cancelar deja al
+    // vendedor persiguiendo a alguien que ya respondió.
+    const recordatorios = deps.recordatorios ?? new NoopSessionRecordatoriosRepository();
+    const cancelados = await step.run("cancelar-recordatorios", () =>
+      recordatorios.cancelarVivosDeSesion(session.id, "respondio"),
+    );
+    // Solo la cuenta: la nota del recordatorio puede tener datos del cliente.
+    if (cancelados > 0) logger.info("recordatorios-cancelados", { cantidad: cancelados });
+
     if (isDuplicate) {
       logger.info("pipeline-complete", { duplicate: true, sent: false });
       return {
@@ -157,7 +184,7 @@ export async function onMessageReceivedHandler(
             to: parsed.meta_user_id,
             contenido: config.plantilla_fuera_horario,
             sender: "ia",
-            idempotencyKey: `out:${parsed.meta_message_id}`,
+            idempotencyKey: claveSaliente(parsed.meta_message_id),
           }),
         );
         templateSent = true;
@@ -284,7 +311,7 @@ export async function onMessageReceivedHandler(
           to: parsed.meta_user_id,
           contenido: agentResult.respuesta_contenido,
           sender: "ia",
-          idempotencyKey: `out:${parsed.meta_message_id}`,
+          idempotencyKey: claveSaliente(parsed.meta_message_id),
         }),
       );
       sent = true;

@@ -20,6 +20,7 @@ import { DefaultRuleEngineService } from "@/server/services/rule-engine.service"
 import { DefaultTwinExtractorService } from "@/server/services/twin-extractor.service";
 import { StaticAgentConfigProvider } from "@/server/services/agente/config-provider";
 import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
+import { InMemorySessionRecordatoriosRepository } from "@/server/repositories/session-recordatorios.repo";
 import { makeCrmInngestFunctions } from "@/inngest/functions";
 import {
   FakeAgentLLM,
@@ -30,7 +31,7 @@ import {
 import { FakeMetaApiClient } from "../mocks/meta";
 
 describe("makeCrmInngestFunctions", () => {
-  test("produce 10 InngestFunction con IDs esperados", () => {
+  test("produce 11 InngestFunction con IDs esperados", () => {
     const leads = new InMemoryLeadsRepository();
     const conversations = new InMemoryConversationsRepository();
     const sessions = new InMemoryLeadSessionRepository();
@@ -80,12 +81,13 @@ describe("makeCrmInngestFunctions", () => {
       autoHandoff: { handoff },
       purgeOldSessions: { sessions, purgeSession: async () => {} },
       reactivationPredictor: { sessions, sendReactivation: async () => {} },
+      recordatorioSeguimiento: { recordatorios: new InMemorySessionRecordatoriosRepository() },
       detectMergeCandidatesPerLead: { detector: mergeDetector },
       detectMergeCandidatesGlobal: { leads, detector: mergeDetector },
       dispatchOutboxEvents: { outbox, inngestEmit: async () => {} },
     });
 
-    expect(fns).toHaveLength(10);
+    expect(fns).toHaveLength(11);
     const ids = fns.map((f) => f.id());
     expect(ids).toEqual(
       expect.arrayContaining([
@@ -99,6 +101,7 @@ describe("makeCrmInngestFunctions", () => {
         expect.stringContaining("detect-merge-candidates-per-lead"),
         expect.stringContaining("detect-merge-candidates-global"),
         expect.stringContaining("dispatch-outbox-events"),
+        expect.stringContaining("recordatorio-seguimiento"),
       ]),
     );
   });

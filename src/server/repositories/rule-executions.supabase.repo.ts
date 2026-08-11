@@ -49,4 +49,19 @@ export class SupabaseRuleExecutionsRepository implements RuleExecutionsRepositor
     if (error) throw mapPostgrestError(error, { resource: "rule_executions" });
     return (data ?? []).map((r) => mapRow(r as RuleExecutionRow));
   }
+
+  async findByMensajeId(mensajeId: UUID): Promise<RuleExecution | null> {
+    if (!isUuid(mensajeId)) return null;
+    // `limit(1)` y no `maybeSingle()`: sin UNIQUE sobre `mensaje_id`, dos filas
+    // de un replay viejo harían fallar el single en vez de contestar.
+    const { data, error } = await this.db
+      .from("rule_executions")
+      .select()
+      .eq("mensaje_id", mensajeId)
+      .order("created_at", { ascending: true })
+      .limit(1);
+    if (error) throw mapPostgrestError(error, { resource: "rule_executions" });
+    const fila = (data ?? [])[0];
+    return fila ? mapRow(fila as RuleExecutionRow) : null;
+  }
 }

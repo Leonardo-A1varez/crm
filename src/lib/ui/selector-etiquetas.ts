@@ -1,3 +1,4 @@
+import { normalizarBusqueda } from "@/lib/ui/selector-buscable";
 import type { Tag } from "@/types/entities";
 
 /**
@@ -5,13 +6,14 @@ import type { Tag } from "@/types/entities";
  * "Flota Municipal" y "flota municipal" son la misma etiqueta para quien la
  * escribe, y `tags.nombre` es UNIQUE — ofrecer crear la segunda terminaría en
  * un error de duplicado que el vendedor no puede entender.
+ *
+ * Es la misma normalización que usa el buscador de las mini-pantallas de
+ * filtro, y por eso delega en vez de tener su copia: dos copias que derivan
+ * harían que el selector encontrara una etiqueta que el chequeo de duplicados
+ * considera nueva.
  */
 export function normalizarEtiqueta(texto: string): string {
-  return texto
-    .trim()
-    .toLocaleLowerCase("es")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
+  return normalizarBusqueda(texto);
 }
 
 export interface OpcionesSelector {

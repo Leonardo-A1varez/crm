@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bolt, PanTool, ReceiptLong, Warning } from "@/components/icons";
+import { Bolt, PanTool, ReceiptLong, Schedule, Warning } from "@/components/icons";
 import { CanalesFila } from "@/components/inbox/ChannelIcons";
 import { ChannelDot } from "@/components/shared/ChannelDot";
 import { InitialsAvatar } from "@/components/shared/InitialsAvatar";
@@ -44,6 +44,11 @@ const CHIP_MOTIVO: Record<
   humano: { Icon: PanTool, clase: "text-special bg-special/10 border-special/26" },
   bloqueo: { Icon: Warning, clase: "text-warn bg-warn/10 border-warn/26" },
   pago: { Icon: ReceiptLong, clase: "text-caution bg-caution/10 border-caution/26" },
+  // El único de los cuatro que no lo pide el cliente sino que nos lo pusimos
+  // nosotros: reloj en vez de una señal de alarma, y el azul —el único de la
+  // paleta que ningún otro chip usa— en vez de otro tono de alerta. Tiene que
+  // verse y distinguirse, no gritar.
+  seguimiento: { Icon: Schedule, clase: "text-info bg-info/10 border-info/26" },
 };
 
 function previewTexto(item: InboxItem): string {

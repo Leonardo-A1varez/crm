@@ -1,4 +1,4 @@
-import type { ConversationView, InboxItem } from "@/types/inbox";
+import type { AuditoriaTurno, ConversationView, InboxItem } from "@/types/inbox";
 import type {
   CampoTwinEditable,
   Canal,
@@ -7,7 +7,7 @@ import type {
   Resultado,
 } from "@/types/domain";
 import type { CampoContactoLead } from "@/lib/validation/inbox.schema";
-import type { Lead, LeadSession, Mensaje, Tag, UUID } from "@/types/entities";
+import type { Lead, LeadSession, Mensaje, SessionRecordatorio, Tag, UUID } from "@/types/entities";
 
 export type { ConversationView, InboxItem };
 
@@ -91,6 +91,33 @@ export interface CrearEtiquetaServiceInput {
   userId: UUID | null;
 }
 
+export interface ProgramarRecordatorioServiceInput {
+  sessionId: UUID;
+  /** Cuándo hay que volver. La validación de que es futuro vive en el schema. */
+  recordarAt: Date;
+  /** Puede venir vacía: la fecha sola ya es un recordatorio útil. */
+  nota: string;
+  userId: UUID | null;
+}
+
+export interface CancelarRecordatorioServiceInput {
+  recordatorioId: UUID;
+}
+
+/**
+ * Arranca el workflow durable que duerme hasta la fecha.
+ *
+ * Es una función inyectada y no una llamada directa a Inngest porque los
+ * services no pueden importar `src/inngest/**` (boundaries), y porque así el
+ * test del service comprueba *qué* se programó sin levantar un cliente. La
+ * implementación real la arma `server/bootstrap/inbox-bootstrap.ts`.
+ */
+export type ProgramarAvisoRecordatorioFn = (input: {
+  recordatorioId: UUID;
+  leadSessionId: UUID;
+  recordarAt: Date;
+}) => Promise<void>;
+
 export interface InboxService {
   /**
    * Lista leads con sesión activa (resultado IS NULL), ordenados por última
@@ -113,6 +140,21 @@ export interface InboxService {
    * Lanza NotFoundError cuando el lead no existe.
    */
   getConversation(leadId: UUID): Promise<ConversationView>;
+
+  /**
+   * Por qué el agente contestó ese mensaje saliente: regla o LLM, con qué
+   * intent, qué herramientas llamó y qué costó.
+   *
+   * Se pide de a un turno y bajo demanda, no junto a `getConversation`: un hilo
+   * de 200 mensajes son hasta 100 turnos, y traer la auditoría de todos para
+   * que alguien mire uno serían cientos de filas de cuatro tablas por cada vez
+   * que se abre una conversación.
+   *
+   * Nunca lanza por falta de datos. Un turno del que no hay registro devuelve
+   * `sin_registro`, igual que hace el gasto del Twin: la respuesta honesta es
+   * que no se midió, no un turno inventado.
+   */
+  getAuditoriaTurno(mensajeId: UUID): Promise<AuditoriaTurno>;
 
   /**
    * Envío manual del vendedor. Valida sesión activa + pertenencia al lead,
@@ -209,4 +251,25 @@ export interface InboxService {
    * ConflictError si ya hay una etiqueta con ese nombre (`tags.nombre` UNIQUE).
    */
   crearYAsignarEtiqueta(input: CrearEtiquetaServiceInput): Promise<Tag>;
+
+  /**
+   * Programa el "volver a contactar en 2 días" sobre la sesión y arranca el
+   * workflow que duerme hasta esa fecha.
+   *
+   * Uno vivo por sesión: si ya hay uno, `ConflictError`. Cambiar la fecha es
+   * cancelar y programar de nuevo, para que el chip del Inbox no tenga que
+   * elegir entre dos citas.
+   *
+   * `ConflictError` también si la sesión está cerrada: una cita sobre una
+   * conversación que terminó no la va a ver nadie —el lead sale del Inbox— y a
+   * los 29 días la purga se la lleva.
+   */
+  programarRecordatorio(input: ProgramarRecordatorioServiceInput): Promise<SessionRecordatorio>;
+
+  /**
+   * Apaga el recordatorio desde el Twin. Cancelar uno que ya no estaba vivo es
+   * no-op y no error: pudo apagarlo otra pestaña, o el cliente pudo contestar
+   * entre que se pintó la ficha y se hizo click.
+   */
+  cancelarRecordatorio(input: CancelarRecordatorioServiceInput): Promise<void>;
 }

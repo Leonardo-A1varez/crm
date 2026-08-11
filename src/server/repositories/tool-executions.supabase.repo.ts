@@ -59,6 +59,21 @@ export class SupabaseToolExecutionsRepository implements ToolExecutionsRepositor
     if (error) throw mapPostgrestError(error, { resource: "tool_execution" });
     return (data ?? []).map(mapRow);
   }
+
+  async listBySessionEntre(sessionId: UUID, desde: Date, hasta: Date): Promise<ToolExecution[]> {
+    if (!isUuid(sessionId)) return [];
+    // Usa el índice `idx_tool_executions_session_created`, que ya es
+    // (lead_session_id, created_at desc).
+    const { data, error } = await this.db
+      .from("tool_executions")
+      .select()
+      .eq("lead_session_id", sessionId)
+      .gte("created_at", desde.toISOString())
+      .lte("created_at", hasta.toISOString())
+      .order("created_at", { ascending: true });
+    if (error) throw mapPostgrestError(error, { resource: "tool_execution" });
+    return (data ?? []).map(mapRow);
+  }
 }
 
 interface ToolExecutionRow {

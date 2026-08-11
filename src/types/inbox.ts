@@ -1,5 +1,13 @@
 import type { Canal, CurrentStage, Direction, MotivoAtencion, Urgencia } from "./domain";
-import type { Lead, LeadSession, Mensaje, Producto, Tag, UUID } from "./entities";
+import type {
+  Lead,
+  LeadSession,
+  Mensaje,
+  Producto,
+  SessionRecordatorio,
+  Tag,
+  UUID,
+} from "./entities";
 
 /**
  * Item de inbox: lead con sesión activa + último mensaje + canales vinculados.
@@ -40,6 +48,13 @@ export interface InboxItem {
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
 /**
+ * La mitad fallida de cualquier resultado de action. Nombrada porque el mapeo
+ * de errores es común a todas y sus resultados ya no son todos `ActionResult`:
+ * la auditoría por turno devuelve datos en el caso feliz.
+ */
+export type ActionError = Extract<ActionResult, { ok: false }>;
+
+/**
  * Vista completa de conversación por lead (Slice 2 8.2). Producida por
  * `InboxService.getConversation`. `session` null cuando no hay sesión activa
  * (URL stale post-cierre); en ese caso `messages` vacío.
@@ -76,6 +91,11 @@ export interface ConversationView {
    * su estado vacío igual.
    */
   gastoIa: GastoSesion | null;
+  /**
+   * El seguimiento vivo de esta conversación, si hay uno. `null` = no hay
+   * ninguno y el Twin ofrece programarlo.
+   */
+  recordatorio: SessionRecordatorio | null;
 }
 
 /**
@@ -95,6 +115,90 @@ export type GastoSesion =
   | { estado: "sin_gasto" }
   /** Sin filas y la sesión es anterior al registro: no hay dato, no hay cero. */
   | { estado: "sin_registro" };
+
+/** Una llamada al modelo dentro de un turno, tal como quedó en `llm_usage`. */
+export interface LlamadaModelo {
+  /** Valor crudo de `llm_usage.workflow`; la UI lo traduce. */
+  workflow: string;
+  modelo: string;
+  inputTokens: number;
+  outputTokens: number;
+  usd: number;
+}
+
+/**
+ * Lo que costó el turno. Misma forma que `GastoSesion` y por la misma razón:
+ * cero llamadas no es cero dólares, es ninguna medición.
+ *
+ * Acá la frontera no hace falta preguntarla: el clasificador de intents corre
+ * en **todos** los turnos, antes de que las reglas puedan cortar el camino. Un
+ * turno que el pipeline midió tiene por construcción al menos una fila; sin
+ * ninguna, lo único que se sabe es que no se midió.
+ */
+export type GastoTurno =
+  | { estado: "medido"; usd: number; llamadas: LlamadaModelo[] }
+  | { estado: "sin_registro" };
+
+/** Una llamada a herramienta del agente dentro del turno (`tool_executions`). */
+export interface HerramientaDelTurno {
+  nombre: string;
+  /** Mensaje de error si la herramienta falló; `null` si devolvió bien. */
+  error: string | null;
+  duracionMs: number | null;
+}
+
+/**
+ * Quién resolvió el turno. Las dos primeras variantes son las dos mitades que
+ * escribe el pipeline: `rule_executions` cuando una regla IF/THEN cubrió el
+ * intent, `turn_classifications` cuando no la hubo y contestó el modelo.
+ */
+export type DecisionTurno =
+  /** `nombre` identifica la regla por su respuesta: el schema no le da nombre propio. */
+  | { tipo: "regla"; nombre: string; intent: string | null }
+  /** `intent` en `null` = el clasificador no reconoció ningún intent activo. */
+  | { tipo: "llm"; intent: string | null; confianza: number }
+  /** Ninguna de las dos tablas tiene fila para este turno. */
+  | { tipo: "sin_registro" };
+
+/**
+ * Por qué el agente contestó lo que contestó, para **un** mensaje saliente.
+ *
+ * Se pide de a un turno y solo cuando alguien lo despliega: traer esto para los
+ * 200 mensajes del hilo serían cientos de filas de cuatro tablas para responder
+ * una pregunta que se hace sobre una sola burbuja.
+ *
+ * `sin_registro` no es un error ni un cero. Es lo mismo que hace el gasto del
+ * Twin: si el turno es anterior a que la auditoría existiera, o si el saliente
+ * no salió del pipeline, se dice que no se midió en vez de dibujar un turno que
+ * nadie registró.
+ */
+export type AuditoriaTurno =
+  | {
+      estado: "sin_registro";
+      /**
+       * `sin_ancla`: el saliente no se puede atar a un mensaje entrante (lo
+       * escribió una persona, o es anterior a la clave `out:<id>`).
+       * `sin_medicion`: el turno se encontró pero ninguna de las cuatro tablas
+       * tiene una fila suya.
+       */
+      motivo: "sin_ancla" | "sin_medicion";
+    }
+  | {
+      estado: "medido";
+      decision: DecisionTurno;
+      herramientas: HerramientaDelTurno[];
+      gasto: GastoTurno;
+      /** Hora del mensaje entrante que abrió el turno. */
+      turnoAt: Date;
+    };
+
+/**
+ * Resultado de la Server Action que lee la auditoría. No usa `ActionResult`
+ * porque esta acción no escribe nada: lo que devuelve es el dato pedido.
+ */
+export type ResultadoAuditoria =
+  | { ok: true; auditoria: AuditoriaTurno }
+  | { ok: false; error: string };
 
 /**
  * Historial del lead reducido a lo que el Twin muestra. No incluye la sesión

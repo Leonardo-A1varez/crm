@@ -10,6 +10,8 @@ import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
 import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultInboxService } from "@/server/services/inbox/default-inbox.service";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
+import { reposAuditoria } from "../mocks/inbox-auditoria";
+import { depsRecordatorios } from "../mocks/inbox-recordatorios";
 import type { LeadSession } from "@/types/entities";
 
 const USER = "11111111-1111-4111-8111-111111111111";
@@ -38,6 +40,8 @@ describe("editarCampoTwin", () => {
       productos: new InMemoryProductsRepository(),
       tags: new InMemoryTagsRepository(),
       llmUsage: new InMemoryLlmUsageRepository(),
+      ...reposAuditoria(),
+      ...depsRecordatorios(),
     });
 
     const lead = await leads.create({

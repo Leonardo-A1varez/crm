@@ -3,11 +3,27 @@ import type { CurrentStage, MotivoAtencion } from "@/types/domain";
 
 export type { MotivoAtencion };
 
+/**
+ * El recordatorio de seguimiento de la sesión, ya vencido, reducido a lo que el
+ * triage necesita. `null` = no hay ninguno esperando.
+ */
+export interface RecordatorioVencido {
+  /** Lo que escribió el vendedor al programarlo. Vacío es un caso legítimo. */
+  nota: string;
+}
+
 export interface EntradaTriage {
   stage: CurrentStage;
   iaPausada: boolean;
   bloqueador: string | null;
   comprobantePagoUrl: string | null;
+  /**
+   * Único campo que no sale de la fila de `lead_session`. Sigue sin obligar a
+   * leer el hilo: son los recordatorios vencidos, que se traen todos de una
+   * sola query, así que contar cuántas conversaciones requieren atención sigue
+   * costando dos consultas y no una por lead.
+   */
+  recordatorio?: RecordatorioVencido | null;
 }
 
 export interface Triage {
@@ -43,16 +59,32 @@ function bloqueadorActivo(bloqueador: string | null): bloqueador is string {
 }
 
 /**
+ * Lo que se lee en el chip cuando el motivo es un seguimiento. La nota del
+ * vendedor es lo primero porque es lo que le devuelve el contexto ("dijo que lo
+ * pensaba, tiene el precio"); sin nota queda el enunciado pelado, que igual
+ * dice lo único que hace falta: hay que volver a escribirle.
+ */
+function textoSeguimiento(r: RecordatorioVencido): string {
+  const nota = r.nota.trim();
+  return nota === "" ? "Toca volver a contactarlo" : `Seguimiento: ${nota}`;
+}
+
+/**
  * Triage de una conversación: si requiere a una persona y por qué.
  *
  * El orden de las reglas es el del handoff (`requiere_humano` → bloqueador →
- * `esperando_pago` sin comprobante → resto) y no es cosmético: la primera que
- * matchea define el motivo, y el motivo define tanto el chip de la fila como
- * la posición en la lista.
+ * `esperando_pago` sin comprobante → seguimiento vencido → resto) y no es
+ * cosmético: la primera que matchea define el motivo, y el motivo define tanto
+ * el chip de la fila como la posición en la lista.
  *
- * Depende solo de campos de la sesión — nada del hilo — para que contar
- * cuántas conversaciones requieren atención (el badge del SideNav) no obligue
- * a leer los mensajes de todas.
+ * El seguimiento va último de los cuatro porque es el único que no lo pide el
+ * cliente: los tres de arriba son alguien esperando del otro lado, y este es
+ * una cita que nos pusimos nosotros. Una conversación con las dos cosas se
+ * muestra por la del cliente, que es la que no puede esperar.
+ *
+ * Depende solo de campos de la sesión y del recordatorio vencido —nada del
+ * hilo— para que contar cuántas conversaciones requieren atención (el badge del
+ * SideNav) no obligue a leer los mensajes de todas.
  */
 export function triage(e: EntradaTriage): Triage {
   if (e.stage === "requiere_humano") {
@@ -69,6 +101,9 @@ export function triage(e: EntradaTriage): Triage {
   }
   if (e.stage === "esperando_pago" && e.comprobantePagoUrl === null) {
     return { motivo: { tipo: "pago", texto: "Pago sin comprobante" } };
+  }
+  if (e.recordatorio) {
+    return { motivo: { tipo: "seguimiento", texto: textoSeguimiento(e.recordatorio) } };
   }
   return { motivo: null };
 }

@@ -4,6 +4,33 @@ import type { ParsedMessage } from "@/lib/meta/parse-webhook";
 import type { Canal, Sender } from "@/types/domain";
 import type { Mensaje, UUID } from "@/types/entities";
 
+/**
+ * Prefijo de `mensajes.idempotency_key` en los salientes que produce el
+ * pipeline. La clave completa es `out:<meta_message_id del entrante>`.
+ *
+ * Nació como dedup de reintentos y es, además, el **único** vínculo persistido
+ * entre una respuesta y el mensaje que la disparó: no hay columna que ate el
+ * saliente al entrante. La auditoría por turno lo lee al revés para encontrar
+ * el turno de una burbuja. Cambiar el formato rompe las dos cosas.
+ */
+const PREFIJO_SALIENTE = "out:";
+
+/** Clave de idempotencia del saliente que responde a un entrante de Meta. */
+export function claveSaliente(metaMessageIdEntrante: string): string {
+  return `${PREFIJO_SALIENTE}${metaMessageIdEntrante}`;
+}
+
+/**
+ * El `meta_message_id` del entrante que originó un saliente, leído de su clave
+ * de idempotencia. `null` cuando el saliente no lo tiene: lo escribió una
+ * persona desde el composer, o es anterior a la convención.
+ */
+export function entranteDeClave(idempotencyKey: string | null): string | null {
+  if (idempotencyKey === null || !idempotencyKey.startsWith(PREFIJO_SALIENTE)) return null;
+  const id = idempotencyKey.slice(PREFIJO_SALIENTE.length);
+  return id.length > 0 ? id : null;
+}
+
 export interface MetaSendTextInput {
   canal: Canal;
   to: string;

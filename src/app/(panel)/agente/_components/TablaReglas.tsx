@@ -2,6 +2,7 @@
 
 import { ToggleActivo } from "@/components/reglas/ToggleActivo";
 import { MonoMeta } from "@/components/shared/MonoMeta";
+import { nombreDeRegla } from "@/lib/ui/regla";
 import { cn } from "@/lib/utils";
 import type { ReglaConIntent } from "@/server/services/reglas/reglas-admin.service";
 import type { ActionResult } from "@/types/inbox";
@@ -15,12 +16,6 @@ export const TIPO_LABEL: Record<string, string> = {
 
 /** Grid del handoff §4.1: Regla / Usos por semana / Ahorro / On. */
 const GRID = "grid grid-cols-[1.6fr_.7fr_.7fr_44px] items-center gap-2";
-
-/** La regla no tiene nombre propio en el schema: la identifica su respuesta. */
-function nombreDeRegla(contenido: string): string {
-  const primera = contenido.split("\n")[0]?.trim() ?? "";
-  return primera.length > 0 ? primera : "(sin contenido)";
-}
 
 export function TablaReglas({
   filas,

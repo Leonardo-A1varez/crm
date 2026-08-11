@@ -1,4 +1,24 @@
+import { WORKFLOW_LLM } from "@/types/domain";
 import type { Comparado } from "@/types/metricas";
+
+/**
+ * Nombre en castellano de cada tipo de llamada al modelo. La columna de la base
+ * guarda el identificador técnico —tiene que sobrevivir a renombres— y la
+ * traducción vive acá. Un workflow que no esté en el mapa se muestra crudo en
+ * vez de desaparecer: preferimos un nombre feo antes que gasto invisible.
+ */
+const LABEL_WORKFLOW: Record<string, string> = {
+  [WORKFLOW_LLM.agente]: "Agente vendedor",
+  [WORKFLOW_LLM.agentePreview]: "Pruebas desde la consola",
+  [WORKFLOW_LLM.clasificador]: "Clasificador de intents",
+  [WORKFLOW_LLM.extractorTwin]: "Extractor del Twin",
+  [WORKFLOW_LLM.resumidor]: "Resumidor de conversación",
+  [WORKFLOW_LLM.detectorBatch]: "Detector de intents (semanal)",
+};
+
+export function etiquetaWorkflow(workflow: string): string {
+  return LABEL_WORKFLOW[workflow] ?? workflow;
+}
 
 const ENTERO = new Intl.NumberFormat("es-AR");
 const DECIMAL = new Intl.NumberFormat("es-AR", {

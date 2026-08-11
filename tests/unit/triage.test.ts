@@ -74,17 +74,47 @@ describe("triage", () => {
     const r = triage(entrada({ stage: "esperando_pago", bloqueador: "no llega la transferencia" }));
     expect(r.motivo?.tipo).toBe("bloqueo");
   });
+
+  test("un recordatorio vencido pone la conversación en seguimiento", () => {
+    const r = triage(entrada({ recordatorio: { nota: "dijo que lo pensaba" } }));
+    expect(r.motivo).toEqual({ tipo: "seguimiento", texto: "Seguimiento: dijo que lo pensaba" });
+  });
+
+  test("sin nota el seguimiento igual dice qué hay que hacer", () => {
+    // La nota es opcional: la fecha sola ya es un recordatorio útil, y el chip
+    // no puede quedar en "Seguimiento: " colgando.
+    const r = triage(entrada({ recordatorio: { nota: "   " } }));
+    expect(r.motivo).toEqual({ tipo: "seguimiento", texto: "Toca volver a contactarlo" });
+  });
+
+  test("sin recordatorio vencido no hay motivo de seguimiento", () => {
+    expect(triage(entrada({ recordatorio: null })).motivo).toBeNull();
+  });
+
+  test("lo que espera el cliente gana sobre la cita que nos pusimos nosotros", () => {
+    // Los tres motivos de arriba son alguien esperando del otro lado; el
+    // seguimiento es una nota nuestra y puede esperar un rato más.
+    for (const over of [
+      { stage: "requiere_humano" } as const,
+      { bloqueador: "sin factura" },
+      { stage: "esperando_pago" } as const,
+    ]) {
+      const r = triage(entrada({ ...over, recordatorio: { nota: "volver" } }));
+      expect(r.motivo?.tipo).not.toBe("seguimiento");
+    }
+  });
 });
 
 describe("pesoMotivo", () => {
-  test("respeta el orden del handoff: humano, bloqueo, pago y al final sin motivo", () => {
+  test("respeta el orden: humano, bloqueo, pago, seguimiento y al final sin motivo", () => {
     const pesos = [
       pesoMotivo({ tipo: "humano", texto: "" }),
       pesoMotivo({ tipo: "bloqueo", texto: "" }),
       pesoMotivo({ tipo: "pago", texto: "" }),
+      pesoMotivo({ tipo: "seguimiento", texto: "" }),
       pesoMotivo(null),
     ];
     expect(pesos).toEqual([...pesos].sort((a, b) => a - b));
-    expect(new Set(pesos).size).toBe(4);
+    expect(new Set(pesos).size).toBe(5);
   });
 });
