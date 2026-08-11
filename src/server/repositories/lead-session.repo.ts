@@ -88,6 +88,18 @@ export interface LeadSessionRepository {
   listActive(): Promise<LeadSession[]>;
   // Todas las sesiones del lead (activa + cerradas), started_at DESC. Detalle /leads/[id].
   listByLeadId(leadId: UUID): Promise<LeadSession[]>;
+  /**
+   * Varias sesiones por id, de una sola consulta.
+   *
+   * Existe para el buscador del Inbox: la búsqueda dentro de los mensajes
+   * devuelve `lead_session_id` y hay que llegar al lead. Resolverlo con
+   * `findById` por mensaje sería un N+1 sobre el resultado de la búsqueda, que
+   * es justo la lista que puede tener cientos de filas.
+   *
+   * Ids inexistentes o no-UUID no aparecen en el resultado: no es un error, la
+   * purga de 29 días pudo llevarse la sesión entre dos consultas.
+   */
+  listByIds(ids: UUID[]): Promise<LeadSession[]>;
   update(id: UUID, patch: LeadSessionUpdate): Promise<LeadSession>;
   close(id: UUID, input: CloseInput): Promise<LeadSession>;
   /**
@@ -242,6 +254,15 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
   async listByLeadId(leadId: UUID): Promise<LeadSession[]> {
     return Array.from(this.store.values())
       .filter((s) => s.lead_id === leadId)
+      .sort((a, b) => b.started_at.getTime() - a.started_at.getTime())
+      .map(cloneSession);
+  }
+
+  async listByIds(ids: UUID[]): Promise<LeadSession[]> {
+    if (ids.length === 0) return [];
+    const buscados = new Set(ids);
+    return Array.from(this.store.values())
+      .filter((s) => buscados.has(s.id))
       .sort((a, b) => b.started_at.getTime() - a.started_at.getTime())
       .map(cloneSession);
   }

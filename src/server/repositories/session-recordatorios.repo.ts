@@ -33,8 +33,30 @@ export interface SessionRecordatoriosRepository {
    * `pendiente` → `avisado`. Devuelve `null` si la fila no existe o ya no
    * estaba pendiente (cancelada, o un replay del workflow): es la guarda que
    * hace idempotente al despertar del `sleepUntil`.
+   *
+   * `esperadoRecordarAt` es la segunda guarda, la que sostiene el reprogramar:
+   * el workflow que se durmió con la fecha vieja se despierta igual, encuentra
+   * la fila **todavía pendiente** con otra fecha y no tiene que avisar. La
+   * comparación es exacta contra la fecha que traía el evento, así no depende
+   * de relojes ni de tolerancias.
    */
-  marcarAvisado(id: UUID, at?: Date): Promise<SessionRecordatorio | null>;
+  marcarAvisado(
+    id: UUID,
+    opts?: { at?: Date; esperadoRecordarAt?: Date },
+  ): Promise<SessionRecordatorio | null>;
+
+  /**
+   * Le cambia la fecha a un recordatorio vivo sin cancelarlo ni crear otro.
+   * Devuelve `null` si la fila no existe o ya no está viva.
+   *
+   * Un `avisado` vuelve a `pendiente` y pierde `avisado_at`: posponer el que ya
+   * sonó es el caso más común de reprogramar —"hoy no llegué, mañana"— y
+   * partirlo en cancelar + crear rompería el índice único en el medio y dejaría
+   * dos filas donde el producto dice que hay una cita. Se pierde el sello del
+   * aviso anterior; lo que se quería medir —cuántos seguimientos se apagaron
+   * porque el cliente volvió— vive en `motivo_cancelacion` y no se toca.
+   */
+  reprogramar(id: UUID, recordarAt: Date): Promise<SessionRecordatorio | null>;
 
   /**
    * Apaga el recordatorio. Devuelve `null` si no existe o ya estaba cancelado
@@ -89,7 +111,13 @@ export class NoopSessionRecordatoriosRepository implements SessionRecordatoriosR
   async listPorAvisar(_now: Date): Promise<SessionRecordatorio[]> {
     return [];
   }
-  async marcarAvisado(_id: UUID, _at?: Date): Promise<SessionRecordatorio | null> {
+  async marcarAvisado(
+    _id: UUID,
+    _opts?: { at?: Date; esperadoRecordarAt?: Date },
+  ): Promise<SessionRecordatorio | null> {
+    return null;
+  }
+  async reprogramar(_id: UUID, _recordarAt: Date): Promise<SessionRecordatorio | null> {
     return null;
   }
   async cancelar(
@@ -154,11 +182,28 @@ export class InMemorySessionRecordatoriosRepository implements SessionRecordator
       .map((r) => ({ ...r }));
   }
 
-  async marcarAvisado(id: UUID, at: Date = new Date()): Promise<SessionRecordatorio | null> {
+  async marcarAvisado(
+    id: UUID,
+    opts: { at?: Date; esperadoRecordarAt?: Date } = {},
+  ): Promise<SessionRecordatorio | null> {
     const r = this.store.get(id);
     if (!r || r.estado !== "pendiente") return null;
+    // La fila se reprogramó mientras este workflow dormía: el que tiene que
+    // avisar es el otro, el que arrancó con la fecha nueva.
+    if (opts.esperadoRecordarAt && r.recordar_at.getTime() !== opts.esperadoRecordarAt.getTime()) {
+      return null;
+    }
     r.estado = "avisado";
-    r.avisado_at = at;
+    r.avisado_at = opts.at ?? new Date();
+    return { ...r };
+  }
+
+  async reprogramar(id: UUID, recordarAt: Date): Promise<SessionRecordatorio | null> {
+    const r = this.store.get(id);
+    if (!r || !esVivo(r)) return null;
+    r.recordar_at = recordarAt;
+    r.estado = "pendiente";
+    r.avisado_at = null;
     return { ...r };
   }
 

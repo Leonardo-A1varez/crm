@@ -118,6 +118,61 @@ describe("SupabaseSessionRecordatoriosRepository (integration)", () => {
     expect(await repo.cancelarVivosDeSesion("nope", "manual")).toBe(0);
   });
 
+  describe("reprogramar", () => {
+    const EN_UNA_SEMANA = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    test("mueve la fecha sin romper el índice único: sigue habiendo una sola cita", async () => {
+      const r = await programar(sesionA);
+      const movido = await repo.reprogramar(r.id, EN_UNA_SEMANA);
+
+      expect(movido?.id).toBe(r.id);
+      expect(movido?.recordar_at.getTime()).toBe(EN_UNA_SEMANA.getTime());
+      expect((await repo.findVivoBySessionId(sesionA))?.id).toBe(r.id);
+    });
+
+    test("posponer uno avisado pasa el CHECK de coherencia de estado", async () => {
+      // `avisado` → `pendiente` obliga a limpiar `avisado_at`: el constraint
+      // `session_recordatorios_estado_coherente` rechaza la fila si sobrevive,
+      // y eso solo se comprueba contra Postgres.
+      const r = await programar(sesionA, HACE_UN_DIA);
+      await repo.marcarAvisado(r.id);
+
+      const movido = await repo.reprogramar(r.id, EN_UNA_SEMANA);
+
+      expect(movido?.estado).toBe("pendiente");
+      expect(movido?.avisado_at).toBeNull();
+    });
+
+    test("uno cancelado no se reprograma: el WHERE lo deja afuera", async () => {
+      const r = await programar(sesionA);
+      await repo.cancelar(r.id, "respondio");
+      expect(await repo.reprogramar(r.id, EN_UNA_SEMANA)).toBeNull();
+    });
+
+    test("un id que no existe devuelve null y no revienta", async () => {
+      expect(await repo.reprogramar(crypto.randomUUID(), EN_UNA_SEMANA)).toBeNull();
+    });
+  });
+
+  describe("marcarAvisado con la fecha esperada", () => {
+    test("avisa cuando la fila conserva la fecha con la que arrancó el workflow", async () => {
+      const r = await programar(sesionA, HACE_UN_DIA);
+      expect(await repo.marcarAvisado(r.id, { esperadoRecordarAt: HACE_UN_DIA })).not.toBeNull();
+    });
+
+    test("no avisa si la reprogramaron: el filtro de fecha va en el WHERE", async () => {
+      // La guarda que impide que el workflow viejo dispare a la hora vieja. Va
+      // en el UPDATE y no en un `if` de JavaScript, así que hay que verla
+      // funcionando contra Postgres con la precisión real de `timestamptz`.
+      const r = await programar(sesionA, HACE_UN_DIA);
+      const otraFecha = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+      await repo.reprogramar(r.id, otraFecha);
+
+      expect(await repo.marcarAvisado(r.id, { esperadoRecordarAt: HACE_UN_DIA })).toBeNull();
+      expect((await repo.findById(r.id))?.estado).toBe("pendiente");
+    });
+  });
+
   test("el recordatorio se va con la sesión (CASCADE)", async () => {
     // El cron de purga borra las sesiones cerradas a los 29 días; la cita de
     // seguimiento no puede quedar huérfana apuntando a una conversación que ya

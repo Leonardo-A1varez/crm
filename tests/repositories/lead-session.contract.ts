@@ -285,6 +285,23 @@ export function runLeadSessionContract(
       expect(await repo.listByLeadId(leadA)).toEqual([]);
     });
 
+    test("listByIds trae varias sesiones de una y descarta las que no existen", async () => {
+      const s1 = await repo.create(baseInsert(fixtures.leadIds.A));
+      await new Promise((r) => setTimeout(r, 5));
+      const s2 = await repo.create(baseInsert(fixtures.leadIds.X));
+      await repo.create(baseInsert(fixtures.leadIds.Y)); // no se pide
+
+      const r = await repo.listByIds([s2.id, s1.id, crypto.randomUUID()]);
+      expect(r.map((s) => s.id)).toEqual([s2.id, s1.id]);
+      // Lo que importa del resultado: llegar al lead sin una consulta por sesión.
+      expect(r.map((s) => s.lead_id)).toEqual([fixtures.leadIds.X, fixtures.leadIds.A]);
+    });
+
+    test("listByIds sin ids no consulta y devuelve vacío", async () => {
+      await repo.create(baseInsert(fixtures.leadIds.A));
+      expect(await repo.listByIds([])).toEqual([]);
+    });
+
     test("reassignLead mueve todas las sesiones y devuelve count", async () => {
       const leadA = fixtures.leadIds.A;
       const leadB = fixtures.leadIds.X;

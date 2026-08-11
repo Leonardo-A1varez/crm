@@ -262,5 +262,61 @@ export function runMessagesContract(
       await repo.create(baseInsert(fixtures));
       expect(await repo.listBySessionIds([])).toEqual([]);
     });
+
+    test("buscarContenido encuentra por subcadena, ignora mayúsculas y trae la sesión", async () => {
+      const m = await repo.create(
+        baseInsert(fixtures, { meta_message_id: "buscar_1", contenido: "Pastillas de FRENO" }),
+      );
+      await repo.create(
+        baseInsert(fixtures, { meta_message_id: "buscar_2", contenido: "Filtro de aceite" }),
+      );
+
+      const hits = await repo.buscarContenido("freno", { limit: 10 });
+      expect(hits).toHaveLength(1);
+      expect(hits[0]).toMatchObject({
+        mensajeId: m.id,
+        leadSessionId: fixtures.leadSessionId,
+        contenido: "Pastillas de FRENO",
+        direction: "in",
+      });
+      expect(hits[0]?.createdAt).toBeInstanceOf(Date);
+    });
+
+    test("buscarContenido escapa los comodines de LIKE", async () => {
+      await repo.create(
+        baseInsert(fixtures, { meta_message_id: "like_1", contenido: "codigo FRE_1234" }),
+      );
+      // Sin escapar, `_` matchearía cualquier caracter y esto daría 1.
+      expect(await repo.buscarContenido("FREX1234", { limit: 10 })).toEqual([]);
+      expect(await repo.buscarContenido("FRE_1234", { limit: 10 })).toHaveLength(1);
+    });
+
+    test("buscarContenido ordena del más reciente al más viejo y respeta el tope", async () => {
+      await repo.create(baseInsert(fixtures, { meta_message_id: "ord_1", contenido: "freno uno" }));
+      await new Promise((r) => setTimeout(r, 5));
+      const dos = await repo.create(
+        baseInsert(fixtures, { meta_message_id: "ord_2", contenido: "freno dos" }),
+      );
+
+      const hits = await repo.buscarContenido("freno", { limit: 1 });
+      expect(hits.map((h) => h.mensajeId)).toEqual([dos.id]);
+    });
+
+    test("buscarContenido con texto vacío no consulta y devuelve vacío", async () => {
+      await repo.create(baseInsert(fixtures));
+      expect(await repo.buscarContenido("", { limit: 10 })).toEqual([]);
+    });
+
+    test("buscarContenido ignora los mensajes sin texto", async () => {
+      await repo.create(
+        baseInsert(fixtures, {
+          meta_message_id: "media_1",
+          tipo: "image",
+          contenido: null,
+          media_url: "https://ejemplo/x.jpg",
+        }),
+      );
+      expect(await repo.buscarContenido("jpg", { limit: 10 })).toEqual([]);
+    });
   });
 }

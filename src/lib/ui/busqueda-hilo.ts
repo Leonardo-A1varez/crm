@@ -103,6 +103,44 @@ export function indexarHilo(textos: readonly string[], consulta: string): Indice
   return { ordinalInicial, total };
 }
 
+/** Un pedazo de mensaje que contiene la coincidencia, listo para mostrar. */
+export interface Recorte {
+  texto: string;
+  /** Se comió texto por delante: quien dibuja pone el "…". */
+  recortadoInicio: boolean;
+  recortadoFin: boolean;
+}
+
+/** Cuánto contexto dejar antes de la coincidencia, y cuánto medir en total. */
+const CONTEXTO_PREVIO = 32;
+const LARGO_RECORTE = 140;
+
+/**
+ * El pedazo del mensaje que rodea a la primera coincidencia.
+ *
+ * Existe porque el resultado de búsqueda es una línea y un mensaje de WhatsApp
+ * puede tener 4096 caracteres: mandar el mensaje entero al cliente para que
+ * `truncate` lo corte a los 40 primeros dejaría afuera justo la palabra que se
+ * buscó. El recorte se hace acá —sobre los mismos índices que devuelve
+ * `buscarCoincidencias`— para que el `partirTexto` del cliente siga encontrando
+ * la coincidencia adentro del pedazo que recibe.
+ *
+ * Sin coincidencia devuelve el principio del texto: el mensaje sigue siendo lo
+ * que se muestra aunque el match haya sido por el nombre del lead.
+ */
+export function recorteConCoincidencia(texto: string, consulta: string): Recorte {
+  const [primera] = buscarCoincidencias(texto, consulta);
+  // El recorte nunca puede empezar después de la coincidencia: si la palabra
+  // aparece en el caracter 5, el contexto previo se achica, no se corre.
+  const inicio = primera ? Math.max(0, primera.inicio - CONTEXTO_PREVIO) : 0;
+  const fin = Math.min(texto.length, inicio + LARGO_RECORTE);
+  return {
+    texto: texto.slice(inicio, fin),
+    recortadoInicio: inicio > 0,
+    recortadoFin: fin < texto.length,
+  };
+}
+
 export function partirTexto(texto: string, consulta: string, ordinalInicial: number): Tramo[] {
   const coincidencias = buscarCoincidencias(texto, consulta);
   if (coincidencias.length === 0) return [{ texto, ordinal: null }];

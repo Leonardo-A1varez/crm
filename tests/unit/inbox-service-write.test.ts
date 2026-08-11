@@ -874,5 +874,109 @@ describe("DefaultInboxService write path", () => {
         svc.cancelarRecordatorio({ recordatorioId: crypto.randomUUID() }),
       ).resolves.toBeUndefined();
     });
+
+    describe("reprogramar", () => {
+      const EN_UNA_SEMANA = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+      test("mueve la fecha en la misma fila y arranca el workflow con la nueva", async () => {
+        const lead = await makeLead(leads);
+        const session = await makeSession(sessions, lead.id);
+        const r = await svc.programarRecordatorio({
+          sessionId: session.id,
+          recordarAt: EN_DOS_DIAS,
+          nota: "dijo que lo pensaba",
+          userId: vendedorId,
+        });
+        programarAvisoSpy.mockClear();
+
+        const movido = await svc.reprogramarRecordatorio({
+          recordatorioId: r.id,
+          recordarAt: EN_UNA_SEMANA,
+        });
+
+        // El mismo id: para el vendedor es la misma cita, movida.
+        expect(movido.id).toBe(r.id);
+        expect(movido.recordar_at).toEqual(EN_UNA_SEMANA);
+        // Y la nota sobrevive: mover la fecha no es reescribir el motivo.
+        expect(movido.nota).toBe("dijo que lo pensaba");
+        expect(programarAvisoSpy).toHaveBeenCalledWith({
+          recordatorioId: r.id,
+          leadSessionId: session.id,
+          recordarAt: EN_UNA_SEMANA,
+        });
+      });
+
+      test("no deja una segunda cita viva sobre la conversación", async () => {
+        const lead = await makeLead(leads);
+        const session = await makeSession(sessions, lead.id);
+        const r = await svc.programarRecordatorio({
+          sessionId: session.id,
+          recordarAt: EN_DOS_DIAS,
+          nota: "",
+          userId: vendedorId,
+        });
+
+        await svc.reprogramarRecordatorio({
+          recordatorioId: r.id,
+          recordarAt: EN_UNA_SEMANA,
+        });
+
+        // El índice único parcial de la tabla dice que hay una sola: si
+        // reprogramar cancelara y creara, acá habría otra fila y otro id.
+        expect((await recordatorios.findVivoBySessionId(session.id))?.id).toBe(r.id);
+      });
+
+      test("uno cancelado no se puede mover: ConflictError, no un revivido", async () => {
+        const lead = await makeLead(leads);
+        const session = await makeSession(sessions, lead.id);
+        const r = await svc.programarRecordatorio({
+          sessionId: session.id,
+          recordarAt: EN_DOS_DIAS,
+          nota: "",
+          userId: vendedorId,
+        });
+        await svc.cancelarRecordatorio({ recordatorioId: r.id });
+
+        await expect(
+          svc.reprogramarRecordatorio({ recordatorioId: r.id, recordarAt: EN_UNA_SEMANA }),
+        ).rejects.toBeInstanceOf(ConflictError);
+      });
+
+      test("una fila que no existe es NotFoundError", async () => {
+        await expect(
+          svc.reprogramarRecordatorio({
+            recordatorioId: crypto.randomUUID(),
+            recordarAt: EN_UNA_SEMANA,
+          }),
+        ).rejects.toBeInstanceOf(NotFoundError);
+      });
+
+      test("sesión cerrada: no se mueve una cita que nadie va a ver", async () => {
+        const lead = await makeLead(leads);
+        const session = await makeSession(sessions, lead.id);
+        const r = await svc.programarRecordatorio({
+          sessionId: session.id,
+          recordarAt: EN_DOS_DIAS,
+          nota: "",
+          userId: vendedorId,
+        });
+        await sessions.resolver(session.id, { resultado: "exito" }, vendedorId);
+
+        await expect(
+          svc.reprogramarRecordatorio({ recordatorioId: r.id, recordarAt: EN_UNA_SEMANA }),
+        ).rejects.toBeInstanceOf(ConflictError);
+      });
+
+      test("si falla no arranca ningún workflow", async () => {
+        programarAvisoSpy.mockClear();
+        await expect(
+          svc.reprogramarRecordatorio({
+            recordatorioId: crypto.randomUUID(),
+            recordarAt: EN_UNA_SEMANA,
+          }),
+        ).rejects.toBeInstanceOf(NotFoundError);
+        expect(programarAvisoSpy).not.toHaveBeenCalled();
+      });
+    });
   });
 });

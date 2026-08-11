@@ -8,6 +8,7 @@ import type {
 } from "@/types/domain";
 import type { CampoContactoLead } from "@/lib/validation/inbox.schema";
 import type { Lead, LeadSession, Mensaje, SessionRecordatorio, Tag, UUID } from "@/types/entities";
+import type { EtiquetaOpcion } from "@/types/leads";
 
 export type { ConversationView, InboxItem };
 
@@ -104,6 +105,12 @@ export interface CancelarRecordatorioServiceInput {
   recordatorioId: UUID;
 }
 
+export interface ReprogramarRecordatorioServiceInput {
+  recordatorioId: UUID;
+  /** La fecha nueva. Que sea futura lo valida el schema, igual que al programar. */
+  recordarAt: Date;
+}
+
 /**
  * Arranca el workflow durable que duerme hasta la fecha.
  *
@@ -133,6 +140,16 @@ export interface InboxService {
    * solo la sesión, así que contar es una query y no un hilo por lead.
    */
   contarRequierenAtencion(): Promise<number>;
+
+  /**
+   * Catálogo de etiquetas para el filtro del buscador del panel de lista.
+   *
+   * Se pide una vez al cargar el Inbox y no en cada búsqueda: el catálogo no
+   * cambia mientras alguien tipea, y la mini-pantalla necesita sus opciones
+   * pobladas ANTES de que se escriba la primera letra —un chip de filtro vacío
+   * hasta que hay resultados no es un filtro—.
+   */
+  listEtiquetas(): Promise<EtiquetaOpcion[]>;
 
   /**
    * Vista conversación de un lead: lead + sesión activa (null si no hay) +
@@ -256,9 +273,8 @@ export interface InboxService {
    * Programa el "volver a contactar en 2 días" sobre la sesión y arranca el
    * workflow que duerme hasta esa fecha.
    *
-   * Uno vivo por sesión: si ya hay uno, `ConflictError`. Cambiar la fecha es
-   * cancelar y programar de nuevo, para que el chip del Inbox no tenga que
-   * elegir entre dos citas.
+   * Uno vivo por sesión: si ya hay uno, `ConflictError`. Para cambiarle la
+   * fecha está `reprogramarRecordatorio`, que no crea una segunda cita.
    *
    * `ConflictError` también si la sesión está cerrada: una cita sobre una
    * conversación que terminó no la va a ver nadie —el lead sale del Inbox— y a
@@ -272,4 +288,20 @@ export interface InboxService {
    * entre que se pintó la ficha y se hizo click.
    */
   cancelarRecordatorio(input: CancelarRecordatorioServiceInput): Promise<void>;
+
+  /**
+   * Le cambia la fecha al recordatorio vivo de la conversación, en un paso.
+   *
+   * La misma fila y el mismo id: cancelar y volver a programar dejaría un
+   * hueco donde el índice único permite que entre otra cita, y le cambiaría el
+   * id a algo que el vendedor percibe como la misma cosa.
+   *
+   * Arranca un workflow nuevo con la fecha nueva. El que ya estaba durmiendo
+   * con la vieja se despierta igual y sale sin efecto: `marcarAvisado` compara
+   * la fecha del evento contra la de la fila.
+   *
+   * `NotFoundError` si la fila no existe. `ConflictError` si ya no está viva
+   * (la canceló otra pestaña, o el cliente contestó) o si la sesión se cerró.
+   */
+  reprogramarRecordatorio(input: ReprogramarRecordatorioServiceInput): Promise<SessionRecordatorio>;
 }

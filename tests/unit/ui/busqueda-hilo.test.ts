@@ -5,6 +5,7 @@ import {
   indexarHilo,
   partirTexto,
   plegar,
+  recorteConCoincidencia,
 } from "@/lib/ui/busqueda-hilo";
 
 describe("plegar", () => {
@@ -117,5 +118,45 @@ describe("indexarHilo", () => {
         .filter((o) => o !== null),
     );
     expect(ordinales).toEqual([0, 1, 2]);
+  });
+});
+
+describe("recorteConCoincidencia", () => {
+  test("un texto corto vuelve entero y sin marcas de recorte", () => {
+    expect(recorteConCoincidencia("pastillas de freno", "freno")).toEqual({
+      texto: "pastillas de freno",
+      recortadoInicio: false,
+      recortadoFin: false,
+    });
+  });
+
+  test("con la coincidencia al final, el recorte la contiene igual", () => {
+    const largo = `${"x".repeat(400)} bujía NGK`;
+    const r = recorteConCoincidencia(largo, "bujía");
+    expect(r.texto).toContain("bujía");
+    expect(r.recortadoInicio).toBe(true);
+    expect(r.recortadoFin).toBe(false);
+    // El recorte tiene que seguir siendo cortable por `partirTexto`: es lo que
+    // le da el resaltado al cliente.
+    expect(partirTexto(r.texto, "bujía", 0).some((t) => t.ordinal !== null)).toBe(true);
+  });
+
+  test("con la coincidencia al principio no se corre hacia atrás", () => {
+    const r = recorteConCoincidencia(`freno ${"y".repeat(400)}`, "freno");
+    expect(r.recortadoInicio).toBe(false);
+    expect(r.recortadoFin).toBe(true);
+    expect(r.texto.startsWith("freno")).toBe(true);
+  });
+
+  test("sin coincidencia devuelve el principio del texto", () => {
+    const r = recorteConCoincidencia(`${"a".repeat(400)}`, "zzz");
+    expect(r.recortadoInicio).toBe(false);
+    expect(r.recortadoFin).toBe(true);
+    expect(r.texto.length).toBeLessThan(400);
+  });
+
+  test("el recorte nunca es más largo que el texto original", () => {
+    const r = recorteConCoincidencia("corto", "corto");
+    expect(r.texto).toBe("corto");
   });
 });

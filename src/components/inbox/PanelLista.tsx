@@ -1,6 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
+import { BuscadorConversaciones } from "@/components/inbox/BuscadorConversaciones";
 import { FiltrosCanal, parseCanalFilter } from "@/components/inbox/FiltrosCanal";
 import { InboxListItem } from "@/components/inbox/InboxListItem";
 import { parseOrden, SelectorOrden } from "@/components/inbox/SelectorOrden";
@@ -8,7 +9,9 @@ import { AutoAwesome, InboxIcon } from "@/components/icons";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Eyebrow } from "@/components/shared/Eyebrow";
 import { MonoMeta } from "@/components/shared/MonoMeta";
+import type { BuscarFn } from "@/components/inbox/BuscadorConversaciones";
 import type { InboxItem } from "@/types/inbox";
+import type { EtiquetaOpcion } from "@/types/leads";
 
 /**
  * Encabezado de grupo del modo triage. El contador va al lado del título
@@ -42,7 +45,16 @@ function EncabezadoGrupo({
  * layouts de Next no reciben `searchParams` — releer la URL en cliente evita
  * re-fetchear la lista completa por cada click de chip.
  */
-export function PanelLista({ items }: { items: InboxItem[] }) {
+export function PanelLista({
+  items,
+  etiquetas,
+  buscar,
+}: {
+  items: InboxItem[];
+  /** Catálogo para el filtro de etiquetas del buscador. Llega del layout. */
+  etiquetas: EtiquetaOpcion[];
+  buscar: BuscarFn;
+}) {
   const searchParams = useSearchParams();
   const canal = parseCanalFilter(searchParams.get("canal"));
   const orden = parseOrden(searchParams.get("orden"));
@@ -69,9 +81,18 @@ export function PanelLista({ items }: { items: InboxItem[] }) {
             aria-hidden
             className="bg-ok animate-pulse-dot h-[5px] w-[5px] shrink-0 rounded-full"
           />
-          <span className="text-ink-faint text-[10.5px]">
+          <span className="text-ink-faint truncate text-[10.5px]">
             Sincronizado en vivo · Meta Cloud API
           </span>
+        </div>
+        {/*
+          El buscador va en el encabezado y no arriba de la lista: lo que abre
+          NO filtra esta lista —consulta el historial entero, incluidas las
+          conversaciones cerradas— y ponerlo entre los chips de canal y las
+          filas lo haría leer como un filtro más de lo que está en pantalla.
+        */}
+        <div className="mt-2.5">
+          <BuscadorConversaciones etiquetas={etiquetas} buscar={buscar} />
         </div>
       </div>
 

@@ -1086,3 +1086,44 @@ describe("DefaultInboxService — recordatorios de seguimiento en la bandeja", (
     expect(view.recordatorio).toBeNull();
   });
 });
+
+describe("DefaultInboxService.listEtiquetas", () => {
+  test("devuelve el catálogo ordenado en castellano, listo para el filtro del buscador", async () => {
+    const tags = new InMemoryTagsRepository();
+    await tags.create({ nombre: "Ñandú", color: "#111111", descripcion: null });
+    await tags.create({ nombre: "Zapata", color: "#222222", descripcion: null });
+    await tags.create({ nombre: "Aceite", color: "#333333", descripcion: null });
+
+    const svc = new DefaultInboxService(
+      makeReadOnlyDeps(
+        new InMemoryLeadsRepository(),
+        new InMemoryLeadSessionRepository(),
+        new InMemoryConversationsRepository(),
+        new InMemoryMessagesRepository(),
+        new InMemoryProductsRepository(),
+        tags,
+      ),
+    );
+
+    const etiquetas = await svc.listEtiquetas();
+    expect(etiquetas.map((e) => e.nombre)).toEqual(["Aceite", "Ñandú", "Zapata"]);
+    // Solo lo que el chip necesita: `descripcion` no viaja.
+    expect(etiquetas[0]).toEqual({
+      id: expect.any(String),
+      nombre: "Aceite",
+      color: "#333333",
+    });
+  });
+
+  test("sin etiquetas cargadas devuelve una lista vacía, no un error", async () => {
+    const svc = new DefaultInboxService(
+      makeReadOnlyDeps(
+        new InMemoryLeadsRepository(),
+        new InMemoryLeadSessionRepository(),
+        new InMemoryConversationsRepository(),
+        new InMemoryMessagesRepository(),
+      ),
+    );
+    expect(await svc.listEtiquetas()).toEqual([]);
+  });
+});

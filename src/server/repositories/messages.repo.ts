@@ -1,6 +1,6 @@
 import { ConflictError } from "@/lib/errors";
 import { esAvance } from "@/lib/entrega";
-import type { EstadoEntrega } from "@/types/domain";
+import type { Direction, EstadoEntrega } from "@/types/domain";
 import type { Mensaje, UUID } from "@/types/entities";
 import type { Insert } from "./_types";
 
@@ -30,6 +30,26 @@ export interface ListBySessionFilter {
 
 const DEFAULT_LIMIT = 50;
 
+/**
+ * Un mensaje cuyo texto coincidió con la búsqueda, con lo mínimo para mostrarlo.
+ *
+ * No devuelve el `Mensaje` entero a propósito: el buscador dibuja una línea por
+ * conversación y traer `metadata` de cientos de filas para descartarla es pagar
+ * ancho de banda por nada.
+ */
+export interface CoincidenciaContenido {
+  mensajeId: UUID;
+  leadSessionId: UUID;
+  contenido: string;
+  direction: Direction;
+  createdAt: Date;
+}
+
+export interface BuscarContenidoFilter {
+  /** Tope duro de filas. Sin esto una búsqueda de "a" se trae la tabla. */
+  limit: number;
+}
+
 // Deep clone defensivo de metadata (jsonb arbitrario). Garantiza parity con Supabase.
 function cloneMensaje(m: Mensaje): Mensaje {
   return { ...m, metadata: structuredClone(m.metadata) };
@@ -56,6 +76,21 @@ export interface MessagesRepository {
    * `lead_session_id`.
    */
   listBySessionIds(sessionIds: UUID[]): Promise<Mensaje[]>;
+  /**
+   * Mensajes cuyo texto contiene `q`, del más reciente al más viejo.
+   *
+   * Es el corazón del buscador del Inbox y la única consulta del panel que
+   * mira el texto de los mensajes. Va contra `mensajes.contenido` con un LIKE
+   * de subcadena, que en Postgres se apoya en el índice trigram
+   * `mensajes_contenido_trgm_idx` (migración `20260811160000`); ese índice
+   * necesita 3 caracteres para tener trigramas que buscar, y quien llama es
+   * responsable de no pedir menos. Ver el comentario de la migración.
+   *
+   * Devuelve `lead_session_id` y no el lead: el mapeo sesión→lead lo resuelve
+   * `LeadSessionRepository.listByIds` de una sola vez, no una consulta por
+   * mensaje.
+   */
+  buscarContenido(q: string, filter: BuscarContenidoFilter): Promise<CoincidenciaContenido[]>;
   // Estado de entrega desde el webhook de Meta. `meta_message_id` desconocido
   // = no-op y devuelve null: Meta reporta estados de mensajes que no mandamos
   // nosotros (plantillas disparadas desde su consola) y no son un error.
@@ -152,6 +187,28 @@ export class InMemoryMessagesRepository implements MessagesRepository {
       .filter((m) => m.lead_session_id !== null && wanted.has(m.lead_session_id))
       .sort((a, b) => a.created_at.getTime() - b.created_at.getTime())
       .map(cloneMensaje);
+  }
+
+  async buscarContenido(
+    q: string,
+    filter: BuscarContenidoFilter,
+  ): Promise<CoincidenciaContenido[]> {
+    if (q === "") return [];
+    // `toLowerCase` y no `plegar`: espeja el ILIKE de Postgres, que ignora
+    // mayúsculas pero NO tildes. Plegar acá haría que el contract pasara en
+    // memoria y fallara contra Supabase.
+    const aguja = q.toLowerCase();
+    return Array.from(this.store.values())
+      .filter((m) => m.contenido !== null && m.contenido.toLowerCase().includes(aguja))
+      .sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
+      .slice(0, filter.limit)
+      .map((m) => ({
+        mensajeId: m.id,
+        leadSessionId: m.lead_session_id,
+        contenido: m.contenido ?? "",
+        direction: m.direction,
+        createdAt: m.created_at,
+      }));
   }
 
   async aplicarEstadoEntrega(

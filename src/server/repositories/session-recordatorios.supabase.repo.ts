@@ -79,13 +79,44 @@ export class SupabaseSessionRecordatoriosRepository implements SessionRecordator
     return (data ?? []).map(mapRow);
   }
 
-  async marcarAvisado(id: UUID, at: Date = new Date()): Promise<SessionRecordatorio | null> {
+  async marcarAvisado(
+    id: UUID,
+    opts: { at?: Date; esperadoRecordarAt?: Date } = {},
+  ): Promise<SessionRecordatorio | null> {
     if (!isUuid(id)) return null;
-    const { data, error } = await this.db
+    const at = opts.at ?? new Date();
+
+    let q = this.db
       .from(TABLA)
       .update({ estado: "avisado", avisado_at: at.toISOString() })
       .eq("id", id)
-      .eq("estado", "pendiente")
+      .eq("estado", "pendiente");
+
+    // La fecha viaja en el WHERE y no se compara en memoria: entre el SELECT y
+    // el UPDATE alguien puede reprogramar, y el filtro es lo que hace que ese
+    // aviso viejo pierda la carrera en vez de pisar la cita nueva.
+    if (opts.esperadoRecordarAt) {
+      q = q.eq("recordar_at", opts.esperadoRecordarAt.toISOString());
+    }
+
+    const { data, error } = await q.select().maybeSingle();
+    if (error) throw mapPostgrestError(error, { resource: RECURSO });
+    return data ? mapRow(data) : null;
+  }
+
+  async reprogramar(id: UUID, recordarAt: Date): Promise<SessionRecordatorio | null> {
+    if (!isUuid(id)) return null;
+    const { data, error } = await this.db
+      .from(TABLA)
+      .update({
+        recordar_at: recordarAt.toISOString(),
+        // Posponer uno ya avisado lo devuelve a pendiente. `avisado_at` tiene
+        // que volver a null o el CHECK de coherencia rechaza la fila.
+        estado: "pendiente",
+        avisado_at: null,
+      })
+      .eq("id", id)
+      .in("estado", [...VIVOS])
       .select()
       .maybeSingle();
     if (error) throw mapPostgrestError(error, { resource: RECURSO });

@@ -1,7 +1,14 @@
 import { z } from "zod";
 import { CAMPOS_TWIN_EDITABLES, ETAPAS_EMBUDO } from "@/types/domain";
 import { esClaveReservada, MAX_LARGO_CLAVE, MAX_LARGO_VALOR } from "@/lib/datos-extra";
-import { CanalSchema, MotivoPerdidaSchema, UUIDSchema } from "@/lib/validation/schemas";
+import { SESION_BUSCADA } from "@/types/inbox";
+import { VENTANA_ACTIVIDAD } from "@/types/leads";
+import {
+  CanalSchema,
+  CurrentStageSchema,
+  MotivoPerdidaSchema,
+  UUIDSchema,
+} from "@/lib/validation/schemas";
 
 // Inputs de Server Actions inbox (Slice 2 8.4-8.5). Regla §0.9.3: parse línea 1.
 
@@ -203,22 +210,52 @@ export const MAX_LARGO_NOTA_RECORDATORIO = 140;
  * POST a mano programe un recordatorio en el pasado, que se dispararía apenas
  * el workflow arranque. `nota` acepta vacío: la fecha sola ya sirve.
  */
+/**
+ * La fecha, sola. Vive aparte porque programar y reprogramar la validan igual:
+ * si el tope o el "tiene que ser futura" existieran dos veces, cambiar uno y
+ * olvidarse del otro dejaría un camino por el que se cuela lo que el otro
+ * rechaza.
+ *
+ * **Una hora que ya pasó se rechaza, no se corre al futuro.** Con un selector
+ * de día y hora, elegir hoy a las 09:00 cuando son las 15:00 pasa; mover la
+ * fecha en silencio a mañana sería inventar una decisión que el vendedor no
+ * tomó, sobre lo único que este objeto promete. El formulario además pone
+ * `min`/`max` en el input para que el error casi nunca haga falta.
+ */
+const FechaRecordatorioSchema = z
+  .string()
+  .datetime({ offset: true })
+  .refine((iso) => new Date(iso).getTime() > Date.now(), {
+    message: "La fecha del recordatorio tiene que ser futura.",
+  })
+  .refine(
+    (iso) => new Date(iso).getTime() <= Date.now() + MAX_DIAS_RECORDATORIO * 24 * 60 * 60 * 1000,
+    { message: `El recordatorio no puede ir a más de ${MAX_DIAS_RECORDATORIO} días.` },
+  );
+
 export const ProgramarRecordatorioSchema = z.object({
   leadId: UUIDSchema,
   sessionId: UUIDSchema,
-  recordarAt: z
-    .string()
-    .datetime({ offset: true })
-    .refine((iso) => new Date(iso).getTime() > Date.now(), {
-      message: "La fecha del recordatorio tiene que ser futura.",
-    })
-    .refine(
-      (iso) => new Date(iso).getTime() <= Date.now() + MAX_DIAS_RECORDATORIO * 24 * 60 * 60 * 1000,
-      { message: `El recordatorio no puede ir a más de ${MAX_DIAS_RECORDATORIO} días.` },
-    ),
+  recordarAt: FechaRecordatorioSchema,
   nota: z.string().trim().max(MAX_LARGO_NOTA_RECORDATORIO),
 });
 export type ProgramarRecordatorioInput = z.infer<typeof ProgramarRecordatorioSchema>;
+
+/**
+ * Cambiarle la fecha a un recordatorio que ya existe, sin cancelarlo.
+ *
+ * No viaja `sessionId`: la fila ya sabe de qué conversación es, y el service la
+ * lee de ahí en vez de confiar en lo que mande el cliente. `leadId` viaja solo
+ * para revalidar la ruta, igual que en cancelar. La nota tampoco viaja: mover
+ * la fecha no es reescribir el motivo, y mandarla vacía por accidente borraría
+ * lo único que le da sentido al aviso cuando salte.
+ */
+export const ReprogramarRecordatorioSchema = z.object({
+  leadId: UUIDSchema,
+  recordatorioId: UUIDSchema,
+  recordarAt: FechaRecordatorioSchema,
+});
+export type ReprogramarRecordatorioInput = z.infer<typeof ReprogramarRecordatorioSchema>;
 
 /**
  * El "Cancelar" del bloque de seguimiento del Twin. `leadId` viaja solo para
@@ -230,3 +267,29 @@ export const CancelarRecordatorioSchema = z.object({
   recordatorioId: UUIDSchema,
 });
 export type CancelarRecordatorioInput = z.infer<typeof CancelarRecordatorioSchema>;
+
+/**
+ * Lo que viaja al buscador de conversaciones del panel de lista.
+ *
+ * `q` acepta hasta 80 caracteres: es un término de búsqueda, no un campo de
+ * datos, y el tope existe para que nadie mande un patrón de 4 KB a un `ILIKE`.
+ * El mínimo NO se valida acá y es a propósito — el service distingue "muy
+ * corto para mirar los mensajes" (2 caracteres) de "muy corto para buscar
+ * nada" (1), y devolver un error de validación por escribir la primera letra
+ * haría parpadear un cartel rojo en cada tecleo.
+ *
+ * Todos los filtros son opcionales y ninguno acepta valores libres: un filtro
+ * corrupto de una URL vieja o de un cliente hostil no puede llegar a la
+ * consulta. `etiqueta` es lo único con forma de id, y por eso pasa por
+ * `UUIDSchema`: PostgREST responde 400 a un uuid mal formado y la pantalla lo
+ * leería como caída.
+ */
+export const BuscarConversacionesSchema = z.object({
+  q: z.string().trim().max(80),
+  canal: CanalSchema.optional(),
+  etapa: CurrentStageSchema.optional(),
+  etiquetaId: UUIDSchema.optional(),
+  actividad: z.enum(VENTANA_ACTIVIDAD).optional(),
+  sesion: z.enum(SESION_BUSCADA).optional(),
+});
+export type BuscarConversacionesInput = z.infer<typeof BuscarConversacionesSchema>;

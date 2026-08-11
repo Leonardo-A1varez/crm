@@ -41,6 +41,77 @@ export interface InboxItem {
 }
 
 /**
+ * Qué conversaciones mirar. `activa` son las que están abiertas —las que la
+ * lista del Inbox ya muestra— y `cerrada` las que terminaron. Sin filtro salen
+ * las dos, que es el punto del buscador: el mensaje que uno busca suele estar
+ * en una conversación que ya cerró.
+ *
+ * El filtro de actividad no tiene tipo propio acá: son las mismas tres ventanas
+ * de `/leads` (`VentanaActividad` en `types/leads`) y las cotas las sigue
+ * calculando `cotasActividad`.
+ */
+export const SESION_BUSCADA = ["activa", "cerrada"] as const;
+export type SesionBuscada = (typeof SESION_BUSCADA)[number];
+
+/**
+ * El pedazo de mensaje donde cayó la búsqueda.
+ *
+ * `texto` ya viene recortado alrededor de la coincidencia (`recorteConCoincidencia`):
+ * el cliente lo parte con `partirTexto` y lo dibuja como nodos. Nunca como HTML
+ * — el contenido lo escribió un tercero por WhatsApp.
+ */
+export interface FragmentoCoincidencia {
+  mensajeId: UUID;
+  texto: string;
+  recortadoInicio: boolean;
+  recortadoFin: boolean;
+  direction: Direction;
+  createdAt: Date;
+}
+
+/**
+ * Una conversación encontrada por el buscador del Inbox.
+ *
+ * Es por lead y no por sesión: el panel navega a `/inbox/[leadId]`, que es la
+ * conversación del lead, y un lead con tres sesiones históricas es una sola
+ * fila y no tres.
+ */
+export interface ResultadoBusqueda {
+  leadId: UUID;
+  nombre: string;
+  telefono: string;
+  canalOrigen: Canal;
+  /** Etapa de la sesión abierta; `null` cuando la última cerró. */
+  currentStage: CurrentStage | null;
+  sesionActiva: boolean;
+  ultimaActividad: Date;
+  /** `null` cuando la coincidencia fue por nombre, perfil o teléfono. */
+  fragmento: FragmentoCoincidencia | null;
+  /** Cuántos mensajes de este lead coincidieron. `0` sin match de contenido. */
+  mensajesCoincidentes: number;
+}
+
+/**
+ * Lo que devuelve una búsqueda. `truncado` existe para que la mini-pantalla
+ * pueda decir que quedaron resultados afuera: un buscador que corta en silencio
+ * hace creer que el mensaje no existe.
+ */
+export interface BusquedaPage {
+  resultados: ResultadoBusqueda[];
+  truncado: boolean;
+  limite: number;
+  /**
+   * `true` cuando el término era demasiado corto para buscar dentro de los
+   * mensajes y solo se miraron los datos del lead. La mini-pantalla lo dice.
+   */
+  soloDatosDelLead: boolean;
+}
+
+export type ResultadoBusquedaAction =
+  | { ok: true; pagina: BusquedaPage }
+  | { ok: false; error: string };
+
+/**
  * Resultado serializable de Server Actions inbox (8.4-8.5). Vive en types/
  * porque client components (components/) tipan la prop action y las actions
  * (app/) construyen el valor — boundaries no permite components→app.

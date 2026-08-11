@@ -29,6 +29,10 @@ import type {
 
 type LeadSessionDbUpdate = Database["public"]["Tables"]["lead_session"]["Update"];
 
+// Mismo tope que `SESSION_IDS_POR_TANDA` de mensajes y por el mismo motivo:
+// 100 uuids son ~3,7 KB de query string, que entra holgado en cualquier proxy.
+const IDS_POR_TANDA = 100;
+
 /**
  * Supabase impl LeadSessionRepository. Slice 1 sub-paso 7.4 repo 9.
  *
@@ -116,6 +120,25 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
       .order("started_at", { ascending: false });
     if (error) throw mapPostgrestError(error, { resource: "lead_session" });
     return (data ?? []).map(mapRow);
+  }
+
+  async listByIds(ids: UUID[]): Promise<LeadSession[]> {
+    const limpios = ids.filter(isUuid);
+    if (limpios.length === 0) return [];
+
+    // Mismo criterio que `listBySessionIds` de mensajes: `.in()` viaja en la
+    // query string, así que se parte en tandas para no pasarse del largo de URL
+    // que acepta el proxy (414). Cada tanda es UNA consulta, nunca una por id.
+    const out: LeadSession[] = [];
+    for (let i = 0; i < limpios.length; i += IDS_POR_TANDA) {
+      const { data, error } = await this.db
+        .from("lead_session")
+        .select()
+        .in("id", limpios.slice(i, i + IDS_POR_TANDA));
+      if (error) throw mapPostgrestError(error, { resource: "lead_session" });
+      for (const row of data ?? []) out.push(mapRow(row));
+    }
+    return out.sort((a, b) => b.started_at.getTime() - a.started_at.getTime());
   }
 
   async editarCampoTwin(

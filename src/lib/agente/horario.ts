@@ -1,3 +1,4 @@
+import { diaSemanaDePared, horaDePared, zonaValida } from "@/lib/zona-horaria";
 import { DIAS_SEMANA, type DiaSemana, type Horario, type RangoHorario } from "@/types/agente";
 
 const HORA_VALIDA = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -11,13 +12,7 @@ function aMinutos(hhmm: string): number | null {
 }
 
 export function esTimezoneValida(tz: string): boolean {
-  if (tz === "") return false;
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
+  return zonaValida(tz);
 }
 
 /**
@@ -60,43 +55,22 @@ export function normalizarRangos(rangos: RangoHorario[]): RangoHorario[] {
   return out.map((r) => r.original);
 }
 
+/** Domingo primero, como devuelve `diaSemanaDePared`. */
+const DIA_POR_INDICE: readonly DiaSemana[] = ["dom", "lun", "mar", "mie", "jue", "vie", "sab"];
+
 /**
- * Extrae dia de semana y minutos del dia en la timezone dada. `Intl` es lo
- * unico que resuelve esto bien sin una libreria: hacer la cuenta a mano falla
- * en horario de verano.
+ * Extrae dia de semana y minutos del dia en la timezone dada. La lectura del
+ * reloj vive en `lib/zona-horaria.ts`: es la unica implementacion de husos del
+ * proyecto, y el recordatorio de seguimiento usa la misma.
  */
 function momentoLocal(tz: string, ahora: Date): { dia: DiaSemana; minutos: number } | null {
-  try {
-    const fmt = new Intl.DateTimeFormat("en-US", {
-      timeZone: tz,
-      weekday: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-    const partes = fmt.formatToParts(ahora);
-    const weekday = partes.find((p) => p.type === "weekday")?.value ?? "";
-    const hora = Number(partes.find((p) => p.type === "hour")?.value ?? NaN);
-    const minuto = Number(partes.find((p) => p.type === "minute")?.value ?? NaN);
-    if (Number.isNaN(hora) || Number.isNaN(minuto)) return null;
+  const pared = horaDePared(tz, ahora);
+  if (pared === null) return null;
 
-    const mapa: Record<string, DiaSemana> = {
-      Mon: "lun",
-      Tue: "mar",
-      Wed: "mie",
-      Thu: "jue",
-      Fri: "vie",
-      Sat: "sab",
-      Sun: "dom",
-    };
-    const dia = mapa[weekday];
-    if (!dia) return null;
+  const dia = DIA_POR_INDICE[diaSemanaDePared(pared)];
+  if (!dia) return null;
 
-    // Intl devuelve "24" para medianoche con hour12:false en algunos runtimes.
-    return { dia, minutos: (hora % 24) * 60 + minuto };
-  } catch {
-    return null;
-  }
+  return { dia, minutos: pared.horas * 60 + pared.minutos };
 }
 
 /**

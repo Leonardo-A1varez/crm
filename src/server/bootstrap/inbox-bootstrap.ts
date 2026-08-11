@@ -35,6 +35,17 @@ import type {
  *
  * El `id` es la idempotency key de Inngest: dos emisiones del mismo
  * recordatorio son una sola ejecución dormida, no dos avisos.
+ *
+ * **La fecha forma parte del `id`, y no es cosmético.** Reprogramar emite otro
+ * evento sobre el mismo recordatorio; con la key vieja (`recordatorio:<id>`)
+ * Inngest lo descartaría por duplicado dentro de su ventana de deduplicación y
+ * la cita nueva no arrancaría nunca — el vendedor vería la fecha cambiada en la
+ * ficha y no saltaría nada. Con la fecha adentro, cada cita tiene su ejecución
+ * y reprogramar dos veces a la misma hora sigue siendo una sola.
+ *
+ * La ejecución vieja no se cancela: sigue durmiendo hasta su fecha y ahí sale
+ * por `sin-efecto`, porque `marcarAvisado` compara la fecha del evento contra
+ * la de la fila. Dos ejecuciones vivas un rato, un solo aviso.
  */
 const programarAvisoRecordatorio: ProgramarAvisoRecordatorioFn = async (input) => {
   await inngest.send({
@@ -47,7 +58,7 @@ const programarAvisoRecordatorio: ProgramarAvisoRecordatorioFn = async (input) =
       leadSessionId: input.leadSessionId,
       recordarAt: input.recordarAt.toISOString(),
     },
-    id: `recordatorio:${input.recordatorioId}`,
+    id: `recordatorio:${input.recordatorioId}:${input.recordarAt.toISOString()}`,
   });
 };
 

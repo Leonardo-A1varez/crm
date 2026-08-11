@@ -31,6 +31,7 @@ import type {
   ProgramarRecordatorioInput,
   QuitarEtiquetaInput,
   RenombrarLeadInput,
+  ReprogramarRecordatorioInput,
 } from "@/lib/validation/inbox.schema";
 import type {
   Lead,
@@ -428,6 +429,7 @@ export function TwinPanel({
   sesionesPrevias,
   gastoIa,
   recordatorio,
+  timezoneNegocio,
   onEditar,
   onMoverEtapa,
   onCerrarSesion,
@@ -439,6 +441,7 @@ export function TwinPanel({
   onCrearEtiqueta,
   onProgramarRecordatorio,
   onCancelarRecordatorio,
+  onReprogramarRecordatorio,
 }: {
   lead: Lead;
   session: LeadSession | null;
@@ -454,6 +457,12 @@ export function TwinPanel({
   gastoIa: GastoSesion | null;
   /** El seguimiento vivo de la sesión; `null` = no hay ninguno programado. */
   recordatorio: SessionRecordatorio | null;
+  /**
+   * `agente_config.horario_timezone`. Todo lo que el bloque de seguimiento
+   * muestra y todo lo que deja elegir está en la hora del negocio, no en la del
+   * navegador: la cita es del local, no de quien abre la ficha.
+   */
+  timezoneNegocio: string;
   onEditar: (input: EditarCampoTwinInput) => Promise<ActionResult>;
   onMoverEtapa: (input: MoverEtapaInput) => Promise<ActionResult>;
   /** Cierre en dos pasos que abre el segmento "Cerrado" del rail. */
@@ -466,6 +475,7 @@ export function TwinPanel({
   onCrearEtiqueta: (input: CrearEtiquetaInput) => Promise<ActionResult>;
   onProgramarRecordatorio: (input: ProgramarRecordatorioInput) => Promise<ActionResult>;
   onCancelarRecordatorio: (input: CancelarRecordatorioInput) => Promise<ActionResult>;
+  onReprogramarRecordatorio: (input: ReprogramarRecordatorioInput) => Promise<ActionResult>;
 }) {
   const identidad = (
     <Seccion>
@@ -589,8 +599,10 @@ export function TwinPanel({
           leadId={leadId}
           sessionId={session.id}
           recordatorio={recordatorio}
+          timezone={timezoneNegocio}
           onProgramar={onProgramarRecordatorio}
           onCancelar={onCancelarRecordatorio}
+          onReprogramar={onReprogramarRecordatorio}
         />
       </Seccion>
 

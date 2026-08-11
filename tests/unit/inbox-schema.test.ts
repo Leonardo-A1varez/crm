@@ -3,6 +3,7 @@ import {
   AgregarDatoLeadSchema,
   AsignarEtiquetaSchema,
   BorrarDatoExtraSchema,
+  BuscarConversacionesSchema,
   CancelarRecordatorioSchema,
   CloseSessionSchema,
   CrearEtiquetaSchema,
@@ -12,6 +13,7 @@ import {
   ProgramarRecordatorioSchema,
   QuitarEtiquetaSchema,
   RenombrarLeadSchema,
+  ReprogramarRecordatorioSchema,
   SendMessageSchema,
   ToggleHandoffSchema,
 } from "@/lib/validation/inbox.schema";
@@ -462,5 +464,118 @@ describe("ProgramarRecordatorioSchema", () => {
         .success,
     ).toBe(true);
     expect(CancelarRecordatorioSchema.safeParse({ leadId: LEAD_ID }).success).toBe(false);
+  });
+
+  describe("ReprogramarRecordatorioSchema", () => {
+    test("acepta el id de la cita y la fecha nueva", () => {
+      expect(
+        ReprogramarRecordatorioSchema.safeParse({
+          leadId: LEAD_ID,
+          recordatorioId: RECORDATORIO_ID,
+          recordarAt: enDias(5),
+        }).success,
+      ).toBe(true);
+    });
+
+    test("no acepta sessionId: la conversación la resuelve el service desde la fila", () => {
+      const r = ReprogramarRecordatorioSchema.safeParse({
+        leadId: LEAD_ID,
+        recordatorioId: RECORDATORIO_ID,
+        recordarAt: enDias(5),
+      });
+      expect(r.success && "sessionId" in r.data).toBe(false);
+    });
+
+    test("hereda las mismas guardas de fecha que programar", () => {
+      // Las dos validaciones viven en un solo lugar justamente para que no haya
+      // un camino —éste— por el que se cuele lo que el otro rechaza.
+      for (const dias of [-1, MAX_DIAS_RECORDATORIO + 1]) {
+        expect(
+          ReprogramarRecordatorioSchema.safeParse({
+            leadId: LEAD_ID,
+            recordatorioId: RECORDATORIO_ID,
+            recordarAt: enDias(dias),
+          }).success,
+        ).toBe(false);
+      }
+    });
+
+    test("rechaza una fecha sin zona horaria", () => {
+      const r = ReprogramarRecordatorioSchema.safeParse({
+        leadId: LEAD_ID,
+        recordatorioId: RECORDATORIO_ID,
+        recordarAt: "2026-12-01T10:00:00",
+      });
+      expect(r.success).toBe(false);
+    });
+
+    test("el mensaje de una hora pasada es accionable, no genérico", () => {
+      // La UI muestra el primer issue tal cual: "inválido" no le dice al
+      // vendedor que lo único que tiene que hacer es elegir más adelante.
+      const r = ReprogramarRecordatorioSchema.safeParse({
+        leadId: LEAD_ID,
+        recordatorioId: RECORDATORIO_ID,
+        recordarAt: enDias(-1),
+      });
+      expect(r.success).toBe(false);
+      expect(r.success === false && r.error.issues[0]?.message).toContain("futura");
+    });
+  });
+});
+
+describe("BuscarConversacionesSchema", () => {
+  test("acepta solo el texto: los filtros son opcionales", () => {
+    const r = BuscarConversacionesSchema.safeParse({ q: "pastillas" });
+    expect(r.success).toBe(true);
+  });
+
+  test("no valida el mínimo: el service distingue 'corto' de 'muy corto'", () => {
+    // Un error de validación por escribir la primera letra haría parpadear un
+    // cartel rojo en cada tecleo.
+    expect(BuscarConversacionesSchema.safeParse({ q: "a" }).success).toBe(true);
+    expect(BuscarConversacionesSchema.safeParse({ q: "" }).success).toBe(true);
+  });
+
+  test("corta el término a 80 caracteres: es un término, no un campo de datos", () => {
+    expect(BuscarConversacionesSchema.safeParse({ q: "x".repeat(81) }).success).toBe(false);
+    expect(BuscarConversacionesSchema.safeParse({ q: "x".repeat(80) }).success).toBe(true);
+  });
+
+  test("rechaza valores de filtro que no están en la lista", () => {
+    expect(BuscarConversacionesSchema.safeParse({ q: "ab", canal: "telegram" }).success).toBe(
+      false,
+    );
+    expect(BuscarConversacionesSchema.safeParse({ q: "ab", etapa: "inventada" }).success).toBe(
+      false,
+    );
+    expect(BuscarConversacionesSchema.safeParse({ q: "ab", sesion: "pausada" }).success).toBe(
+      false,
+    );
+    expect(BuscarConversacionesSchema.safeParse({ q: "ab", actividad: "ayer" }).success).toBe(
+      false,
+    );
+  });
+
+  test("rechaza una etiqueta que no es UUID: PostgREST responde 400 y la pantalla lo lee como caída", () => {
+    expect(BuscarConversacionesSchema.safeParse({ q: "ab", etiquetaId: "urgente" }).success).toBe(
+      false,
+    );
+    expect(
+      BuscarConversacionesSchema.safeParse({ q: "ab", etiquetaId: crypto.randomUUID() }).success,
+    ).toBe(true);
+  });
+
+  test("acepta los filtros válidos completos", () => {
+    const r = BuscarConversacionesSchema.safeParse({
+      q: "  freno  ",
+      canal: "wa",
+      etapa: "cotizado",
+      etiquetaId: crypto.randomUUID(),
+      actividad: "semana",
+      sesion: "cerrada",
+    });
+    expect(r.success).toBe(true);
+    // `trim` en el schema: el service no tiene que volver a limpiar bordes.
+    expect(r.success && r.data.q).toBe("freno");
   });
 });

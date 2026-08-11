@@ -6,8 +6,10 @@ import { HandoffToggle } from "@/components/inbox/HandoffToggle";
 import { MessageInput } from "@/components/inbox/MessageInput";
 import { TwinPanel } from "@/components/lead-twin/TwinPanel";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
 import { NotFoundError } from "@/lib/errors";
 import { estadoVentana } from "@/lib/ventana";
+import { getAgenteConfigServiceForRequest } from "@/server/bootstrap/agente-bootstrap";
 import { getInboxServiceForRequest } from "@/server/bootstrap/inbox-bootstrap";
 import { agregarDatoLeadAction } from "../_actions/agregar-dato-lead.action";
 import { asignarEtiquetaAction } from "../_actions/asignar-etiqueta.action";
@@ -21,6 +23,7 @@ import { moverEtapaAction } from "../_actions/mover-etapa.action";
 import { programarRecordatorioAction } from "../_actions/programar-recordatorio.action";
 import { quitarEtiquetaAction } from "../_actions/quitar-etiqueta.action";
 import { renombrarLeadAction } from "../_actions/renombrar-lead.action";
+import { reprogramarRecordatorioAction } from "../_actions/reprogramar-recordatorio.action";
 import { sendMessageAction } from "../_actions/send-message.action";
 import { toggleHandoffAction } from "../_actions/toggle-handoff.action";
 import type { ConversationView } from "@/types/inbox";
@@ -38,6 +41,18 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
     if (e instanceof NotFoundError) notFound();
     throw e;
   }
+
+  // La zona horaria del negocio, para el recordatorio de seguimiento: lo que se
+  // muestra y lo que se elige tienen que estar en el reloj del local y no en el
+  // del navegador de quien abre la ficha.
+  //
+  // Se lee la misma `agente_config.horario_timezone` que gobierna el horario de
+  // atención en vez de guardar una segunda copia: dos zonas configurables para
+  // el mismo negocio se desincronizan, y el día que pasa nadie sabe cuál manda.
+  // Sin fila activa se cae a la de fábrica, igual que el resto del agente.
+  const agenteSvc = await getAgenteConfigServiceForRequest();
+  const configActiva = await agenteSvc.activa();
+  const timezoneNegocio = configActiva?.horario_timezone ?? CONFIG_DE_FABRICA.horario_timezone;
 
   // La ventana de 24 h se mide desde el ultimo mensaje del cliente: cada
   // entrante la reabre entera.
@@ -108,6 +123,7 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
           sesionesPrevias={view.sesionesPrevias}
           gastoIa={view.gastoIa}
           recordatorio={view.recordatorio}
+          timezoneNegocio={timezoneNegocio}
           onEditar={editarCampoTwinAction}
           onMoverEtapa={moverEtapaAction}
           onCerrarSesion={closeSessionAction}
@@ -119,6 +135,7 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
           onCrearEtiqueta={crearEtiquetaAction}
           onProgramarRecordatorio={programarRecordatorioAction}
           onCancelarRecordatorio={cancelarRecordatorioAction}
+          onReprogramarRecordatorio={reprogramarRecordatorioAction}
         />
       </aside>
     </div>

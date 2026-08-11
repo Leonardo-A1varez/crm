@@ -40,13 +40,21 @@ export interface RecordatorioSeguimientoDeps {
 export interface RecordatorioSeguimientoInput {
   recordatorioId: UUID;
   leadSessionId: UUID;
+  /**
+   * La fecha con la que ESTA ejecución se durmió. Es lo que la distingue de una
+   * ejecución posterior sobre el mismo recordatorio: si el vendedor lo
+   * reprogramó, la fila ya no tiene esta fecha y este despertar no avisa nada.
+   */
+  recordarAt: Date;
 }
 
 export interface RecordatorioSeguimientoResult {
   /**
    * `avisado` = la fila pasó a `avisado` y la conversación ya sube en el Inbox.
    * `sin-efecto` = el recordatorio se canceló mientras el workflow dormía (a
-   * mano o porque el cliente escribió), o la sesión se purgó. No es un error.
+   * mano o porque el cliente escribió), lo reprogramaron para otra fecha —y
+   * entonces avisa la ejecución nueva, no ésta—, o la sesión se purgó. No es un
+   * error en ninguno de los tres casos.
    */
   resultado: "avisado" | "sin-efecto";
   /** Siempre `false` mientras la puerta del saliente siga cerrada. */
@@ -66,6 +74,12 @@ export interface RecordatorioSeguimientoResult {
  * que un replay del step —o un recordatorio cancelado mientras dormía— sale por
  * `sin-efecto` sin escribir nada. Ahí está la idempotencia real; el nombre del
  * step solo la memoiza dentro de una misma corrida.
+ *
+ * La segunda guarda es `esperadoRecordarAt`. Reprogramar deja la fila
+ * `pendiente` —no cancelada— con otra fecha, así que el estado solo no alcanza:
+ * esta ejecución se despertaría a la hora vieja y avisaría antes de tiempo. Al
+ * pedir que la fecha de la fila sea todavía la que traía el evento, el aviso lo
+ * da una sola ejecución, la que arrancó con la fecha que está guardada.
  */
 export async function recordatorioSeguimientoHandler(
   input: RecordatorioSeguimientoInput,
@@ -78,7 +92,9 @@ export async function recordatorioSeguimientoHandler(
     recordatorio_id: input.recordatorioId,
   });
 
-  const avisado = await deps.recordatorios.marcarAvisado(input.recordatorioId);
+  const avisado = await deps.recordatorios.marcarAvisado(input.recordatorioId, {
+    esperadoRecordarAt: input.recordarAt,
+  });
   if (avisado === null) {
     logger.info("recordatorio-sin-efecto");
     return { resultado: "sin-efecto", mensajeAlCliente: false };
@@ -105,19 +121,26 @@ export function makeRecordatorioSeguimientoFn(deps: RecordatorioSeguimientoDeps)
     },
     async ({ event, step }) => {
       const { recordatorioId, leadSessionId, recordarAt } = event.data;
+      const fecha = new Date(recordarAt);
 
       // `sleepUntil` y no un cron que barre la tabla buscando vencidos: el
       // workflow durable ya sabe esperar dos días sin que nadie pague por
       // consultar cada minuto, y cada recordatorio es su propia ejecución que
       // se puede mirar en el dashboard de Inngest.
-      await step.sleepUntil("esperar-la-fecha", new Date(recordarAt));
+      await step.sleepUntil("esperar-la-fecha", fecha);
 
-      // Idempotency key explícita (AGENTS.md §0.10): el id del recordatorio va
-      // en el nombre del step, no autogenerado. Un replay de esta ejecución
-      // reusa el resultado memoizado en vez de volver a marcar la fila.
-      return step.run(`avisar-${recordatorioId}`, async () => {
+      // Idempotency key explícita (AGENTS.md §0.10): fecha + id del
+      // recordatorio en el nombre del step, no autogenerado. Un replay de esta
+      // ejecución reusa el resultado memoizado en vez de volver a marcar la
+      // fila. La fecha va adelante siguiendo el patrón de la regla, y además
+      // hace legible en el dashboard cuál de las citas de un recordatorio
+      // reprogramado es esta ejecución.
+      return step.run(`avisar-${recordarAt.slice(0, 10)}-${recordatorioId}`, async () => {
         try {
-          return await recordatorioSeguimientoHandler({ recordatorioId, leadSessionId }, deps);
+          return await recordatorioSeguimientoHandler(
+            { recordatorioId, leadSessionId, recordarAt: fecha },
+            deps,
+          );
         } catch (e) {
           if (isNonRetriable(e)) {
             throw new NonRetriableError((e as Error).message, { cause: e });

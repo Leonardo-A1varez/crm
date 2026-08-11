@@ -116,4 +116,57 @@ describe("InMemorySessionRecordatoriosRepository", () => {
     await repo.marcarAvisado(r.id);
     expect((await repo.findVivoBySessionId(sesionA))?.id).toBe(r.id);
   });
+
+  describe("reprogramar", () => {
+    const EN_UNA_SEMANA = new Date("2026-08-18T15:00:00.000Z");
+
+    test("cambia la fecha sin cambiar la fila ni dejar una segunda cita", async () => {
+      const r = await programar();
+      const movido = await repo.reprogramar(r.id, EN_UNA_SEMANA);
+
+      expect(movido?.id).toBe(r.id);
+      expect(movido?.recordar_at).toEqual(EN_UNA_SEMANA);
+      // Sigue habiendo una sola: reprogramar no es cancelar y volver a crear.
+      expect((await repo.findVivoBySessionId(sesionA))?.id).toBe(r.id);
+    });
+
+    test("posponer uno ya avisado lo devuelve a pendiente y borra el sello", async () => {
+      const r = await programar();
+      await repo.marcarAvisado(r.id);
+
+      const movido = await repo.reprogramar(r.id, EN_UNA_SEMANA);
+
+      expect(movido?.estado).toBe("pendiente");
+      expect(movido?.avisado_at).toBeNull();
+    });
+
+    test("uno cancelado no se puede reprogramar: hay que poner uno nuevo", async () => {
+      const r = await programar();
+      await repo.cancelar(r.id, "respondio");
+      expect(await repo.reprogramar(r.id, EN_UNA_SEMANA)).toBeNull();
+    });
+
+    test("una fila que no existe devuelve null y no revienta", async () => {
+      expect(
+        await repo.reprogramar("00000000-0000-0000-0000-00000000dead", EN_UNA_SEMANA),
+      ).toBeNull();
+    });
+  });
+
+  describe("marcarAvisado con la fecha esperada", () => {
+    const OTRA_FECHA = new Date("2026-08-18T15:00:00.000Z");
+
+    test("avisa si la fila todavía tiene la fecha con la que arrancó el workflow", async () => {
+      const r = await programar();
+      expect(await repo.marcarAvisado(r.id, { esperadoRecordarAt: EN_DOS_DIAS })).not.toBeNull();
+    });
+
+    test("no avisa si la reprogramaron: ese despertar quedó viejo", async () => {
+      const r = await programar();
+      await repo.reprogramar(r.id, OTRA_FECHA);
+      expect(await repo.marcarAvisado(r.id, { esperadoRecordarAt: EN_DOS_DIAS })).toBeNull();
+      // Y la fila sigue esperando: el aviso lo va a dar el workflow nuevo.
+      expect((await repo.findById(r.id))?.estado).toBe("pendiente");
+    });
+  });
 });

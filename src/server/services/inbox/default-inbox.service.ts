@@ -42,6 +42,7 @@ import type {
   GastoTurno,
   SesionesPrevias,
 } from "@/types/inbox";
+import type { EtiquetaOpcion } from "@/types/leads";
 import type {
   AgregarDatoLeadServiceInput,
   BorrarDatoExtraServiceInput,
@@ -57,6 +58,7 @@ import type {
   ProgramarAvisoRecordatorioFn,
   ProgramarRecordatorioServiceInput,
   RenombrarLeadServiceInput,
+  ReprogramarRecordatorioServiceInput,
   SendMessageServiceInput,
   ToggleHandoffServiceInput,
 } from "./inbox.service";
@@ -142,6 +144,13 @@ const SIN_ANCLA: AuditoriaTurno = { estado: "sin_registro", motivo: "sin_ancla" 
 
 export class DefaultInboxService implements InboxService {
   constructor(private readonly deps: DefaultInboxServiceDeps) {}
+
+  async listEtiquetas(): Promise<EtiquetaOpcion[]> {
+    const catalogo = await this.deps.tags.list();
+    return catalogo
+      .map((t) => ({ id: t.id, nombre: t.nombre, color: t.color }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  }
 
   async contarRequierenAtencion(): Promise<number> {
     const [activeSessions, recordatorios] = await Promise.all([
@@ -339,6 +348,48 @@ export class DefaultInboxService implements InboxService {
     });
 
     return recordatorio;
+  }
+
+  async reprogramarRecordatorio(
+    input: ReprogramarRecordatorioServiceInput,
+  ): Promise<SessionRecordatorio> {
+    // La sesión sale de la fila y no del cliente: el que identifica la cita es
+    // el id del recordatorio, y aceptar un `sessionId` del formulario sería
+    // dejar que decida contra qué conversación se chequea el estado.
+    const actual = await this.deps.recordatorios.findById(input.recordatorioId);
+    if (!actual) {
+      throw new NotFoundError(
+        `recordatorio no encontrado: ${input.recordatorioId}`,
+        "session_recordatorio",
+        input.recordatorioId,
+      );
+    }
+
+    // Misma guarda que al programar: mover una cita sobre una conversación
+    // cerrada la deja donde nadie la va a ver.
+    await this.requireActiveSession(actual.lead_session_id);
+
+    const movido = await this.deps.recordatorios.reprogramar(
+      input.recordatorioId,
+      input.recordarAt,
+    );
+    if (!movido) {
+      throw new ConflictError(
+        "Este recordatorio ya no está activo. Actualizá la conversación.",
+        "recordatorio_no_vivo",
+      );
+    }
+
+    // Workflow nuevo con la fecha nueva. El viejo sigue durmiendo hasta su
+    // fecha y ahí sale por `sin-efecto`: la fila ya no tiene la fecha con la
+    // que él arrancó. Dos ejecuciones vivas un rato, un solo aviso.
+    await this.deps.programarAviso({
+      recordatorioId: movido.id,
+      leadSessionId: movido.lead_session_id,
+      recordarAt: movido.recordar_at,
+    });
+
+    return movido;
   }
 
   async cancelarRecordatorio(input: CancelarRecordatorioServiceInput): Promise<void> {

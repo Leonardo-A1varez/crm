@@ -1,11 +1,14 @@
 import { ConflictError } from "@/lib/errors";
 import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
+import { escaparLike } from "@/server/db/postgrest-like";
 import { isUuid } from "@/server/db/uuid";
 import { esAvance } from "@/lib/entrega";
 import type { Direction, EstadoEntrega, Sender, TipoMensaje } from "@/types/domain";
 import type { Mensaje, MensajeMetadata, UUID } from "@/types/entities";
 import type {
+  BuscarContenidoFilter,
+  CoincidenciaContenido,
   EstadoEntregaPatch,
   ListByConversacionFilter,
   ListBySessionFilter,
@@ -164,6 +167,45 @@ export class SupabaseMessagesRepository implements MessagesRepository {
       for (const row of data ?? []) out.push(mapRow(row));
     }
     return out.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
+  }
+
+  async buscarContenido(
+    q: string,
+    filter: BuscarContenidoFilter,
+  ): Promise<CoincidenciaContenido[]> {
+    if (q === "") return [];
+
+    // `.ilike()` y no `.or(...)`: el valor viaja como parámetro y no atraviesa
+    // el árbol de filtros de PostgREST, así que alcanza con escapar los
+    // comodines de LIKE. Sin `escaparLike`, un mensaje buscado con guion bajo
+    // —"FRE_1234"— matchearía cualquier caracter en esa posición.
+    //
+    // Solo se piden las 5 columnas que el buscador dibuja. `select("*")` traería
+    // `metadata` (jsonb del webhook de Meta) de cada fila candidata para
+    // tirarlo.
+    const { data, error } = await this.db
+      .from("mensajes")
+      .select("id, lead_session_id, contenido, direction, created_at")
+      .ilike("contenido", `%${escaparLike(q)}%`)
+      .order("created_at", { ascending: false })
+      .limit(filter.limit);
+
+    if (error) throw mapPostgrestError(error, { resource: "mensaje" });
+
+    const out: CoincidenciaContenido[] = [];
+    for (const row of data ?? []) {
+      // El filtro garantiza que no es null, pero el tipo generado no lo sabe:
+      // se descarta en vez de castear (mismo criterio que `listCierres`).
+      if (row.contenido === null) continue;
+      out.push({
+        mensajeId: row.id,
+        leadSessionId: row.lead_session_id,
+        contenido: row.contenido,
+        direction: row.direction,
+        createdAt: new Date(row.created_at),
+      });
+    }
+    return out;
   }
 
   async aplicarEstadoEntrega(
