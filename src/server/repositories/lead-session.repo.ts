@@ -48,6 +48,19 @@ export interface CloseInput {
   motivo_perdida?: MotivoPerdida | null;
 }
 
+/**
+ * Cómo terminó una sesión ya cerrada, sin el resto de la fila.
+ *
+ * Es la forma angosta que necesita la lista de leads para decir "este lead se
+ * perdió por precio" sin traerse el Twin entero de cada sesión histórica.
+ */
+export interface CierreSesion {
+  lead_id: UUID;
+  resultado: Resultado;
+  motivo_perdida: MotivoPerdida | null;
+  closed_at: Date;
+}
+
 export interface LeadSessionRepository {
   create(input: LeadSessionInsert): Promise<LeadSession>;
   findById(id: UUID): Promise<LeadSession | null>;
@@ -59,7 +72,38 @@ export interface LeadSessionRepository {
   listByLeadId(leadId: UUID): Promise<LeadSession[]>;
   update(id: UUID, patch: LeadSessionUpdate): Promise<LeadSession>;
   close(id: UUID, input: CloseInput): Promise<LeadSession>;
+  /**
+   * Cierra la sesión como perdida y deja la etapa en `perdido` en la misma
+   * operación, anotando que la decisión fue de una persona.
+   *
+   * Existe aparte de `close` porque son dos actos distintos: `close` lo dispara
+   * el pipeline cuando la conversación terminó, y no toca la etapa; esto lo
+   * dispara un vendedor que declara perdida la venta, y ahí la etapa **es** el
+   * dato —"Perdido" es lo que va a leer el resto del panel—. El motivo es
+   * obligatorio por firma: un cierre perdido sin motivo no se puede ni
+   * expresar.
+   *
+   * Idempotente con el mismo motivo (replay-safe); con otro resultado o motivo
+   * lanza `IllegalStateError`, igual que `close`.
+   */
+  marcarPerdida(id: UUID, motivo: MotivoPerdida, userId: UUID | null): Promise<LeadSession>;
   listClosedBefore(date: Date): Promise<LeadSession[]>;
+  /**
+   * Cierres de todas las sesiones cerradas, del más reciente al más viejo.
+   *
+   * Una sola consulta de 4 columnas para toda la pantalla de leads: sin esto el
+   * listado tendría que pedir `listByLeadId` por fila para saber cómo terminó
+   * cada lead. El volumen está acotado por la purga de 29 días.
+   */
+  listCierres(): Promise<CierreSesion[]>;
+  /**
+   * Leads con alguna sesión cuyo código de producto cotizado contiene `q`.
+   *
+   * La búsqueda de la pantalla de leads incluye el código cotizado, que vive
+   * acá y no en `leads`; esto devuelve los ids para que la consulta de leads
+   * los sume a su `OR` en vez de hacer un lookup por fila.
+   */
+  listLeadIdsByCodigo(q: string): Promise<UUID[]>;
   // Purge cron (Slice 4). CASCADE borra mensajes + rule_executions.
   // Id inexistente = no-op (replay-safe para retries Inngest).
   delete(id: UUID): Promise<void>;
@@ -210,12 +254,74 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
     return cloneSession(closed);
   }
 
+  async marcarPerdida(id: UUID, motivo: MotivoPerdida, userId: UUID | null): Promise<LeadSession> {
+    const current = this.store.get(id);
+    if (!current) throw new NotFoundError(`sesión no encontrada: ${id}`, "lead_session", id);
+    if (current.resultado !== null) {
+      if (current.resultado === "perdido" && current.motivo_perdida === motivo) {
+        return cloneSession(current);
+      }
+      throw new IllegalStateError(
+        `sesión ya cerrada con resultado distinto (current=${current.resultado}/${current.motivo_perdida ?? "null"}, requested=perdido/${motivo})`,
+        "session_already_closed_different",
+      );
+    }
+    const next: LeadSession = {
+      ...current,
+      current_stage: "perdido",
+      // `perdido` es un desvío: no avanza el embudo, lo congela donde estaba.
+      etapa_alcanzada: current.etapa_alcanzada,
+      resultado: "perdido",
+      motivo_perdida: motivo,
+      closed_at: new Date(),
+      updated_at: new Date(),
+      procedencia: {
+        ...current.procedencia,
+        current_stage: {
+          por: "humano",
+          at: new Date().toISOString(),
+          user_id: userId,
+          mensaje_origen_id: null,
+          valor_anterior: current.current_stage,
+        },
+      },
+    };
+    this.store.set(id, next);
+    return cloneSession(next);
+  }
+
   async listClosedBefore(date: Date): Promise<LeadSession[]> {
     const out: LeadSession[] = [];
     for (const s of this.store.values()) {
       if (s.closed_at && s.closed_at < date) out.push(cloneSession(s));
     }
     return out;
+  }
+
+  async listCierres(): Promise<CierreSesion[]> {
+    const out: CierreSesion[] = [];
+    for (const s of this.store.values()) {
+      if (s.resultado === null || s.closed_at === null) continue;
+      out.push({
+        lead_id: s.lead_id,
+        resultado: s.resultado,
+        motivo_perdida: s.motivo_perdida,
+        closed_at: s.closed_at,
+      });
+    }
+    return out.sort((a, b) => b.closed_at.getTime() - a.closed_at.getTime());
+  }
+
+  async listLeadIdsByCodigo(q: string): Promise<UUID[]> {
+    const needle = q.toLowerCase();
+    if (needle === "") return [];
+    const out = new Set<UUID>();
+    for (const s of this.store.values()) {
+      if (s.codigo_interno && s.codigo_interno.toLowerCase().includes(needle)) {
+        out.add(s.lead_id);
+      }
+    }
+    return Array.from(out);
   }
 
   async delete(id: UUID): Promise<void> {

@@ -14,7 +14,24 @@ export type LeadInsert = Insert<
 export type LeadUpdate = Update<Lead, "id" | "created_at" | "updated_at">;
 
 export interface LeadListFilter {
+  /**
+   * Texto libre contra las columnas con las que el vendedor reconoce al lead:
+   * nombre de la casa, nombre de perfil de Meta, teléfono, marca y modelo.
+   * El código de producto cotizado NO está acá: vive en `lead_session` y entra
+   * por `idsExtra`.
+   */
   q?: string;
+  /**
+   * Leads que entran al resultado aunque `q` no matchee ninguna de sus
+   * columnas. Es la mitad de la búsqueda que resuelve otra tabla —hoy, los
+   * leads cuyo código cotizado coincide—. Sin `q` no tiene efecto: filtrar solo
+   * por esta lista sería otra consulta, no una búsqueda.
+   */
+  idsExtra?: UUID[];
+  canal?: Canal;
+  /** Cotas sobre `updated_at`: alimentan el filtro de última actividad. */
+  actualizadoDesde?: Date;
+  actualizadoHasta?: Date;
   limit?: number;
   offset?: number;
 }
@@ -111,9 +128,25 @@ export class InMemoryLeadsRepository implements LeadsRepository {
     let rows = Array.from(this.store.values());
     if (filter.q) {
       const q = filter.q.toLowerCase();
+      const extra = new Set(filter.idsExtra ?? []);
       rows = rows.filter(
-        (l) => l.nombre.toLowerCase().includes(q) || l.telefono.toLowerCase().includes(q),
+        (l) =>
+          extra.has(l.id) ||
+          [l.nombre, l.nombre_perfil, l.telefono, l.vehiculo_marca, l.vehiculo_modelo].some(
+            (campo) => (campo ?? "").toLowerCase().includes(q),
+          ),
       );
+    }
+    if (filter.canal) {
+      rows = rows.filter((l) => l.canal_origen === filter.canal);
+    }
+    if (filter.actualizadoDesde) {
+      const desde = filter.actualizadoDesde.getTime();
+      rows = rows.filter((l) => l.updated_at.getTime() >= desde);
+    }
+    if (filter.actualizadoHasta) {
+      const hasta = filter.actualizadoHasta.getTime();
+      rows = rows.filter((l) => l.updated_at.getTime() < hasta);
     }
     // Orden estable: updated_at DESC, id ASC para tiebreak
     rows.sort(

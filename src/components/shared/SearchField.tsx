@@ -16,15 +16,24 @@ export function SearchField({
   placeholder,
   label,
   className,
+  conservar,
 }: {
   action: string;
   defaultValue?: string;
   placeholder: string;
   label: string;
   className?: string;
+  /**
+   * Params que el submit tiene que arrastrar. Un GET manda solo sus campos, así
+   * que sin esto buscar apagaría los filtros que la pantalla tenga puestos.
+   */
+  conservar?: Record<string, string>;
 }) {
   return (
     <Form action={action} className={cn("min-w-0", className)}>
+      {Object.entries(conservar ?? {}).map(([clave, valor]) => (
+        <input key={clave} type="hidden" name={clave} value={valor} />
+      ))}
       <div className="bg-surface-elevated border-line-card flex items-center gap-2 rounded-[9px] border px-2.5 py-[7px]">
         <SearchIcon className="text-ink-ghost shrink-0" size={15} />
         <input

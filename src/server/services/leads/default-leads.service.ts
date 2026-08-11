@@ -1,10 +1,19 @@
+import { cotasActividad } from "@/lib/actividad";
 import { NotFoundError } from "@/lib/errors";
+import { calcularSinResponder } from "@/lib/sin-responder";
+import type { CierreSesion, LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
-import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { MergeCandidatesRepository } from "@/server/repositories/merge-candidates.repo";
+import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { TagsRepository } from "@/server/repositories/tags.repo";
-import type { Lead, UUID } from "@/types/entities";
-import type { DuplicadoPendiente, LeadDetail, LeadListItem, LeadsPage } from "@/types/leads";
+import type { Lead, LeadSession, Mensaje, UUID } from "@/types/entities";
+import type {
+  DuplicadoPendiente,
+  EtiquetaOpcion,
+  LeadDetail,
+  LeadListItem,
+  LeadsPage,
+} from "@/types/leads";
 import type { LeadsListInput, LeadsService } from "./leads.service";
 
 // Cap defensivo (patrón fase 9): sin paginación v1, la búsqueda acota.
@@ -16,6 +25,8 @@ export interface DefaultLeadsServiceDeps {
   sessions: LeadSessionRepository;
   candidates: MergeCandidatesRepository;
   tags: TagsRepository;
+  /** Solo para el filtro "sin responder": los hilos se leen agrupados. */
+  messages: MessagesRepository;
 }
 
 function vehiculoDe(lead: Lead): string {
@@ -26,42 +37,150 @@ function vehiculoDe(lead: Lead): string {
     .join(" ");
 }
 
+/** Valores presentes, sin repetir y en orden alfabético castellano. */
+function opciones(valores: readonly string[]): string[] {
+  return Array.from(new Set(valores.map((v) => v.trim()).filter((v) => v !== ""))).sort((a, b) =>
+    a.localeCompare(b, "es"),
+  );
+}
+
+/**
+ * Último cierre de cada lead. `listCierres` viene del más reciente al más
+ * viejo, así que el primero que aparece por lead es el que vale.
+ */
+function ultimosCierres(cierres: readonly CierreSesion[]): Map<UUID, CierreSesion> {
+  const out = new Map<UUID, CierreSesion>();
+  for (const c of cierres) {
+    if (!out.has(c.lead_id)) out.set(c.lead_id, c);
+  }
+  return out;
+}
+
+/** Ids de sesión con entrantes posteriores a nuestra última respuesta. */
+function sesionesPendientes(mensajes: readonly Mensaje[]): Set<UUID> {
+  const porSesion = new Map<UUID, Mensaje[]>();
+  for (const m of mensajes) {
+    if (m.lead_session_id === null) continue;
+    const hilo = porSesion.get(m.lead_session_id);
+    if (hilo) hilo.push(m);
+    else porSesion.set(m.lead_session_id, [m]);
+  }
+  const out = new Set<UUID>();
+  for (const [sessionId, hilo] of porSesion) {
+    if (calcularSinResponder(hilo).sinResponder > 0) out.add(sessionId);
+  }
+  return out;
+}
+
 export class DefaultLeadsService implements LeadsService {
   constructor(private readonly deps: DefaultLeadsServiceDeps) {}
 
   async listLeads(input: LeadsListInput = {}): Promise<LeadsPage> {
     const q = input.q?.trim().slice(0, Q_MAX);
+
+    // El código de producto cotizado vive en `lead_session`, no en `leads`. Se
+    // resuelve a ids antes de la consulta de leads para que entre en el mismo
+    // OR: la alternativa —buscar leads y después mirar sus sesiones— sería una
+    // consulta por fila y además perdería los leads que solo matchean por ahí.
+    const idsPorCodigo = q ? await this.deps.sessions.listLeadIdsByCodigo(q) : [];
+
     // Un solo fetch de candidates pending: alimenta pendingPairs Y el filtro
     // soloDuplicados (nunca dos llamadas). Un solo listActive(): el badge
     // sesionActiva se cruza en memoria, nunca N+1 findActiveByLeadId por lead.
-    const [rows, activas, pendientes] = await Promise.all([
-      this.deps.leads.list({ q: q || undefined, limit: LIST_LIMIT }),
+    // Un solo listCierres(): 4 columnas de las sesiones cerradas alcanzan para
+    // decir cómo terminó cada lead.
+    const [rows, activas, pendientes, cierres, catalogoEtiquetas] = await Promise.all([
+      this.deps.leads.list({
+        q: q || undefined,
+        idsExtra: idsPorCodigo,
+        canal: input.canal,
+        ...cotasActividad(input.actividad, input.ahora ?? new Date()),
+        limit: LIST_LIMIT,
+      }),
       this.deps.sessions.listActive(),
       this.deps.candidates.list({ status: "pending" }),
+      this.deps.sessions.listCierres(),
+      this.deps.tags.list(),
     ]);
 
-    // Map y no Set: la lista muestra la etapa además del badge, y la sesión
-    // abierta es la única que la define (una cerrada quedó congelada).
-    const etapaActiva = new Map(activas.map((s) => [s.lead_id, s.current_stage]));
+    const sesionPorLead = new Map<UUID, LeadSession>(activas.map((s) => [s.lead_id, s]));
+    const cierrePorLead = ultimosCierres(cierres);
     const involucrados = new Set(pendientes.flatMap((c) => [c.src_lead_id, c.dst_lead_id]));
 
-    let items: LeadListItem[] = rows.map((lead) => ({
-      leadId: lead.id,
-      nombre: lead.nombre,
-      telefono: lead.telefono,
-      canalOrigen: lead.canal_origen,
-      vehiculo: vehiculoDe(lead),
-      sesionActiva: etapaActiva.has(lead.id),
-      currentStage: etapaActiva.get(lead.id) ?? null,
-      createdAt: lead.created_at,
-      updatedAt: lead.updated_at,
-    }));
+    // Las opciones de vehículo salen de lo que hay ANTES de filtrar por
+    // vehículo: si salieran de después, elegir una marca dejaría el selector
+    // con esa sola marca y no habría forma de cambiarla.
+    const marcas = opciones(rows.map((l) => l.vehiculo_marca));
+    const modelos = opciones(
+      rows
+        .filter((l) => !input.vehiculoMarca || l.vehiculo_marca === input.vehiculoMarca)
+        .map((l) => l.vehiculo_modelo),
+    );
 
+    let leads = rows;
+    if (input.vehiculoMarca) {
+      leads = leads.filter((l) => l.vehiculo_marca === input.vehiculoMarca);
+    }
+    if (input.vehiculoModelo) {
+      leads = leads.filter((l) => l.vehiculo_modelo === input.vehiculoModelo);
+    }
     if (input.soloDuplicados) {
-      items = items.filter((i) => involucrados.has(i.leadId));
+      leads = leads.filter((l) => involucrados.has(l.id));
+    }
+    if (input.conSesionActiva !== undefined) {
+      leads = leads.filter((l) => sesionPorLead.has(l.id) === input.conSesionActiva);
+    }
+    if (input.etapa) {
+      leads = leads.filter((l) => sesionPorLead.get(l.id)?.current_stage === input.etapa);
+    }
+    if (input.resultado) {
+      leads = leads.filter((l) => cierrePorLead.get(l.id)?.resultado === input.resultado);
+    }
+    if (input.motivoPerdida) {
+      leads = leads.filter((l) => cierrePorLead.get(l.id)?.motivo_perdida === input.motivoPerdida);
+    }
+    if (input.etiquetaId) {
+      // Una consulta al pivot, no una por lead: devuelve los ids de golpe.
+      const conEtiqueta = new Set(await this.deps.tags.listLeadIdsByTag(input.etiquetaId));
+      leads = leads.filter((l) => conEtiqueta.has(l.id));
+    }
+    if (input.sinResponder) {
+      // Solo los hilos de las sesiones que sobrevivieron a los demás filtros, y
+      // en tandas: sin sesión abierta no hay nada esperando respuesta.
+      const sessionIds = leads
+        .map((l) => sesionPorLead.get(l.id)?.id)
+        .filter((id): id is UUID => id !== undefined);
+      const pendientesDeRespuesta = sesionesPendientes(
+        await this.deps.messages.listBySessionIds(sessionIds),
+      );
+      leads = leads.filter((l) => {
+        const sesion = sesionPorLead.get(l.id);
+        return sesion !== undefined && pendientesDeRespuesta.has(sesion.id);
+      });
     }
 
-    return { items, pendingPairs: pendientes.length };
+    const items: LeadListItem[] = leads.map((lead) => {
+      const cierre = cierrePorLead.get(lead.id);
+      return {
+        leadId: lead.id,
+        nombre: lead.nombre,
+        telefono: lead.telefono,
+        canalOrigen: lead.canal_origen,
+        vehiculo: vehiculoDe(lead),
+        sesionActiva: sesionPorLead.has(lead.id),
+        currentStage: sesionPorLead.get(lead.id)?.current_stage ?? null,
+        resultado: cierre?.resultado ?? null,
+        motivoPerdida: cierre?.motivo_perdida ?? null,
+        createdAt: lead.created_at,
+        updatedAt: lead.updated_at,
+      };
+    });
+
+    const etiquetas: EtiquetaOpcion[] = catalogoEtiquetas
+      .map((t) => ({ id: t.id, nombre: t.nombre, color: t.color }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+
+    return { items, pendingPairs: pendientes.length, marcas, modelos, etiquetas };
   }
 
   async getLeadDetail(leadId: UUID): Promise<LeadDetail> {

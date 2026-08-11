@@ -1,4 +1,5 @@
-import { canalColor, canalLabel } from "@/lib/ui/canal";
+import { canalColor, canalesDeFila, canalLabel } from "@/lib/ui/canal";
+import { cn } from "@/lib/utils";
 import type { Canal } from "@/types/domain";
 
 export function CanalGlyph({ canal, className }: { canal: Canal; className: string }) {
@@ -22,6 +23,91 @@ export function CanalGlyph({ canal, className }: { canal: Canal; className: stri
         </svg>
       );
   }
+}
+
+/**
+ * Los canales de una fila de la lista, en una tira de una sola línea: el mismo
+ * glifo + nombre del header de la conversación, encogido a lo que entra.
+ *
+ * Es `shrink-0` a propósito. Quien la usa la pone al lado de un hermano
+ * flexible —el nombre del lead en la fila completa— y ese hermano es el que
+ * cede el ancho: así la tira nunca se recorta a medio glifo ni empuja la fila
+ * fuera de los 322px del panel.
+ */
+export function CanalesFila({
+  canales,
+  canalActivo,
+  glifo,
+  permiteEtiqueta,
+}: {
+  canales: Canal[];
+  canalActivo: Canal | null;
+  /** Clases de tamaño del SVG: la fila completa y la compacta no miden igual. */
+  glifo: string;
+  permiteEtiqueta: boolean;
+}) {
+  const { canales: orden, conEtiqueta } = canalesDeFila(canales, canalActivo, permiteEtiqueta);
+  if (orden.length === 0) return null;
+
+  return (
+    <span className="flex shrink-0 items-center gap-1">
+      {orden.map((canal, i) => (
+        <span
+          key={canal}
+          role="img"
+          aria-label={canalLabel(canal)}
+          title={canalLabel(canal)}
+          // El vinculado va atenuado: el activo es el canal por el que se
+          // responde, y esa diferencia tiene que leerse sin pasar el mouse.
+          className={cn("flex items-center gap-1", i > 0 && "opacity-55")}
+          style={{ color: canalColor(canal) }}
+        >
+          <CanalGlyph canal={canal} className={glifo} />
+          {conEtiqueta ? (
+            <span aria-hidden className="text-[10px] font-medium">
+              {canalLabel(canal)}
+            </span>
+          ) : null}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * Glifo del canal montado sobre el avatar, en el lugar del punto de color.
+ *
+ * Existe para la fila compacta, donde la tira no entra: esa fila es una sola
+ * línea y sus 250px útiles ya están tomados por nombre, etapa, preview y hora.
+ * Sobre el avatar el glifo cuesta cero ancho.
+ */
+export function ChannelBadge({
+  canal,
+  size,
+  ringColor,
+  className,
+}: {
+  canal: Canal;
+  size: number;
+  ringColor: string;
+  className?: string;
+}) {
+  return (
+    <span
+      role="img"
+      aria-label={canalLabel(canal)}
+      className={cn("inline-flex shrink-0 items-center justify-center rounded-full", className)}
+      style={{
+        width: size,
+        height: size,
+        backgroundColor: ringColor,
+        border: `1.5px solid ${ringColor}`,
+        color: canalColor(canal),
+      }}
+    >
+      <CanalGlyph canal={canal} className="h-full w-full" />
+    </span>
+  );
 }
 
 /**

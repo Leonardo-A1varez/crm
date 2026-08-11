@@ -15,6 +15,10 @@ import type {
 
 const DEFAULT_LIMIT = 50;
 
+// 100 uuids son ~3,7 KB de query string: entra holgado en cualquier proxy y
+// deja una sola tanda para un piloto entero (30 vendedores).
+const SESSION_IDS_POR_TANDA = 100;
+
 /**
  * Supabase impl MessagesRepository. Slice 1 sub-paso 7.4 repo 8.
  *
@@ -139,6 +143,29 @@ export class SupabaseMessagesRepository implements MessagesRepository {
     if (error) throw mapPostgrestError(error, { resource: "mensaje" });
     return (data ?? []).map(mapRow).reverse();
   }
+
+  async listBySessionIds(sessionIds: UUID[]): Promise<Mensaje[]> {
+    const ids = sessionIds.filter(isUuid);
+    if (ids.length === 0) return [];
+
+    // Se parte en tandas porque `.in()` viaja en la query string: con todas las
+    // sesiones activas de una instancia grande, un solo GET se pasaría del
+    // largo de URL que acepta el proxy y fallaría con 414, no con un error de
+    // dominio. Cada tanda es una consulta, nunca una por sesión.
+    const out: Mensaje[] = [];
+    for (let i = 0; i < ids.length; i += SESSION_IDS_POR_TANDA) {
+      const tanda = ids.slice(i, i + SESSION_IDS_POR_TANDA);
+      const { data, error } = await this.db
+        .from("mensajes")
+        .select()
+        .in("lead_session_id", tanda)
+        .order("created_at", { ascending: true });
+      if (error) throw mapPostgrestError(error, { resource: "mensaje" });
+      for (const row of data ?? []) out.push(mapRow(row));
+    }
+    return out.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
+  }
+
   async aplicarEstadoEntrega(
     metaMessageId: string,
     patch: EstadoEntregaPatch,

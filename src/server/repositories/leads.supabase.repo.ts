@@ -132,7 +132,26 @@ export class SupabaseLeadsRepository implements LeadsRepository {
 
     if (filter.q) {
       const pat = ilikeContains(filter.q);
-      query = query.or(`nombre.ilike.${pat},telefono.ilike.${pat}`);
+      const ramas = [
+        `nombre.ilike.${pat}`,
+        `nombre_perfil.ilike.${pat}`,
+        `telefono.ilike.${pat}`,
+        `vehiculo_marca.ilike.${pat}`,
+        `vehiculo_modelo.ilike.${pat}`,
+      ];
+      // Los ids llegan filtrados por `isUuid` desde el service, así que no hay
+      // forma de inyectar sintaxis del árbol de filtros por esta rama.
+      const extra = (filter.idsExtra ?? []).filter(isUuid);
+      if (extra.length > 0) ramas.push(`id.in.(${extra.join(",")})`);
+      query = query.or(ramas.join(","));
+    }
+
+    if (filter.canal) query = query.eq("canal_origen", filter.canal);
+    if (filter.actualizadoDesde) {
+      query = query.gte("updated_at", filter.actualizadoDesde.toISOString());
+    }
+    if (filter.actualizadoHasta) {
+      query = query.lt("updated_at", filter.actualizadoHasta.toISOString());
     }
 
     const offset = filter.offset ?? 0;

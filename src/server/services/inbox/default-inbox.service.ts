@@ -1,5 +1,6 @@
 import { conDatoExtra, excedeTope, MAX_DATOS_EXTRA, sinDatoExtra } from "@/lib/datos-extra";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
+import { calcularSinResponder } from "@/lib/sin-responder";
 import { pesoMotivo, triage } from "@/lib/triage";
 import type { EntradaTriage } from "@/lib/triage";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
@@ -67,28 +68,6 @@ function colorParaEtiqueta(nombre: string): string {
   let acumulado = 0;
   for (const char of nombre) acumulado = (acumulado + (char.codePointAt(0) ?? 0)) % 4096;
   return COLORES_ETIQUETA[acumulado % COLORES_ETIQUETA.length] ?? COLORES_ETIQUETA[0];
-}
-
-/**
- * Mensajes entrantes posteriores a la última respuesta nuestra.
- *
- * `sistema` se descarta a propósito aunque sea `out`: "sesión reasignada" no
- * es contestarle al cliente, y contarlo como respuesta apagaría el triage de
- * una conversación que sigue esperando.
- */
-function calcularSinResponder(mensajes: Mensaje[]): {
-  sinResponder: number;
-  esperandoDesde: Date | null;
-} {
-  const pendientes: Mensaje[] = [];
-  for (let i = mensajes.length - 1; i >= 0; i--) {
-    const m = mensajes[i];
-    if (!m) continue;
-    if (m.direction === "out" && m.sender !== "sistema") break;
-    if (m.direction === "in") pendientes.push(m);
-  }
-  const primero = pendientes[pendientes.length - 1];
-  return { sinResponder: pendientes.length, esperandoDesde: primero?.created_at ?? null };
 }
 
 /** El triage mira solo la sesión, así que contar no obliga a leer hilos. */

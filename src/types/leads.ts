@@ -1,5 +1,15 @@
-import type { Canal, CurrentStage, TagSource } from "./domain";
+import type { Canal, CurrentStage, MotivoPerdida, Resultado, TagSource } from "./domain";
 import type { Lead, LeadSession, UUID } from "./entities";
+
+/**
+ * Ventanas del filtro de última actividad, medidas sobre `leads.updated_at`.
+ *
+ * Son tres y no un rango libre porque las tres son las preguntas que se hace un
+ * vendedor: qué toqué hoy, qué se movió esta semana y qué quedó abandonado.
+ * `mas_30` es la única que mira hacia atrás y por eso es una cota superior.
+ */
+export const VENTANA_ACTIVIDAD = ["hoy", "semana", "mas_30"] as const;
+export type VentanaActividad = (typeof VENTANA_ACTIVIDAD)[number];
 
 /**
  * Formas derivadas para las vistas `/leads` y `/leads/[id]` (fase 10). Viven en
@@ -19,6 +29,14 @@ export interface LeadListItem {
    * miente sobre el estado del lead.
    */
   currentStage: CurrentStage | null;
+  /**
+   * Cómo terminó la última sesión cerrada del lead. Es lo que se muestra en la
+   * columna de etapa cuando no hay sesión abierta: sin esto, un lead perdido y
+   * uno que nunca abrió sesión se leen igual (una raya).
+   */
+  resultado: Resultado | null;
+  /** Solo con `resultado === "perdido"`. `null` en las filas viejas sin motivo. */
+  motivoPerdida: MotivoPerdida | null;
   /** Alta del lead. Es lo que cuenta el "nuevos esta semana" del encabezado. */
   createdAt: Date;
   updatedAt: Date;
@@ -27,6 +45,27 @@ export interface LeadListItem {
 export interface LeadsPage {
   items: LeadListItem[];
   pendingPairs: number; // candidates pending totales (banner admin)
+  /**
+   * Marcas y modelos que aparecen en el resultado, para poblar el selector de
+   * vehículo. Salen de las filas ya traídas y no de un `distinct` aparte: una
+   * consulta menos, y las opciones ofrecidas son las que dan resultado.
+   * `modelos` se acota a la marca elegida cuando hay una.
+   */
+  marcas: string[];
+  modelos: string[];
+  /**
+   * Catálogo completo de etiquetas, para poblar el chip de filtro. Sale del
+   * catálogo y no de los leads del resultado: si saliera del resultado, filtrar
+   * por una etiqueta dejaría el selector con esa sola y no habría con qué
+   * cambiarla — el mismo problema que resuelve `marcas` mirando el pre-filtro.
+   */
+  etiquetas: EtiquetaOpcion[];
+}
+
+export interface EtiquetaOpcion {
+  id: UUID;
+  nombre: string;
+  color: string;
 }
 
 export interface LeadTagView {

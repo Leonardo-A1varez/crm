@@ -262,5 +262,68 @@ export function runLeadsContract(makeRepo: () => LeadsRepository) {
       expect(porPct).toHaveLength(1);
       expect(porPct[0]?.nombre).toBe("Tel 100% Dos");
     });
+
+    test("list q alcanza nombre_perfil, marca y modelo", async () => {
+      await repo.create({
+        ...baseInsert,
+        telefono: "+549118880001",
+        nombre: "",
+        nombre_perfil: "Chelo del Taller",
+      });
+      await repo.create({
+        ...baseInsert,
+        telefono: "+549118880002",
+        nombre: "Con Peugeot",
+        vehiculo_marca: "Peugeot",
+        vehiculo_modelo: "Partner",
+      });
+
+      expect((await repo.list({ q: "chelo" }))[0]?.telefono).toBe("+549118880001");
+      expect((await repo.list({ q: "peugeot" }))[0]?.telefono).toBe("+549118880002");
+      expect((await repo.list({ q: "partner" }))[0]?.telefono).toBe("+549118880002");
+    });
+
+    test("idsExtra suma leads que q no matchea, y sin q no filtra nada", async () => {
+      const porTexto = await repo.create({
+        ...baseInsert,
+        telefono: "+549119990001",
+        nombre: "Ana Buscada",
+      });
+      const porId = await repo.create({
+        ...baseInsert,
+        telefono: "+549119990002",
+        nombre: "Nada Que Ver",
+      });
+
+      const conExtra = await repo.list({ q: "ana buscada", idsExtra: [porId.id] });
+      expect(conExtra.map((l) => l.id).sort()).toEqual([porTexto.id, porId.id].sort());
+
+      // Sin `q` la lista de ids no es un filtro: la búsqueda es lo que la activa.
+      expect(await repo.list({ idsExtra: [porId.id] })).toHaveLength(2);
+    });
+
+    test("list filtra por canal de origen", async () => {
+      await repo.create({ ...baseInsert, telefono: "+549120000001", canal_origen: "wa" });
+      const ig = await repo.create({
+        ...baseInsert,
+        telefono: "+549120000002",
+        canal_origen: "ig",
+        meta_user_ids: { ig: "ig_1" },
+      });
+
+      const soloIg = await repo.list({ canal: "ig" });
+      expect(soloIg).toHaveLength(1);
+      expect(soloIg[0]?.id).toBe(ig.id);
+    });
+
+    test("las cotas de updated_at son desde inclusiva y hasta exclusiva", async () => {
+      const lead = await repo.create({ ...baseInsert, telefono: "+549121110001" });
+      const sello = lead.updated_at;
+
+      expect(await repo.list({ actualizadoDesde: sello })).toHaveLength(1);
+      expect(await repo.list({ actualizadoHasta: sello })).toHaveLength(0);
+      expect(await repo.list({ actualizadoDesde: new Date(sello.getTime() + 1) })).toHaveLength(0);
+      expect(await repo.list({ actualizadoHasta: new Date(sello.getTime() + 1) })).toHaveLength(1);
+    });
   });
 }

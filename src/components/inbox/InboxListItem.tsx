@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Bolt, PanTool, ReceiptLong, Warning } from "@/components/icons";
+import { CanalesFila, ChannelBadge } from "@/components/inbox/ChannelIcons";
 import { ChannelDot } from "@/components/shared/ChannelDot";
 import { InitialsAvatar } from "@/components/shared/InitialsAvatar";
 import { MonoMeta } from "@/components/shared/MonoMeta";
@@ -79,17 +80,21 @@ function FilaCompacta({ item, activa }: { item: InboxItem; activa: boolean }) {
           className="bg-surface-hover text-ink-dim font-medium"
         />
         {item.canalActivo ? (
-          <ChannelDot
+          <ChannelBadge
             canal={item.canalActivo}
-            size={9}
+            size={13}
             ringColor="var(--color-surface-panel)"
-            className="absolute right-[-2px] bottom-[-2px]"
+            className="absolute right-[-3px] bottom-[-3px]"
           />
         ) : null}
       </div>
+      {/*
+        Tope duro al nombre: sin él el `shrink-0` lo deja crecer a max-content y
+        un nombre largo empuja la hora fuera de los 322px del panel.
+      */}
       <span
         className={cn(
-          "shrink-0 truncate text-[12px] font-[550]",
+          "max-w-[96px] shrink-0 truncate text-[12px] font-[550]",
           sinNombre(item.nombre) ? "text-ink-faint" : "text-ink-secondary",
         )}
       >
@@ -157,7 +162,21 @@ function FilaCompleta({
           >
             {nombreVisible(item.nombre)}
           </span>
-          <MonoMeta className="shrink-0">{formatRelative(item.ultimaActividad)}</MonoMeta>
+          {/*
+            Los canales van en la línea del nombre y no en la de la etapa: ahí
+            abajo conviven la etapa, "IA pausada" y el rayo de urgencia, todos
+            `shrink-0`, y en el peor caso la suma pasa los 236px de la columna.
+            Acá el hermano flexible es el nombre, que trunca y absorbe.
+          */}
+          <div className="flex shrink-0 items-center gap-2">
+            <CanalesFila
+              canales={item.canales}
+              canalActivo={item.canalActivo}
+              glifo="h-[13px] w-[13px]"
+              permiteEtiqueta
+            />
+            <MonoMeta className="shrink-0">{formatRelative(item.ultimaActividad)}</MonoMeta>
+          </div>
         </div>
 
         <div className="mt-0.5 flex items-center justify-between gap-2">

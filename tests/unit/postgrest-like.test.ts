@@ -1,5 +1,18 @@
 import { describe, expect, test } from "vitest";
-import { ilikeContains } from "@/server/db/postgrest-like";
+import { escaparLike, ilikeContains } from "@/server/db/postgrest-like";
+
+describe("escaparLike", () => {
+  test("neutraliza los wildcards de LIKE sin agregar comillas", () => {
+    expect(escaparLike("FRE_1234")).toBe("FRE\\_1234");
+    expect(escaparLike("100%")).toBe("100\\%");
+    expect(escaparLike("a\\b")).toBe("a\\\\b");
+  });
+
+  test("no toca las comillas: el valor viaja como parámetro, no en el árbol de filtros", () => {
+    expect(escaparLike('ll"anta')).toBe('ll"anta');
+    expect(escaparLike("a,(b)")).toBe("a,(b)");
+  });
+});
 
 describe("ilikeContains", () => {
   test("envuelve en %...% con comillas dobles", () => {

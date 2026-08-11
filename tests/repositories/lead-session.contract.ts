@@ -306,5 +306,57 @@ export function runLeadSessionContract(
       const leadB = fixtures.leadIds.X;
       expect(await repo.reassignLead(leadA, leadB)).toBe(0);
     });
+
+    test("listCierres devuelve solo las cerradas, de la más reciente a la más vieja", async () => {
+      const leadA = fixtures.leadIds.A;
+      const leadB = fixtures.leadIds.X;
+      const vieja = await repo.create(baseInsert(leadA));
+      await repo.close(vieja.id, { resultado: "perdido", motivo_perdida: "precio" });
+      await new Promise((r) => setTimeout(r, 5)); // sin esto empatan closed_at
+      const nueva = await repo.create(baseInsert(leadB));
+      await repo.close(nueva.id, { resultado: "exito" });
+      await repo.create(baseInsert(fixtures.leadIds.Y)); // abierta: no es un cierre
+
+      const cierres = await repo.listCierres();
+      expect(cierres.map((c) => c.lead_id)).toEqual([leadB, leadA]);
+      expect(cierres[0]).toMatchObject({ resultado: "exito", motivo_perdida: null });
+      expect(cierres[1]).toMatchObject({ resultado: "perdido", motivo_perdida: "precio" });
+    });
+
+    test("listLeadIdsByCodigo busca por substring y no repite el lead", async () => {
+      const leadA = fixtures.leadIds.A;
+      const leadB = fixtures.leadIds.X;
+      const s1 = await repo.create(baseInsert(leadA));
+      await repo.update(s1.id, { codigo_interno: "FRE-1234" });
+      await repo.close(s1.id, { resultado: "exito" });
+      const s2 = await repo.create(baseInsert(leadA));
+      await repo.update(s2.id, { codigo_interno: "FRE-1234-B" });
+      const s3 = await repo.create(baseInsert(leadB));
+      await repo.update(s3.id, { codigo_interno: "AMO-9999" });
+
+      expect(await repo.listLeadIdsByCodigo("fre-1234")).toEqual([leadA]);
+      expect(await repo.listLeadIdsByCodigo("9999")).toEqual([leadB]);
+      expect(await repo.listLeadIdsByCodigo("")).toEqual([]);
+      expect(await repo.listLeadIdsByCodigo("no-existe")).toEqual([]);
+    });
+
+    test("marcarPerdida cierra, deja la etapa en perdido y es idempotente", async () => {
+      const leadA = fixtures.leadIds.A;
+      const s = await repo.create(baseInsert(leadA));
+      await repo.update(s.id, { current_stage: "negociando" });
+
+      const perdida = await repo.marcarPerdida(s.id, "precio", null);
+      expect(perdida.resultado).toBe("perdido");
+      expect(perdida.motivo_perdida).toBe("precio");
+      expect(perdida.current_stage).toBe("perdido");
+      // El desvío no avanza el embudo: el máximo alcanzado sigue siendo el real.
+      expect(perdida.etapa_alcanzada).toBe("negociando");
+      expect(perdida.procedencia.current_stage?.por).toBe("humano");
+
+      // Replay con el mismo motivo: mismo resultado, sin error.
+      expect((await repo.marcarPerdida(s.id, "precio", null)).id).toBe(s.id);
+      // Con otro motivo la sesión ya cerrada no se puede reescribir.
+      await expect(repo.marcarPerdida(s.id, "stock", null)).rejects.toThrow();
+    });
   });
 }

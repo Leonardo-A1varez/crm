@@ -236,5 +236,31 @@ export function runMessagesContract(
       // Últimos 2 creados, en ASC.
       expect(list.map((m) => m.id)).toEqual([ids[2], ids[3]]);
     });
+
+    test("listBySessionIds trae los hilos de varias sesiones en una sola lectura", async () => {
+      const a = await repo.create(baseInsert(fixtures, { meta_message_id: "tanda_a" }));
+      await new Promise((r) => setTimeout(r, 5));
+      const b = await repo.create(
+        baseInsert(fixtures, {
+          meta_message_id: "tanda_b",
+          lead_session_id: fixtures.leadSessionIdAlt,
+        }),
+      );
+
+      const juntos = await repo.listBySessionIds([
+        fixtures.leadSessionId,
+        fixtures.leadSessionIdAlt,
+      ]);
+      // ASC global: quien llama agrupa por sesión y necesita cada hilo en orden.
+      expect(juntos.map((m) => m.id)).toEqual([a.id, b.id]);
+
+      const soloUna = await repo.listBySessionIds([fixtures.leadSessionIdAlt]);
+      expect(soloUna.map((m) => m.id)).toEqual([b.id]);
+    });
+
+    test("listBySessionIds sin ids no consulta y devuelve vacío", async () => {
+      await repo.create(baseInsert(fixtures));
+      expect(await repo.listBySessionIds([])).toEqual([]);
+    });
   });
 }

@@ -1,6 +1,7 @@
 import { format } from "date-fns";
 import { AutoAwesome, Done, DoneAll, ErrorIcon, Schedule } from "@/components/icons";
 import { MonoMeta } from "@/components/shared/MonoMeta";
+import { partirTexto } from "@/lib/ui/busqueda-hilo";
 import { cn } from "@/lib/utils";
 import type { Mensaje } from "@/types/entities";
 import type { TipoMensaje } from "@/types/domain";
@@ -54,6 +55,65 @@ function AcuseEntrega({ mensaje, claro }: { mensaje: Mensaje; claro: boolean }) 
   }
 }
 
+/**
+ * Lo que el buscador del hilo le pasa a cada burbuja. `ordinalInicial` es
+ * cuántas coincidencias quedaron en los mensajes anteriores: sumado al índice
+ * local da la numeración global que usan el contador y las flechas.
+ */
+export interface ResaltadoBusqueda {
+  consulta: string;
+  ordinalInicial: number;
+  /** Ordinal global de la coincidencia enfocada; `null` cuando no hay ninguna. */
+  ordinalActivo: number | null;
+}
+
+/**
+ * Texto de la burbuja con las coincidencias marcadas.
+ *
+ * El contenido lo escribió un tercero del otro lado de WhatsApp: se parte en
+ * tramos y se renderiza como nodos. Nada de `dangerouslySetInnerHTML` — bastaría
+ * un `<img onerror>` en un mensaje entrante para ejecutar código en el panel.
+ *
+ * El `data-coincidencia` es el ancla: `ChatThread` busca por ese atributo para
+ * traer la coincidencia activa a la vista, y así no hay que colgar un `ref` por
+ * cada tramo de cada uno de los 200 mensajes.
+ */
+function TextoDelMensaje({
+  texto,
+  resaltado,
+}: {
+  texto: string;
+  resaltado: ResaltadoBusqueda | null;
+}) {
+  if (!resaltado || resaltado.consulta.trim() === "") return <>{texto}</>;
+
+  const tramos = partirTexto(texto, resaltado.consulta, resaltado.ordinalInicial);
+  return (
+    <>
+      {tramos.map((tramo, i) =>
+        tramo.ordinal === null ? (
+          // El índice alcanza como key: los tramos se derivan del texto y de la
+          // consulta, así que no se reordenan ni se insertan en el medio.
+          <span key={i}>{tramo.texto}</span>
+        ) : (
+          <mark
+            key={i}
+            data-coincidencia={tramo.ordinal}
+            className={cn(
+              "rounded-[3px] px-[1px]",
+              tramo.ordinal === resaltado.ordinalActivo
+                ? "bg-warn text-[#14161b]"
+                : "bg-warn/30 text-inherit",
+            )}
+          >
+            {tramo.texto}
+          </mark>
+        ),
+      )}
+    </>
+  );
+}
+
 /** Eyebrow del handoff: mono 9px / 600 / .13em / uppercase. */
 const ETIQUETA = "mb-1 font-mono text-[9px] font-semibold tracking-[0.13em] uppercase";
 
@@ -75,7 +135,13 @@ function EtiquetaRemitente({ sender }: { sender: "ia" | "humano" }) {
  * que se vea de un vistazo qué escribió el agente y qué escribió una persona.
  * Server component; timestamp estático hh:mm.
  */
-export function MessageBubble({ message }: { message: Mensaje }) {
+export function MessageBubble({
+  message,
+  resaltado = null,
+}: {
+  message: Mensaje;
+  resaltado?: ResaltadoBusqueda | null;
+}) {
   const hora = format(message.created_at, "HH:mm");
 
   if (message.sender === "sistema") {
@@ -132,7 +198,9 @@ export function MessageBubble({ message }: { message: Mensaje }) {
           </p>
         ) : null}
         {message.contenido ? (
-          <p className="break-words whitespace-pre-wrap">{message.contenido}</p>
+          <p className="break-words whitespace-pre-wrap">
+            <TextoDelMensaje texto={message.contenido} resaltado={resaltado} />
+          </p>
         ) : null}
         <div className="mt-1 flex items-center justify-end gap-1">
           {message.estado_entrega === "fallido" && message.error_entrega ? (

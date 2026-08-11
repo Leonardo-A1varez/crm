@@ -4,6 +4,7 @@ import { SupabaseConversationsRepository } from "@/server/repositories/conversat
 import { SupabaseLeadSessionRepository } from "@/server/repositories/lead-session.supabase.repo";
 import { SupabaseLeadsRepository } from "@/server/repositories/leads.supabase.repo";
 import { SupabaseMergeCandidatesRepository } from "@/server/repositories/merge-candidates.supabase.repo";
+import { SupabaseMessagesRepository } from "@/server/repositories/messages.supabase.repo";
 import { SupabaseTagsRepository } from "@/server/repositories/tags.supabase.repo";
 import { DefaultAdminAuditService } from "@/server/services/admin-audit.service";
 import { DefaultLeadsService } from "@/server/services/leads/default-leads.service";
@@ -19,6 +20,7 @@ export function makeLeadsService(db: AppClient): LeadsService {
     sessions: new SupabaseLeadSessionRepository(db),
     candidates: new SupabaseMergeCandidatesRepository(db),
     tags: new SupabaseTagsRepository(db),
+    messages: new SupabaseMessagesRepository(db),
   });
 }
 

@@ -2,6 +2,7 @@ import { ConflictError, IllegalStateError, NotFoundError } from "@/lib/errors";
 import { esEtapaEmbudo, etapaAlcanzada } from "@/lib/ui/stage";
 import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
+import { escaparLike } from "@/server/db/postgrest-like";
 import { serverNowIso } from "@/server/db/server-time";
 import type { Database } from "@/server/db/types.gen";
 import { isUuid } from "@/server/db/uuid";
@@ -16,6 +17,7 @@ import type {
 } from "@/types/domain";
 import type { LeadSession, Procedencia, UUID } from "@/types/entities";
 import type {
+  CierreSesion,
   CloseInput,
   LeadSessionInsert,
   LeadSessionRepository,
@@ -283,6 +285,89 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
       throw new NotFoundError(`sesión no encontrada: ${id}`, "lead_session", id);
     }
     return mapRow(data);
+  }
+
+  async marcarPerdida(id: UUID, motivo: MotivoPerdida, userId: UUID | null): Promise<LeadSession> {
+    const current = await this.findById(id);
+    if (!current) {
+      throw new NotFoundError(`sesión no encontrada: ${id}`, "lead_session", id);
+    }
+    if (current.resultado !== null) {
+      if (current.resultado === "perdido" && current.motivo_perdida === motivo) {
+        return current;
+      }
+      throw new IllegalStateError(
+        `sesión ya cerrada con resultado distinto (current=${current.resultado}/${current.motivo_perdida ?? "null"}, requested=perdido/${motivo})`,
+        "session_already_closed_different",
+      );
+    }
+
+    const procedencia: Procedencia = {
+      ...current.procedencia,
+      current_stage: {
+        por: "humano",
+        at: new Date().toISOString(),
+        user_id: userId,
+        mensaje_origen_id: null,
+        valor_anterior: current.current_stage,
+      },
+    };
+
+    const closedAt = await serverNowIso(this.db);
+    const { data, error } = await this.db
+      .from("lead_session")
+      .update({
+        // `etapa_alcanzada` no se toca: `perdido` es un desvío y el embudo
+        // queda congelado donde la conversación llegó antes de perderse.
+        current_stage: "perdido",
+        resultado: "perdido",
+        motivo_perdida: motivo,
+        closed_at: closedAt,
+        procedencia: procedencia as never,
+      })
+      .eq("id", id)
+      .select()
+      .maybeSingle();
+
+    if (error) throw mapPostgrestError(error, { resource: "lead_session" });
+    if (data === null) {
+      throw new NotFoundError(`sesión no encontrada: ${id}`, "lead_session", id);
+    }
+    return mapRow(data);
+  }
+
+  async listCierres(): Promise<CierreSesion[]> {
+    const { data, error } = await this.db
+      .from("lead_session")
+      .select("lead_id, resultado, motivo_perdida, closed_at")
+      .not("resultado", "is", null)
+      .not("closed_at", "is", null)
+      .order("closed_at", { ascending: false });
+    if (error) throw mapPostgrestError(error, { resource: "lead_session" });
+
+    const out: CierreSesion[] = [];
+    for (const row of data ?? []) {
+      // `resultado`/`closed_at` no pueden ser null acá por el filtro, pero el
+      // tipo generado no lo sabe: se descartan en vez de castear.
+      if (row.resultado === null || row.closed_at === null) continue;
+      out.push({
+        lead_id: row.lead_id,
+        resultado: row.resultado,
+        motivo_perdida: row.motivo_perdida,
+        closed_at: new Date(row.closed_at),
+      });
+    }
+    return out;
+  }
+
+  async listLeadIdsByCodigo(q: string): Promise<UUID[]> {
+    if (q === "") return [];
+    const { data, error } = await this.db
+      .from("lead_session")
+      .select("lead_id")
+      .ilike("codigo_interno", `%${escaparLike(q)}%`);
+    if (error) throw mapPostgrestError(error, { resource: "lead_session" });
+    return Array.from(new Set((data ?? []).map((r) => r.lead_id)));
   }
 
   async listClosedBefore(date: Date): Promise<LeadSession[]> {

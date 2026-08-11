@@ -47,6 +47,15 @@ export interface MessagesRepository {
   // Thread de la sesión cruzando conversaciones (multi-canal). Orden ASC
   // (viejo→nuevo); con limit conserva los N más recientes.
   listBySessionId(sessionId: UUID, filter?: ListBySessionFilter): Promise<Mensaje[]>;
+  /**
+   * Hilos de varias sesiones de una sola vez, orden ASC global.
+   *
+   * Existe para que la lista de leads pueda decidir cuáles quedaron sin
+   * responder sin pedir un hilo por lead: con 1000 leads en pantalla ese N+1
+   * sería la consulta más cara del panel. Quien llama agrupa por
+   * `lead_session_id`.
+   */
+  listBySessionIds(sessionIds: UUID[]): Promise<Mensaje[]>;
   // Estado de entrega desde el webhook de Meta. `meta_message_id` desconocido
   // = no-op y devuelve null: Meta reporta estados de mensajes que no mandamos
   // nosotros (plantillas disparadas desde su consola) y no son un error.
@@ -134,6 +143,15 @@ export class InMemoryMessagesRepository implements MessagesRepository {
     const rows = Array.from(this.store.values()).filter((m) => m.lead_session_id === sessionId);
     rows.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
     return rows.slice(-limit).map(cloneMensaje);
+  }
+
+  async listBySessionIds(sessionIds: UUID[]): Promise<Mensaje[]> {
+    if (sessionIds.length === 0) return [];
+    const wanted = new Set(sessionIds);
+    return Array.from(this.store.values())
+      .filter((m) => m.lead_session_id !== null && wanted.has(m.lead_session_id))
+      .sort((a, b) => a.created_at.getTime() - b.created_at.getTime())
+      .map(cloneMensaje);
   }
 
   async aplicarEstadoEntrega(

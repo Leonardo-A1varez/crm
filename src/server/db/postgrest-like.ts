@@ -9,7 +9,16 @@
  * Uso: query.or(`nombre.ilike.${ilikeContains(q)},codigo.ilike.${ilikeContains(q)}`)
  */
 export function ilikeContains(q: string): string {
-  const likeEscaped = q.replace(/[\\%_]/g, "\\$&");
-  const quoted = likeEscaped.replace(/[\\"]/g, "\\$&");
+  const quoted = escaparLike(q).replace(/[\\"]/g, "\\$&");
   return `"%${quoted}%"`;
+}
+
+/**
+ * Escapa los wildcards de LIKE (\ % _) para un `.ilike()` directo, donde el
+ * valor viaja como parámetro y no atraviesa el árbol de filtros: ahí no hay
+ * comillas que agregar ni des-escapado de PostgREST que compensar. Sin esto un
+ * código con guion bajo —`FRE_1234`— matchearía cualquier carácter en su lugar.
+ */
+export function escaparLike(q: string): string {
+  return q.replace(/[\\%_]/g, "\\$&");
 }

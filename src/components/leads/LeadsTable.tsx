@@ -15,12 +15,30 @@ const FILA =
   "grid grid-cols-[1.5fr_1.1fr_1.4fr_0.9fr_0.8fr] items-center gap-[14px] px-[18px] py-[11px]";
 const TH = "text-ink-faint font-mono text-[9px] font-semibold tracking-[0.13em] uppercase";
 
-export function LeadsTable({ items, q }: { items: LeadListItem[]; q?: string }) {
+export function LeadsTable({
+  items,
+  q,
+  hayFiltros = false,
+}: {
+  items: LeadListItem[];
+  q?: string;
+  /**
+   * Hay chips puestos. Sin esto, filtrar hasta cero sin haber escrito nada
+   * mostraría "Sin leads todavía" — que dice que la base está vacía cuando lo
+   * que pasó es que el filtro no dejó pasar a nadie.
+   */
+  hayFiltros?: boolean;
+}) {
   if (items.length === 0) {
     return q ? (
       <EmptyState
         title={`Sin resultados para «${q}»`}
-        description="Probá con otro nombre o teléfono."
+        description="Probá con otro término o quitá algún filtro."
+      />
+    ) : hayFiltros ? (
+      <EmptyState
+        title="Ningún lead pasa estos filtros"
+        description="Sacá alguno de los chips para ensanchar la búsqueda."
       />
     ) : (
       <EmptyState
