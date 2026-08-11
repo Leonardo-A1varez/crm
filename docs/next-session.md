@@ -1,6 +1,8 @@
 # Cómo retomar la sesión
 
-> Última actualización: 2026-08-09. **Rediseño A y agente G1 mergeados y pusheados (`d84e9fb`). Sub-proyecto B completo en la rama `rediseno-b-bandeja`, sin mergear.** Users dev: `admin-dev@crm.local` / `dev-admin-2026!` · `vendedor-dev@crm.local` / `dev-vendedor-2026!`.
+> Última actualización: **2026-08-11**, sobre `master` en `ed50754`, árbol limpio.
+> **El rediseño A-G2 está aplicado entero. Lo que queda abierto no es código de pantalla: es método y rendimiento.**
+> Users dev: `admin-dev@crm.local` / `dev-admin-2026!` · `vendedor-dev@crm.local` / `dev-vendedor-2026!`.
 
 ---
 
@@ -10,245 +12,159 @@
 
 ---
 
+## Estado real al cierre
+
+| Qué             | Cuánto                                                           |
+| --------------- | ---------------------------------------------------------------- |
+| Rama            | `master`, árbol limpio, `ed50754`                                |
+| Sin pushear     | **39 commits** (`origin/master` quedó en `d84e9fb`)              |
+| Tests unitarios | **1569 pasan, 129 archivos** (medido 2026-08-11)                 |
+| Coverage        | **87.3 / 79.39 / 82.8 / 88.25** — umbral 80/75/80/80, pasa       |
+| Integration     | **congelados, no verdes** — ver bloqueante 1                     |
+| Migraciones     | **33 aplicadas a `crm-dev`**, la última `20260811160000`         |
+| Revisión visual | **ninguna pantalla** se miró con ojos humanos — ver bloqueante 2 |
+
+**Qué se hizo esta sesión.** Se cerraron los siete sub-proyectos del rediseño (A-G2) y **el handoff de diseño entró al repo** (`docs/handoff-rediseno-README.md`; antes vivía en un zip afuera, y por eso varias pantallas se habían construido contra specs derivados y hubo que auditarlas después, con 22 desvíos corregidos solo en la bandeja). Encima de eso, tres tandas:
+
+- **Instrumentación** — el sistema dejó de descartar lo que el handoff pide medir: autoría real en `mensajes.sender_user_id`, clasificación del turno en `turn_classifications`, procedencia por campo del Twin con el mensaje del que salió cada dato, `etapa_alcanzada` para congelar el rail en los desvíos, y condiciones de escalado configurables en `agente_config`.
+- **Costo de IA** persistido por turno (`llm_usage`) y agregado por conversación y por lead.
+- **Inbox y Leads** — buscador de conversaciones y buscador dentro del hilo, filtros combinables que viven en la URL, ficha del lead editable, etiquetas, cierre de venta con motivo obligatorio, auditoría por turno, y recordatorios de seguimiento con workflow durable.
+
+### Las 12 migraciones de esta sesión
+
+| Migración                                                | Qué hace                                                                           |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `20260810011500_mensajes_estado_entrega`                 | enum `enviado/entregado/leido/fallido` + `error_entrega` en `mensajes`             |
+| `20260810011600_lead_session_procedencia`                | `procedencia` jsonb: de dónde salió cada campo del Twin                            |
+| `20260810143000_turn_classifications`                    | qué intent resolvió cada turno del LLM; `mensaje_id` UNIQUE contra replays         |
+| `20260810143100_lead_session_updated_at`                 | `updated_at` de la sesión — el "hace 40 s" del encabezado del Twin                 |
+| `20260810150000_procedencia_extractor_y_etapa_alcanzada` | `mensaje_origen_id` + `valor_anterior` por campo, y `etapa_alcanzada`              |
+| `20260810161500_agente_config_escalado`                  | umbral de intents, palabras que escalan siempre, cotización desde, timeout de tool |
+| `20260810190000_llm_usage`                               | costo de IA por turno, con índices por sesión y por fecha                          |
+| `20260810200000_tags_delete_admin`                       | policy DELETE de `tags`, solo admin                                                |
+| `20260810210000_lead_tags_delete`                        | policy DELETE de `lead_tags` — sacarle una etiqueta a un lead                      |
+| `20260810230000_leads_nombre_perfil_y_datos_extra`       | `nombre_perfil` que manda Meta + `datos_extra` jsonb                               |
+| `20260811120000_session_recordatorios`                   | recordatorios de seguimiento con fecha + índice de vencidos                        |
+| `20260811160000_mensajes_contenido_trgm`                 | índice GIN trigram sobre `mensajes.contenido` para el buscador del Inbox           |
+
+---
+
+## 🔴 Bloqueantes de método — no son bugs de código
+
+### 1. `SUPABASE_TEST_URL` apunta al mismo proyecto Supabase que la app
+
+`npm run test:integration` llama a `cleanupTestDb`, que hace TRUNCATE sin saber contra qué está corriendo. **Vacía la base de dev. Ya pasó esta sesión.**
+
+La consecuencia no es solo perder los datos de prueba: hay **contract tests que nunca corrieron contra Postgres real** —`turn-classifications`, `llm-usage`, `session-recordatorios`, y los de `agente_config` posteriores a G1—. Todo lo que sabemos de esos repos lo sabemos por la implementación in-memory, que no tiene constraints, ni FKs, ni RLS. Un `not null` mal puesto o una policy que rechaza un insert no lo ve nadie hasta producción.
+
+**El arreglo es un proyecto Supabase aparte** (free tier alcanza), con `SUPABASE_TEST_URL` y `SUPABASE_TEST_SERVICE_KEY` apuntando ahí y las 33 migraciones aplicadas. Es la única forma de volver a tener esa suite. Requiere que el dueño cree el proyecto.
+
+Hasta entonces: **no correr `test:integration`**. Está anotado en `AGENTS.md` §6.
+
+### 2. Ninguna pantalla fue revisada visualmente
+
+El panel del navegador **no compuso frames en toda la sesión**. Todo lo que se afirma sobre las pantallas está medido sobre el DOM y cubierto por tests. Eso encuentra estructura y no encuentra apariencia.
+
+El dato duro: **cada vez que el dueño mandó una captura aparecieron cosas que ninguna medición había detectado.** Espacios muertos, rótulos de más, controles que se pisan. Un test que pregunta "¿el nodo existe y mide 322px?" contesta que sí de todas maneras.
+
+Pendientes de mirar, en orden de riesgo:
+
+1. **Leads** con sus filtros nuevos — es la pantalla que más cambió.
+2. **Métricas** — tres cortes con datos reales, y varios cuadros dependen de datos que recién se empezaron a registrar.
+3. **La consola del agente** (`/agente`) — cuatro pestañas.
+4. **`/tags`**.
+5. **El buscador del Inbox.**
+6. **El flujo de reprogramar un seguimiento.**
+
+El método que sí funciona con el panel roto está en `AGENTS.md` §2 lección 6: pedir el HTML renderizado al server por `fetch` e inyectar la raíz en el DOM con el CSS real. Sirve para medir; **no sustituye a mirar**.
+
+---
+
+## 🟠 Decisiones que tiene que tomar el dueño
+
+### 3. Dos puertas al mismo cierre de sesión
+
+Se puede cerrar una sesión desde el rail del embudo en el Twin (`src/components/lead-twin/RailEmbudo.tsx` → `CierreSesion.tsx`) **y** desde el botón viejo del header de la conversación (`src/components/inbox/CloseSessionButton.tsx`). Los dos llaman a `closeSessionAction`.
+
+El rail es lo que pidió el dueño y es donde el cierre tiene sentido: ahí está la etapa, ahí se ve el embudo. **Recomendación registrada: sacar el del header.** Dos caminos al mismo efecto irreversible es una forma de que alguien cierre una venta sin querer.
+
+### 4. Qué pasa cuando la IA escala y no hay nadie
+
+El dueño dijo que **no quiere vendedores humanos**. Pero el sistema escala a `requiere_humano` —por pedido explícito del cliente, por intents desconocidos seguidos, por palabras de la lista, por cotización alta— y pausa la IA. Con nadie del otro lado, **esas conversaciones quedan detenidas**: el cliente escribió, la IA no contesta, nadie la toma.
+
+No es un bug, es una definición de producto que falta. Las salidas posibles, sin implementar ninguna: que la IA siga respondiendo con una advertencia; que mande una plantilla de "te contactamos" y cierre; que escale a un aviso al dueño en vez de a un vendedor. **No decidir es elegir la primera por omisión, que es la peor: silencio.**
+
+### 5. Upstash sigue sin configurar
+
+`UPSTASH_REDIS_REST_URL` y `UPSTASH_REDIS_REST_TOKEN` están comentadas en `.env.local`. El dueño **no quiere tope de gasto**, así que esto **no es bloqueante** y no hay que insistir con eso.
+
+Lo que sí hay que dejar dicho: el **costo por lead y por conversación sí se persiste y se ve** —eso vive en `llm_usage`, no en Upstash—, así que la visibilidad del gasto no depende de esta decisión. Lo que no existe es el **corte**. Sin tope, un bucle descontrolado —un webhook que reintenta, una sesión que no cierra— **factura sin límite y nadie lo frena.** El pedido del dueño es legítimo; el riesgo también, y no se va solo.
+
+---
+
+## 🟡 Trabajo técnico pendiente
+
+### 6. Rendimiento — nunca abordado
+
+**Es lo que el dueño pidió al principio y lo que más se fue postergando.** Sigue en cero: no hay una sola medición.
+
+Sospechoso concreto, `listActiveLeads` en `src/server/services/inbox/default-inbox.service.ts`:
+
+- por cada sesión activa: un `leads.findById` y un `convs.findByLeadId`;
+- por cada conversación de ese lead: un `messages.listByConversacion`;
+- y después un `messages.listBySessionId` más.
+
+Con N sesiones activas y C conversaciones por lead eso son `3N + NC` consultas secuenciales, y **el poller la re-ejecuta cada 5 segundos** (`RefreshPoller` montado en `src/app/(panel)/inbox/layout.tsx`). Con las 3 filas de dev no se nota; con el piloto —30 vendedores, ~5K leads/mes— es la primera cosa que se cae.
+
+**Para medirlo hace falta `npm run build`**, porque en dev todo está instrumentado y los números no significan nada. Y **no se puede buildear con el dev server vivo: corrompe `.next/`** y el navegador queda colgado con skeletons de `loading.tsx` en rutas que nadie tocó. Matar el árbol de procesos y borrar `.next` antes de buildear.
+
+### 7. Filtrar por más de una etiqueta
+
+`LeadsListInput.etiquetaId` y `BusquedaInput.etiquetaId` son un `UUID` suelto, no un array (`src/server/services/leads/leads.service.ts:16`, `src/server/services/busqueda/busqueda.service.ts:18`). La UI ofrece elegir una sola porque el service no sabe hacer más. Pasar a `etiquetaIds: UUID[]` con intersección toca service, schema Zod, el parser de la URL en `src/lib/ui/filtros-leads.ts` y los dos componentes de filtros.
+
+### 8. `leads.list()` topea en 1000 filas
+
+`LIST_LIMIT = 1000` en `src/server/services/leads/default-leads.service.ts:23`. Dos consecuencias, y la segunda es la que muerde: **las listas de opciones de los filtros salen de esas mismas 1000 filas.** Un vehículo que solo aparece en el lead 1001 no es ofrecible como filtro, así que el usuario no puede llegar a él ni sabe que existe. A ~5K leads/mes se cruza el umbral el primer mes.
+
+### 9. El índice trigram no se verificó bajo volumen
+
+`20260811160000_mensajes_contenido_trgm` crea un GIN sobre `mensajes.contenido`. Está bien razonado y con 3 mensajes en la base no prueba nada: no se sabe si el planner lo elige, ni cuánto cuesta el insert de cada mensaje con el índice puesto. Verificarlo pide volumen sintético y `explain analyze`.
+
+### 10. Reprogramar un seguimiento deja un workflow durmiendo
+
+`recordatorio-seguimiento.ts` usa `step.sleepUntil(fecha)`. Al reprogramar se emite un evento nuevo con la fecha nueva, pero **la ejecución vieja sigue dormida hasta su fecha original**. Despierta, `marcarAvisado` no encuentra nada que hacer, devuelve `sin-efecto` y termina. Es correcto —no avisa dos veces— pero deja ejecuciones fantasma acumulándose en el dashboard de Inngest, una por cada reprogramación. Se arregla cancelando por evento (`cancelOn`) o barriendo con un cron; ninguna de las dos está hecha.
+
+### 11. Ideas de Inbox sin decidir
+
+El dueño no se pronunció sobre **notas internas** (comentarios en la conversación que el cliente no ve) ni **respuestas rápidas** (el botón `bolt` del composer, que el handoff maqueta y hoy no hace nada). Las dos son features, no deuda: no empezar sin que las pida.
+
+---
+
+## Datos viejos sin arreglo posible
+
+**No son bugs. No hay nada que reparar: la información no se guardó y no se puede reconstruir.** Documentarlos como límites de lectura, y que ninguna pantalla los presente como ceros.
+
+- **`tool_executions.mensaje_id` en `null`** en todas las filas anteriores al fix. El agente ahora la carga, pero lo escrito entre Slice 1 y ese arreglo se queda así. La auditoría por turno las ata **por ventana temporal** en vez de por id (`listBySessionEntre`); funciona, y es una aproximación.
+- **Salientes de fuera de horario previos sin la marca.** `mensajes.metadata.plantilla` distingue lo que contestó la plantilla fija de lo que contestó el agente. Los salientes anteriores a esa marca caen en `sin_medicion`, y **eso es correcto**: de esos efectivamente no se sabe.
+- **Sesiones cerradas sin motivo de pérdida.** `motivo_perdida` es obligatorio desde el cierre nuevo, pero las sesiones viejas lo tienen en `null` y las métricas las agrupan bajo `sin_motivo`.
+
+---
+
 ## ⚠️ Footguns de entorno
 
-**1. Las suites de integration borran los usuarios dev de `public.usuarios`.** Tras CUALQUIER `npm run test:integration`, correr `node .superpowers/sdd/scripts/seed-merge-e2e.js`.
+**1. `npm run test:integration` borra la base de dev.** Ver bloqueante 1. Si aun así se corre a sabiendas, después: `node .superpowers/sdd/scripts/seed-merge-e2e.js` para restituir los usuarios dev.
 
-> Excepción: `tests/integration/agente-config.supabase.test.ts` NO llama a `cleanupTestDb`, así que no toca `usuarios`. Limpia solo `agente_config` y restaura la config activa al terminar.
+> Excepción: `tests/integration/agente-config.supabase.test.ts` NO llama a `cleanupTestDb`. Limpia solo `agente_config` y restaura la config activa al terminar.
 
-**2. `deleteUser` de Supabase Auth no cascadea a `public.usuarios`.** Verificado empíricamente el 2026-08-09: borrar de `auth.users` deja huérfana la fila que creó el trigger. Todo test que cree usuarios debe borrar de las dos tablas.
+**2. `npm run build` con el dev server levantado corrompe `.next/`.** El navegador queda colgado con skeletons de `loading.tsx` en rutas no relacionadas. Se arregla matando el árbol de procesos y borrando `.next`.
 
-**3. `core.autocrlf=true` + `endOfLine: lf`.** Resuelto con `.gitattributes` (`a458811`). Si alguien clona en Windows y ve `format:check` en rojo sobre código que no tocó, ese era el motivo y ya está arreglado.
+**3. `deleteUser` de Supabase Auth no cascadea a `public.usuarios`.** Verificado el 2026-08-09: borrar de `auth.users` deja huérfana la fila que creó el trigger. Todo test que cree usuarios borra de las dos tablas.
 
----
+**4. El panel del navegador puede no componer frames.** Con `document.hidden`, React no revela los boundaries de Suspense y `/inbox/[leadId]` se queda clavado en el skeleton para siempre. **No es `.next/` corrupto.** Se mide igual pidiendo el HTML del server por `fetch` e inyectando la raíz en el slot del panel con el CSS real.
 
-## Estado del trabajo
+**5. Con un agente trabajando en el árbol, `git add` va con rutas explícitas.** `-A` se lleva archivos ajenos a medio escribir y el hook `pre-commit` typechequea todo el proyecto y frena el commit.
 
-| Sub-paso                           | Estado                  | Notas                                                     |
-| ---------------------------------- | ----------------------- | --------------------------------------------------------- |
-| Pre-Slice 1 + Slice 1              | ✅                      | Foundation, repos, LLM factory, Meta, Inngest, webhook    |
-| Slice 2 core 8.1-8.8               | ✅                      | Inbox + conversación + twin + actions + poller            |
-| Slice 3 Auth + RLS                 | ✅                      | 43 policies + matriz 11/11                                |
-| Slice 4a hardening                 | ✅                      | Pino · Sentry · OTel · /api/health · purge · reactivación |
-| Slice 2 fase 9 Productos           | ✅                      | Lista + CRUD + import CSV                                 |
-| Slice 2 fase 10 Leads              | ✅                      | Lista + detalle + merge                                   |
-| **Slice 4b — cadena WhatsApp E2E** | ✅ **validada local**   | Ver §Slice 4b                                             |
-| **Rediseño A — base visual**       | ✅ **en master**        | Tokens, dark, íconos, primitivas, SideNav, shell          |
-| **Agente G1 — config runtime**     | ✅ **en master**        | Ver §G1                                                   |
-| **Rediseño B — bandeja unificada** | ✅ **rama sin mergear** | 6/6 tareas, `rediseno-b-bandeja`                          |
-| Rediseño C-G                       | ⚪                      | Ver §Rediseño                                             |
-| Deploy Vercel + soft launch        | ⚪                      | Bloqueado por catálogo vacío                              |
-
----
-
-## 🔴 Lo primero al retomar: mergear B y arrancar D
-
-**Rama `rediseno-b-bandeja`, 6 de 6 tareas hechas.** Árbol limpio, CI verde.
-
-| Tarea                        | Commit    | Estado                                                     |
-| ---------------------------- | --------- | ---------------------------------------------------------- |
-| 1 · Shell de 3 paneles       | `be78de4` | ✅ lista 322px, Twin 322px, scroll sobrevive la navegación |
-| 2 · Panel de lista           | `f97b05f` | ✅ filtros sin refetchear el layout                        |
-| 3 · Header e hilo            | `87529c0` | ✅ orden cronológico y toggle de IA verificados            |
-| 4 · Burbujas y composer      | `738fa31` | ✅ 4 burbujas por `sender`, max-width 62% medido           |
-| 5 · Twin con rail del embudo | `d396a9f` | ✅ rail normal y congelado, ambos medidos                  |
-| 6 · Verificación completa    | `bc58de2` | ✅ encontró un defecto de layout y lo arregló              |
-
-Plan: `docs/superpowers/plans/2026-08-09-rediseno-b-bandeja.md`
-Ledger con el detalle de cada tarea: `.superpowers/sdd/2026-08-09-rediseno-b-bandeja/progress.md`
-
-**Antes de mergear conviene un review de rama completa** (rango `d84e9fb..bc58de2`). En A ese pase encontró un defecto que los 9 reviews por tarea no vieron; G1 no lo tuvo y quedó como deuda.
-
-### Lo que B dejó sin verificar
-
-1. **El envío real desde el composer nunca se probó.** `sendMessage` va derecho a `metaApi.sendOutbound`: mandarlo es un WhatsApp real al `+593979932363`. No hay camino de dry-run. La burbuja de vendedor sí se verificó, pero insertando una fila a mano, no por el flujo real.
-2. **Comparación visual humana contra el prototipo.** El handoff (`CRM Repuestos v2.dc.html`) no está en el repo; todos los chequeos fueron medidos sobre el DOM. Es la misma deuda que quedó abierta en A.
-3. **Las tres pruebas interactivas de la Task 6** (scroll de la lista que sobrevive la selección, deep-link, scroll horizontal por debajo de 1164px) se verificaron por estructura y por medición, no clickeando: el panel del navegador no componía frames. Ver la lección 6 de `AGENTS.md` §2.
-
-### Reglas que siguen valiendo para C-G
-
-- **No correr `npm run build` con el dev server levantado.** Corrompe `.next/` y el navegador queda colgado mostrando skeletons de `loading.tsx` en rutas que nadie tocó.
-- **Con el panel del navegador oculto (`document.hidden`) React no revela los Suspense** y la conversación queda clavada en el skeleton para siempre. No es `.next/` corrupto. Se mide igual pidiendo el HTML del server por `fetch` e inyectando la raíz de la página en el slot del panel.
-- **Verificación medida en navegador como criterio de aceptación**, no revisión por lectura.
-- **Regenerar el brief si se corrige el plan** a mitad de ejecución: los briefs no se actualizan solos.
-
-### Deudas de B — cerradas en D
-
-- Badge de no leídos: ahora cuenta **mensajes del cliente posteriores a nuestra última respuesta**. No hay acuse de lectura en el schema y no se inventó uno; para una bandeja de ventas "sin responder" es mejor señal que "sin abrir".
-- El `ChannelDot` del avatar ya no usa `canales[0]`: es el canal de la conversación del último mensaje.
-
-### Lo que se hizo después de B (misma rama)
-
-| Trabajo                             | Commit    | Notas                                                            |
-| ----------------------------------- | --------- | ---------------------------------------------------------------- |
-| Leads y productos al lenguaje nuevo | `ffd9113` | `PageHeader` + `SearchField`; se fue el `h-screen` anidado       |
-| Las 5 rutas sin construir           | `fbd0c90` | `PantallaPendiente`, en vez de `TODO:` crudo en el nav           |
-| D — Triage                          | `874533a` | `lib/triage` pura; la bandeja ordena por lo que hay que atender  |
-| F — Métricas                        | `9563f15` | Embudo, resultado y autoría; ventana de 7/30/90 días             |
-| C — Entrega y ventana de 24 h       | `e7a48eb` | Migración + status de Meta + composer bloqueado fuera de ventana |
-| E — Procedencia y edición del Twin  | `d5feb66` | Migración + lista blanca de campos + chip "editado"              |
-
-**Migraciones aplicadas a `crm-dev`**: 23 en total. `20260810011500` agrega estado de entrega a `mensajes`; `20260810011600` agrega `procedencia` a `lead_session`.
-
-**El orden de la bandeja cambió**: ya no es puramente cronológico, primero va lo que espera respuesta. Es el punto de D, pero es un cambio de comportamiento visible — si preferís el orden viejo, se revierte tocando un `sort`.
-
-## 🔴 El handoff apareció: hay desvíos reales
-
-El README del handoff está ahora en `docs/handoff-rediseno-README.md` (antes vivía solo en un zip fuera del repo). Comparado contra lo implementado, **el rediseño NO está completo**. Tres huecos, en orden de costo:
-
-### 1. La nav: corregido
-
-El handoff dice que la consola de Agente IA **reemplaza** el ítem "Intents y reglas" de la nav. G2 había agregado dos entradas propias. Revertido: las rutas `/intents-reglas/*` siguen funcionando, pero la administración de intents pertenece adentro de `/agente`, como pestaña "Reglas IF/THEN".
-
-### 2. Leads: la pantalla no sigue la spec
-
-El handoff la especifica en detalle (`README §2`) y lo implementado se desvía:
-
-| Handoff                                                                         | Lo que hay                                                       |
-| ------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Título 22px/680/`-.03em` + subtítulo 12px "N esta semana · M con sesión activa" | Título 17px/650 + contador en mono                               |
-| Buscador de 250px **a la derecha del header**                                   | Barra de búsqueda de ancho completo debajo                       |
-| Tabla **en tarjeta**: `radius:15px`, `#0f1116`, borde `#1c1f26`                 | Tabla suelta, sin tarjeta                                        |
-| Grid `1.5fr 1.1fr 1.4fr .9fr .8fr`, `padding:11px 18px`                         | Tabla de shadcn, `padding:9px 20px`                              |
-| 5 columnas: Lead / Teléfono / Vehículo / **Etapa** / Actividad                  | 6: agrega Canales, y en vez de Etapa hay un chip "Sesión activa" |
-| Avatar 28×28 con punto de canal en la fila                                      | Sin avatar                                                       |
-| Separador `#14161b`, hover `#14161b`                                            | Separador `#17191f`, hover `#101218`                             |
-
-**Bloqueo parcial:** la columna Etapa necesita `currentStage` en `LeadListItem`, que hoy no lo trae. Es un cambio chico en `leads.service`.
-
-### 3. Métricas: se diseñó otra pantalla
-
-El handoff (`README §3`) pide **tres pestañas** —Total / Agente IA / Vendedores— con tarjetas KPI con delta, embudo de barras de 22px, volumen por canal, "quién cerró la venta", tarjeta de gasto de IA, "intents sin regla" con costo diario y tabla de rendimiento por vendedor.
-
-Lo implementado son tres secciones planas (embudo, resultado, autoría). **La estructura es distinta y falta la mayor parte del contenido.**
-
-Buena parte de lo que falta **no se puede construir con los datos de hoy**:
-
-| Lo que pide el handoff                                | Qué falta para poder calcularlo                                       |
-| ----------------------------------------------------- | --------------------------------------------------------------------- |
-| Costo de IA por lead, gasto diario, ahorro por reglas | `InMemoryCostTracker` no persiste; sin Upstash no hay serie histórica |
-| Latencia de 1ra respuesta                             | Nadie mide el delta entrante→saliente                                 |
-| Rendimiento por vendedor, ticket promedio             | `mensajes.sender_user_id` está siempre en `null` (nunca se llenó)     |
-| Deltas contra el período anterior                     | Ninguna query compara ventanas                                        |
-| "Intents sin regla" con costo                         | El costo por intent no se registra                                    |
-
-Se puede construir ya, sin datos nuevos: la estructura de 3 pestañas, el embudo al formato del handoff, volumen por canal, y "quién cerró" (IA vs humano) que ya sale de `sender`.
-
-### 4. Pantallas que el handoff nunca diseñó
-
-`README §Pendientes de diseño` las lista: **ficha individual del lead, Productos, Tags, Ajustes, Login**, merge de duplicados y layout móvil. Lo que se hizo ahí es extensión del lenguaje de A y B, no una recreación — no hay contra qué compararlo.
-
----
-
-### Deudas de G1 que quedaron sin hacer
-
-1. **Review de rama completa.** En A ese pase encontró un defecto que los 9 reviews por tarea no vieron. G1 no lo tuvo. Se puede hacer sobre master, rango `f5a12f6..3be7398`.
-2. **E2E real de WhatsApp.** Cambiar el tono a formal desde `/agente`, mandar un mensaje real, verificar que trate de usted. Nunca se hizo. La CI no lo cubre.
-
-Ninguna bloquea B.
-
----
-
-## §G1 — Config del agente en runtime (MERGEADO en `3be7398`)
-
-Spec: `docs/superpowers/specs/2026-08-08-agente-g1-configuracion-design.md`
-Plan: `docs/superpowers/plans/2026-08-08-agente-g1-configuracion.md` (13 tareas)
-
-**Qué hace:** el agente vendedor ya no tiene su modelo ni su prompt hardcodeados. Lee su configuración de la tabla `agente_config` **en cada turno**.
-
-Configurable desde `/agente`: modelo (11 opciones con precio), instrucciones de negocio en texto libre, tono/largo/emojis, descuento máximo, pasos de tool, ventana de contexto, umbral de resumen, tope de gasto, política de kill switch, horario semanal con timezone y plantilla fuera de horario.
-
-**Garantías construidas:**
-
-- Tabla append-only versionada. Índice único parcial `agente_config_una_activa (activa) where activa` — **verificado contra Postgres real**: insertar una segunda activa devuelve `23505`.
-- Rollback crea versión NUEVA, nunca revive la vieja. La línea de tiempo no retrocede: el historial dice "v7 fue un rollback a v3" en vez de borrar que hubo un problema.
-- Auditoría en `admin_actions` con `campos_cambiados` que guarda **nombres, nunca valores**. El audit dice qué cambió; la tabla de config dice a qué.
-- Prompt en 4 bloques con las **reglas inviolables al final** y precedencia declarada. Los LLM ponderan más lo que aparece después: ponerlas primero las vuelve sobrescribibles por las instrucciones del admin.
-- Fallback a `CONFIG_DE_FABRICA` si la config no se puede leer, y **el fallback no se cachea** (si no, quedaría en valores de fábrica 30s después de que la DB se recupere).
-- Preview contra historial real que no persiste ni envía a Meta, pero **sí cuenta contra el tope de gasto**.
-
-**Tests:** 956 unit + 22 integration contra Postgres real.
-
-### Deudas registradas de G1
-
-- **Guarda de descuento**: 5 rondas de fix. Terminó conservadora, con falsos negativos aceptados y documentados en tests (`"Podemos bajarlo un 15%"` no dispara). Un matcher léxico no puede separar "20% de descuento" de "20% menos de peso" en español. **El arreglo de fondo es que ofrecer un descuento requiera una llamada a tool**, con lo cual deja de ser parsing de texto. Va a G2 o después.
-- **El horario no expresa cruce de medianoche** (22:00-02:00). El editor guía a partirlo en dos días, que funciona sin huecos. Aceptado a propósito.
-- `TabLimites.tsx` 257 líneas, `EditorHorario.tsx` 217, `AgenteConsola.tsx` 187 — sobre la guía de ~150.
-- `toActionError` duplicado ahora en 4 carpetas (inbox, leads, productos, agente).
-- 5 `throw new Error` crudos preexistentes en `src/server` e `src/inngest`, prohibidos por la regla 10 de `AGENTS.md`.
-
----
-
-## §Slice 4b — lo que funciona y lo que falta
-
-**Validado local el 2026-08-07:** entra un WhatsApp real → webhook con HMAC → Inngest → pipeline → el agente responde. Con 3 bugs de fondo arreglados en el camino:
-
-1. `inngest.send()` iba a Inngest Cloud con key dummy → 401 → el webhook devolvía 500 y Meta reintentaba. Fix: `INNGEST_DEV=1`. **`NODE_ENV=development` NO alcanza.**
-2. Los 3 schemas LLM eran incompatibles con Structured Outputs strict → **`update-lead-twin` nunca completó una ejecución desde Slice 1**, invisible porque los tests usan `MockLanguageModelV3`, que acepta cualquier schema. Fix: `strictJsonSchema:false` + suite de contrato contra OpenAI real.
-3. Vars opcionales declaradas vacías tumbaban el arranque (`.optional()` de Zod no acepta `""`). Fix: `stripEmpty()` en `env.ts`.
-
-**Meta configurado:** app `Crm Genuino` (1570589244491707), número de prueba `+1 555 667-7618`, phone_number_id `1278451868684287`, WABA `906018605389495`, token de usuario del sistema sin caducidad.
-
-**Falta:** el **túnel de cloudflared es efímero** — al reiniciarlo cambia la URL y hay que reconfigurar el webhook en Meta; el deploy a Vercel lo resuelve. Upstash y Sentry sin configurar. Número real de WhatsApp para el soft launch (el de prueba solo mensajea a 5 destinatarios verificados).
-
----
-
-## §Decisiones tomadas 2026-08-09
-
-**Upstash descartado por ahora.** En este código solo alimenta el contador del tope de gasto y el rate limit del webhook. El rate limit importa poco: **el HMAC ya rechaza con 401 todo lo no firmado antes de gastar nada**. Y el tope de $10/día estaba mal calibrado — son $300/mes, el presupuesto de hosting completo según `business-plan.md`, puesto como límite de un solo renglón.
-
-> **Consecuencia a tener presente: sin Upstash el tope de gasto NO se aplica.** `InMemoryCostTracker` cuenta en un array del proceso; en serverless cada instancia tiene el suyo y se resetea en cada cold start. La pantalla `/agente` lo presenta como si funcionara. Cargar Upstash antes del soft launch, o asumir que no hay tope.
-
----
-
-## 🔴 Lo que impide que el producto haga lo que promete
-
-| Tabla       | Filas | Impacto                                                                                          |
-| ----------- | ----- | ------------------------------------------------------------------------------------------------ |
-| `productos` | **0** | El agente llama a `buscar_repuesto`, recibe cero resultados y responde "no lo tenemos" siempre   |
-| `intents`   | **1** | `saludo`, cargado al probar G2                                                                   |
-| `reglas`    | **1** | Cargada una regla de `saludo` para probar G2 end to end. Se borra desde `/intents-reglas/reglas` |
-| `empresas`  | **0** | El schema declara single-org y no hay ninguna. Confirmar que nada dependa                        |
-
----
-
-## §Rediseño "sala de control"
-
-Handoff: `Rediseño UI sala de control.zip` → `design_handoff_crm_control_room/`, referencia `CRM Repuestos v2.dc.html`.
-
-| #   | Sub-proyecto                                 | Estado                                                     |
-| --- | -------------------------------------------- | ---------------------------------------------------------- |
-| A   | Base visual                                  | ✅ en master                                               |
-| B   | Bandeja unificada de 3 paneles               | ✅ rama `rediseno-b-bandeja` sin mergear                   |
-| C   | Ventana de 24 h + estados de entrega         | ⚪ **siguiente**: migración + persistir webhooks de status |
-| D   | Triage (motivo + prioridad)                  | ✅ misma rama, sin migrar                                  |
-| E   | Twin con procedencia y edición               | ⚪ requiere migración por campo                            |
-| F   | Métricas en 3 cortes                         | ✅ misma rama, sin migrar                                  |
-| G1  | Config del agente                            | ✅ en master                                               |
-| G2  | Motor de reglas y escalado (absorbe fase 11) | ⚪                                                         |
-
-### ⚠️ Lección para planear B
-
-**Los dos defectos de plan del sub-proyecto A cayeron en layout y build**, la parte escrita con más confianza y menos verificación:
-
-1. La secuencia de tareas 6→7 dejaba una rotura de tipos entre dos commits, en un repo cuyo hook `pre-commit` typechequea todo el proyecto. **El plan era incommiteable.**
-2. `<main className="flex ...">` aplastaba las 7 pantallas del panel a 236px de 1218 disponibles y recortaba `/inbox` sin scrollbar. Lo encontró un revisor **midiendo anchos en el navegador**, no leyendo el diff.
-
-Y en G1, el bug de la política `seguir` inalcanzable lo encontró alguien **clickeando la UI**: el código se leía correcto y la máquina de estados estaba rota solo en runtime.
-
-**B es todo layout.** Sus tareas tienen que llevar verificación medida en navegador como criterio de aceptación, no revisión por lectura.
-
----
-
-## §UI/UX — lo próximo pedido por el usuario (2026-08-09)
-
-Ir pantalla por pantalla mejorando apariencia y utilidad, empezando por **Bandeja**.
-
-**Naming.** El usuario pidió un nombre más profesional que "Bandeja". Recomendación: **"Conversaciones"** — dice exactamente qué hay, es el estándar en CRMs en español, y no evoca email. Alternativas: "Atención", "Mesa de trabajo". El cambio es una línea en `ITEMS` de `src/components/shared/SideNav.tsx`; la ruta `/inbox` puede quedar igual.
-
-**Utilidad actual de `/inbox`:** lista de conversaciones activas, y `/inbox/[leadId]` una página aparte a pantalla completa con la conversación y el panel del twin. Sin triage, orden cronológico.
-
-**El sub-proyecto B era exactamente su rediseño y ya está hecho**: unifica ambas en un layout de 3 paneles fijos (lista 322px · conversación flex, mín 520px · twin 322px), conservando `/inbox/[leadId]` para deep-linking. Falta el renombre y seguir pantalla por pantalla con las que siguen.
+**6. `core.autocrlf=true` + `endOfLine: lf`.** Resuelto con `.gitattributes` (`a458811`).
 
 ---
 
@@ -259,8 +175,9 @@ npm run dev              # puerto 3001
 npm run inngest:dev      # dev server Inngest (ya lleva -u al puerto 3001)
 npx --yes cloudflared tunnel --url http://localhost:3001   # túnel público
 npm run ci               # typecheck + lint + format + coverage
-npm run test:integration # ⚠️ después: node .superpowers/sdd/scripts/seed-merge-e2e.js
+npm test                 # solo unit: 1569 en ~40 s
 supabase migration list --linked
+# npm run test:integration  ⛔ NO CORRER: vacía la base de dev (ver bloqueante 1)
 ```
 
 ---
@@ -268,12 +185,78 @@ supabase migration list --linked
 ## Conexión Supabase
 
 - Proyecto `crm-dev`, ref `emubzkouwvuzlrtsgorx`, Postgres 17, plan Free.
-- **23 migraciones aplicadas** (21 + estados de entrega + procedencia del Twin).
-- ⚠️ Free tier auto-pausa tras ~1 semana idle. Ya pasó una vez: el DNS deja de resolver y `/api/health` da `db: fail`. Se restaura desde el dashboard.
-- Remoto: `https://github.com/Leonardo-A1varez/crm.git` (privado).
+- **33 migraciones aplicadas**, la última `20260811160000`.
+- ⚠️ Free tier auto-pausa tras ~1 semana idle: el DNS deja de resolver y `/api/health` da `db: fail`. Se restaura desde el dashboard.
+- **Falta un segundo proyecto para tests.** Ver bloqueante 1.
+- Remoto: `https://github.com/Leonardo-A1varez/crm.git` (privado). `origin/master` en `d84e9fb`, **39 commits locales sin pushear**.
 
 ---
 
-## Cómo dar contexto al asistente al volver
+## Lo que sigue faltando de antes
 
-> Leé `AGENTS.md` y `docs/next-session.md`. Estado: rediseño A y G1 en master, sub-proyecto B completo en la rama `rediseno-b-bandeja` sin mergear. Quiero seguir con [review y merge de B / sub-proyecto D Triage / catálogo]. Para entrar al panel: `admin-dev@crm.local` / `dev-admin-2026!`.
+- **Catálogo vacío.** `productos` en 0: el agente llama a `buscar_repuesto`, recibe cero resultados y responde "no lo tenemos" siempre. `empresas` también en 0, con el schema declarando single-org. **Esto impide que el producto haga lo que promete** — es independiente de todo lo demás y se resuelve cargando datos.
+- **Túnel cloudflared efímero.** Al reiniciarlo cambia la URL y hay que reconfigurar el webhook en Meta. El deploy a Vercel lo resuelve.
+- **Sentry sin cuenta.** Está cableado y env-gated; sin DSN no reporta.
+- **Número real de WhatsApp** para el soft launch: el de prueba solo mensajea a 5 destinatarios verificados.
+- **E2E real de WhatsApp sobre la config del agente**: cambiar el tono a formal desde `/agente`, mandar un mensaje real y verificar que trate de usted. Nunca se hizo; la CI no lo cubre.
+- **`/ajustes` sigue siendo un `PantallaPendiente`.** Es la única de las 7 del panel sin construir, y el handoff nunca la diseñó (`README §Pendientes de diseño`): no hay contra qué compararla. Antes de construirla hay que definir qué va adentro.
+
+---
+
+## Prompt de arranque — copiar y pegar
+
+```text
+Repo: C:\Users\Tinki\Proyectos\crm. Rama master, árbol limpio, HEAD ed50754.
+
+Leé primero, en este orden:
+1. AGENTS.md completo — reglas de oro, estado y las 10 lecciones de proceso.
+2. docs/next-session.md (este archivo) — bloqueantes y prioridades.
+3. docs/handoff-rediseno-README.md — es LA spec de Bandeja, Leads, Métricas y
+   Agente IA. Si una pantalla no coincide con ese archivo, el que está mal es
+   el código.
+
+Estado del repo:
+- 39 commits sin pushear (origin/master quedó en d84e9fb).
+- 1569 tests unitarios pasan; coverage 87.3/79.39/82.8/88.25 sobre umbral
+  80/75/80/80.
+- 33 migraciones aplicadas a crm-dev.
+- El rediseño A-G2 está aplicado entero.
+
+Lo que NO está verificado, y quiero que lo trates como no verificado:
+- Los integration tests NO corren: SUPABASE_TEST_URL apunta al mismo proyecto
+  Supabase que la app y test:integration vacía la base de dev. Hay contract
+  tests de varios repos que nunca tocaron Postgres real.
+- Ninguna pantalla fue revisada visualmente. Todo está medido sobre el DOM.
+  Cada vez que mandé una captura apareció algo que la medición no vio.
+- Rendimiento: cero mediciones.
+
+Panel: admin-dev@crm.local / dev-admin-2026!
+Arrancar: npm run dev (puerto 3001). El backend lo levanto yo.
+
+NO corras npm run test:integration (borra la base de dev).
+NO corras npm run build con el dev server vivo (corrompe .next/).
+
+Lo más valioso por hacer, en orden:
+
+1. Un proyecto Supabase aparte para tests. Sin eso, esa suite es un botón de
+   borrar la base y hay repos que nunca se probaron contra Postgres real. Yo
+   creo el proyecto; decime exactamente qué necesitás y qué variables van a
+   .env.local.
+
+2. Revisar visualmente, pantalla por pantalla: Leads con sus filtros nuevos,
+   Métricas, /agente, /tags, el buscador del Inbox y reprogramar un
+   seguimiento. Yo te mando capturas. Medir el DOM no alcanza y ya se demostró.
+
+3. Rendimiento de listActiveLeads (src/server/services/inbox/
+   default-inbox.service.ts): consulta dentro de un loop por cada lead y el
+   poller la re-ejecuta cada 5 s. Es lo primero que pedí y lo que más se
+   postergó. Medir con build limpio, sin el dev server vivo.
+
+4. Dos decisiones mías que están anotadas y quiero cerrar: cuál de las dos
+   puertas de cierre de sesión se queda (recomendación registrada: sacar la
+   del header), y qué hace el sistema cuando la IA escala a requiere_humano y
+   no hay nadie del otro lado.
+
+Antes de escribir código, decime qué vas a hacer, qué no, y esperá que
+confirme.
+```
