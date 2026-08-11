@@ -30,9 +30,9 @@ export function CanalGlyph({ canal, className }: { canal: Canal; className: stri
  * glifo + nombre del header de la conversación, encogido a lo que entra.
  *
  * Es `shrink-0` a propósito. Quien la usa la pone al lado de un hermano
- * flexible —el nombre del lead en la fila completa— y ese hermano es el que
- * cede el ancho: así la tira nunca se recorta a medio glifo ni empuja la fila
- * fuera de los 322px del panel.
+ * flexible —el nombre del lead en la fila completa, el preview del mensaje en
+ * la compacta— y ese hermano es el que cede el ancho: así la tira nunca se
+ * recorta a medio glifo ni empuja la fila fuera de los 322px del panel.
  */
 export function CanalesFila({
   canales,
@@ -70,42 +70,6 @@ export function CanalesFila({
           ) : null}
         </span>
       ))}
-    </span>
-  );
-}
-
-/**
- * Glifo del canal montado sobre el avatar, en el lugar del punto de color.
- *
- * Existe para la fila compacta, donde la tira no entra: esa fila es una sola
- * línea y sus 250px útiles ya están tomados por nombre, etapa, preview y hora.
- * Sobre el avatar el glifo cuesta cero ancho.
- */
-export function ChannelBadge({
-  canal,
-  size,
-  ringColor,
-  className,
-}: {
-  canal: Canal;
-  size: number;
-  ringColor: string;
-  className?: string;
-}) {
-  return (
-    <span
-      role="img"
-      aria-label={canalLabel(canal)}
-      className={cn("inline-flex shrink-0 items-center justify-center rounded-full", className)}
-      style={{
-        width: size,
-        height: size,
-        backgroundColor: ringColor,
-        border: `1.5px solid ${ringColor}`,
-        color: canalColor(canal),
-      }}
-    >
-      <CanalGlyph canal={canal} className="h-full w-full" />
     </span>
   );
 }

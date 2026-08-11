@@ -2,6 +2,7 @@ import { conDatoExtra, excedeTope, MAX_DATOS_EXTRA, sinDatoExtra } from "@/lib/d
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { calcularSinResponder } from "@/lib/sin-responder";
 import { pesoMotivo, triage } from "@/lib/triage";
+import { canalesDelLead } from "@/lib/ui/canal";
 import type { EntradaTriage } from "@/lib/triage";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
@@ -111,7 +112,12 @@ export class DefaultInboxService implements InboxService {
       if (!lead) continue;
 
       const convs = await this.deps.convs.findByLeadId(session.lead_id);
-      const canales: Canal[] = Array.from(new Set(convs.map((c) => c.canal)));
+      const conConversacion: Canal[] = Array.from(new Set(convs.map((c) => c.canal)));
+      // Los canales del lead salen de la entidad y no solo de las
+      // conversaciones abiertas: un lead con WhatsApp e Instagram vinculados
+      // mostraba los dos en el header de la conversación y uno solo en la fila,
+      // porque cada pantalla derivaba la lista por su cuenta.
+      const canales: Canal[] = canalesDelLead(lead, conConversacion);
 
       let lastMsg: Mensaje | null = null;
       let canalActivo: Canal | null = null;
@@ -151,7 +157,10 @@ export class DefaultInboxService implements InboxService {
             }
           : null,
         canales,
-        canalActivo: canalActivo ?? canales[0] ?? null,
+        // El fallback sigue mirando solo las conversaciones y no `canales`:
+        // "activo" es por dónde se le responde, y para eso hace falta un hilo.
+        // Un canal vinculado sin conversación no es un destino de respuesta.
+        canalActivo: canalActivo ?? conConversacion[0] ?? null,
         sinResponder,
         esperandoDesde,
         urgencia: session.urgencia,
@@ -427,10 +436,30 @@ export class DefaultInboxService implements InboxService {
   }
 
   async closeSession(input: CloseSessionServiceInput): Promise<LeadSession> {
-    return this.deps.sessions.close(input.sessionId, {
-      resultado: input.resultado,
-      motivo_perdida: input.motivoPerdida ?? null,
-    });
+    // Sin `requireActiveSession`, a diferencia de `moverEtapa`: cerrar es el
+    // acto que convierte la sesión en historial, y su replay idéntico tiene que
+    // seguir siendo no-op. Quien decide sobre una sesión ya cerrada lo resuelve
+    // el repo: mismo resultado y motivo devuelve la fila, distinto revienta.
+    if (input.resultado === "exito") {
+      return this.deps.sessions.resolver(input.sessionId, { resultado: "exito" }, input.userId);
+    }
+
+    // La segunda cerradura del motivo obligatorio. La primera es
+    // `CloseSessionSchema`; esta cubre a cualquier caller que no pase por la
+    // Server Action —un job, un test, el próximo endpoint— porque la regla es
+    // del dominio y no del formulario.
+    if (input.motivoPerdida === null) {
+      throw new ValidationError(
+        "Un cierre perdido necesita un motivo.",
+        "motivo_perdida_requerido",
+      );
+    }
+
+    return this.deps.sessions.resolver(
+      input.sessionId,
+      { resultado: "perdido", motivo: input.motivoPerdida },
+      input.userId,
+    );
   }
 
   private async requireLead(leadId: UUID): Promise<Lead> {

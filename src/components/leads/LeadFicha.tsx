@@ -1,5 +1,6 @@
 import { ChannelIcons } from "@/components/inbox/ChannelIcons";
 import { InitialsAvatar } from "@/components/shared/InitialsAvatar";
+import { canalesDelLead } from "@/lib/ui/canal";
 import { formatearTelefono } from "@/lib/ui/telefono";
 import type { Lead } from "@/types/entities";
 import type { LeadTagView } from "@/types/leads";
@@ -23,13 +24,7 @@ export function LeadFicha({ lead, tags }: { lead: Lead; tags: LeadTagView[] }) {
     .filter(Boolean)
     .join(" ");
 
-  // Canal origen + canales vinculados con meta_user_ids presente (dedup).
-  const canales = [lead.canal_origen];
-  for (const canal of ["wa", "ig", "fb"] as const) {
-    if (lead.meta_user_ids[canal] && !canales.includes(canal)) {
-      canales.push(canal);
-    }
-  }
+  const canales = canalesDelLead(lead);
 
   return (
     <section className="flex flex-col gap-4 px-5 py-[18px]">

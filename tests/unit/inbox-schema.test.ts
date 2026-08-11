@@ -99,7 +99,6 @@ describe("CloseSessionSchema", () => {
       resultado: "exito",
     });
     expect(parsed.resultado).toBe("exito");
-    expect(parsed.motivoPerdida).toBeUndefined();
   });
 
   test("acepta perdido con motivo enum", () => {
@@ -109,7 +108,39 @@ describe("CloseSessionSchema", () => {
       resultado: "perdido",
       motivoPerdida: "precio",
     });
-    expect(parsed.motivoPerdida).toBe("precio");
+    expect(parsed.resultado).toBe("perdido");
+    if (parsed.resultado === "perdido") expect(parsed.motivoPerdida).toBe("precio");
+  });
+
+  // La regla del pedido: el motivo no es opcional cuando se perdió, y el
+  // endpoint lo tiene que rechazar aunque la UI haya deshabilitado el botón.
+  test("rechaza perdido sin motivo", () => {
+    const result = CloseSessionSchema.safeParse({
+      leadId: LEAD_ID,
+      sessionId: SESSION_ID,
+      resultado: "perdido",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("rechaza perdido con motivo null", () => {
+    const result = CloseSessionSchema.safeParse({
+      leadId: LEAD_ID,
+      sessionId: SESSION_ID,
+      resultado: "perdido",
+      motivoPerdida: null,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  test("un cierre ganado no arrastra motivo de pérdida", () => {
+    const parsed = CloseSessionSchema.parse({
+      leadId: LEAD_ID,
+      sessionId: SESSION_ID,
+      resultado: "exito",
+      motivoPerdida: "precio",
+    });
+    expect(parsed).not.toHaveProperty("motivoPerdida");
   });
 
   test("rechaza motivo fuera del enum", () => {

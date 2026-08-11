@@ -16,6 +16,7 @@ import type {
   Urgencia,
 } from "@/types/domain";
 import type { LeadSession, Procedencia, UUID } from "@/types/entities";
+import { etapaDeResolucion, motivoDeResolucion } from "./lead-session.repo";
 import type {
   CierreSesion,
   CloseInput,
@@ -23,6 +24,7 @@ import type {
   LeadSessionRepository,
   LeadSessionUpdate,
   MarcasProcedencia,
+  ResolucionSesion,
 } from "./lead-session.repo";
 
 type LeadSessionDbUpdate = Database["public"]["Tables"]["lead_session"]["Update"];
@@ -287,17 +289,18 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
     return mapRow(data);
   }
 
-  async marcarPerdida(id: UUID, motivo: MotivoPerdida, userId: UUID | null): Promise<LeadSession> {
+  async resolver(id: UUID, cierre: ResolucionSesion, userId: UUID | null): Promise<LeadSession> {
     const current = await this.findById(id);
     if (!current) {
       throw new NotFoundError(`sesión no encontrada: ${id}`, "lead_session", id);
     }
+    const motivo = motivoDeResolucion(cierre);
     if (current.resultado !== null) {
-      if (current.resultado === "perdido" && current.motivo_perdida === motivo) {
+      if (current.resultado === cierre.resultado && current.motivo_perdida === motivo) {
         return current;
       }
       throw new IllegalStateError(
-        `sesión ya cerrada con resultado distinto (current=${current.resultado}/${current.motivo_perdida ?? "null"}, requested=perdido/${motivo})`,
+        `sesión ya cerrada con resultado distinto (current=${current.resultado}/${current.motivo_perdida ?? "null"}, requested=${cierre.resultado}/${motivo ?? "null"})`,
         "session_already_closed_different",
       );
     }
@@ -313,14 +316,17 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
       },
     };
 
+    const etapa = etapaDeResolucion(cierre);
     const closedAt = await serverNowIso(this.db);
     const { data, error } = await this.db
       .from("lead_session")
       .update({
-        // `etapa_alcanzada` no se toca: `perdido` es un desvío y el embudo
-        // queda congelado donde la conversación llegó antes de perderse.
-        current_stage: "perdido",
-        resultado: "perdido",
+        current_stage: etapa,
+        // `cerrado` arrastra el máximo hasta el paso 6; `perdido` es un desvío
+        // sin posición y lo deja congelado donde la conversación llegó antes de
+        // caerse. Las dos reglas salen de la misma función que usa `update`.
+        etapa_alcanzada: etapaAlcanzada(current.etapa_alcanzada, etapa),
+        resultado: cierre.resultado,
         motivo_perdida: motivo,
         closed_at: closedAt,
         procedencia: procedencia as never,

@@ -282,6 +282,24 @@ describe("DefaultInboxService.listActiveLeads", () => {
     expect(out[0]!.sessionId).toBe(session.id);
   });
 
+  // El bug que reportó el dueño: la fila mostraba un logo y el header dos,
+  // porque la fila derivaba los canales de las conversaciones y el header de la
+  // entidad. Un lead vinculado a Instagram sin hilo abierto ahí lo destapa.
+  test("los canales incluyen los vinculados por meta_user_ids, sin conversación", async () => {
+    const lead = await makeLead(leads, {
+      canal_origen: "wa",
+      meta_user_ids: { wa: "wa-1", ig: "ig-1" },
+    });
+    await makeSession(sessions, lead.id);
+    await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: "wa-1" });
+
+    const out = await svc.listActiveLeads();
+
+    expect(out[0]?.canales).toEqual(["wa", "ig"]);
+    // Y el activo sigue saliendo del hilo, no de la lista de vinculados.
+    expect(out[0]?.canalActivo).toBe("wa");
+  });
+
   test("ultimoMensaje is null when lead has no messages", async () => {
     const lead = await makeLead(leads);
     await sessions.create({
@@ -767,7 +785,11 @@ describe("DefaultInboxService.listActiveLeads edge cases (8.8)", () => {
     expect(out).toHaveLength(1);
     expect(out[0]?.ultimaActividad.getTime()).toBe(session.started_at.getTime());
     expect(out[0]?.ultimoMensaje).toBeNull();
-    expect(out[0]?.canales).toEqual([]);
+    // Sin conversación abierta el lead igual tiene canal: entró por alguno, y
+    // eso es lo que la fila del inbox tiene que poder decir.
+    expect(out[0]?.canales).toEqual(["wa"]);
+    // "Activo" es otra cosa: sin hilo no hay canal por el que responder.
+    expect(out[0]?.canalActivo).toBeNull();
   });
 
   test("último mensaje gana cross-canal por timestamp, en ambos órdenes de iteración", async () => {

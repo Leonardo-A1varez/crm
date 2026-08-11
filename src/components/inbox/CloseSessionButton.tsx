@@ -21,19 +21,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { MOTIVO_LABEL } from "@/lib/ui/motivo-perdida";
 import { MOTIVO_PERDIDA } from "@/types/domain";
 import type { CloseSessionInput } from "@/lib/validation/inbox.schema";
 import type { MotivoPerdida, Resultado } from "@/types/domain";
 import type { ActionResult } from "@/types/inbox";
 import type { UUID } from "@/types/entities";
-
-const MOTIVO_LABEL: Record<MotivoPerdida, string> = {
-  precio: "Precio",
-  stock: "Sin stock",
-  tiempo: "Tiempos de entrega",
-  no_responde: "No responde",
-  otro: "Otro",
-};
 
 // `items` en Root: Base UI lo usa para que SelectValue muestre label, no el value raw.
 const RESULTADO_ITEMS = { exito: "Éxito (venta concretada)", perdido: "Perdido" };
@@ -53,14 +46,20 @@ export function CloseSessionButton({
   const [motivo, setMotivo] = useState<MotivoPerdida | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  // El motivo es obligatorio cuando se perdió: sin él no hay input que armar.
+  // La regla la sostienen `CloseSessionSchema` y el service; esto solo evita
+  // mandar un cierre que el server va a rechazar.
+  const input: CloseSessionInput | null =
+    resultado === "exito"
+      ? { leadId, sessionId, resultado: "exito" }
+      : motivo !== null
+        ? { leadId, sessionId, resultado: "perdido", motivoPerdida: motivo }
+        : null;
+
   const confirm = () => {
+    if (input === null) return;
     startTransition(async () => {
-      const result = await onClose({
-        leadId,
-        sessionId,
-        resultado,
-        motivoPerdida: resultado === "perdido" ? (motivo ?? undefined) : undefined,
-      });
+      const result = await onClose(input);
       if (!result.ok) {
         toast.error(result.error);
         return;
@@ -115,7 +114,7 @@ export function CloseSessionButton({
           </label>
           {resultado === "perdido" ? (
             <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted-foreground text-xs">Motivo (opcional)</span>
+              <span className="text-muted-foreground text-xs">Motivo</span>
               <Select
                 items={MOTIVO_LABEL}
                 value={motivo}
@@ -140,7 +139,7 @@ export function CloseSessionButton({
           <Button variant="outline" onClick={() => setOpen(false)} disabled={isPending}>
             Cancelar
           </Button>
-          <Button variant="destructive" onClick={confirm} disabled={isPending}>
+          <Button variant="destructive" onClick={confirm} disabled={isPending || input === null}>
             {isPending ? "Cerrando…" : "Confirmar cierre"}
           </Button>
         </DialogFooter>

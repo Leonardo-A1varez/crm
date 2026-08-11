@@ -14,6 +14,7 @@ import { Eyebrow } from "@/components/shared/Eyebrow";
 import { MonoMeta } from "@/components/shared/MonoMeta";
 import { RelativeTime } from "@/components/shared/RelativeTime";
 import { formatearUsd } from "@/lib/ui/metricas";
+import { CLAVE_MOTIVO_SUGERIDO, motivoSugerido } from "@/lib/ui/motivo-perdida";
 import { formatearTelefono } from "@/lib/ui/telefono";
 import { cn } from "@/lib/utils";
 import type { CampoTwinEditable, MetodoPago, Urgencia } from "@/types/domain";
@@ -21,6 +22,7 @@ import type {
   AgregarDatoLeadInput,
   AsignarEtiquetaInput,
   BorrarDatoExtraInput,
+  CloseSessionInput,
   CrearEtiquetaInput,
   EditarCampoTwinInput,
   MoverEtapaInput,
@@ -423,6 +425,7 @@ export function TwinPanel({
   gastoIa,
   onEditar,
   onMoverEtapa,
+  onCerrarSesion,
   onRenombrar,
   onAgregarDato,
   onBorrarDato,
@@ -444,6 +447,8 @@ export function TwinPanel({
   gastoIa: GastoSesion | null;
   onEditar: (input: EditarCampoTwinInput) => Promise<ActionResult>;
   onMoverEtapa: (input: MoverEtapaInput) => Promise<ActionResult>;
+  /** Cierre en dos pasos que abre el segmento "Cerrado" del rail. */
+  onCerrarSesion: (input: CloseSessionInput) => Promise<ActionResult>;
   onRenombrar: (input: RenombrarLeadInput) => Promise<ActionResult>;
   onAgregarDato: (input: AgregarDatoLeadInput) => Promise<ActionResult>;
   onBorrarDato: (input: BorrarDatoExtraInput) => Promise<ActionResult>;
@@ -525,6 +530,10 @@ export function TwinPanel({
     ? safeHttpUrl(session.comprobante_pago_url)
     : null;
   const extras = Object.entries(session.extras)
+    // El motivo que propone la IA vive en `extras` pero no es un "dato
+    // adicional": es el borrador de una decisión, y su lugar es el popover de
+    // cierre que lo ofrece. Listarlo acá además lo mostraría como hecho.
+    .filter(([key]) => key !== CLAVE_MOTIVO_SUGERIDO)
     .map(([key, value]) => [key, formatExtraValue(value)] as const)
     .filter((par): par is readonly [string, string] => par[1] !== null);
 
@@ -539,7 +548,9 @@ export function TwinPanel({
           stage={session.current_stage}
           alcanzada={session.etapa_alcanzada}
           procedencia={session.procedencia.current_stage}
+          motivoPropuesto={motivoSugerido(session.extras)}
           onMover={onMoverEtapa}
+          onCerrarSesion={onCerrarSesion}
         />
       </Seccion>
 

@@ -1,5 +1,6 @@
 import { generateObject, type LanguageModel } from "ai";
 import type { CostTracker } from "@/lib/observability/cost-tracker";
+import { CLAVE_MOTIVO_SUGERIDO } from "@/lib/ui/motivo-perdida";
 import { LeadTwinUpdateSchema, type LeadTwinUpdate } from "@/lib/validation/ai";
 import type {
   TwinExtractorLLM,
@@ -24,6 +25,10 @@ const SYSTEM_PROMPT = [
   "resultado: exito|perdido o null (no cierres salvo evidencia clara).",
   "motivo_perdida (solo si resultado=perdido): precio|stock|tiempo|no_responde|otro.",
   "extras: jsonb con campos custom shallow-merged en service (preserva keys previas).",
+  // Sin esto la IA no tiene forma de proponer un motivo sin cerrar la sesión:
+  // `motivo_perdida` viaja pegado a `resultado`, y `resultado` cierra. Esta
+  // clave es la propuesta que el vendedor confirma en el popover del rail.
+  `Si la conversación sugiere que la venta se está perdiendo pero NO hay evidencia para cerrarla, dejá resultado en null y poné extras.${CLAVE_MOTIVO_SUGERIDO} con uno de esos mismos valores: es una propuesta que confirma una persona.`,
 ].join(" ");
 
 /**

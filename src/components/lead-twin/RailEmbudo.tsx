@@ -1,13 +1,15 @@
 "use client";
 
-import { useTransition } from "react";
+import { useCallback, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { AltRoute, Edit } from "@/components/icons";
 import { ChipProcedencia } from "@/components/lead-twin/ChipProcedencia";
+import { CierreSesion } from "@/components/lead-twin/CierreSesion";
 import { MonoMeta } from "@/components/shared/MonoMeta";
+import { useCerrarAlSalir } from "@/hooks/use-cerrar-al-salir";
 import { FUNNEL_STAGES, funnelStep, isDetour, stageColor, stageLabel } from "@/lib/ui/stage";
-import type { MoverEtapaInput } from "@/lib/validation/inbox.schema";
-import type { CurrentStage, EtapaEmbudo } from "@/types/domain";
+import type { CloseSessionInput, MoverEtapaInput } from "@/lib/validation/inbox.schema";
+import type { CurrentStage, EtapaEmbudo, MotivoPerdida } from "@/types/domain";
 import type { ProcedenciaCampo, UUID } from "@/types/entities";
 import type { ActionResult } from "@/types/inbox";
 
@@ -35,6 +37,13 @@ const RAIL_CONGELADO = "#3A3F49";
  * nombra dónde quedó frenada. Los segmentos siguen siendo clickeables ahí: sacar
  * del desvío a la etapa donde estaba la conversación es exactamente el caso en
  * el que una persona necesita el control.
+ *
+ * El último segmento es la excepción: **"Cerrado" no mueve la etapa**, abre el
+ * popover de cierre (`CierreSesion`). Cerrar no es avanzar un paso más —es
+ * decidir si la venta se ganó o se perdió, y eso escribe `resultado`, no solo
+ * `current_stage`—. Por lo mismo es el único segmento que sigue vivo cuando ya
+ * es la etapa actual: el extractor puede haber dejado la sesión en `cerrado` sin
+ * resolverla, y ahí el vendedor todavía tiene la decisión pendiente.
  */
 export function RailEmbudo({
   leadId,
@@ -42,7 +51,9 @@ export function RailEmbudo({
   stage,
   alcanzada,
   procedencia,
+  motivoPropuesto,
   onMover,
+  onCerrarSesion,
 }: {
   leadId: UUID;
   sessionId: UUID;
@@ -50,9 +61,20 @@ export function RailEmbudo({
   alcanzada: EtapaEmbudo;
   /** Marca de `current_stage`: si la puso una persona, se dice en el chip. */
   procedencia?: ProcedenciaCampo;
+  /** Motivo de pérdida que dejó propuesto el extractor, si dejó alguno. */
+  motivoPropuesto: MotivoPerdida | null;
   onMover: (input: MoverEtapaInput) => Promise<ActionResult>;
+  onCerrarSesion: (input: CloseSessionInput) => Promise<ActionResult>;
 }) {
   const [isPending, startTransition] = useTransition();
+  const [cerrando, setCerrando] = useState(false);
+  const panel = useRef<HTMLDivElement>(null);
+
+  const salirDelCierre = useCallback(() => setCerrando(false), []);
+  // El `ref` abarca el rail entero y no solo el popover: el segmento que lo
+  // abre también es "adentro", o el `pointerdown` lo cerraría en el mismo click
+  // que lo abre.
+  useCerrarAlSalir(cerrando, panel, salirDelCierre);
 
   const desvio = isDetour(stage);
   const paso = funnelStep(stage);
@@ -64,6 +86,9 @@ export function RailEmbudo({
 
   const mover = (etapa: EtapaEmbudo) => {
     if (isPending || etapa === stage) return;
+    // Elegir otra etapa con el popover abierto es abandonar el cierre: la
+    // decisión que quedó a medias ya no aplica a la etapa a la que se va.
+    setCerrando(false);
     startTransition(async () => {
       const r = await onMover({ leadId, sessionId, etapa });
       if (!r.ok) toast.error(r.error);
@@ -92,24 +117,31 @@ export function RailEmbudo({
         </ChipProcedencia>
       ) : null}
 
-      <div className="flex flex-col gap-1">
+      <div ref={panel} className="relative flex flex-col gap-1">
         <div className="flex gap-[3px]">
           {FUNNEL_STAGES.map((etapa, i) => {
             const actual = etapa === stage;
+            const cierra = etapa === "cerrado";
             return (
               <button
                 key={etapa}
                 type="button"
-                disabled={isPending || actual}
+                disabled={isPending || (actual && !cierra)}
                 // El actual no dice "Mover a": no mueve nada. Los demás nombran
                 // el destino, que es lo único que un lector de pantalla puede
-                // saber de una barra de 3 px sin texto.
+                // saber de una barra de 3 px sin texto. El último nombra el acto
+                // y no el destino, porque abre una decisión en vez de mover.
                 aria-label={
-                  actual ? `Etapa actual: ${stageLabel(etapa)}` : `Mover a ${stageLabel(etapa)}`
+                  cierra
+                    ? "Cerrar la sesión: ganado o perdido"
+                    : actual
+                      ? `Etapa actual: ${stageLabel(etapa)}`
+                      : `Mover a ${stageLabel(etapa)}`
                 }
+                aria-expanded={cierra ? cerrando : undefined}
                 aria-current={actual ? "step" : undefined}
-                title={stageLabel(etapa)}
-                onClick={() => mover(etapa)}
+                title={cierra ? "Cerrar la sesión: ganado o perdido" : stageLabel(etapa)}
+                onClick={() => (cierra ? setCerrando((v) => !v) : mover(etapa))}
                 className="group -my-[6px] flex-1 cursor-pointer rounded-full py-[6px] outline-none focus-visible:ring-1 focus-visible:ring-white/40 disabled:cursor-default"
               >
                 <span
@@ -128,6 +160,18 @@ export function RailEmbudo({
           <MonoMeta className="text-ink-fainter text-[9px]">nuevo</MonoMeta>
           <MonoMeta className="text-ink-fainter text-[9px]">cerrado</MonoMeta>
         </div>
+
+        {cerrando ? (
+          <div className="border-line-control bg-surface-elevated absolute inset-x-0 top-full z-20 mt-2 rounded-[10px] border p-2 shadow-lg">
+            <CierreSesion
+              leadId={leadId}
+              sessionId={sessionId}
+              motivoPropuesto={motivoPropuesto}
+              onCerrarSesion={onCerrarSesion}
+              onSalir={salirDelCierre}
+            />
+          </div>
+        ) : null}
       </div>
 
       {desvio ? (

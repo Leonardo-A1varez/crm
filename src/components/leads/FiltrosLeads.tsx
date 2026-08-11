@@ -7,11 +7,11 @@ import { ChannelDot } from "@/components/shared/ChannelDot";
 import {
   actividadLabel,
   contarFiltrosActivos,
-  motivoPerdidaLabel,
   PARAM,
   parseFiltrosLeads,
   resultadoLabel,
 } from "@/lib/ui/filtros-leads";
+import { motivoPerdidaLabel } from "@/lib/ui/motivo-perdida";
 import { canalLabel } from "@/lib/ui/canal";
 import { stageLabel } from "@/lib/ui/stage";
 import { cn } from "@/lib/utils";

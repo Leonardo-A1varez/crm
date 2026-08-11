@@ -2,7 +2,7 @@ import { CanalGlyph } from "@/components/inbox/ChannelIcons";
 import { ChannelDot } from "@/components/shared/ChannelDot";
 import { InitialsAvatar } from "@/components/shared/InitialsAvatar";
 import { StageBadge } from "@/components/shared/StageBadge";
-import { canalColor, canalLabel } from "@/lib/ui/canal";
+import { canalColor, canalesDelLead, canalLabel } from "@/lib/ui/canal";
 import { nombreVisible, sinNombre } from "@/lib/ui/lead";
 import type { Canal } from "@/types/domain";
 import type { Lead, LeadSession } from "@/types/entities";
@@ -31,13 +31,11 @@ export function ConversationHeader({
   // del Twin—, así que acá el hueco se nombra y se atenúa.
   const anonimo = sinNombre(lead.nombre);
 
-  // Los canales salen de la entidad y no de la vista: `canal_origen` mas los
-  // que tengan id de Meta. Se muestran con su glifo y su nombre, sin rotulo
-  // "Canal" delante — el glifo ya dice de que se trata.
-  const canales: Canal[] = [lead.canal_origen];
-  for (const c of ["wa", "ig", "fb"] as const) {
-    if (lead.meta_user_ids[c] && !canales.includes(c)) canales.push(c);
-  }
+  // Se muestran con su glifo y su nombre, sin rótulo "Canal" delante — el
+  // glifo ya dice de qué se trata. La lista sale de `canalesDelLead`, que es la
+  // misma que usa la fila del inbox: eran dos derivaciones distintas y el
+  // mismo lead mostraba dos canales acá y uno solo allá.
+  const canales: Canal[] = canalesDelLead(lead);
 
   return (
     <header className="border-line-layout bg-surface-chat/86 flex items-center gap-3 border-b px-5 py-[13px] backdrop-blur-[8px]">

@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { ChannelIcons } from "@/components/inbox/ChannelIcons";
 import { RelativeTime } from "@/components/shared/RelativeTime";
 import { Button } from "@/components/ui/button";
+import { canalesDelLead } from "@/lib/ui/canal";
 import {
   Dialog,
   DialogContent,
@@ -31,13 +32,7 @@ type ResumenLeadFields = Pick<
 >;
 
 function ResumenLead({ lead, titulo }: { lead: ResumenLeadFields; titulo: string }) {
-  // Canal origen + canales vinculados con meta_user_ids presente (dedup) — igual a LeadFicha.
-  const canales = [lead.canal_origen];
-  for (const canal of ["wa", "ig", "fb"] as const) {
-    if (lead.meta_user_ids[canal] && !canales.includes(canal)) {
-      canales.push(canal);
-    }
-  }
+  const canales = canalesDelLead(lead);
   const vehiculo = [lead.vehiculo_marca, lead.vehiculo_modelo, lead.vehiculo_anio || ""]
     .map(String)
     .map((s) => s.trim())

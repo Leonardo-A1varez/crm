@@ -29,10 +29,18 @@ export interface ToggleHandoffServiceInput {
   action: "pause" | "resume";
 }
 
+/**
+ * Plano y no la unión discriminada del repo (`ResolucionSesion`) a propósito:
+ * así la obligatoriedad del motivo es una guarda de runtime que el service
+ * puede comprobar y un test puede ejercitar. Con la unión acá, el `if` sería
+ * inalcanzable y la regla viviría solo en el schema de entrada.
+ */
 export interface CloseSessionServiceInput {
   sessionId: UUID;
   resultado: Resultado;
-  motivoPerdida?: MotivoPerdida | null;
+  motivoPerdida: MotivoPerdida | null;
+  /** Quién lo decidió: queda en `procedencia.current_stage`. */
+  userId: UUID | null;
 }
 
 export interface EditarCampoTwinServiceInput {
@@ -121,8 +129,17 @@ export interface InboxService {
   toggleHandoff(input: ToggleHandoffServiceInput): Promise<LeadSession>;
 
   /**
-   * Cierra sesión con resultado (+ motivo si perdido). Replay idéntico es
-   * no-op; cierre con resultado distinto lanza IllegalStateError.
+   * Cierra la sesión con el resultado que decidió una persona y deja la etapa
+   * que le corresponde: **ganado** la lleva a `cerrado` (paso 6 del embudo),
+   * **perdido** a `perdido` (desvío, no paso 7). Ver `resolver` en el repo.
+   *
+   * `motivoPerdida` es obligatorio cuando `resultado` es `perdido`: sin él
+   * lanza `ValidationError`. Un cierre perdido sin motivo es una fila que
+   * después nadie puede explicar, y las viejas que ya están así son historia
+   * que no se puede inventar hacia atrás.
+   *
+   * Replay idéntico es no-op; cierre con resultado distinto lanza
+   * IllegalStateError; sesión inexistente, NotFoundError.
    */
   closeSession(input: CloseSessionServiceInput): Promise<LeadSession>;
 

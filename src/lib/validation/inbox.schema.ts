@@ -1,12 +1,7 @@
 import { z } from "zod";
 import { CAMPOS_TWIN_EDITABLES, ETAPAS_EMBUDO } from "@/types/domain";
 import { esClaveReservada, MAX_LARGO_CLAVE, MAX_LARGO_VALOR } from "@/lib/datos-extra";
-import {
-  CanalSchema,
-  MotivoPerdidaSchema,
-  ResultadoSchema,
-  UUIDSchema,
-} from "@/lib/validation/schemas";
+import { CanalSchema, MotivoPerdidaSchema, UUIDSchema } from "@/lib/validation/schemas";
 
 // Inputs de Server Actions inbox (Slice 2 8.4-8.5). Regla §0.9.3: parse línea 1.
 
@@ -26,12 +21,32 @@ export const ToggleHandoffSchema = z.object({
 });
 export type ToggleHandoffInput = z.infer<typeof ToggleHandoffSchema>;
 
-export const CloseSessionSchema = z.object({
-  leadId: UUIDSchema,
-  sessionId: UUIDSchema,
-  resultado: ResultadoSchema,
-  motivoPerdida: MotivoPerdidaSchema.optional(),
-});
+/**
+ * Cierre de la sesión decidido por una persona: ganado o perdido.
+ *
+ * Unión discriminada por `resultado` y no un objeto con `motivoPerdida`
+ * opcional: **el motivo es obligatorio cuando la venta se perdió**. Modelado
+ * así, un cierre perdido sin motivo no pasa el parse, y el tipo que llega al
+ * service ya no puede representarlo. Deshabilitar el botón en la UI no alcanza:
+ * la Server Action es un endpoint y recibe lo que le manden.
+ *
+ * `exito` no acepta `motivoPerdida`: un cierre ganado con motivo de pérdida es
+ * un cliente confundido, y guardarlo dejaría filas que los filtros de "perdido
+ * por precio" contarían mal.
+ */
+export const CloseSessionSchema = z.discriminatedUnion("resultado", [
+  z.object({
+    resultado: z.literal("exito"),
+    leadId: UUIDSchema,
+    sessionId: UUIDSchema,
+  }),
+  z.object({
+    resultado: z.literal("perdido"),
+    leadId: UUIDSchema,
+    sessionId: UUIDSchema,
+    motivoPerdida: MotivoPerdidaSchema,
+  }),
+]);
 export type CloseSessionInput = z.infer<typeof CloseSessionSchema>;
 
 // El campo se valida contra la lista blanca del repo: sin esto, un cliente
@@ -53,6 +68,12 @@ export type EditarCampoTwinInput = z.infer<typeof EditarCampoTwinSchema>;
  * tienen segmento en el rail. Aceptarlos acá abriría un camino para marcar una
  * conversación como perdida sin pasar por el cierre de sesión, que es el que
  * pide el motivo.
+ *
+ * `cerrado` sí sigue acá aunque el segmento "Cerrado" del rail ya no llame a
+ * esta acción —abre el popover de ganado/perdido, que va por
+ * `CloseSessionSchema`—: mover la etapa a `cerrado` no escribe `resultado`, así
+ * que no hay forma de cerrar una venta por este camino y sí de corregir la
+ * etapa de una sesión que el extractor dejó mal.
  */
 export const MoverEtapaSchema = z.object({
   leadId: UUIDSchema,

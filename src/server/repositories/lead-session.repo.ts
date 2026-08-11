@@ -1,6 +1,12 @@
 import { ConflictError, IllegalStateError, NotFoundError } from "@/lib/errors";
 import { etapaAlcanzada } from "@/lib/ui/stage";
-import type { CampoTwinEditable, EtapaEmbudo, MotivoPerdida, Resultado } from "@/types/domain";
+import type {
+  CampoTwinEditable,
+  CurrentStage,
+  EtapaEmbudo,
+  MotivoPerdida,
+  Resultado,
+} from "@/types/domain";
 import type { LeadSession, Procedencia, UUID } from "@/types/entities";
 import type { Update } from "./_types";
 
@@ -49,6 +55,18 @@ export interface CloseInput {
 }
 
 /**
+ * Cómo termina una sesión cuando la resuelve una persona desde el rail del Twin.
+ *
+ * Unión discriminada y no `{ resultado, motivo?: … }`: el motivo es obligatorio
+ * cuando la venta se perdió, y así un cierre perdido sin motivo no se puede ni
+ * escribir. La regla queda en el tipo y no solo en un `if` que alguien puede
+ * olvidar de copiar en el próximo caller.
+ */
+export type ResolucionSesion =
+  | { resultado: "exito" }
+  | { resultado: "perdido"; motivo: MotivoPerdida };
+
+/**
  * Cómo terminó una sesión ya cerrada, sin el resto de la fila.
  *
  * Es la forma angosta que necesita la lista de leads para decir "este lead se
@@ -73,20 +91,28 @@ export interface LeadSessionRepository {
   update(id: UUID, patch: LeadSessionUpdate): Promise<LeadSession>;
   close(id: UUID, input: CloseInput): Promise<LeadSession>;
   /**
-   * Cierra la sesión como perdida y deja la etapa en `perdido` en la misma
-   * operación, anotando que la decisión fue de una persona.
+   * Cierra la sesión con su resultado y deja la etapa que le corresponde, en la
+   * misma operación, anotando que la decisión fue de una persona.
    *
    * Existe aparte de `close` porque son dos actos distintos: `close` lo dispara
    * el pipeline cuando la conversación terminó, y no toca la etapa; esto lo
-   * dispara un vendedor que declara perdida la venta, y ahí la etapa **es** el
-   * dato —"Perdido" es lo que va a leer el resto del panel—. El motivo es
-   * obligatorio por firma: un cierre perdido sin motivo no se puede ni
-   * expresar.
+   * dispara un vendedor que declara ganada o perdida la venta, y ahí la etapa
+   * **es** el dato —"Cerrado" o "Perdido" es lo que va a leer el resto del
+   * panel—.
    *
-   * Idempotente con el mismo motivo (replay-safe); con otro resultado o motivo
-   * lanza `IllegalStateError`, igual que `close`.
+   * `resultado` y `current_stage` son columnas distintas y esta operación las
+   * cruza. La regla, que es la que hay que respetar en cualquier caller nuevo:
+   *
+   * - **Ganado** → `current_stage = "cerrado"` (el paso 6 del embudo, así que
+   *   `etapa_alcanzada` avanza hasta ahí) + `resultado = "exito"`, sin motivo.
+   * - **Perdido** → `current_stage = "perdido"`, que es un **desvío** y no el
+   *   paso 7: `etapa_alcanzada` no se mueve y el rail queda congelado donde la
+   *   conversación llegó antes de caerse + `resultado = "perdido"` + motivo.
+   *
+   * Idempotente con el mismo resultado y motivo (replay-safe); con otro lanza
+   * `IllegalStateError`, igual que `close`.
    */
-  marcarPerdida(id: UUID, motivo: MotivoPerdida, userId: UUID | null): Promise<LeadSession>;
+  resolver(id: UUID, cierre: ResolucionSesion, userId: UUID | null): Promise<LeadSession>;
   listClosedBefore(date: Date): Promise<LeadSession[]>;
   /**
    * Cierres de todas las sesiones cerradas, del más reciente al más viejo.
@@ -142,6 +168,23 @@ export interface LeadSessionRepository {
     patch: LeadSessionUpdate,
     marcas: MarcasProcedencia,
   ): Promise<LeadSession>;
+}
+
+/**
+ * La etapa que le corresponde a cada resultado, y el motivo que viaja con él.
+ *
+ * Viven acá y no duplicados en cada implementación del repo: son la semántica
+ * de `resolver`, no un detalle de cómo se persiste. `etapa_alcanzada` sale
+ * sola de `etapaAlcanzada(previa, etapa)` en los dos casos —`cerrado` la
+ * arrastra porque es el paso 6, `perdido` la deja quieta porque es un desvío
+ * sin posición— y por eso no hay una regla aparte para el máximo.
+ */
+export function etapaDeResolucion(cierre: ResolucionSesion): CurrentStage {
+  return cierre.resultado === "exito" ? "cerrado" : "perdido";
+}
+
+export function motivoDeResolucion(cierre: ResolucionSesion): MotivoPerdida | null {
+  return cierre.resultado === "perdido" ? cierre.motivo : null;
 }
 
 // Deep clone defensivo para extras (jsonb arbitrario LLM-extracted).
@@ -254,24 +297,27 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
     return cloneSession(closed);
   }
 
-  async marcarPerdida(id: UUID, motivo: MotivoPerdida, userId: UUID | null): Promise<LeadSession> {
+  async resolver(id: UUID, cierre: ResolucionSesion, userId: UUID | null): Promise<LeadSession> {
     const current = this.store.get(id);
     if (!current) throw new NotFoundError(`sesión no encontrada: ${id}`, "lead_session", id);
+    const motivo = motivoDeResolucion(cierre);
     if (current.resultado !== null) {
-      if (current.resultado === "perdido" && current.motivo_perdida === motivo) {
+      if (current.resultado === cierre.resultado && current.motivo_perdida === motivo) {
         return cloneSession(current);
       }
       throw new IllegalStateError(
-        `sesión ya cerrada con resultado distinto (current=${current.resultado}/${current.motivo_perdida ?? "null"}, requested=perdido/${motivo})`,
+        `sesión ya cerrada con resultado distinto (current=${current.resultado}/${current.motivo_perdida ?? "null"}, requested=${cierre.resultado}/${motivo ?? "null"})`,
         "session_already_closed_different",
       );
     }
+    const etapa = etapaDeResolucion(cierre);
     const next: LeadSession = {
       ...current,
-      current_stage: "perdido",
-      // `perdido` es un desvío: no avanza el embudo, lo congela donde estaba.
-      etapa_alcanzada: current.etapa_alcanzada,
-      resultado: "perdido",
+      current_stage: etapa,
+      // `cerrado` es el paso 6 y arrastra el máximo; `perdido` es un desvío y lo
+      // deja donde estaba. Las dos reglas ya están adentro de `etapaAlcanzada`.
+      etapa_alcanzada: etapaAlcanzada(current.etapa_alcanzada, etapa),
+      resultado: cierre.resultado,
       motivo_perdida: motivo,
       closed_at: new Date(),
       updated_at: new Date(),

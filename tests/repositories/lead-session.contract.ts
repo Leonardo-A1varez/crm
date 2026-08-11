@@ -340,23 +340,49 @@ export function runLeadSessionContract(
       expect(await repo.listLeadIdsByCodigo("no-existe")).toEqual([]);
     });
 
-    test("marcarPerdida cierra, deja la etapa en perdido y es idempotente", async () => {
+    test("resolver perdido cierra, desvía la etapa y congela lo alcanzado", async () => {
       const leadA = fixtures.leadIds.A;
       const s = await repo.create(baseInsert(leadA));
       await repo.update(s.id, { current_stage: "negociando" });
 
-      const perdida = await repo.marcarPerdida(s.id, "precio", null);
+      const perdida = await repo.resolver(s.id, { resultado: "perdido", motivo: "precio" }, null);
       expect(perdida.resultado).toBe("perdido");
       expect(perdida.motivo_perdida).toBe("precio");
       expect(perdida.current_stage).toBe("perdido");
       // El desvío no avanza el embudo: el máximo alcanzado sigue siendo el real.
       expect(perdida.etapa_alcanzada).toBe("negociando");
+      expect(perdida.closed_at).not.toBeNull();
       expect(perdida.procedencia.current_stage?.por).toBe("humano");
+      expect(perdida.procedencia.current_stage?.valor_anterior).toBe("negociando");
 
       // Replay con el mismo motivo: mismo resultado, sin error.
-      expect((await repo.marcarPerdida(s.id, "precio", null)).id).toBe(s.id);
+      expect((await repo.resolver(s.id, { resultado: "perdido", motivo: "precio" }, null)).id).toBe(
+        s.id,
+      );
       // Con otro motivo la sesión ya cerrada no se puede reescribir.
-      await expect(repo.marcarPerdida(s.id, "stock", null)).rejects.toThrow();
+      await expect(
+        repo.resolver(s.id, { resultado: "perdido", motivo: "stock" }, null),
+      ).rejects.toThrow();
+      // Y tampoco con el otro resultado.
+      await expect(repo.resolver(s.id, { resultado: "exito" }, null)).rejects.toThrow();
+    });
+
+    test("resolver exito cierra en cerrado y arrastra lo alcanzado hasta el paso 6", async () => {
+      const leadA = fixtures.leadIds.A;
+      const s = await repo.create(baseInsert(leadA));
+      await repo.update(s.id, { current_stage: "cotizado" });
+
+      const ganada = await repo.resolver(s.id, { resultado: "exito" }, null);
+      expect(ganada.resultado).toBe("exito");
+      // Ganar no deja motivo: esa columna es del cierre perdido y nada más.
+      expect(ganada.motivo_perdida).toBeNull();
+      expect(ganada.current_stage).toBe("cerrado");
+      // `cerrado` sí es el paso 6 del embudo: el máximo avanza hasta ahí.
+      expect(ganada.etapa_alcanzada).toBe("cerrado");
+      expect(ganada.closed_at).not.toBeNull();
+      expect(ganada.procedencia.current_stage?.por).toBe("humano");
+
+      expect((await repo.resolver(s.id, { resultado: "exito" }, null)).id).toBe(s.id);
     });
   });
 }

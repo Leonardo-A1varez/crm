@@ -2,10 +2,10 @@ import { describe, expect, test } from "vitest";
 import {
   actividadLabel,
   contarFiltrosActivos,
-  motivoPerdidaLabel,
   parseFiltrosLeads,
   resultadoLabel,
 } from "@/lib/ui/filtros-leads";
+import { motivoPerdidaLabel } from "@/lib/ui/motivo-perdida";
 
 const UUID_OK = "11111111-2222-4333-8444-555555555555";
 

@@ -272,45 +272,87 @@ describe("DefaultInboxService write path", () => {
   });
 
   describe("closeSession", () => {
-    test("cierra con exito y setea closed_at", async () => {
-      const lead = await makeLead(leads);
-      const session = await makeSession(sessions, lead.id);
+    const ganado = (sessionId: UUID) =>
+      ({ sessionId, resultado: "exito", motivoPerdida: null, userId: null }) as const;
 
-      const closed = await svc.closeSession({ sessionId: session.id, resultado: "exito" });
+    test("ganado cierra en la etapa cerrado y setea closed_at", async () => {
+      const lead = await makeLead(leads);
+      const session = await makeSession(sessions, lead.id, { current_stage: "negociando" });
+
+      const closed = await svc.closeSession(ganado(session.id));
 
       expect(closed.resultado).toBe("exito");
       expect(closed.closed_at).toBeInstanceOf(Date);
       expect(closed.motivo_perdida).toBeNull();
+      // El cruce que resuelve este flujo: ganar es `cerrado`, el paso 6.
+      expect(closed.current_stage).toBe("cerrado");
+      expect(closed.etapa_alcanzada).toBe("cerrado");
     });
 
-    test("cierra perdido con motivo enum", async () => {
+    test("perdido desvía la etapa y no baja lo alcanzado", async () => {
       const lead = await makeLead(leads);
-      const session = await makeSession(sessions, lead.id);
+      const session = await makeSession(sessions, lead.id, { current_stage: "negociando" });
 
       const closed = await svc.closeSession({
         sessionId: session.id,
         resultado: "perdido",
         motivoPerdida: "precio",
+        userId: null,
       });
 
       expect(closed.resultado).toBe("perdido");
       expect(closed.motivo_perdida).toBe("precio");
+      // `perdido` es desvío, no paso 7: el embudo queda congelado donde llegó.
+      expect(closed.current_stage).toBe("perdido");
+      expect(closed.etapa_alcanzada).toBe("negociando");
+    });
+
+    test("deja la decisión anotada como humana en la procedencia", async () => {
+      const lead = await makeLead(leads);
+      const session = await makeSession(sessions, lead.id);
+      const userId = crypto.randomUUID();
+
+      const closed = await svc.closeSession({ ...ganado(session.id), userId });
+
+      expect(closed.procedencia.current_stage?.por).toBe("humano");
+      expect(closed.procedencia.current_stage?.user_id).toBe(userId);
+    });
+
+    // El motivo obligatorio no se sostiene solo en el schema de entrada: la
+    // regla es del dominio y tiene que valer para cualquier caller.
+    test("ValidationError cuando se pierde sin motivo", async () => {
+      const lead = await makeLead(leads);
+      const session = await makeSession(sessions, lead.id);
+
+      await expect(
+        svc.closeSession({
+          sessionId: session.id,
+          resultado: "perdido",
+          motivoPerdida: null,
+          userId: null,
+        }),
+      ).rejects.toBeInstanceOf(ValidationError);
+
+      // Y no dejó la sesión a medio cerrar.
+      const actual = await sessions.findById(session.id);
+      expect(actual?.resultado).toBeNull();
+      expect(actual?.current_stage).toBe("nuevo");
     });
 
     test("replay idéntico es no-op (idempotente)", async () => {
       const lead = await makeLead(leads);
       const session = await makeSession(sessions, lead.id);
 
-      const first = await svc.closeSession({ sessionId: session.id, resultado: "exito" });
-      const second = await svc.closeSession({ sessionId: session.id, resultado: "exito" });
+      const first = await svc.closeSession(ganado(session.id));
+      const second = await svc.closeSession(ganado(session.id));
 
       expect(second.closed_at?.getTime()).toBe(first.closed_at?.getTime());
     });
 
     test("NotFoundError cuando sesión no existe", async () => {
-      await expect(
-        svc.closeSession({ sessionId: crypto.randomUUID(), resultado: "exito" }),
-      ).rejects.toBeInstanceOf(NotFoundError);
+      await expect(svc.closeSession(ganado(crypto.randomUUID()))).rejects.toBeInstanceOf(
+        NotFoundError,
+      );
     });
   });
 

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Bolt, PanTool, ReceiptLong, Warning } from "@/components/icons";
-import { CanalesFila, ChannelBadge } from "@/components/inbox/ChannelIcons";
+import { CanalesFila } from "@/components/inbox/ChannelIcons";
 import { ChannelDot } from "@/components/shared/ChannelDot";
 import { InitialsAvatar } from "@/components/shared/InitialsAvatar";
 import { MonoMeta } from "@/components/shared/MonoMeta";
@@ -68,33 +68,36 @@ function FilaCompacta({ item, activa }: { item: InboxItem; activa: boolean }) {
       href={`/inbox/${item.leadId}`}
       aria-current={activa ? "page" : undefined}
       className={cn(
-        "relative flex items-center gap-2 rounded-[10px] px-[11px] py-2 transition-colors",
+        // `gap-1.5` y no `gap-2`: son cinco huecos en una línea, y los 10px que
+        // devuelve el medio punto son los que pagan la tira de canales.
+        "relative flex items-center gap-1.5 rounded-[10px] px-[11px] py-2 transition-colors",
         activa ? "bg-surface-hover" : "hover:bg-surface-elevated",
       )}
     >
       {activa ? <BarraSeleccion /> : null}
-      <div className="relative shrink-0">
-        <InitialsAvatar
-          nombre={item.nombre}
-          size={26}
-          className="bg-surface-hover text-ink-dim font-medium"
-        />
-        {item.canalActivo ? (
-          <ChannelBadge
-            canal={item.canalActivo}
-            size={13}
-            ringColor="var(--color-surface-panel)"
-            className="absolute right-[-3px] bottom-[-3px]"
-          />
-        ) : null}
-      </div>
+      <InitialsAvatar
+        nombre={item.nombre}
+        size={26}
+        className="bg-surface-hover text-ink-dim shrink-0 font-medium"
+      />
       {/*
         Tope duro al nombre: sin él el `shrink-0` lo deja crecer a max-content y
         un nombre largo empuja la hora fuera de los 322px del panel.
+
+        Bajó de 96 a 68 px cuando la tira de canales entró en la fila. Medido
+        en el navegador con el CSS y la Geist reales, sobre el panel de 322 px:
+        con 96 y tres canales la fila desbordaba 4 px aun con el preview comido
+        a 0. Con 68 y tres canales, el peor caso que este grupo puede mostrar
+        —"Esperando pago" (83,8 px) y la hora más larga, "ahora" (28,5 px)—
+        deja al preview 5,7 px y no desborda. El techo absoluto es "Requiere
+        humano" (89,6 px), que en esta fila no aparece porque siempre trae
+        motivo de triage y se va a la fila completa: ahí el preview queda en 0
+        y la fila entra justa, sin desbordar. El nombre entero está en el
+        header de la conversación, a un click.
       */}
       <span
         className={cn(
-          "max-w-[96px] shrink-0 truncate text-[12px] font-[550]",
+          "max-w-[68px] shrink-0 truncate text-[12px] font-[550]",
           sinNombre(item.nombre) ? "text-ink-faint" : "text-ink-secondary",
         )}
       >
@@ -107,6 +110,19 @@ function FilaCompacta({ item, activa }: { item: InboxItem; activa: boolean }) {
       <span className="text-ink-faint min-w-0 flex-1 truncate text-[11px]">
         {previewTexto(item)}
       </span>
+      {/*
+        La tira va acá y no como un glifo suelto sobre el avatar: sobre el
+        avatar solo cabe uno, y un lead con WhatsApp e Instagram mostraba uno
+        solo. Glifos de 11px —dos tamaños menos que la fila completa, que tiene
+        una línea propia para ellos— y sin nombre nunca: el hermano que cede el
+        ancho es el preview, que ya trunca.
+      */}
+      <CanalesFila
+        canales={item.canales}
+        canalActivo={item.canalActivo}
+        glifo="h-[11px] w-[11px]"
+        permiteEtiqueta={false}
+      />
       <MonoMeta className="shrink-0 text-[9.5px]">{formatRelative(item.ultimaActividad)}</MonoMeta>
     </Link>
   );

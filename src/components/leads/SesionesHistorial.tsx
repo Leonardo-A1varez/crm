@@ -1,15 +1,8 @@
 import { MonoMeta } from "@/components/shared/MonoMeta";
 import { RelativeTime } from "@/components/shared/RelativeTime";
 import { StageBadge } from "@/components/shared/StageBadge";
+import { motivoPerdidaLabel } from "@/lib/ui/motivo-perdida";
 import type { LeadSession } from "@/types/entities";
-
-const MOTIVO_LABEL: Record<string, string> = {
-  precio: "Precio",
-  stock: "Sin stock",
-  tiempo: "Tiempos de entrega",
-  no_responde: "No responde",
-  otro: "Otro",
-};
 
 const CHIP =
   "inline-flex items-center rounded-md border px-[7px] py-[2.5px] text-[10px] font-semibold";
@@ -36,7 +29,7 @@ export function SesionesHistorial({ sesiones }: { sesiones: LeadSession[] }) {
           )}
           {s.motivo_perdida ? (
             <span className="text-ink-dim text-[11.5px]">
-              {MOTIVO_LABEL[s.motivo_perdida] ?? s.motivo_perdida}
+              {motivoPerdidaLabel(s.motivo_perdida)}
             </span>
           ) : null}
           <MonoMeta className="ml-auto">

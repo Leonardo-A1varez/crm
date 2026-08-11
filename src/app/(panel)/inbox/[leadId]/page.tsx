@@ -106,6 +106,7 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
           gastoIa={view.gastoIa}
           onEditar={editarCampoTwinAction}
           onMoverEtapa={moverEtapaAction}
+          onCerrarSesion={closeSessionAction}
           onRenombrar={renombrarLeadAction}
           onAgregarDato={agregarDatoLeadAction}
           onBorrarDato={borrarDatoLeadAction}

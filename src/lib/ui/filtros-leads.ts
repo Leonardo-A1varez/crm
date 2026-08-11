@@ -123,14 +123,6 @@ const LABEL_RESULTADO: Record<Resultado, string> = {
   perdido: "Perdido",
 };
 
-const LABEL_MOTIVO: Record<MotivoPerdida, string> = {
-  precio: "Precio",
-  stock: "Sin stock",
-  tiempo: "Tiempo de entrega",
-  no_responde: "No responde",
-  otro: "Otro",
-};
-
 export function actividadLabel(ventana: VentanaActividad): string {
   return LABEL_ACTIVIDAD[ventana];
 }
@@ -139,6 +131,7 @@ export function resultadoLabel(resultado: Resultado): string {
   return LABEL_RESULTADO[resultado];
 }
 
-export function motivoPerdidaLabel(motivo: MotivoPerdida): string {
-  return LABEL_MOTIVO[motivo];
-}
+// `motivoPerdidaLabel` vivía acá con su propia copia de los rótulos, que ya
+// había derivado ("Tiempo de entrega" contra "Tiempos de entrega" del diálogo
+// de cierre). Ahora está en `lib/ui/motivo-perdida`, junto al resto de lo que
+// significa un motivo de pérdida, y los filtros lo importan de ahí.

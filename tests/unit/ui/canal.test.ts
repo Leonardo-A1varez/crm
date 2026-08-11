@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { CANAL } from "@/types/domain";
-import { canalColor, canalesDeFila, canalLabel } from "@/lib/ui/canal";
+import { canalColor, canalesDeFila, canalesDelLead, canalLabel } from "@/lib/ui/canal";
 
 describe("canalColor", () => {
   test("los colores de marca del handoff son exactos", () => {
@@ -61,5 +61,39 @@ describe("canalesDeFila", () => {
     const original: (typeof CANAL)[number][] = ["wa", "ig"];
     canalesDeFila(original, "ig", true);
     expect(original).toEqual(["wa", "ig"]);
+  });
+});
+
+describe("canalesDelLead", () => {
+  test("el canal de origen está siempre, aunque no haya nada más", () => {
+    expect(canalesDelLead({ canal_origen: "ig", meta_user_ids: {} })).toEqual(["ig"]);
+  });
+
+  test("suma los canales con id de Meta vinculado", () => {
+    // El caso del dueño: WhatsApp e Instagram en el mismo lead.
+    expect(canalesDelLead({ canal_origen: "wa", meta_user_ids: { ig: "ig-123" } })).toEqual([
+      "wa",
+      "ig",
+    ]);
+  });
+
+  test("suma los canales con conversación aunque no tengan id de Meta", () => {
+    expect(canalesDelLead({ canal_origen: "wa", meta_user_ids: {} }, ["fb"])).toEqual(["wa", "fb"]);
+  });
+
+  test("no repite: el mismo canal por las tres vías sigue siendo uno", () => {
+    const canales = canalesDelLead({ canal_origen: "wa", meta_user_ids: { wa: "wa-1" } }, ["wa"]);
+    expect(canales).toEqual(["wa"]);
+  });
+
+  test("el origen encabeza y el resto sigue el orden de CANAL: la tira no se reordena sola", () => {
+    const canales = canalesDelLead({ canal_origen: "fb", meta_user_ids: { ig: "i", wa: "w" } }, [
+      "ig",
+    ]);
+    expect(canales).toEqual(["fb", "wa", "ig"]);
+  });
+
+  test("un id de Meta vacío no cuenta como canal vinculado", () => {
+    expect(canalesDelLead({ canal_origen: "wa", meta_user_ids: { ig: "" } })).toEqual(["wa"]);
   });
 });
