@@ -6,6 +6,7 @@ import type { LeadsRepository, LeadUpdate } from "@/server/repositories/leads.re
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { MergeCandidatesRepository } from "@/server/repositories/merge-candidates.repo";
 import type { TagsRepository } from "@/server/repositories/tags.repo";
+import type { SessionLock } from "@/server/lock/session-lock";
 import type { Lead, MergeCandidate, UUID } from "@/types/entities";
 
 export interface ApproveMergeInput {
@@ -35,6 +36,12 @@ export interface DefaultMergeExecutorServiceDeps {
   tags: TagsRepository;
   candidates: MergeCandidatesRepository;
   audit: AdminAuditService;
+  /**
+   * Serializa el merge por par de leads. Sin esto, entre la validación de
+   * "no hay dos sesiones activas" y `reassignLead` puede entrar un mensaje y
+   * crear una sesión activa nueva, dejando al ganador con dos.
+   */
+  lock: SessionLock;
 }
 
 /** Huecos del ganador que el perdedor puede rellenar. NUNCA sobrescribe valores. */
@@ -78,7 +85,22 @@ export class DefaultMergeExecutorService implements MergeExecutorService {
   constructor(private readonly deps: DefaultMergeExecutorServiceDeps) {}
 
   async approveMerge(input: ApproveMergeInput): Promise<{ ganadorId: UUID }> {
-    // 1. Validaciones (todas ANTES de cualquier escritura)
+    const candidate = await this.deps.candidates.findById(input.candidateId);
+    if (!candidate) {
+      throw new NotFoundError(
+        `merge_candidate no encontrado: ${input.candidateId}`,
+        "merge_candidate",
+        input.candidateId,
+      );
+    }
+    // Ordenados para que el par (A,B) y (B,A) tomen el mismo lock.
+    const clave = `merge:${[candidate.src_lead_id, candidate.dst_lead_id].sort().join(":")}`;
+    return this.deps.lock.withLock(clave, () => this.ejecutarMerge(input));
+  }
+
+  private async ejecutarMerge(input: ApproveMergeInput): Promise<{ ganadorId: UUID }> {
+    // 1. Validaciones (todas ANTES de cualquier escritura). Se relee el
+    // candidate: la validación de "ya resuelto" tiene que correr dentro del lock.
     const candidate = await this.deps.candidates.findById(input.candidateId);
     if (!candidate) {
       throw new NotFoundError(

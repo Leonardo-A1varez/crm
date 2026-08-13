@@ -74,6 +74,7 @@ describe("DefaultMergeExecutorService.approveMerge", () => {
       tags,
       candidates,
       audit: new DefaultAdminAuditService(auditRepo),
+      lock: { withLock: async <T>(_key: string, fn: () => Promise<T>) => fn() },
     });
   });
 
@@ -97,6 +98,35 @@ describe("DefaultMergeExecutorService.approveMerge", () => {
     });
     return { ganador, perdedor, cand };
   }
+
+  test("approveMerge corre dentro del lock del par de leads", async () => {
+    const { ganador, perdedor, cand } = await seedPair();
+    const clavesTomadas: string[] = [];
+    const lockEspia = {
+      withLock: async <T>(key: string, fn: () => Promise<T>): Promise<T> => {
+        clavesTomadas.push(key);
+        return fn();
+      },
+    };
+    const conLock = new DefaultMergeExecutorService({
+      leads,
+      sessions,
+      convs,
+      tags,
+      candidates,
+      audit: new DefaultAdminAuditService(auditRepo),
+      lock: lockEspia,
+    });
+
+    await conLock.approveMerge({
+      candidateId: cand.id,
+      keepLeadId: ganador.id,
+      actorUserId: null,
+    });
+
+    expect(clavesTomadas).toEqual([`merge:${[ganador.id, perdedor.id].sort().join(":")}`]);
+    expect(await leads.findById(perdedor.id)).toBeNull();
+  });
 
   test("happy path: reasigna todo, rellena huecos, borra perdedor, audita primero", async () => {
     const { ganador, perdedor, cand } = await seedPair();
@@ -393,6 +423,7 @@ describe("DefaultMergeExecutorService.rejectMerge / createManualCandidate", () =
       tags,
       candidates,
       audit: new DefaultAdminAuditService(auditRepo),
+      lock: { withLock: async <T>(_key: string, fn: () => Promise<T>) => fn() },
     });
   });
 
