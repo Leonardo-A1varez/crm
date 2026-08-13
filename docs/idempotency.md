@@ -31,26 +31,27 @@ Strategies:
 
 **Key:** `out:<inbound_meta_message_id>`. Cada inbound dispara máximo 1 outbound (1:1 mapping turn).
 
-**Mechanism:**
+**Mechanism vigente (2026-08-13):**
 
-1. `mensajes.idempotency_key` column + UNIQUE partial `WHERE direction='out' AND idempotency_key IS NOT NULL`.
-2. `sendOutbound` pre-check `messages.findByIdempotencyKey(key)`. Si existe → return sin invocar Meta client.
-3. Si pre-check miss y race con otra invocación → DB UNIQUE rechaza segunda insert → ConflictError → retry → finds existing.
+1. `sendOutbound` busca una fila existente por key. Si existe, devuelve esa fila sin invocar Meta.
+2. Si no existe, reserva primero el saliente en `mensajes` con `meta_message_id = null`.
+3. Solo después llama a Meta y confirma la misma fila con el id devuelto.
+4. `RateLimitError` significa rechazo explícito: libera la reserva para que el retry pueda reenviar.
+5. `ValidationError` marca la reserva como fallida y no se reintenta.
+6. `InfraError`, 5xx o resultado desconocido marcan la reserva como fallida. El retry encuentra la key y **no reenvía**.
 
-**Retry path Inngest:**
-
-- Step `send` fail post-Meta-API-call pero pre-DB-write. Retry re-call Meta API → doble envío al lead. **Mitigación pending Fase 7:** Meta API debería tener su propio idempotency key client-side. Para WhatsApp, Meta acepta `biz_opaque_callback_data` o similar tracking. Investigar.
+No existe exactly-once contra una API remota sin idempotencia server-side. La decisión del producto es conservar una fila fallida y visible antes que arriesgar un WhatsApp duplicado e irretractable.
 
 ### Twin extractor (R3)
 
-**Key:** `twin:<sessionId>` per session lock.
+**Key prevista:** `twin:<sessionId>`.
 
-**Mechanism:** `SessionLock.withLock(key, fn)` serializa callers per session. Real impl Fase 7 = Postgres `pg_advisory_xact_lock(hashtext(key))`.
+**Estado real:** `SessionLock` existe, pero el extractor usa `NoopSessionLock` por defecto y no hay implementación Postgres. Por tanto, el single-flight durable todavía **no está resuelto**; los tests del lock in-memory no demuestran serialización entre instancias serverless.
 
 **Race tolerance:** 2 `turn.completed` events para misma sesión en paralelo:
 
 - Sin lock: ambos read session, ambos call LLM, ambos `sessions.update` → last-write-wins → loss intermediate state.
-- Con lock: serializan. Cada uno ve state actualizado del previo. Apply both turns ordenados.
+- Fix pendiente: mover la transición a una RPC transaccional o implementar un lock Postgres cuyo lock y writes compartan la misma transacción.
 
 ### Lead resolution (on-message-received)
 
@@ -63,7 +64,7 @@ Strategies:
 
 **Race tolerance:** 2 webhooks paralelos primer mensaje mismo lead → ambos `find` retornan null → ambos `create` → UNIQUE telefono violation en segundo → `ConflictError` → retry → `find` ahora ve row → return existing. **Retry safe.**
 
-**TODO Fase 7:** considerar Inngest concurrency key per `meta_user_id` para serializar en source (mejor latencia que retry).
+**Concurrencia aplicada:** `on-message-received` usa `concurrency.key = event.data.parsed.meta_user_id` con `limit: 1`. Las constraints UNIQUE siguen como barrera final ante otros productores o replays.
 
 ### Conversation upsert
 
@@ -118,6 +119,8 @@ else: send + dispatches.create({...})
 **Key:** `(LEAST(src,dst), GREATEST(src,dst)) WHERE status='pending'` UNIQUE partial.
 
 **Mechanism:** `findPendingPair(a,b)` orden-independiente. `recordCandidate` retorna `null` si pending existe (idempotente para `findCandidatesFor` re-runs).
+
+La aprobación usa `approve_lead_merge(candidateId, keepLeadId)`: bloquea candidate y ambos leads en orden estable, valida sesiones activas, audita, reasigna conversaciones/sesiones/tags, rellena campos y borra el perdedor dentro de una sola transacción. Un fallo revierte todos los pasos; `auth.uid()` determina el actor.
 
 ## Inngest event sends
 

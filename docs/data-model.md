@@ -1,6 +1,6 @@
 # Modelo de datos
 
-> Espejo del modelo versionado en `supabase/migrations/`. Detalle complementa `README.md §Modelo de datos`. Los cambios QA autorizados pero todavía no verificados están separados en `docs/implementation-qa-2026-08-12.md`.
+> Espejo del modelo versionado en `supabase/migrations/`. Estado verificado el 2026-08-13: **38 migraciones locales y 38 aplicadas en `crm-dev`**, sin drift de timestamps. Detalle complementa `README.md §Modelo de datos`.
 
 > **Aplicado en `crm-dev` (2026-08-12):** `mensajes.platform_created_at`, `lead_session.stage_before_handoff` y `handoff_events` entraron en la migración `20260812222808`. Los datos históricos ausentes permanecen en `null`; no hay backfill inventado.
 
@@ -8,23 +8,46 @@
 
 > **Naming convention:** `YYYYMMDDHHMMSS_<name>.sql` (Supabase CLI v2+ standard). Renombrado en B1 desde `0001`-`0013` para compat CLI moderno. Orden lógico preservado via timestamps secuenciales 2026-05-12 00:00:01-13.
 
-| Orden | Migración                                     | Contenido                                                                                                                               |
-| ----- | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| 01    | `20260512000001_init.sql`                     | extensions (pgcrypto, pg_trgm) + 7 enums + empresas/usuarios/leads/productos/lead_session + RLS enabled + COMMENT empresas (single-org) |
-| 02    | `20260512000002_intents_rules.sql`            | enums respuesta_tipo/tag_source + intents/reglas/tags/lead_tags + CHECK hex `tags.color`                                                |
-| 03    | `20260512000003_messages.sql`                 | enums direction/sender/tipo_mensaje + conversaciones/mensajes/rule_executions                                                           |
-| 04    | `20260512000004_users_roles.sql`              | schema `private` + trigger `auth.users → public.usuarios` + helpers RLS (`current_rol`, `is_admin`, `is_vendedor`)                      |
-| 05    | `20260512000005_storage_buckets.sql`          | 3 buckets privados (comprobantes_pago, productos, mensajes_media)                                                                       |
-| 06    | `20260512000006_outbound_dedup.sql` (R2)      | `mensajes.idempotency_key text` + UNIQUE partial `WHERE direction='out' AND idempotency_key IS NOT NULL`                                |
-| 07    | `20260512000007_tool_executions.sql` (R8)     | `tool_executions` table audit tool calls agente                                                                                         |
-| 08    | `20260512000008_session_extras.sql` (R9)      | `lead_session.extras jsonb DEFAULT '{}'` + GIN index                                                                                    |
-| 09    | `20260512000009_session_summary.sql` (R10)    | `lead_session.context_summary text`                                                                                                     |
-| 10    | `20260512000010_admin_audit.sql` (R11)        | `admin_actions` table audit acciones admin                                                                                              |
-| 11    | `20260512000011_merge_candidates.sql` (R12)   | `merge_candidate_status_enum` + `merge_candidates` table + UNIQUE partial pending pair                                                  |
-| 12    | `20260512000012_inbound_dedup.sql`            | UNIQUE partial `mensajes(meta_message_id) WHERE NOT NULL` (atomic inbound dedup, reemplaza non-unique index 0003)                       |
-| 13    | `20260512000013_reactivation_dispatches.sql`  | `reactivation_dispatches` table (cooldown enforcement DB + audit history, CASCADE con sesión)                                           |
-| 14    | `20260512000014_event_outbox.sql` (B2)        | `event_outbox` table transactional outbox pattern (at-least-once delivery) + partial index pending                                      |
-| 15    | `20260512000015_fix_function_search_path.sql` | Fix advisor WARN function_search_path_mutable: 4 funciones helpers públicas con `set search_path` explícito                             |
+| Orden | Migración                                                    | Contenido                                                                                                                               |
+| ----- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| 01    | `20260512000001_init.sql`                                    | extensions (pgcrypto, pg_trgm) + 7 enums + empresas/usuarios/leads/productos/lead_session + RLS enabled + COMMENT empresas (single-org) |
+| 02    | `20260512000002_intents_rules.sql`                           | enums respuesta_tipo/tag_source + intents/reglas/tags/lead_tags + CHECK hex `tags.color`                                                |
+| 03    | `20260512000003_messages.sql`                                | enums direction/sender/tipo_mensaje + conversaciones/mensajes/rule_executions                                                           |
+| 04    | `20260512000004_users_roles.sql`                             | schema `private` + trigger `auth.users → public.usuarios` + helpers RLS (`current_rol`, `is_admin`, `is_vendedor`)                      |
+| 05    | `20260512000005_storage_buckets.sql`                         | 3 buckets privados (comprobantes_pago, productos, mensajes_media)                                                                       |
+| 06    | `20260512000006_outbound_dedup.sql` (R2)                     | `mensajes.idempotency_key text` + UNIQUE partial `WHERE direction='out' AND idempotency_key IS NOT NULL`                                |
+| 07    | `20260512000007_tool_executions.sql` (R8)                    | `tool_executions` table audit tool calls agente                                                                                         |
+| 08    | `20260512000008_session_extras.sql` (R9)                     | `lead_session.extras jsonb DEFAULT '{}'` + GIN index                                                                                    |
+| 09    | `20260512000009_session_summary.sql` (R10)                   | `lead_session.context_summary text`                                                                                                     |
+| 10    | `20260512000010_admin_audit.sql` (R11)                       | `admin_actions` table audit acciones admin                                                                                              |
+| 11    | `20260512000011_merge_candidates.sql` (R12)                  | `merge_candidate_status_enum` + `merge_candidates` table + UNIQUE partial pending pair                                                  |
+| 12    | `20260512000012_inbound_dedup.sql`                           | UNIQUE partial `mensajes(meta_message_id) WHERE NOT NULL` (atomic inbound dedup, reemplaza non-unique index 0003)                       |
+| 13    | `20260512000013_reactivation_dispatches.sql`                 | `reactivation_dispatches` table (cooldown enforcement DB + audit history, CASCADE con sesión)                                           |
+| 14    | `20260512000014_event_outbox.sql` (B2)                       | `event_outbox` table transactional outbox pattern (at-least-once delivery) + partial index pending                                      |
+| 15    | `20260512000015_fix_function_search_path.sql`                | Fix advisor WARN function_search_path_mutable: 4 funciones helpers públicas con `set search_path` explícito                             |
+| 16    | `20260514000016_repo_helpers.sql`                            | RPC `server_now()` para timestamps server-side sin clock skew                                                                           |
+| 17    | `20260714124024_slice3_rls_policies.sql`                     | Matriz RLS fail-closed por rol y policies de Storage                                                                                    |
+| 18    | `20260714182011_slice4_health_grant.sql`                     | `GRANT EXECUTE server_now()` a `anon` para `/api/health`                                                                                |
+| 19    | `20260715140738_leads_delete_admin.sql`                      | DELETE de leads solo para admin                                                                                                         |
+| 20    | `20260716001443_admin_actions_insert_admin.sql`              | INSERT de auditoría administrativa solo para admin                                                                                      |
+| 21    | `20260808213309_agente_config.sql`                           | Configuración versionada y append-only del agente                                                                                       |
+| 22    | `20260810011500_mensajes_estado_entrega.sql`                 | Estado de entrega Meta y error del saliente                                                                                             |
+| 23    | `20260810011600_lead_session_procedencia.sql`                | Procedencia JSON por campo del Twin; contrato ampliado por migración 25                                                                 |
+| 24    | `20260810143000_turn_classifications.sql`                    | Auditoría de clasificaciones de turnos resueltos por LLM                                                                                |
+| 25    | `20260810143100_lead_session_updated_at.sql`                 | `lead_session.updated_at` y trigger de actualización                                                                                    |
+| 26    | `20260810150000_procedencia_extractor_y_etapa_alcanzada.sql` | Procedencia IA/humano y máximo alcanzado del embudo                                                                                     |
+| 27    | `20260810161500_agente_config_escalado.sql`                  | Configuración de escalado, horario y plantilla de handoff                                                                               |
+| 28    | `20260810190000_llm_usage.sql`                               | Uso y costo LLM por workflow/sesión                                                                                                     |
+| 29    | `20260810200000_tags_delete_admin.sql`                       | DELETE de tags solo para admin                                                                                                          |
+| 30    | `20260810210000_lead_tags_delete.sql`                        | Remoción de etiquetas por admin o vendedor                                                                                              |
+| 31    | `20260810230000_leads_nombre_perfil_y_datos_extra.sql`       | Nombre reportado por Meta y datos libres validados                                                                                      |
+| 32    | `20260811120000_session_recordatorios.sql`                   | Recordatorios de seguimiento con ciclo de vida e índice de uno vivo por sesión                                                          |
+| 33    | `20260811160000_mensajes_contenido_trgm.sql`                 | Índice trigram para búsqueda dentro de conversaciones                                                                                   |
+| 34    | `20260812170131_inbox_active_summary.sql`                    | RPC RLS-aware de mensajes recientes acotados por sesión                                                                                 |
+| 35    | `20260812222808_qa_handoff_metrics.sql`                      | Timestamp de Meta, perfil parcial, handoffs auditables y RPC transaccional                                                              |
+| 36    | `20260813090000_server_now_search_path.sql`                  | `search_path` seguro de `server_now()`                                                                                                  |
+| 37    | `20260813163957_approve_lead_merge_transaction.sql`          | Merge administrativo atómico con locks ordenados, RLS y auditoría                                                                       |
+| 38    | `20260813172558_fix_approve_lead_merge_lint.sql`             | Reemplazo aditivo de la RPC sin la variable PL/pgSQL muerta detectada por `db lint`                                                     |
 
 ## Known issues / technical debt (diferido post-pilot)
 
@@ -99,7 +122,10 @@ tipo_mensaje_enum       = text, image, audio, video, doc, location, template
 respuesta_tipo_enum     = text, template, handoff
 tag_source_enum         = manual, workflow
 merge_candidate_status_enum = pending, approved, rejected, superseded
+estado_entrega_enum     = enviado, entregado, leido, fallido
 ```
+
+`session_recordatorios.estado/motivo_cancelacion` y `handoff_events.action/reason_code/source` son `text` protegidos por `CHECK`, no enums Postgres. Esto permite ampliar esos catálogos con una migración aditiva sin alterar un tipo compartido.
 
 ## Tablas
 
@@ -112,7 +138,8 @@ merge_candidate_status_enum = pending, approved, rejected, superseded
 #### `leads`
 
 - `id uuid PK`, `nombre text`, `telefono text UNIQUE NOT NULL` (wa_id o placeholder `${canal}:${id}` no-WA), `email/direccion text nullable`
-- `vehiculo_marca/modelo text`, `vehiculo_anio int`, `vehiculo_motor text nullable`
+- `nombre_perfil text nullable` (Meta) y `datos_extra jsonb` (campos manuales libres)
+- `vehiculo_marca/modelo text nullable`, `vehiculo_anio int nullable`, `vehiculo_motor text nullable`
 - `empresa_id uuid FK nullable`, `canal_origen canal_enum`, `meta_user_ids jsonb` (mapa Canal → id)
 - `created_at/updated_at timestamptz`
 - **Indexes:** GIN `meta_user_ids`, trigram `nombre/telefono`
@@ -125,9 +152,12 @@ merge_candidate_status_enum = pending, approved, rejected, superseded
 - `bloqueador text nullable`, `comprobante_pago_url text nullable`, `metodo_pago enum nullable`
 - `resultado enum nullable` (NULL = activa), `motivo_perdida enum nullable`
 - `ia_pausada bool default false`
+- `stage_before_handoff current_stage_enum nullable` — etapa restaurable al reanudar
+- `etapa_alcanzada current_stage_enum` — máximo real del embudo, sin contar desvíos
+- `procedencia jsonb` — origen IA/humano por campo, mensaje origen y valor anterior
 - **(R9)** `extras jsonb NOT NULL DEFAULT '{}'` — catch-all LLM custom fields
 - **(R10)** `context_summary text` nullable — rolling summary
-- `started_at/closed_at timestamptz`
+- `started_at/updated_at/closed_at timestamptz`
 - **Constraint:** UNIQUE partial `(lead_id) WHERE resultado IS NULL` — max 1 activa
 - **Indexes:** closed_at (purge), GIN extras
 
@@ -154,6 +184,8 @@ merge_candidate_status_enum = pending, approved, rejected, superseded
 - `tipo enum`, `contenido text nullable`, `media_url text nullable`
 - `meta_message_id text nullable` — UNIQUE partial 0012 `WHERE NOT NULL` (atomic dedup inbound)
 - **(R2)** `idempotency_key text nullable` — UNIQUE partial `WHERE direction='out' AND idempotency_key IS NOT NULL`
+- `estado_entrega`, `estado_entrega_at`, `error_entrega` — último estado reportado por Meta
+- `platform_created_at timestamptz nullable` — timestamp original del canal; `null` si no se pudo medir
 - `metadata jsonb`, `created_at timestamptz`
 - **Index:** `(conversacion_id, created_at DESC)` para timeline inbox
 
@@ -234,6 +266,43 @@ merge_candidate_status_enum = pending, approved, rejected, superseded
 - **Indexes:** partial `(status, scheduled_at) WHERE status='pending'` (cron poll hot path), `sent_at WHERE sent_at IS NOT NULL`, `(event_name)`
 - Transactional outbox pattern. `EventBusService.publish` persiste row + optimistic direct Inngest emit + `markSent` o `markFailedAttempt`. Cron `dispatch-outbox-events` retry pending rows cada minuto. Garantiza at-least-once delivery.
 
+#### `agente_config`
+
+- Configuración append-only y versionada del modelo, prompt, tono, horario, límites y escalado.
+- Solo una versión activa; rollback crea una versión nueva y conserva el historial.
+- SELECT para authenticated; INSERT/UPDATE solo admin.
+
+#### `turn_classifications`
+
+- Una fila append-only por entrante contestado por LLM: `mensaje_id`, intent opcional, nombre y confianza.
+- Complementa `rule_executions`; no duplica los turnos resueltos por regla.
+
+#### `llm_usage`
+
+- Uso por llamada: sesión opcional, modelo, tokens, costo USD, workflow y fecha.
+- Fuente de métricas de costo por conversación; no sustituye el kill switch de gasto.
+
+#### `session_recordatorios`
+
+- Recordatorio sobre sesión abierta: fecha, nota, estado y causa de cancelación.
+- UNIQUE partial garantiza un solo recordatorio vivo (`pendiente` o `avisado`) por sesión.
+- Al reprogramar se conserva el id y cambia la fecha; el workflow viejo se cancela por id + fecha anterior.
+
+#### `handoff_events`
+
+- Historial append-only de pausa/reanudación con motivo tipado, fuente, etapa previa, actor y `source_event_key` único.
+- No almacena texto del cliente ni la palabra sensible que provocó el handoff.
+- `transition_handoff` cambia sesión, registra evento y encola la notificación dentro de una transacción.
+
+## RPC de dominio
+
+| RPC                                  | Seguridad                                        | Contrato                                               |
+| ------------------------------------ | ------------------------------------------------ | ------------------------------------------------------ |
+| `server_now()`                       | invoker; anon/authenticated                      | Hora del servidor para writes monotónicos              |
+| `inbox_recent_messages(uuid[], int)` | invoker; authenticated/service_role              | Cola reciente acotada por sesión                       |
+| `transition_handoff(...)`            | invoker; authenticated/service_role              | Pausa/reanudación auditable e idempotente              |
+| `approve_lead_merge(uuid, uuid)`     | invoker; authenticated/service_role + gate admin | Merge, audit, reasignación y delete en una transacción |
+
 ## Storage buckets
 
 | Bucket            | Public | Size cap | MIME                       |
@@ -259,24 +328,29 @@ merge_candidates ──┬── src_lead_id
                    └── dst_lead_id
 ```
 
-## RLS planificadas (Slice 3)
+## RLS aplicadas
 
-| Tabla            | Admin | Vendedor            |
-| ---------------- | ----- | ------------------- |
-| empresas         | RW    | R                   |
-| leads            | RW    | RW                  |
-| lead_session     | RW    | RW                  |
-| conversaciones   | RW    | RW                  |
-| mensajes         | RW    | RW                  |
-| productos        | RW    | R                   |
-| intents          | RW    | R                   |
-| reglas           | RW    | R                   |
-| tags             | RW    | R                   |
-| lead_tags        | RW    | RW                  |
-| usuarios         | RW    | R                   |
-| tool_executions  | R     | R (audit read-only) |
-| admin_actions    | R     | — (oculto)          |
-| merge_candidates | RW    | R                   |
+| Tabla                 | Admin | Vendedor            |
+| --------------------- | ----- | ------------------- |
+| empresas              | RW    | R                   |
+| leads                 | RW    | RW                  |
+| lead_session          | RW    | RW                  |
+| conversaciones        | RW    | RW                  |
+| mensajes              | RW    | RW                  |
+| productos             | RW    | R                   |
+| intents               | RW    | R                   |
+| reglas                | RW    | R                   |
+| tags                  | RW    | R                   |
+| lead_tags             | RW    | RW                  |
+| usuarios              | RW    | R                   |
+| tool_executions       | R     | R (audit read-only) |
+| admin_actions         | R     | — (oculto)          |
+| merge_candidates      | RW    | R                   |
+| agente_config         | RW    | R                   |
+| turn_classifications  | R     | R                   |
+| llm_usage             | R     | R                   |
+| session_recordatorios | RW    | RW                  |
+| handoff_events        | RW    | RW                  |
 
 Storage policies: comprobantes_pago RW vendedor + admin. productos RW admin solo. mensajes_media R todos + INSERT system.
 

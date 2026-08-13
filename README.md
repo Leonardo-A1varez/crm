@@ -2,9 +2,9 @@
 
 CRM conversacional single-org self-hosted con agente IA seller multi-canal (WhatsApp, Instagram, Facebook), motor de intents + reglas, Lead Twin estructurado y workflows durables en Inngest.
 
-> **Estado actual (2026-08-12):** el rediseño A-G2, la cadena WhatsApp local y la integración real con Supabase, OpenAI y Meta están implementados. No está listo para piloto: catálogo vacío, integración contra una base de pruebas aislada pendiente, revisión visual humana pendiente y rendimiento de Inbox aún por validar bajo carga. Detalle vivo → `docs/next-session.md`; histórico → `docs/changelog.md`.
+> **Estado actual (2026-08-13):** el rediseño A-G2, la cadena WhatsApp local y la integración real con Supabase, OpenAI y Meta están implementados. El cierre de brechas corrigió el doble envío, protegió la base de desarrollo y movió el merge administrativo a una transacción Postgres. No está listo para piloto: catálogo vacío, base de pruebas aislada, QA visual, deploy y rendimiento representativo siguen pendientes. Detalle vivo → `docs/next-session.md`; histórico → `docs/changelog.md`.
 
-> Correcciones QA y de flujo en checkpoint: contrato, resultado y pendientes en `docs/implementation-qa-2026-08-12.md`. Falta QA visual y validación autenticada de las RPC; no declarar el plan totalmente cerrado.
+> Correcciones QA y de flujo: contrato y resultado en `docs/implementation-qa-2026-08-12.md`. `approve_lead_merge` tuvo smoke autenticado no destructivo; `inbox_recent_messages` y `transition_handoff` todavía requieren smoke autenticado.
 
 ---
 
@@ -24,7 +24,7 @@ CRM conversacional single-org self-hosted con agente IA seller multi-canal (What
 
 ## Visión del producto
 
-Negocio: venta de **repuestos automotrices**. Volumen objetivo: ~1000 leads/semana. Conversaciones cortas (5-15 mensajes). Equipo: 3-4 usuarios internos (admin + vendedores).
+Negocio: venta de **repuestos automotrices**. La cohorte inicial de validación contempla 3-4 usuarios internos y ~1000 leads/semana. El tier piloto para el que se dimensiona la arquitectura contempla hasta 30 vendedores, ~5K leads/mes y peak de 50 msg/s. Son dos etapas distintas, no dos cifras del mismo despliegue. Conversaciones esperadas: 5-15 mensajes.
 
 Diferenciadores frente a CRMs tradicionales (HubSpot, Pipedrive, Kommo):
 
@@ -71,25 +71,25 @@ Diferenciadores frente a CRMs tradicionales (HubSpot, Pipedrive, Kommo):
 
 ## Stack
 
-| Capa                           | Tecnología                                               | Razón                                                                                   |
-| ------------------------------ | -------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| Frontend + API                 | **Next.js 16** App Router + RSC + Server Actions + TS    | Único framework. Sin NestJS.                                                            |
-| UI                             | **Tailwind v4 + shadcn/ui**                              | Copy-paste, accesibles.                                                                 |
-| DB + Auth + Storage + Realtime | **Supabase (Postgres)**                                  | Única DB. RLS, Realtime, Storage.                                                       |
-| Workflows + cron               | **Inngest v4**                                           | Durable, retries, replay, dashboard.                                                    |
-| LLM                            | **Vercel AI SDK** (`@ai-sdk/openai`, GPT-4.x)            | `generateObject` Zod-typed, tool calling, multi-step `stopWhen`. Provider swap 1 línea. |
-| Mensajería                     | **Meta Cloud API** (WhatsApp Business + Graph API IG/FB) | Oficial.                                                                                |
-| Observability                  | Logger + Pino + Sentry/OTel env-gated                    | Logs estructurados; Sentry requiere DSN real antes de lanzamiento.                      |
-| Cost tracking                  | Persistencia `llm_usage` + CostTracker                   | Coste por turno, conversación y lead; el kill switch depende de Redis configurado.      |
-| Feature flags                  | FeatureFlags                                             | Sin dependencia de Edge Config en el piloto.                                            |
-| Locking                        | SessionLock + Postgres advisory lock                     | Single-flight twin extractor.                                                           |
-| Validación                     | **Zod** + zod env fail-fast                              | Schemas + runtime env.                                                                  |
-| Tests                          | **Vitest** + coverage v8 (threshold 80%)                 | Rápido, ESM nativo.                                                                     |
-| Formato                        | **Prettier** + prettier-plugin-tailwindcss               | Sort classes auto.                                                                      |
-| Lint                           | **ESLint** + eslint-plugin-boundaries                    | Architecture zones enforced.                                                            |
-| Hooks                          | **lefthook** + commitlint conventional                   | Pre-commit + commit-msg + pre-push.                                                     |
-| CI                             | **GitHub Actions** + npm audit                           | Typecheck + lint + tests + coverage threshold.                                          |
-| Hosting                        | **Vercel**                                               | Next.js + Inngest nativos.                                                              |
+| Capa                | Tecnología                                               | Razón                                                                                   |
+| ------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Frontend + API      | **Next.js 16** App Router + RSC + Server Actions + TS    | Único framework. Sin NestJS.                                                            |
+| UI                  | **Tailwind v4 + shadcn/ui**                              | Copy-paste, accesibles.                                                                 |
+| DB + Auth + Storage | **Supabase (Postgres)**                                  | Única DB. RLS y Storage; Realtime sigue pendiente.                                      |
+| Workflows + cron    | **Inngest v4**                                           | Durable, retries, replay, dashboard.                                                    |
+| LLM                 | **Vercel AI SDK** (`@ai-sdk/openai`, GPT-4.x)            | `generateObject` Zod-typed, tool calling, multi-step `stopWhen`. Provider swap 1 línea. |
+| Mensajería          | **Meta Cloud API** (WhatsApp Business + Graph API IG/FB) | Oficial.                                                                                |
+| Observability       | Logger + Pino + Sentry/OTel env-gated                    | Logs estructurados; Sentry requiere DSN real antes de lanzamiento.                      |
+| Cost tracking       | Persistencia `llm_usage` + CostTracker                   | Coste por turno, conversación y lead; el kill switch depende de Redis configurado.      |
+| Feature flags       | FeatureFlags                                             | Sin dependencia de Edge Config en el piloto.                                            |
+| Consistencia        | Constraints + RPC transaccionales Postgres               | Handoff y merge atómicos; single-flight durable del Twin sigue pendiente.               |
+| Validación          | **Zod** + zod env fail-fast                              | Schemas + runtime env.                                                                  |
+| Tests               | **Vitest** + coverage v8 (threshold 80%)                 | Rápido, ESM nativo.                                                                     |
+| Formato             | **Prettier** + prettier-plugin-tailwindcss               | Sort classes auto.                                                                      |
+| Lint                | **ESLint** + eslint-plugin-boundaries                    | Architecture zones enforced.                                                            |
+| Hooks               | **lefthook** + commitlint conventional                   | Pre-commit + commit-msg + pre-push.                                                     |
+| CI                  | **GitHub Actions** + npm audit                           | Typecheck + lint + tests + coverage threshold.                                          |
+| Hosting             | **Vercel**                                               | Next.js + Inngest nativos.                                                              |
 
 Arquitectura por capas: API/Action → Service → Repository → DB. **Nunca saltar capas.** Detalle → `docs/architecture.md`.
 

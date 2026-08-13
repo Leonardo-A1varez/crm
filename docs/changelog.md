@@ -4,6 +4,22 @@
 
 ---
 
+## Cierre de brechas de auditoría — 2026-08-13
+
+- `sendOutbound` cambió de “Meta → INSERT” a “reserva DB → Meta → confirmación”. Los desenlaces desconocidos quedan visibles y no se reenvían; los 429 liberan la reserva.
+- Los fallos de red del cliente Graph salen tipados como `InfraError`.
+- La configuración de Vitest aborta antes de tocar la red si `SUPABASE_TEST_URL` coincide con la base de la app.
+- `server_now()` recibió `search_path` seguro y la migración quedó aplicada en `crm-dev`.
+- Se eliminó `CloseSessionButton`, que no tenía consumidores.
+- La primera corrección del merge fue insuficiente: el service llamaba un `SessionLock`, pero producción inyectaba `NoopSessionLock`. Se reemplazó por `approve_lead_merge`, RPC `security invoker` que bloquea candidate/leads en orden estable y ejecuta validación, auditoría, reasignaciones y delete dentro de una transacción.
+- Smoke admin no destructivo de `approve_lead_merge` verificado con `candidate_not_found`. El flujo completo contra Postgres queda para la base aislada de tests.
+- `docs/workflows.md` reconstruido desde las 12 funciones/12 eventos reales; `docs/data-model.md` reconciliado con 38 migraciones; idempotencia, README y estado operativo corregidos.
+- `20260813172558_fix_approve_lead_merge_lint.sql` elimina una variable muerta sin reescribir la migración aplicada; `db lint` remoto queda limpio y el smoke autenticado de `approve_lead_merge` continúa verde.
+- Cierre verificado: 1617/1617 tests en 136 archivos, ambos typechecks, lint y formato verdes; 38/38 migraciones alineadas. No se corrieron integración ni build.
+- No ejecutado: `test:integration`, build, mensajes Meta, QA visual ni benchmark representativo.
+
+---
+
 ## Checkpoint QA — 2026-08-12
 
 - Recuperado el Inbox: `db.rpc` conserva su contexto, `inbox_recent_messages` acota el read path y el coste de consultas queda constante con 20/60 leads.
@@ -16,6 +32,37 @@
 - Respaldo lógico previo de esquema/datos y aplicación sin reset ni truncate de `20260812170131_inbox_active_summary.sql` y `20260812222808_qa_handoff_metrics.sql`; `crm-dev` queda en 35 migraciones.
 - Verificación: 1595/1595 tests en 133 archivos, ambos typechecks, lint y formato. No se corrieron integración ni build.
 - Pendiente: smoke autenticado de RPC, regeneración de tipos remotos, `EXPLAIN`, QA visual y base Supabase aislada para integración.
+
+---
+
+## Rediseño sala de control A-G2 — 2026-08-08 a 2026-08-12
+
+- Base visual oscura, tokens semánticos, SideNav y shell del panel.
+- Inbox de tres paneles, estados de entrega, triage, búsqueda y Lead Twin con procedencia/edición.
+- Métricas en tres cortes, configuración versionada del agente y motor de intents/reglas/escalado.
+- Dos revisiones de rama detectaron componentes sin consumidores y defectos de ancho que los tests de existencia no veían.
+- Pendiente desde el cierre: comparación visual humana contra el prototipo y `/ajustes`, que no tiene diseño aprobado.
+
+## Slice 4b — Cadena WhatsApp real local — 2026-08-07
+
+- Outbound de plantilla e inbound por webhook Meta verificados mediante túnel efímero; pipeline completo creó lead, conversación, sesión, mensajes y tool executions, y respondió por WhatsApp.
+- Corregido `INNGEST_DEV`, tres schemas incompatibles con Structured Outputs strict y variables opcionales vacías que rompían el arranque.
+- Modelos LLM configurables por workflow y contrato opcional contra OpenAI real.
+- Pendiente: catálogo/empresa reales, deploy estable, Sentry con DSN, templates propios, monitores y número productivo.
+
+## Fase 10 Leads + Slice 3/4a — 2026-07-14 a 2026-07-16
+
+- Leads: búsqueda/lista determinística, sesiones, merge manual/review, ficha, filtros y policies administrativas.
+- Auth/RLS: panel autenticado, matriz de 43 policies y suite RLS real verificada en ese corte.
+- Hardening: Pino con redacción, Sentry/OTel env-gated, `/api/health`, cost tracker Upstash, purge real y reactivación persistida.
+- El merge inicial era replay-tolerant pero no transaccional; la carrera multi-tabla quedó cerrada recién el 2026-08-13.
+
+## Slice 2 — Productos, Intents/Reglas, Tags y Métricas — 2026-07 a 2026-08
+
+- Fase 9: CRUD/importación de productos con RLS y validaciones.
+- Fase 11/G2: intents y reglas IF/THEN, clasificación auditable y handoff por reglas/guards.
+- Fase 12/F: etiquetas administrables, métricas de embudo, IA y rendimiento con costo persistido en `llm_usage`.
+- “Realtime” no se entregó: el Inbox permanece sobre `RefreshPoller` de cinco segundos.
 
 ---
 

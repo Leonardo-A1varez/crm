@@ -171,7 +171,14 @@ async extract(input) {
 }
 ```
 
-Real impl Postgres advisory lock — multi-process safe en Vercel serverless.
+**Estado real:** el extractor del Twin conserva la interfaz `SessionLock`, pero
+producción usa `NoopSessionLock`. No existe todavía una implementación Postgres,
+por lo que este camino no tiene exclusión mutua durable entre instancias
+serverless. Los locks in-memory de tests no demuestran esa garantía.
+
+El merge administrativo no reutiliza este mecanismo: desde la migración
+`20260813163957` se ejecuta completo dentro de la RPC transaccional
+`approve_lead_merge`, con locks de filas en orden estable.
 
 ### Pattern: Transactional outbox + optimistic dispatch (B2)
 

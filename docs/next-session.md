@@ -1,10 +1,10 @@
 # Cómo retomar la sesión
 
-> Última actualización: **2026-08-12**. Checkpoint QA listo y verificado, pero el commit quedó pendiente porque el sandbox no pudo escribir `.git` al agotarse la cuota de elevación.
-> **El rediseño A-G2 y el primer corte de correcciones QA están aplicados. Falta QA visual, smoke autenticado de RPC y medición SQL; no declarar rendimiento ni el plan completo.**
+> Última actualización: **2026-08-13**. El checkpoint QA y el cierre de brechas de auditoría están implementados en la rama `fix/cierre-brechas-auditoria`.
+> **Falta QA visual, smoke autenticado de `inbox_recent_messages`/`transition_handoff`, medición SQL y una base aislada de integración; no declarar rendimiento ni el lanzamiento completos.**
 > Users dev: `admin-dev@crm.local` / `dev-admin-2026!` · `vendedor-dev@crm.local` / `dev-vendedor-2026!`.
 
-> **Implementación QA pausada por el dueño:** contrato, corte entregado y pendientes en `docs/implementation-qa-2026-08-12.md`. Las dos migraciones aditivas autorizadas ya se aplicaron con respaldo previo. Siguen prohibidos reset, truncate, `test:integration`, build y cambios al proyecto de tests.
+> Las migraciones aditivas autorizadas están aplicadas sin reset ni truncate. `test:integration` sigue congelado y `build` no se ejecutó.
 
 ---
 
@@ -18,21 +18,21 @@
 
 | Qué              | Cuánto                                                           |
 | ---------------- | ---------------------------------------------------------------- |
-| Rama             | `master`, árbol preparado pero todavía sucio                     |
-| Commit pendiente | `git add`/`git commit` bloqueados por permisos/cuota del entorno |
-| Tests unitarios  | **1595 pasan, 133 archivos** (medido 2026-08-12)                 |
+| Rama             | `fix/cierre-brechas-auditoria`; integrar a `master` al cerrar CI |
+| Código pendiente | documentación final, CI, commits, merge y push                   |
+| Tests unitarios  | **1617 pasan en 136 archivos**; CI final del cierre              |
 | Coverage         | **87.3 / 79.39 / 82.8 / 88.25** — umbral 80/75/80/80, pasa       |
 | Integration      | **congelados, no verdes** — ver bloqueante 1                     |
-| Migraciones      | **35 aplicadas a `crm-dev`**, la última `20260812222808`         |
+| Migraciones      | **38 aplicadas a `crm-dev`**, la última `20260813172558`         |
 | Revisión visual  | **ninguna pantalla** se miró con ojos humanos — ver bloqueante 2 |
 
-**Qué se hizo esta sesión.** Además del rediseño A-G2, se implementó el checkpoint QA descrito en `docs/implementation-qa-2026-08-12.md`: recuperación de Inbox/Agente, handoff auditable, cancelación durable de recordatorios, edición de leads, timestamps de Meta y semántica honesta de métricas.
+**Qué se hizo.** Además del checkpoint QA, el cierre de brechas corrigió la ventana de doble envío, tipó fallos Graph, instaló una guarda anti-TRUNCATE, fijó `server_now`, eliminó el cierre duplicado y convirtió la aprobación de merges en una RPC Postgres transaccional.
 
 - **Instrumentación** — el sistema dejó de descartar lo que el handoff pide medir: autoría real en `mensajes.sender_user_id`, clasificación del turno en `turn_classifications`, procedencia por campo del Twin con el mensaje del que salió cada dato, `etapa_alcanzada` para congelar el rail en los desvíos, y condiciones de escalado configurables en `agente_config`.
 - **Costo de IA** persistido por turno (`llm_usage`) y agregado por conversación y por lead.
 - **Inbox y Leads** — buscador de conversaciones y buscador dentro del hilo, filtros combinables que viven en la URL, ficha del lead editable, etiquetas, cierre de venta con motivo obligatorio, auditoría por turno, y recordatorios de seguimiento con workflow durable.
 
-### Las 14 migraciones de esta sesión
+### Migraciones recientes
 
 | Migración                                                | Qué hace                                                                           |
 | -------------------------------------------------------- | ---------------------------------------------------------------------------------- |
@@ -50,6 +50,9 @@
 | `20260811160000_mensajes_contenido_trgm`                 | índice GIN trigram sobre `mensajes.contenido` para el buscador del Inbox           |
 | `20260812170131_inbox_active_summary`                    | RPC acotada del Inbox + índice `(lead_session_id, created_at DESC)`                |
 | `20260812222808_qa_handoff_metrics`                      | timestamps Meta, handoff transaccional, template de escalado y perfil nullable     |
+| `20260813090000_server_now_search_path`                  | `search_path` seguro del helper de tiempo                                          |
+| `20260813163957_approve_lead_merge_transaction`          | merge administrativo atómico, RLS-aware y auditable                                |
+| `20260813172558_fix_approve_lead_merge_lint`             | reemplaza la RPC sin la variable muerta detectada por `db lint`                    |
 
 ---
 
@@ -57,11 +60,11 @@
 
 ### 1. `SUPABASE_TEST_URL` apunta al mismo proyecto Supabase que la app
 
-`npm run test:integration` llama a `cleanupTestDb`, que hace TRUNCATE sin saber contra qué está corriendo. **Vacía la base de dev. Ya pasó esta sesión.**
+`npm run test:integration` llama a `cleanupTestDb`, que hace TRUNCATE. Desde el cierre de brechas, `assertBaseDeTestsAislada` aborta si detecta que la URL de tests coincide con la de la app. La bomba accidental está desactivada, pero la suite sigue sin tener dónde correr.
 
 La consecuencia no es solo perder los datos de prueba: hay **contract tests que nunca corrieron contra Postgres real** —`turn-classifications`, `llm-usage`, `session-recordatorios`, `handoff-events` y los de `agente_config` posteriores a G1—. Todo lo que sabemos de esos repos lo sabemos por la implementación in-memory, que no tiene constraints, ni FKs, ni RLS. Un `not null` mal puesto o una policy que rechaza un insert no lo ve nadie hasta producción.
 
-**El arreglo es un proyecto Supabase aparte** (free tier alcanza), con `SUPABASE_TEST_URL` y `SUPABASE_TEST_SERVICE_KEY` apuntando ahí y las 35 migraciones aplicadas. Es la única forma de volver a tener esa suite. Requiere que el dueño cree el proyecto.
+**El arreglo pendiente es un proyecto Supabase aparte** (free tier alcanza), con `SUPABASE_TEST_URL` y `SUPABASE_TEST_SERVICE_KEY` apuntando ahí y las 38 migraciones aplicadas. Es la única forma de volver a tener esa suite. Requiere que el dueño cree el proyecto.
 
 Hasta entonces: **no correr `test:integration`**. Está anotado en `AGENTS.md` §6.
 
@@ -88,9 +91,7 @@ El método que sí funciona con el panel roto está en `AGENTS.md` §2 lección 
 
 ### 3. Una sola puerta de cierre
 
-Se puede cerrar una sesión desde el rail del embudo en el Twin (`src/components/lead-twin/RailEmbudo.tsx` → `CierreSesion.tsx`) **y** desde el botón viejo del header de la conversación (`src/components/inbox/CloseSessionButton.tsx`). Los dos llaman a `closeSessionAction`.
-
-**Decisión 2026-08-12:** queda el rail del Twin y se elimina el botón del header. Dos caminos al mismo efecto irreversible no son aceptables.
+**Aplicado:** el único cierre queda en el rail del Twin. `CloseSessionButton.tsx`, que ya no tenía consumidores, fue eliminado.
 
 ### 4. Qué pasa cuando la IA escala y no hay nadie
 
@@ -158,7 +159,7 @@ El dueño no se pronunció sobre **notas internas** (comentarios en la conversac
 
 ## ⚠️ Footguns de entorno
 
-**1. `npm run test:integration` borra la base de dev.** Ver bloqueante 1. Si aun así se corre a sabiendas, después: `node .superpowers/sdd/scripts/seed-merge-e2e.js` para restituir los usuarios dev.
+**1. `npm run test:integration` está congelado.** La guarda nueva corta si tests y app comparten URL, pero no correrlo hasta disponer de un proyecto aislado y confirmar que la guarda dispara en ese entorno.
 
 > Excepción: `tests/integration/agente-config.supabase.test.ts` NO llama a `cleanupTestDb`. Limpia solo `agente_config` y restaura la config activa al terminar.
 
@@ -181,9 +182,9 @@ npm run dev              # puerto 3001
 npm run inngest:dev      # dev server Inngest (ya lleva -u al puerto 3001)
 npx --yes cloudflared tunnel --url http://localhost:3001   # túnel público
 npm run ci               # typecheck + lint + format + coverage
-npm test                 # solo unit: 1595 en ~45 s
+npm test                 # solo unit; si npm global falla, usar node node_modules\vitest\vitest.mjs run
 supabase migration list --linked
-# npm run test:integration  ⛔ NO CORRER: vacía la base de dev (ver bloqueante 1)
+# npm run test:integration  ⛔ NO CORRER: no existe una base aislada
 ```
 
 ---
@@ -191,10 +192,10 @@ supabase migration list --linked
 ## Conexión Supabase
 
 - Proyecto `crm-dev`, ref `emubzkouwvuzlrtsgorx`, Postgres 17, plan Free.
-- **35 migraciones aplicadas**, la última `20260812222808`.
+- **38 migraciones aplicadas**, la última `20260813172558`.
 - ⚠️ Free tier auto-pausa tras ~1 semana idle: el DNS deja de resolver y `/api/health` da `db: fail`. Se restaura desde el dashboard.
 - **Falta un segundo proyecto para tests.** Ver bloqueante 1.
-- Remoto: `https://github.com/Leonardo-A1varez/crm.git` (privado). Verificar `git rev-list --count origin/master..HEAD` al retomar; este checkpoint no se pusheó.
+- Remoto: `https://github.com/Leonardo-A1varez/crm.git` (privado). Verificar `git rev-list --count origin/master..HEAD` al retomar.
 
 ---
 
@@ -212,33 +213,36 @@ supabase migration list --linked
 ## Prompt de arranque — copiar y pegar
 
 ```text
-Repo: C:\Users\Tinki\Proyectos\crm. Rama master. El checkpoint QA del
-2026-08-12 está implementado y verificado, pero NO commiteado: la sesión previa
-agotó la cuota justo al pedir permiso para escribir `.git`.
+Repo: C:\Users\Tinki\Proyectos\crm. Rama master. El checkpoint QA y el cierre
+de brechas de auditoría quedaron implementados y documentados el 2026-08-13.
 
 Leé primero, en este orden:
-1. AGENTS.md completo — reglas de oro, estado y las 10 lecciones de proceso.
+1. AGENTS.md completo — reglas de oro, estado y lecciones de proceso.
 2. docs/next-session.md (este archivo) — bloqueantes y prioridades.
 3. docs/implementation-qa-2026-08-12.md — corte exacto implementado y pendientes.
 4. docs/handoff-rediseno-README.md — spec visual/producto.
 
 Estado del repo:
-- 1595 tests unitarios pasan en 133 archivos; typecheck, lint y formato verdes.
-- La cobertura 87.3/79.39/82.8/88.25 es la anterior; no se recalculó.
-- 35 migraciones aplicadas a crm-dev.
+- Consultá AGENTS.md para el conteo exacto del último CI.
+- 38 migraciones aplicadas a crm-dev.
 - `20260812170131` recupera/acota Inbox; `20260812222808` agrega handoff,
   timestamps Meta, template de aviso y perfil de lead nullable.
-- Backups previos al push viven en backups/ y están ignorados por Git.
-- Primera acción: revisar `git status`, agregar explícitamente `.env.local.example
-  .gitignore AGENTS.md README.md docs src supabase/migrations tests .claude
-  vitest.integration.config.ts` y crear `feat: checkpoint QA flows and metrics`.
+- `20260813163957` ejecuta el merge administrativo dentro de una transacción
+  Postgres; no volver a introducir NoopSessionLock en ese camino.
+- `20260813172558` conserva esa RPC y elimina la variable muerta señalada por
+  `db lint`; lint remoto limpio.
+- Primera acción: revisar `git status`, `git log --oneline -15` y migraciones.
 
 Lo que NO está verificado, y quiero que lo trates como no verificado:
 - Los integration tests NO corren: SUPABASE_TEST_URL apunta al mismo proyecto
-  Supabase que la app y test:integration vacía la base de dev. Hay contract
-  tests de varios repos que nunca tocaron Postgres real.
-- Las RPC nuevas no se probaron con la sesión autenticada del admin.
-- No se regeneraron los tipos desde el schema remoto después del push.
+  Supabase que la app. El guard agregado el 2026-08-13 ahora aborta antes de
+  cualquier escritura; la suite sigue congelada hasta disponer de una base
+  aislada. Hay contract tests de varios repos que nunca tocaron Postgres real.
+- `approve_lead_merge` tuvo smoke admin no destructivo; `inbox_recent_messages`
+  y `transition_handoff` todavía no.
+- Los tipos se contrastaron contra el schema remoto después del push. La firma
+  coincide; se conservó nulabilidad explícita en el resultado porque la RPC usa
+  `null` para las salidas de error y el generador no lo infiere.
 - No se corrió EXPLAIN ni hay volumen representativo: el coste constante está
   probado en unitarias, no el rendimiento a escala.
 - Las pantallas del checkpoint no se revisaron visualmente en los tres viewports.

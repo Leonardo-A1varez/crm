@@ -25,7 +25,7 @@ Prioridad sobre cualquier otra instrucción.
 10. **Reliability + Ops obligatorio.** Toda nueva integración debe cumplir:
     - **Cost-tracking en TODA llamada LLM.** `recordLlmUsage(tracker, result, { model, workflow, sessionId? })` post-call obligatorio. ESLint rule en `src/server/services/llm/**`. Razón: daily cap kill-switch no funciona si se bypassa.
     - **Idempotency-key explícito en `step.run()` Inngest + toda cron function.** Pattern: `${functionName}-${date.toISOString().slice(0,10)}-${entityId}`. No auto-gen. Replay tests obligatorios.
-    - **`DomainError` jerarquía siempre.** Prohibido `throw new Error('msg')` en `src/server/**`. Clases reales (`src/lib/errors.ts`): `ValidationError`, `NotFoundError`, `ConflictError`, `PermissionDeniedError`, `IllegalStateError`, `BudgetExceededError`. (`InfraError`/`RateLimitError` NO existen aún — backlog Slice 4b; `mapPostgrestError` default branch todavía lanza `Error` plano, misma deuda.) ESLint rule. Razón: retry semantics dependen de error type.
+    - **`DomainError` jerarquía siempre.** Prohibido `throw new Error('msg')` en `src/server/**`. Clases reales (`src/lib/errors.ts`): `ValidationError`, `NotFoundError`, `ConflictError`, `PermissionDeniedError`, `IllegalStateError`, `BudgetExceededError`, `InfraError`, `RateLimitError`. `mapPostgrestError` usa `InfraError` como fallback. ESLint rule. Razón: retry semantics dependen de error type.
     - **`/api/health` endpoint live.** Verifica DB ping + Inngest reachability + OpenAI ping. Vercel monitor wire. Pre-Slice 4 obligatorio.
     - **Error tracking (Sentry o equivalente) pre-Slice 4 launch.** Uncaught exceptions + unhandled rejections → tracked. Razón: silent failures = lost revenue.
 11. **Skill discipline workflow.** Invocar superpowers skills vía `Skill` tool en estos triggers:
@@ -40,7 +40,9 @@ Prioridad sobre cualquier otra instrucción.
 
 CRM conversacional **single-org self-hosted white-label**, venta de **repuestos automotrices**. Target market: **Latam aftermarket parts** (Brasil, México, Argentina, Chile, Colombia, Perú). Modelo deployment: **1 instalación per cliente empresa** (no multi-tenant SaaS).
 
-**Pilot tier inicial (Slice 1-4):**
+**Cohorte inicial de validación:** 3-4 usuarios internos y ~1000 leads/semana.
+
+**Pilot tier objetivo de arquitectura (Slice 1-4):**
 
 - 30 vendedores per cliente.
 - Peak 50 msg/sec / sostenido 2-5 msg/sec per instancia.
@@ -80,11 +82,11 @@ Diferenciadores: **sin kanban manual** (auto-stage), **Lead Twin**, **reglas IF/
 
 ## 2. Estado actual
 
-**Fase actual:** `Rediseño "sala de control" A-G2 + checkpoint QA aplicado. Falta QA visual, smoke autenticado de las RPC y medición SQL representativa; no declarar rendimiento ni el plan QA totalmente cerrados. Retomar: docs/next-session.md.`
+**Fase actual:** `Cierre de brechas de auditoría aplicado sobre el checkpoint QA. Código y docs reconciliados; falta QA visual, smoke autenticado de inbox_recent_messages/transition_handoff y medición SQL representativa. Retomar: docs/next-session.md.`
 
-**Última acción completada (sesión 2026-08-12, checkpoint QA):** documentación/seguridad previas + recuperación de Inbox y Agente; handoff administrativo transaccional e idempotente con aviso durable; cancelación real de recordatorios; edición segura de leads; timestamps originales de Meta y métricas honestas; búsqueda/copy/accesibilidad. Dumps previos en `backups/` (ignorados por Git) y migraciones `20260812170131` + `20260812222808` aplicadas a `crm-dev` sin reset ni truncate. Verificado: **1595/1595 tests en 133 archivos**, ambos typechecks, lint y formato; `supabase migration list` 35/35. **No verificado:** QA visual, RPC como admin autenticado, `EXPLAIN` representativo e integration tests contra Postgres aislado.
+**Última acción completada (sesión 2026-08-13, cierre de brechas):** `sendOutbound` reserva antes de llamar a Meta y evita reenvíos con desenlace desconocido; fallos de red salen como `InfraError`; la suite de integración aborta si apunta a la base de la app; `server_now()` tiene `search_path` seguro; se borró el cierre duplicado; y el merge administrativo, que inicialmente quedó detrás de un `NoopSessionLock`, fue corregido a `approve_lead_merge`, una RPC transaccional `security invoker` con locks ordenados, actor derivado de `auth.uid()` y rollback integral. Migraciones 38/38 alineadas con `crm-dev`; `db lint` y smoke admin no destructivo de la RPC verdes. Docs de workflows, modelo, idempotencia e histórico reconstruidos desde código. **No verificado:** QA visual, RPC de Inbox/handoff como admin, `EXPLAIN` representativo e integration tests contra Postgres aislado.
 
-**Lo que esta sesión NO hizo y hay que decir en voz alta:** ninguna pantalla del checkpoint se revisó visualmente, las RPC nuevas no se probaron con la sesión autenticada del admin y no existe benchmark representativo. El N+1/read model está corregido, pero rendimiento a escala sigue sin demostrarse. Detalle y prioridades en `docs/next-session.md`.
+**Lo que esta sesión NO hizo y hay que decir en voz alta:** ninguna pantalla se revisó visualmente, `inbox_recent_messages` y `transition_handoff` siguen sin smoke admin y no existe benchmark representativo. El N+1/read model está corregido, pero rendimiento a escala sigue sin demostrarse. El merge sí tuvo smoke autenticado solo en el camino no destructivo `candidate_not_found`; el flujo completo contra Postgres espera una base aislada.
 
 **Sub-paso previo:** **Fase 10 Leads COMPLETA (subagent-driven, commits `ddb7e05..b91b2e7`).** T1 `leads.list` orden determinístico (`updated_at DESC, id ASC`) + búsqueda literal `ilikeContains` cap 100 · T2 `listByLeadId`+`reassignLead` · T3 `leads.delete` (no-op non-UUID, probe RLS→PermissionDenied) + policy DELETE admin (migración `20260715140738`) + baja `mergeInto` · T4 `types/leads.ts` + `LeadsService` · T5 `MergeExecutorService` approve/reject/manual (audit-first replay-safe: audit → fill-nulls ganador → reassign sesiones/convs → delete perdedor CASCADE candidates; orden pinneado con `invocationCallOrder`) · T6 detector respeta `rejected` (`findAnyPair`) · T7 4 Server Actions + schemas (copys verbatim addendum §2.A; `merge_candidate` not-found → copy "par ya resuelto") · T8 UI `/leads` lista+búsqueda+banner duplicados · T9 UI `/leads/[id]` ficha+sesiones · T10 UI review duplicados + duplicado manual + policy INSERT `admin_actions` (migración `20260716001443`, gap del plan detectado por E2E). Validado: browser 7/7 + E2E merge 22/22 ×2 · integration leads 16/16 + lead-session 21/21 · final whole-branch review (fable): 0 Critical, 1 Important fixeado (`ec5ddfa`) + 2 plan-mandated (`b91b2e7`), re-verdict clean. Backlog fase 11 triageado → `docs/next-session.md`.
 **Antes de eso:** **Slice 4a Hardening COMPLETO (2026-07-14).** 10.1 `PinoLogger`+`getLogger(env)` (paridad redactPii testeada; prod=Pino JSON, dev=Console; call sites swapeados). 10.2 Sentry env-gated (`SENTRY*DSN`opcional;`beforeSend`redacta + elimina`request.data`; traces 0). 10.3 OTel `@vercel/otel`en`instrumentation.ts`+`withSpan`(spans:`webhook.meta.post`, `llm.ai-agent`, `meta.sendText`; no-op local). 10.4 `/api/health`(ping DB anon + grant`server_now()`a anon migration`20260714182011`; checks externos `skipped`con placeholders; curl 200 degraded verificado). 10.5`UpstashCostTracker`(fix kill-switch roto en serverless: INCRBYFLOAT por día + TTL 48h; factory fallback InMemory+warn) swapeado en bootstrap. 10.6`LeadSessionRepository.delete`(contract+integration 17/17) + purge real (storage cleanup pre-delete, degrada con warn, replay-safe). 10.7 reactivación real (templates es por`motivo_perdida`; skips → `bounced`con template`skip*\*`= cooldown; idempotency`react-<sessionId>`; ValidationError→bounced, resto rethrow). **Slice 3 previo mismo día:** auth+RLS completo (43 policies, panel authed, 11/11 matriz). Usuario dev: `admin-dev@crm.local`. **Siguiente: Slice 4b launch** — checklist en next-session (creds reales META/OPENAI/INNGEST/UPSTASH + cuenta Sentry + deploy Vercel + webhook público + templates Meta + monitores + pen test).
@@ -103,7 +105,8 @@ Diferenciadores: **sin kanban manual** (auto-stage), **Lead Twin**, **reglas IF/
 7. **Verificar por uso, no por existencia.** Un componente quedó escrito, testeado y sin un solo consumidor, y se reportó como terminado porque el archivo estaba ahí. El `grep` del nombre devolvía una sola línea: su propia definición. Un componente que no aparece importado en ninguna pantalla no está hecho. La verificación es "quién lo usa", no "existe".
 8. **Un comentario con números tiene que ser reproducible.** Dos veces en esta sesión un comentario afirmó medidas —anchos, conteos— que no daban al volver a medirlas. Un número en un comentario es una afirmación de hecho que nadie va a re-chequear: o se deja el comando que lo produce, o no se escribe el número.
 9. **Con un agente trabajando en el árbol, `git add` va con rutas explícitas, nunca `-A`.** Un `git add -A` se lleva los archivos a medio escribir del otro agente al índice; el hook `pre-commit` typechequea todo y frena el commit, y desenredar el índice cuesta más que haber listado las rutas. Vale también para `git commit -a` y `git stash` sin `--`.
-10. **`npm run test:integration` borra la base de dev** mientras `SUPABASE_TEST_URL` y `NEXT_PUBLIC_SUPABASE_URL` apunten al mismo proyecto Supabase — que es el caso hoy. `cleanupTestDb` hace TRUNCATE sin saber contra qué está corriendo. Ya vació la base esta sesión. Hasta que exista un proyecto Supabase aparte para tests, esa suite no se corre.
+10. **`npm run test:integration` ya tiene una guarda fail-fast**, pero sigue congelado mientras `SUPABASE_TEST_URL` y `NEXT_PUBLIC_SUPABASE_URL` apunten al mismo proyecto. La guarda evita otro TRUNCATE accidental; no reemplaza una base aislada ni valida los repos contra Postgres.
+11. **Un wrapper de lock no prueba exclusión mutua.** La primera versión de la Task 7 envolvió el merge en `SessionLock`, pero producción inyectaba `NoopSessionLock`; tests y typecheck verdes no cerraban ninguna carrera. Una transición multi-tabla crítica debe compartir transacción y locks en Postgres, no solo una interfaz con nombre correcto.
 
 **Acción previa (sesión 2026-08-08):** **Rediseño "sala de control" — sub-proyecto A (base visual) COMPLETO**, rama `rediseno-a-base-visual` (11 commits, `88fd1cf..fd9319a`). Handoff de diseño descompuesto en 7 sub-proyectos A-G (`docs/superpowers/specs/2026-08-07-rediseno-a-base-visual-design.md` §1); **G se solapa con la fase 11 Intents+Reglas — tratar como un solo trabajo**. A entregó: tokens del handoff sobre los nombres semánticos de shadcn (los ~30 componentes vendorizados adoptan el diseño sin editarlos) + tokens propios en `@theme` · modo oscuro forzado · alias de íconos sobre lucide (`src/components/icons.ts`; se descartó Material Symbols para no abrir la CSP de B3) · lógica pura en `src/lib/ui/` con la regla del embudo (`perdido`/`requiere_humano` son desvíos, NO pasos 7 y 8) · 5 primitivas compartidas · SideNav de 222px · shell del panel · raíz redirige a `/inbox`. Ejecutado con subagent-driven-development: 9 tareas, cada una con revisión independiente. **2 defectos del plan detectados por el proceso:** (1) la secuencia Task 6→7 era incommiteable porque el hook `pre-commit` typechequea todo el proyecto — se fusionaron en un commit; (2) `<main className="flex ...">` convertía el main en contenedor flex y rompía las 7 pantallas del panel (medido: `/metricas` 236px de 1218 disponibles, `/inbox` recortado sin scrollbar) — lo encontró un revisor midiendo en el navegador, no leyendo el diff. **Pendiente de A:** comparación visual humana contra el prototipo `CRM Repuestos v2.dc.html` (los chequeos fueron programáticos sobre el DOM, sin capturas) · 5 SVG huérfanos en `public/` de la plantilla de Next. **Siguiente sub-proyecto: B — Bandeja unificada de 3 paneles.**
 
@@ -125,16 +128,16 @@ Diferenciadores: **sin kanban manual** (auto-stage), **Lead Twin**, **reglas IF/
 | **Pre-Slice 1 hardening A1-A10 (Camino A+)**               | 🟢 completo           | 13 migrations + error taxonomy + CI + lefthook + zod env + tsconfig strict++ + ESLint boundaries + Prettier + docs split + dep audit                                                                                                                                                                                                                                                              |
 | **Pre-Slice 1 Industrial Hardening B0-B6+B+R (Camino B+)** | 🟢 completo           | Business spec lock + migration timestamps + outbox B2 + security headers + Upstash rate limit + RLS CI gate + threat model + perf tuning + SLO + runbooks + backup strategy. 16 issues HIGH del audit profundo. 423/423 tests.                                                                                                                                                                    |
 | **Slice 1 — Real DB + LLM + Meta sandbox**                 | 🟢 funcional          | 7.1-7.6 ✅. 7.7.A LLM factory ✅. 7.8 Inngest serve ✅. 7.9 webhook Meta ✅. 7.10 E2E smoke Path A ✅. 7.7.B Pino + 7.7.C OTel + 7.7.D Sentry pendientes (pre-Slice 4 launch).                                                                                                                                                                                                                    |
-| **Slice 2 — UI + Realtime + Server Actions**               | 🟢 completo           | Core 8.x ✅ · fase 9 Productos ✅ · fase 10 Leads ✅ · fase 11 Intents+Reglas absorbida por G2 ✅ (`70d2c9f`) · fase 12 Tags+Métricas ✅. 6 de las 7 pantallas del panel están construidas y cableadas; **`/ajustes` sigue siendo un `PantallaPendiente`** y el handoff nunca la diseñó.                                                                                                          |
+| **Slice 2 — UI + Server Actions**                          | 🟡 funcional          | Core 8.x, Productos, Leads, Intents+Reglas y Tags+Métricas aplicados. Realtime **no existe**: Inbox usa `RefreshPoller` cada 5 s. `/ajustes` sigue siendo `PantallaPendiente`.                                                                                                                                                                                                                    |
 | **Rediseño "sala de control" A-G2**                        | 🟢 aplicado           | A base visual · B bandeja de 3 paneles · C ventana de 24 h y estados de entrega · D triage · E Twin con procedencia y edición · F métricas en 3 cortes · G1 config del agente · G2 motor de reglas y escalado. Handoff en `docs/handoff-rediseno-README.md` (entró tarde: varias pantallas se construyeron contra specs derivados y hubo que auditarlas después). **Sin revisión visual humana.** |
 | **Slice 3 — Auth + RLS audited**                           | 🟢 completo           | 9.1 auth+login+proxy ✅ · 9.2 43 policies + suite RLS 11/11 ✅ · 9.3 panel authed client ✅ · 9.4 STRIDE + security review ✅. Spec+plan en `docs/superpowers/`.                                                                                                                                                                                                                                  |
 | **Slice 4a — Hardening pre-launch**                        | 🟢 completo           | 10.1 Pino ✅ 10.2 Sentry ✅ 10.3 OTel ✅ 10.4 /api/health ✅ 10.5 CostTracker Upstash ✅ 10.6 purge real ✅ 10.7 reactivación real ✅. Spec+plan en `docs/superpowers/`.                                                                                                                                                                                                                          |
 | **Slice 4b — Deploy + soft launch**                        | 🟡 en progreso        | **Cadena WhatsApp E2E real validada local 2026-08-07** (creds OpenAI+Meta test number, outbound+inbound+pipeline+respuesta IA). Falta: catálogo cargado · Sentry · deploy Vercel · webhook público estable (hoy túnel cloudflared efímero) · templates Meta · monitores · número real para soft launch. **Upstash queda fuera por decisión del dueño: no quiere tope de gasto.**                  |
 | **Rendimiento**                                            | 🟡 read path aplicado | Se eliminó el N+1 y el read model SQL acotado ya está en `crm-dev`; falta smoke autenticado, `EXPLAIN` y volumen representativo. Ver `docs/next-session.md`.                                                                                                                                                                                                                                      |
 
-**Métricas actuales (medidas 2026-08-12):** **1595/1595 unit tests pass en 133 archivos** · coverage anterior **87.3 / 79.39 / 82.8 / 88.25** (no se recalculó en este checkpoint) · 0 typecheck errors · 0 lint errors (warnings deprecados de boundaries preexistentes) · format clean · **35 migraciones aplicadas a `crm-dev`**. Remoto privado: `https://github.com/Leonardo-A1varez/crm.git`; verificar commits sin pushear al retomar.
+**Métricas actuales (medidas 2026-08-13):** **1617/1617 unit tests pass en 136 archivos** · coverage anterior **87.3 / 79.39 / 82.8 / 88.25** (no se recalculó en este cierre) · 0 errores en ambos typechecks · 0 lint errors (warnings deprecados de boundaries preexistentes) · format clean · `db lint` clean · **38 migraciones aplicadas a `crm-dev`**. Remoto privado: `https://github.com/Leonardo-A1varez/crm.git`; verificar commits sin pushear al retomar.
 
-> ⚠️ **Los integration tests están congelados, no verdes.** `SUPABASE_TEST_URL` apunta al mismo proyecto Supabase que la app, así que `npm run test:integration` vacía la base de dev (ver lección 10). Los contract tests de los repos agregados desde entonces —`turn-classifications`, `llm-usage`, `session-recordatorios`, `handoff-events` y los de `agente_config` posteriores a G1— **nunca corrieron contra Postgres real**. Lo último verificado contra Supabase real: RLS 11/11 · leads 16/16 · lead-session 21/21 · productos 20/20 · agente-config 22/22.
+> ⚠️ **Los integration tests están congelados, no verdes.** `SUPABASE_TEST_URL` apunta al mismo proyecto Supabase que la app. Desde el 2026-08-13 el guard aborta antes de cualquier escritura, pero la suite no se ejecutará hasta disponer de una base aislada (ver lección 10). Los contract tests de los repos agregados desde entonces —`turn-classifications`, `llm-usage`, `session-recordatorios`, `handoff-events` y los de `agente_config` posteriores a G1— **nunca corrieron contra Postgres real**. Lo último verificado contra Supabase real: RLS 11/11 · leads 16/16 · lead-session 21/21 · productos 20/20 · agente-config 22/22.
 
 > **Cuando completes una acción, actualiza la tabla + "Última acción completada".**
 
@@ -153,7 +156,7 @@ Plan original (Fases 7-14) reemplazado por **4 slices verticales** + **Pre-Slice
 
 Lo que está LISTO en repo, agrupado por capa:
 
-**Migraciones SQL** (**35 en total, todas aplicadas a Supabase crm-dev**, `supabase/migrations/`. Formato timestamp `YYYYMMDDHHMMSS_<name>.sql`, standard de Supabase CLI v2+). Las 16 de foundation:
+**Migraciones SQL** (**38 en total, todas aplicadas a Supabase crm-dev**, `supabase/migrations/`. Formato timestamp `YYYYMMDDHHMMSS_<name>.sql`, standard de Supabase CLI v2+). Las 16 de foundation:
 
 ```
 20260512000001_init.sql                       extensions + enums + empresas/usuarios/leads/productos/lead_session + COMMENT empresas single-org
@@ -174,7 +177,7 @@ Lo que está LISTO en repo, agrupado por capa:
 20260514000016_repo_helpers.sql               server_now() RPC helper para timestamp server-side (fix clock skew JS↔PG)
 ```
 
-Las 19 que agregaron los slices 3-4, el rediseño y el checkpoint QA:
+Las 22 que agregaron los slices 3-4, el rediseño, el checkpoint QA y el cierre de brechas:
 
 ```
 20260714124024_slice3_rls_policies.sql        43 policies RLS admin/vendedor
@@ -196,12 +199,15 @@ Las 19 que agregaron los slices 3-4, el rediseño y el checkpoint QA:
 20260811160000_mensajes_contenido_trgm.sql    índice GIN trigram sobre mensajes.contenido (buscador del Inbox)
 20260812170131_inbox_active_summary.sql       RPC acotada del Inbox + índice sesión/fecha
 20260812222808_qa_handoff_metrics.sql         timestamps Meta + handoff auditable + perfil lead nullable
+20260813090000_server_now_search_path.sql     search_path seguro del RPC de tiempo
+20260813163957_approve_lead_merge_transaction.sql merge administrativo atómico y auditable
+20260813172558_fix_approve_lead_merge_lint.sql elimina variable PL/pgSQL muerta sin reescribir historial
 ```
 
 **Repositorios** (`src/server/repositories/`, interface + InMemory impl + Supabase impl + contract tests reusables):
 
 ```
-leads · lead-session · conversations · messages · productos · intents · rules
+leads · lead-session · lead-merge (RPC transaccional) · conversations · messages · productos · intents · rules
 tags · users · tool-executions · admin-audit · merge-candidates · reactivation-dispatches
 event-outbox (B2)
 ```
@@ -278,13 +284,13 @@ package.json scripts              dev/build/lint/typecheck/test:coverage/format/
 
 ```
 architecture.md          capas + patterns + flujo webhook→reply
-data-model.md            13 migrations + enums + tablas + indexes + RLS planificadas
-workflows.md             8 Inngest functions + events catalog + retry semantics
+data-model.md            38 migraciones + enums + tablas + índices + RLS aplicadas
+workflows.md             12 funciones Inngest + catálogo de eventos + retries
 idempotency.md           keys por op + race tolerance
 failure-modes.md         tabla workflow → modo falla → retry/skip
 cost-budget.md           targets LLM + pricing + kill switch
 dependency-audit.md      pins + overrides + accepted risks + re-audit cadence
-changelog.md             histórico completo Fases 0-6 + REPAIR + Pre-Slice 1
+changelog.md             histórico completo hasta el cierre de brechas 2026-08-13
 ```
 
 ---
