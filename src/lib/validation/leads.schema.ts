@@ -18,3 +18,45 @@ export type CreateManualCandidateFormInput = z.infer<typeof CreateManualCandidat
 
 export const SearchLeadsSchema = z.object({ q: z.string().trim().min(1).max(100) });
 export type SearchLeadsFormInput = z.infer<typeof SearchLeadsSchema>;
+
+const nullableText = (max: number) =>
+  z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? null : value),
+    z.string().trim().max(max).nullable(),
+  );
+
+const nullableEmail = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? null : value),
+  z
+    .string()
+    .trim()
+    .email()
+    .max(254)
+    .transform((value) => value.toLowerCase())
+    .nullable(),
+);
+
+const nullableYear = z.preprocess(
+  (value) => (value === "" || value === null ? null : Number(value)),
+  z
+    .number()
+    .int()
+    .min(1886)
+    .max(new Date().getUTCFullYear() + 1)
+    .nullable(),
+);
+
+export const UpdateLeadProfileSchema = z.preprocess(
+  (raw) => (raw instanceof FormData ? Object.fromEntries(raw.entries()) : raw),
+  z.object({
+    leadId: UUIDSchema,
+    nombre: z.string().trim().min(1).max(120),
+    email: nullableEmail,
+    direccion: nullableText(300),
+    vehiculoMarca: nullableText(100),
+    vehiculoModelo: nullableText(100),
+    vehiculoAnio: nullableYear,
+    vehiculoMotor: nullableText(100),
+  }),
+);
+export type UpdateLeadProfileInput = z.infer<typeof UpdateLeadProfileSchema>;

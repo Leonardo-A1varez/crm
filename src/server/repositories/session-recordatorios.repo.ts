@@ -1,3 +1,4 @@
+import { ConflictError } from "@/lib/errors";
 import type { MotivoCancelacionRecordatorio } from "@/types/domain";
 import type { SessionRecordatorio, UUID } from "@/types/entities";
 import type { Insert } from "./_types";
@@ -153,7 +154,10 @@ export class InMemorySessionRecordatoriosRepository implements SessionRecordator
     // con dos recordatorios vivos sobre la misma sesión, que la DB rechaza.
     const vivo = await this.findVivoBySessionId(input.lead_session_id);
     if (vivo) {
-      throw new Error(`ya hay un recordatorio vivo para la sesión ${input.lead_session_id}`);
+      throw new ConflictError(
+        `ya hay un recordatorio vivo para la sesión ${input.lead_session_id}`,
+        "active_reminder_exists",
+      );
     }
     const row: SessionRecordatorio = {
       ...input,

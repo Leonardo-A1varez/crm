@@ -72,6 +72,7 @@ const CAMPOS_ESCALARES = [
   "escalar_cotizacion_desde",
   "horario_timezone",
   "plantilla_fuera_horario",
+  "plantilla_escalado",
 ] as const satisfies readonly (keyof Omit<AgenteConfigValores, "horario" | "escalar_palabras">)[];
 
 /**
@@ -139,6 +140,7 @@ function soloValores(c: AgenteConfig): AgenteConfigValores {
     horario: c.horario,
     horario_timezone: c.horario_timezone,
     plantilla_fuera_horario: c.plantilla_fuera_horario,
+    plantilla_escalado: c.plantilla_escalado,
   };
 }
 

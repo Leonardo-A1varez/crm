@@ -26,6 +26,8 @@ export interface ParsedMessage {
    * y no "no tiene".
    */
   nombre_perfil: string | null;
+  /** Hora original de Meta; ausente o inválida queda en null. */
+  platform_created_at?: Date | null;
   raw: Record<string, unknown>;
 }
 
@@ -172,6 +174,7 @@ function waMessage(
     contenido,
     media_url: null,
     nombre_perfil: nombrePerfil,
+    platform_created_at: timestampDe(m.timestamp, "segundos"),
     raw: m,
   };
 }
@@ -250,8 +253,16 @@ function messengerEvent(ev: Record<string, unknown>, canal: "ig" | "fb"): Parsed
     media_url: null,
     // Messenger e Instagram no mandan el nombre en el evento de mensaje.
     nombre_perfil: null,
+    platform_created_at: timestampDe(ev.timestamp, "milisegundos"),
     raw: ev,
   };
+}
+
+function timestampDe(value: unknown, unidad: "segundos" | "milisegundos"): Date | null {
+  const numeric = typeof value === "number" ? value : Number(asString(value) ?? Number.NaN);
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  const date = new Date(unidad === "segundos" ? numeric * 1000 : numeric);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {

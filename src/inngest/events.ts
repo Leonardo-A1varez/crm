@@ -41,6 +41,16 @@ export const autoHandoffEvaluate = eventType("lead-session/auto-handoff.evaluate
   }>(),
 });
 
+export const handoffNotificationRequested = eventType(
+  "lead-session/handoff.notification.requested",
+  {
+    schema: staticSchema<{
+      handoffEventId: UUID;
+      leadSessionId: UUID;
+    }>(),
+  },
+);
+
 export const detectIntentsBatchRequested = eventType("intents/detect.batch.requested", {
   schema: staticSchema<Record<string, never>>(),
 });
@@ -69,6 +79,14 @@ export const recordatorioProgramado = eventType("lead-session/recordatorio.progr
   schema: staticSchema<{
     recordatorioId: UUID;
     leadSessionId: UUID;
+    recordarAt: string;
+  }>(),
+});
+
+/** Cancela únicamente la ejecución que se durmió con esta fecha exacta. */
+export const recordatorioCancelado = eventType("lead-session/recordatorio.cancelado", {
+  schema: staticSchema<{
+    recordatorioId: UUID;
     recordarAt: string;
   }>(),
 });

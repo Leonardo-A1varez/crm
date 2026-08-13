@@ -48,6 +48,7 @@ function extraerValores(c: AgenteConfig): AgenteConfigValores {
     horario: c.horario,
     horario_timezone: c.horario_timezone,
     plantilla_fuera_horario: c.plantilla_fuera_horario,
+    plantilla_escalado: c.plantilla_escalado,
   };
 }
 
@@ -55,6 +56,7 @@ export function AgenteConsola({
   configActiva,
   historial,
   sesiones,
+  previewDisponible,
   esAdmin,
   intents,
   reglas,
@@ -63,6 +65,7 @@ export function AgenteConsola({
   configActiva: AgenteConfig;
   historial: AgenteConfig[];
   sesiones: { id: string; etiqueta: string }[];
+  previewDisponible: boolean;
   esAdmin: boolean;
   intents: IntentConReglas[];
   reglas: ReglaConIntent[];
@@ -150,6 +153,7 @@ export function AgenteConsola({
               <PanelPreview
                 valores={valores}
                 sesiones={sesiones}
+                disponible={previewDisponible}
                 onPrevisualizar={handlePrevisualizar}
                 resultado={previewResultado}
                 cargando={previewCargando}

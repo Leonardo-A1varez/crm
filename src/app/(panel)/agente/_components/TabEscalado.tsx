@@ -82,12 +82,12 @@ export function TabEscalado({
   return (
     <div className="grid grid-cols-[1.35fr_1fr] items-start gap-5">
       <TarjetaConsola
-        titulo="Cuándo pasar a un humano"
+        titulo="Cuándo pedir revisión administrativa"
         subtitulo="La primera condición que se cumpla pausa la IA y manda la conversación al triage."
       >
         <ul className="flex flex-col">
           <FilaCondicion
-            label="El cliente pide hablar con una persona"
+            label="El cliente pide revisión de una persona"
             detalle="Pausa la IA y manda la conversación al triage."
             Icon={PanTool}
             color="var(--color-special)"
@@ -184,13 +184,21 @@ export function TabEscalado({
           />
         </TarjetaConsola>
 
-        <TarjetaConsola titulo="A quién le llega" subtitulo="Orden de reparto y disponibilidad.">
-          <p className="text-ink-faint text-[10.5px]">
-            Sin construir. Una conversación escalada queda con la IA pausada y visible para todo el
-            equipo: no hay asignación ni estado de presencia por vendedor.
-          </p>
+        <TarjetaConsola
+          titulo="Aviso al cliente"
+          subtitulo="Se envía una sola vez al escalar automáticamente."
+        >
+          <textarea
+            value={valores.plantilla_escalado}
+            onChange={(event) => onChange({ plantilla_escalado: event.target.value })}
+            disabled={disabled}
+            maxLength={1000}
+            rows={6}
+            className="bg-surface-input border-line-input text-ink-body w-full resize-y rounded-[10px] border p-2.5 text-[11.5px] disabled:opacity-50"
+          />
           <MonoMeta className="mt-2 block">
-            el handoff también lo deja pendiente — «presencia y bloqueo entre vendedores»
+            {1000 - valores.plantilla_escalado.length} caracteres restantes · nunca incluye la causa
+            interna
           </MonoMeta>
         </TarjetaConsola>
       </div>

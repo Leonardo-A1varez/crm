@@ -263,6 +263,21 @@ export function runMessagesContract(
       expect(await repo.listBySessionIds([])).toEqual([]);
     });
 
+    test("listRecentBySessionIds acota cada hilo y conserva orden ASC", async () => {
+      const contenidos: string[] = [];
+      for (let i = 0; i < 3; i += 1) {
+        const contenido = `recent batch ${i}`;
+        await repo.create(
+          baseInsert(fixtures, { meta_message_id: `recent_batch_${i}`, contenido }),
+        );
+        contenidos.push(contenido);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      const rows = await repo.listRecentBySessionIds([fixtures.leadSessionId], 2);
+      expect(rows.map((row) => row.contenido)).toEqual([contenidos[1], contenidos[2]]);
+      expect(await repo.listRecentBySessionIds([], 2)).toEqual([]);
+    });
+
     test("buscarContenido encuentra por subcadena, ignora mayúsculas y trae la sesión", async () => {
       const m = await repo.create(
         baseInsert(fixtures, { meta_message_id: "buscar_1", contenido: "Pastillas de FRENO" }),

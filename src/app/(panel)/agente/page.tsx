@@ -1,8 +1,10 @@
 import { PageHeader } from "@/components/shared/PageHeader";
 import { estaAbierto } from "@/lib/agente/horario";
 import { getCurrentRol } from "@/server/auth/guards";
-import { getAgenteConfigServiceForRequest } from "@/server/bootstrap/agente-bootstrap";
-import { getInboxServiceForRequest } from "@/server/bootstrap/inbox-bootstrap";
+import {
+  getAgenteConfigServiceForRequest,
+  getAgentePreviewSessionsServiceForRequest,
+} from "@/server/bootstrap/agente-bootstrap";
 import { getReglasAdminServiceForRequest } from "@/server/bootstrap/reglas-bootstrap";
 import { AgenteConsola } from "./_components/AgenteConsola";
 import { PanelEstadoAgente } from "./_components/PanelEstadoAgente";
@@ -21,25 +23,20 @@ export default async function AgentePage({
   // de la nav, así que es la que tiene que estar arriba al entrar.
   const tabInicial = esTabAgente(pedida) ? pedida : "reglas";
 
-  const [rol, agenteSvc, inboxSvc, reglasSvc] = await Promise.all([
+  const [rol, agenteSvc, previewSessionsSvc, reglasSvc] = await Promise.all([
     getCurrentRol(),
     getAgenteConfigServiceForRequest(),
-    getInboxServiceForRequest(),
+    getAgentePreviewSessionsServiceForRequest(),
     getReglasAdminServiceForRequest(),
   ]);
 
-  const [configActiva, historial, activos, intents, reglas] = await Promise.all([
+  const [configActiva, historial, previewSessions, intents, reglas] = await Promise.all([
     agenteSvc.activa(),
     agenteSvc.historial(),
-    inboxSvc.listActiveLeads(),
+    previewSessionsSvc.list(),
     reglasSvc.listarIntents(),
     reglasSvc.listarReglas(),
   ]);
-
-  // Sesiones candidatas para "Previsualizar": las mismas que ve /inbox, no un
-  // listado propio — reusar `listActiveLeads` evita una segunda fuente de
-  // verdad sobre "qué sesión existe" dentro de la misma pantalla.
-  const sesiones = activos.map((i) => ({ id: i.sessionId, etiqueta: i.nombre }));
 
   // Se resuelve en el server: `estaAbierto` depende de la timezone configurada
   // y calcularlo en el cliente daría un estado distinto en el primer render.
@@ -69,7 +66,8 @@ export default async function AgentePage({
           <AgenteConsola
             configActiva={configActiva}
             historial={historial}
-            sesiones={sesiones}
+            sesiones={previewSessions.sesiones}
+            previewDisponible={previewSessions.disponible}
             esAdmin={rol === "admin"}
             intents={intents}
             reglas={reglas}

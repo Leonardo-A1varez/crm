@@ -96,6 +96,7 @@ export type Database = {
           modelo: string
           nota: string | null
           plantilla_fuera_horario: string
+          plantilla_escalado: string
           politica_tope: string
           rollback_de: string | null
           timeout_tool_ms: number
@@ -123,6 +124,7 @@ export type Database = {
           modelo: string
           nota?: string | null
           plantilla_fuera_horario?: string
+          plantilla_escalado?: string
           politica_tope: string
           rollback_de?: string | null
           timeout_tool_ms?: number
@@ -150,6 +152,7 @@ export type Database = {
           modelo?: string
           nota?: string | null
           plantilla_fuera_horario?: string
+          plantilla_escalado?: string
           politica_tope?: string
           rollback_de?: string | null
           timeout_tool_ms?: number
@@ -301,6 +304,57 @@ export type Database = {
         }
         Relationships: []
       }
+      handoff_events: {
+        Row: {
+          action: string
+          actor_user_id: string | null
+          created_at: string
+          id: string
+          lead_session_id: string
+          previous_stage: Database["public"]["Enums"]["current_stage_enum"] | null
+          reason_code: string
+          source: string
+          source_event_key: string
+        }
+        Insert: {
+          action: string
+          actor_user_id?: string | null
+          created_at?: string
+          id?: string
+          lead_session_id: string
+          previous_stage?: Database["public"]["Enums"]["current_stage_enum"] | null
+          reason_code: string
+          source: string
+          source_event_key: string
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string | null
+          created_at?: string
+          id?: string
+          lead_session_id?: string
+          previous_stage?: Database["public"]["Enums"]["current_stage_enum"] | null
+          reason_code?: string
+          source?: string
+          source_event_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "handoff_events_actor_user_id_fkey"
+            columns: ["actor_user_id"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "handoff_events_lead_session_id_fkey"
+            columns: ["lead_session_id"]
+            isOneToOne: false
+            referencedRelation: "lead_session"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       lead_session: {
         Row: {
           bloqueador: string | null
@@ -324,6 +378,9 @@ export type Database = {
           procedencia: Json
           producto_cotizado_id: string | null
           resultado: Database["public"]["Enums"]["resultado_enum"] | null
+          stage_before_handoff:
+            | Database["public"]["Enums"]["current_stage_enum"]
+            | null
           started_at: string
           updated_at: string
           urgencia: Database["public"]["Enums"]["urgencia_enum"]
@@ -350,6 +407,9 @@ export type Database = {
           procedencia?: Json
           producto_cotizado_id?: string | null
           resultado?: Database["public"]["Enums"]["resultado_enum"] | null
+          stage_before_handoff?:
+            | Database["public"]["Enums"]["current_stage_enum"]
+            | null
           started_at?: string
           updated_at?: string
           urgencia?: Database["public"]["Enums"]["urgencia_enum"]
@@ -376,6 +436,9 @@ export type Database = {
           procedencia?: Json
           producto_cotizado_id?: string | null
           resultado?: Database["public"]["Enums"]["resultado_enum"] | null
+          stage_before_handoff?:
+            | Database["public"]["Enums"]["current_stage_enum"]
+            | null
           started_at?: string
           updated_at?: string
           urgencia?: Database["public"]["Enums"]["urgencia_enum"]
@@ -457,9 +520,9 @@ export type Database = {
           nombre_perfil: string | null
           telefono: string
           updated_at: string
-          vehiculo_anio: number
-          vehiculo_marca: string
-          vehiculo_modelo: string
+          vehiculo_anio: number | null
+          vehiculo_marca: string | null
+          vehiculo_modelo: string | null
           vehiculo_motor: string | null
         }
         Insert: {
@@ -475,9 +538,9 @@ export type Database = {
           nombre_perfil?: string | null
           telefono: string
           updated_at?: string
-          vehiculo_anio: number
-          vehiculo_marca: string
-          vehiculo_modelo: string
+          vehiculo_anio?: number | null
+          vehiculo_marca?: string | null
+          vehiculo_modelo?: string | null
           vehiculo_motor?: string | null
         }
         Update: {
@@ -493,9 +556,9 @@ export type Database = {
           nombre_perfil?: string | null
           telefono?: string
           updated_at?: string
-          vehiculo_anio?: number
-          vehiculo_marca?: string
-          vehiculo_modelo?: string
+          vehiculo_anio?: number | null
+          vehiculo_marca?: string | null
+          vehiculo_modelo?: string | null
           vehiculo_motor?: string | null
         }
         Relationships: [
@@ -576,6 +639,7 @@ export type Database = {
           media_url: string | null
           meta_message_id: string | null
           metadata: Json
+          platform_created_at: string | null
           sender: Database["public"]["Enums"]["sender_enum"]
           sender_user_id: string | null
           tipo: Database["public"]["Enums"]["tipo_mensaje_enum"]
@@ -596,6 +660,7 @@ export type Database = {
           media_url?: string | null
           meta_message_id?: string | null
           metadata?: Json
+          platform_created_at?: string | null
           sender: Database["public"]["Enums"]["sender_enum"]
           sender_user_id?: string | null
           tipo?: Database["public"]["Enums"]["tipo_mensaje_enum"]
@@ -616,6 +681,7 @@ export type Database = {
           media_url?: string | null
           meta_message_id?: string | null
           metadata?: Json
+          platform_created_at?: string | null
           sender?: Database["public"]["Enums"]["sender_enum"]
           sender_user_id?: string | null
           tipo?: Database["public"]["Enums"]["tipo_mensaje_enum"]
@@ -1081,6 +1147,36 @@ export type Database = {
       current_rol: {
         Args: never
         Returns: Database["public"]["Enums"]["rol_usuario_enum"]
+      }
+      inbox_recent_messages: {
+        Args: { p_limit?: number; p_session_ids: string[] }
+        Returns: {
+          contenido: string | null
+          conversacion_id: string
+          created_at: string
+          direction: Database["public"]["Enums"]["direction_enum"]
+          lead_session_id: string
+          sender: Database["public"]["Enums"]["sender_enum"]
+        }[]
+      }
+      transition_handoff: {
+        Args: {
+          p_action: string
+          p_notify_customer?: boolean
+          p_reason_code: string
+          p_session_id: string
+          p_source: string
+          p_source_event_key: string
+        }
+        Returns: {
+          action: string
+          created_at: string
+          handoff_event_id: string
+          lead_session_id: string
+          previous_stage: Database["public"]["Enums"]["current_stage_enum"] | null
+          reason_code: string
+          source: string
+        }[]
       }
       is_admin: { Args: never; Returns: boolean }
       is_vendedor: { Args: never; Returns: boolean }

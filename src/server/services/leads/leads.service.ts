@@ -1,6 +1,7 @@
 import type { Canal, CurrentStage, MotivoPerdida, Resultado } from "@/types/domain";
 import type { LeadDetail, LeadsPage, VentanaActividad } from "@/types/leads";
-import type { UUID } from "@/types/entities";
+import type { Lead, UUID } from "@/types/entities";
+import type { UpdateLeadProfileInput } from "@/lib/validation/leads.schema";
 
 /**
  * Filtros de la pantalla `/leads`. Todos combinables y todos opcionales:
@@ -51,4 +52,9 @@ export interface LeadsService {
 
   /** Detalle /leads/[id]: ficha + tags + sesiones (DESC) + duplicados pendientes. NotFoundError si no existe. */
   getLeadDetail(leadId: UUID): Promise<LeadDetail>;
+
+  /** Actualiza solo campos editables; identidad de canal y teléfono quedan fuera. */
+  updateLeadProfile(
+    input: UpdateLeadProfileInput & { actorUserId: UUID },
+  ): Promise<{ lead: Lead; changedFields: string[] }>;
 }

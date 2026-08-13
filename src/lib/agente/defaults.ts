@@ -47,4 +47,6 @@ export const CONFIG_DE_FABRICA: AgenteConfigValores = {
   // agente cierre a la hora equivocada, en silencio, para todos.
   horario_timezone: "America/Argentina/Buenos_Aires",
   plantilla_fuera_horario: "",
+  plantilla_escalado:
+    "Necesito que revisemos tu caso antes de continuar. Dejé la conversación marcada para revisión administrativa y no voy a confirmar precios ni condiciones hasta que sea revisada.",
 };

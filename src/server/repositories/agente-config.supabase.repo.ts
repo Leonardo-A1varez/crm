@@ -33,6 +33,7 @@ interface Row {
   horario: unknown;
   horario_timezone: string;
   plantilla_fuera_horario: string;
+  plantilla_escalado: string;
   activa: boolean;
   nota: string | null;
   rollback_de: string | null;
@@ -82,6 +83,7 @@ function aDominio(row: Row): AgenteConfig {
     horario: row.horario as Horario,
     horario_timezone: row.horario_timezone,
     plantilla_fuera_horario: row.plantilla_fuera_horario,
+    plantilla_escalado: row.plantilla_escalado,
     activa: row.activa,
     nota: row.nota,
     rollback_de: row.rollback_de,

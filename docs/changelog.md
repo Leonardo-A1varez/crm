@@ -4,6 +4,21 @@
 
 ---
 
+## Checkpoint QA — 2026-08-12
+
+- Recuperado el Inbox: `db.rpc` conserva su contexto, `inbox_recent_messages` acota el read path y el coste de consultas queda constante con 20/60 leads.
+- La consola del agente ya no depende del agregado completo del Inbox; el preview falla de forma local y no tumba configuración ni reglas.
+- Handoff administrativo unificado mediante transición Postgres atómica, historial append-only sin PII, etapa previa restaurable y aviso durable idempotente para escalados automáticos. Pausas manuales sin envío.
+- Recordatorios con cancelación Inngest por ID + fecha anterior al reprogramar, cancelar manualmente o recibir respuesta del cliente; guard de fecha en Postgres conservado.
+- Perfil del lead editable con validación Zod, RLS, no-op sin write y auditoría que guarda únicamente nombres de campos. Identificadores de canal y teléfono siguen de solo lectura.
+- `mensajes.platform_created_at` persiste la hora original de Meta. Métricas separan sin intervención, resueltas por IA, escaladas y tomadas; muestran medianas y cobertura sin convertir datos ausentes en cero.
+- Correcciones de producto/UI: una sola puerta de cierre en el rail, búsqueda GET con botón y Enter, `Cerrar` localizado, plurales compartidos y logo eager.
+- Respaldo lógico previo de esquema/datos y aplicación sin reset ni truncate de `20260812170131_inbox_active_summary.sql` y `20260812222808_qa_handoff_metrics.sql`; `crm-dev` queda en 35 migraciones.
+- Verificación: 1595/1595 tests en 133 archivos, ambos typechecks, lint y formato. No se corrieron integración ni build.
+- Pendiente: smoke autenticado de RPC, regeneración de tipos remotos, `EXPLAIN`, QA visual y base Supabase aislada para integración.
+
+---
+
 ## Slice 1 sub-paso 7.4 follow-up — 2026-05-14
 
 ### Fix vitest integration config

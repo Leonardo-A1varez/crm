@@ -5,6 +5,8 @@ import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-sessio
 import { InMemoryMergeCandidatesRepository } from "@/server/repositories/merge-candidates.repo";
 import { InMemoryMessagesRepository } from "@/server/repositories/messages.repo";
 import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
+import { InMemoryAdminAuditRepository } from "@/server/repositories/admin-audit.repo";
+import { DefaultAdminAuditService } from "@/server/services/admin-audit.service";
 import { DefaultLeadsService } from "@/server/services/leads/default-leads.service";
 import type { LeadInsert } from "@/server/repositories/leads.repo";
 import type { LeadSessionInsert } from "@/server/repositories/lead-session.repo";
@@ -71,6 +73,7 @@ describe("DefaultLeadsService", () => {
   let candidates: InMemoryMergeCandidatesRepository;
   let tags: InMemoryTagsRepository;
   let messages: InMemoryMessagesRepository;
+  let auditRepo: InMemoryAdminAuditRepository;
   let svc: DefaultLeadsService;
 
   beforeEach(() => {
@@ -79,7 +82,15 @@ describe("DefaultLeadsService", () => {
     candidates = new InMemoryMergeCandidatesRepository();
     tags = new InMemoryTagsRepository();
     messages = new InMemoryMessagesRepository();
-    svc = new DefaultLeadsService({ leads, sessions, candidates, tags, messages });
+    auditRepo = new InMemoryAdminAuditRepository();
+    svc = new DefaultLeadsService({
+      leads,
+      sessions,
+      candidates,
+      tags,
+      messages,
+      audit: new DefaultAdminAuditService(auditRepo),
+    });
   });
 
   test("listLeads incluye TODOS los leads con badge sesionActiva, etapa y fechas", async () => {
@@ -400,5 +411,57 @@ describe("DefaultLeadsService", () => {
 
   test("getLeadDetail lead inexistente → NotFoundError", async () => {
     await expect(svc.getLeadDetail(crypto.randomUUID())).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("updateLeadProfile normaliza, evita identidad y audita solo nombres de campos", async () => {
+    const lead = await leads.create(baseLead());
+    const actorUserId = crypto.randomUUID();
+
+    const result = await svc.updateLeadProfile({
+      leadId: lead.id,
+      actorUserId,
+      nombre: "Taller Central",
+      email: "ventas@taller.test",
+      direccion: null,
+      vehiculoMarca: "Ford",
+      vehiculoModelo: null,
+      vehiculoAnio: 2022,
+      vehiculoMotor: null,
+    });
+
+    expect(result.lead).toMatchObject({
+      nombre: "Taller Central",
+      telefono: lead.telefono,
+      meta_user_ids: lead.meta_user_ids,
+      vehiculo_marca: "Ford",
+      vehiculo_modelo: null,
+      vehiculo_anio: 2022,
+    });
+    const actions = await auditRepo.list({ entityId: lead.id });
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.payload).toEqual({ fields: result.changedFields });
+    expect(JSON.stringify(actions[0]?.payload)).not.toContain("Taller Central");
+    expect(JSON.stringify(actions[0]?.payload)).not.toContain("ventas@taller.test");
+  });
+
+  test("updateLeadProfile no-op no escribe ni audita", async () => {
+    const lead = await leads.create(baseLead());
+    const update = vi.spyOn(leads, "update");
+
+    const result = await svc.updateLeadProfile({
+      leadId: lead.id,
+      actorUserId: crypto.randomUUID(),
+      nombre: lead.nombre,
+      email: lead.email,
+      direccion: lead.direccion,
+      vehiculoMarca: lead.vehiculo_marca,
+      vehiculoModelo: lead.vehiculo_modelo,
+      vehiculoAnio: lead.vehiculo_anio,
+      vehiculoMotor: lead.vehiculo_motor,
+    });
+
+    expect(result.changedFields).toEqual([]);
+    expect(update).not.toHaveBeenCalled();
+    expect(await auditRepo.list()).toEqual([]);
   });
 });

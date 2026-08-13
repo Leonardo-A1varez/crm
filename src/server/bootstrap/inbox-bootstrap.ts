@@ -1,8 +1,9 @@
 import { inngest } from "@/inngest/client";
-import { recordatorioProgramado } from "@/inngest/events";
+import { recordatorioCancelado, recordatorioProgramado } from "@/inngest/events";
 import { env } from "@/lib/env";
 import { createSupabaseServerClient } from "@/server/auth/supabase-ssr";
 import { SupabaseConversationsRepository } from "@/server/repositories/conversations.supabase.repo";
+import { SupabaseHandoffEventsRepository } from "@/server/repositories/handoff-events.supabase.repo";
 import { SupabaseIntentsRepository } from "@/server/repositories/intents.supabase.repo";
 import { SupabaseLeadSessionRepository } from "@/server/repositories/lead-session.supabase.repo";
 import { SupabaseLeadsRepository } from "@/server/repositories/leads.supabase.repo";
@@ -22,6 +23,7 @@ import { GraphApiMetaClient } from "@/server/services/meta/graph-api-client";
 import type { AppClient } from "@/server/db/client";
 import type {
   InboxService,
+  CancelarAvisoRecordatorioFn,
   ProgramarAvisoRecordatorioFn,
 } from "@/server/services/inbox/inbox.service";
 
@@ -62,11 +64,23 @@ const programarAvisoRecordatorio: ProgramarAvisoRecordatorioFn = async (input) =
   });
 };
 
+const cancelarAvisoRecordatorio: CancelarAvisoRecordatorioFn = async (input) => {
+  await inngest.send({
+    name: recordatorioCancelado.name,
+    data: {
+      recordatorioId: input.recordatorioId,
+      recordarAt: input.recordarAt.toISOString(),
+    },
+    id: `recordatorio-cancelado:${input.recordatorioId}:${input.recordarAt.toISOString()}`,
+  });
+};
+
 /** Composición pura del service sobre un client dado (authed o service-role en tests). */
 export function makeInboxService(db: AppClient): InboxService {
   const convs = new SupabaseConversationsRepository(db);
   const messages = new SupabaseMessagesRepository(db);
   const sessions = new SupabaseLeadSessionRepository(db);
+  const handoffEvents = new SupabaseHandoffEventsRepository(db, sessions);
 
   // Canal sin config → ValidationError fail-fast con envHint al primer send.
   const metaClient = new GraphApiMetaClient({
@@ -85,7 +99,8 @@ export function makeInboxService(db: AppClient): InboxService {
     convs,
     messages,
     metaApi: new DefaultMetaApiService(convs, messages, metaClient),
-    handoff: new DefaultHandoffService(sessions),
+    handoff: new DefaultHandoffService(sessions, undefined, handoffEvents),
+    handoffEvents,
     productos: new SupabaseProductsRepository(db),
     tags: new SupabaseTagsRepository(db),
     // Solo lectura desde acá: quien escribe `llm_usage` es el pipeline con
@@ -106,6 +121,7 @@ export function makeInboxService(db: AppClient): InboxService {
     // nada acá borra —cancelar es un UPDATE de estado—.
     recordatorios: new SupabaseSessionRecordatoriosRepository(db),
     programarAviso: programarAvisoRecordatorio,
+    cancelarAviso: cancelarAvisoRecordatorio,
   });
 }
 

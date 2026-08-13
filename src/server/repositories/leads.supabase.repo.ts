@@ -11,6 +11,10 @@ import type { LeadInsert, LeadListFilter, LeadUpdate, LeadsRepository } from "./
 
 type LeadDbUpdate = Database["public"]["Tables"]["leads"]["Update"];
 
+// Mismo tope que `IDS_POR_TANDA` de lead_session y por el mismo motivo: 100
+// uuids son ~3,7 KB de query string y entran holgados en cualquier proxy.
+const IDS_POR_TANDA = 100;
+
 const META_KEY_BY_CANAL: Record<Canal, keyof MetaUserIds> = {
   wa: "wa",
   ig: "ig",
@@ -167,6 +171,25 @@ export class SupabaseLeadsRepository implements LeadsRepository {
     return (data ?? []).map(mapRow);
   }
 
+  async listByIds(ids: UUID[]): Promise<Lead[]> {
+    const limpios = ids.filter(isUuid);
+    if (limpios.length === 0) return [];
+
+    // Mismo criterio que `LeadSessionRepository.listByIds`: `.in()` viaja en la
+    // query string, así que se parte en tandas para no pasarse del largo de URL
+    // que acepta el proxy (414). Cada tanda es UNA consulta, nunca una por id.
+    const out: Lead[] = [];
+    for (let i = 0; i < limpios.length; i += IDS_POR_TANDA) {
+      const { data, error } = await this.db
+        .from("leads")
+        .select()
+        .in("id", limpios.slice(i, i + IDS_POR_TANDA));
+      if (error) throw mapPostgrestError(error, { resource: "lead" });
+      for (const row of data ?? []) out.push(mapRow(row));
+    }
+    return out;
+  }
+
   async delete(id: UUID): Promise<void> {
     if (!isUuid(id)) return;
     const { data, error } = await this.db.from("leads").delete().eq("id", id).select();
@@ -190,9 +213,9 @@ interface LeadRow {
   email: string | null;
   direccion: string | null;
   datos_extra: unknown;
-  vehiculo_marca: string;
-  vehiculo_modelo: string;
-  vehiculo_anio: number;
+  vehiculo_marca: string | null;
+  vehiculo_modelo: string | null;
+  vehiculo_anio: number | null;
   vehiculo_motor: string | null;
   empresa_id: string | null;
   canal_origen: Canal;

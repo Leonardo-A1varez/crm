@@ -14,6 +14,10 @@ import type {
 
 type ConversacionDbUpdate = Database["public"]["Tables"]["conversaciones"]["Update"];
 
+// Mismo tope que `IDS_POR_TANDA` de lead_session y por el mismo motivo: 100
+// uuids son ~3,7 KB de query string y entran holgados en cualquier proxy.
+const LEAD_IDS_POR_TANDA = 100;
+
 /**
  * Supabase impl ConversationsRepository. Slice 1 sub-paso 7.4 repo 7.
  *
@@ -83,6 +87,28 @@ export class SupabaseConversationsRepository implements ConversationsRepository 
       .order("ultima_actividad_at", { ascending: false });
     if (error) throw mapPostgrestError(error, { resource: "conversacion" });
     return (data ?? []).map(mapRow);
+  }
+
+  async listByLeadIds(leadIds: UUID[]): Promise<Conversacion[]> {
+    const limpios = leadIds.filter(isUuid);
+    if (limpios.length === 0) return [];
+
+    // Mismo criterio que `LeadSessionRepository.listByIds`: `.in()` viaja en la
+    // query string, así que se parte en tandas para no pasarse del largo de URL
+    // que acepta el proxy (414). Cada tanda es UNA consulta, nunca una por lead.
+    const out: Conversacion[] = [];
+    for (let i = 0; i < limpios.length; i += LEAD_IDS_POR_TANDA) {
+      const { data, error } = await this.db
+        .from("conversaciones")
+        .select()
+        .in("lead_id", limpios.slice(i, i + LEAD_IDS_POR_TANDA))
+        .order("ultima_actividad_at", { ascending: false });
+      if (error) throw mapPostgrestError(error, { resource: "conversacion" });
+      for (const row of data ?? []) out.push(mapRow(row));
+    }
+    // Re-ordenar: cada tanda vino ordenada por su cuenta y concatenarlas no
+    // conserva el orden global.
+    return out.sort((a, b) => b.ultima_actividad_at.getTime() - a.ultima_actividad_at.getTime());
   }
 
   async upsertByCanalThread(

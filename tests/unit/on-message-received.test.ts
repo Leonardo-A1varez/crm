@@ -69,6 +69,7 @@ function makeDeps(
   turnClassifications: InMemoryTurnClassificationsRepository;
   productos: InMemoryProductsRepository;
   recordatorios: InMemorySessionRecordatoriosRepository;
+  cancelacionesRecordatorio: Array<{ recordatorioId: string; recordarAt: Date }>;
 } {
   const leads = new InMemoryLeadsRepository();
   const conversations = new InMemoryConversationsRepository();
@@ -80,6 +81,7 @@ function makeDeps(
   const ruleExecutions = new InMemoryRuleExecutionsRepository();
   const turnClassifications = new InMemoryTurnClassificationsRepository();
   const recordatorios = new InMemorySessionRecordatoriosRepository();
+  const cancelacionesRecordatorio: Array<{ recordatorioId: string; recordarAt: Date }> = [];
 
   const intentLLM = new FakeIntentClassifierLLM();
   const agentLLM = new FakeAgentLLM();
@@ -108,6 +110,9 @@ function makeDeps(
     turnClassifications,
     intents,
     recordatorios,
+    cancelarAvisoRecordatorio: async (input) => {
+      cancelacionesRecordatorio.push(input);
+    },
     configProvider,
     emit,
   };
@@ -128,6 +133,7 @@ function makeDeps(
     turnClassifications,
     productos,
     recordatorios,
+    cancelacionesRecordatorio,
   };
 }
 
@@ -679,6 +685,9 @@ describe("onMessageReceivedHandler — el cliente que vuelve apaga su seguimient
     const despues = await ctx.recordatorios.findById(recordatorio.id);
     expect(despues?.estado).toBe("cancelado");
     expect(despues?.motivo_cancelacion).toBe("respondio");
+    expect(ctx.cancelacionesRecordatorio).toEqual([
+      { recordatorioId: recordatorio.id, recordarAt: recordatorio.recordar_at },
+    ]);
   });
 
   test("cancela aunque el mensaje llegue fuera de horario y nadie conteste", async () => {

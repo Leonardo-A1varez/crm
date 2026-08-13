@@ -50,13 +50,17 @@ function buildFillPatch(ganador: Lead, perdedor: Lead): LeadUpdate {
   if (ganador.empresa_id === null && perdedor.empresa_id !== null) {
     patch.empresa_id = perdedor.empresa_id;
   }
-  if (ganador.vehiculo_marca.trim() === "" && perdedor.vehiculo_marca.trim() !== "") {
+  if (!ganador.vehiculo_marca?.trim() && perdedor.vehiculo_marca?.trim()) {
     patch.vehiculo_marca = perdedor.vehiculo_marca;
   }
-  if (ganador.vehiculo_modelo.trim() === "" && perdedor.vehiculo_modelo.trim() !== "") {
+  if (!ganador.vehiculo_modelo?.trim() && perdedor.vehiculo_modelo?.trim()) {
     patch.vehiculo_modelo = perdedor.vehiculo_modelo;
   }
-  if (ganador.vehiculo_anio === 0 && perdedor.vehiculo_anio !== 0) {
+  if (
+    (ganador.vehiculo_anio === null || ganador.vehiculo_anio === 0) &&
+    perdedor.vehiculo_anio !== null &&
+    perdedor.vehiculo_anio !== 0
+  ) {
     patch.vehiculo_anio = perdedor.vehiculo_anio;
   }
   if (ganador.nombre_perfil === null && perdedor.nombre_perfil !== null) {

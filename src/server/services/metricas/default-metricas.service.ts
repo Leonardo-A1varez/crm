@@ -72,6 +72,7 @@ export class DefaultMetricsService implements MetricsService {
       clasificaciones,
       usuarios,
       gastos,
+      handoffs,
     ] = await Promise.all([
       this.deps.metrics.listSesionesDesde(desdeAnterior),
       this.deps.metrics.listMensajesDesde(desde),
@@ -83,6 +84,7 @@ export class DefaultMetricsService implements MetricsService {
       this.deps.metrics.listTurnClassificationsDesde(desde),
       this.deps.metrics.listUsuarios(),
       this.deps.metrics.listLlmUsageDesde(desde),
+      this.deps.metrics.listHandoffsDesde(desde),
     ]);
 
     const corte = desde.getTime();
@@ -147,12 +149,14 @@ export class DefaultMetricsService implements MetricsService {
 
     let escaladas = 0;
     let tomadas = 0;
+    let resueltasPorIa = 0;
     let cierresIa = 0;
     let cierresVendedor = 0;
     for (const s of sesiones) {
       const escribioHumano = sesionesConHumano.has(s.id);
       if (escribioHumano) tomadas++;
       if (escribioHumano || s.current_stage === "requiere_humano") escaladas++;
+      if (!escribioHumano && s.resultado !== null) resueltasPorIa++;
       if (s.resultado === "exito") {
         // La atribución del cierre mira solo si un humano llegó a escribir:
         // una sesión parada en `requiere_humano` que nadie atendió la cerró la IA.
@@ -198,6 +202,23 @@ export class DefaultMetricsService implements MetricsService {
       );
 
     const vendedores = repartirPorVendedor(sesiones, hilos, usuarios);
+    const tiempoPrimeraRespuesta = medirPrimerasRespuestas(hilos);
+    const etiquetasHandoff: Record<string, string> = {
+      unknown_intents: "Intents desconocidos",
+      sensitive_keyword: "Palabra sensible",
+      quote_limit: "Límite de cotización",
+      discount_limit: "Límite de descuento",
+      rule_handoff: "Regla de revisión",
+      manual_pause: "Pausa manual",
+      manual_resume: "Reanudación manual",
+      other: "Otro",
+    };
+    const razonConteo = new Map<string, number>();
+    for (const event of handoffs) {
+      if (event.action !== "pause") continue;
+      const label = etiquetasHandoff[event.reason_code] ?? "Sin motivo registrado";
+      razonConteo.set(label, (razonConteo.get(label) ?? 0) + 1);
+    }
 
     return {
       desde,
@@ -219,10 +240,15 @@ export class DefaultMetricsService implements MetricsService {
       },
       autoria,
       agente: {
-        sinHumano: sesiones.length - escaladas,
+        sinIntervencionHumana: sesiones.length - tomadas,
+        resueltasPorIa,
         escaladas,
       },
       tomadasPorHumano: tomadas,
+      tiempoPrimeraRespuesta,
+      razonesEscalado: [...razonConteo.entries()]
+        .map(([motivo, cantidad]) => ({ motivo, cantidad }))
+        .sort((a, b) => b.cantidad - a.cantidad || a.motivo.localeCompare(b.motivo, "es")),
       vendedores,
       cierres: { ia: cierresIa, vendedor: cierresVendedor },
       turnos: {
@@ -335,6 +361,43 @@ function medianaSegundos(esperas: number[]): number | null {
   return Math.round(valor);
 }
 
+function medirPrimerasRespuestas(
+  hilos: Map<string, FilaMensajeMetrica[]>,
+): Metricas["tiempoPrimeraRespuesta"] {
+  const muestras = {
+    ia: [] as number[],
+    revisionAdministrativa: [] as number[],
+    personas: [] as number[],
+  };
+  for (const hilo of hilos.values()) {
+    let esperandoDesde: Date | null = null;
+    for (const mensaje of hilo) {
+      if (mensaje.sender === "lead") {
+        if (esperandoDesde === null && mensaje.platform_created_at) {
+          esperandoDesde = mensaje.platform_created_at;
+        }
+        continue;
+      }
+      if (esperandoDesde === null) continue;
+      const delta = (mensaje.created_at.getTime() - esperandoDesde.getTime()) / 1000;
+      esperandoDesde = null;
+      if (!Number.isFinite(delta) || delta < 0) continue;
+      if (mensaje.sender === "humano") muestras.personas.push(delta);
+      else if (mensaje.sender === "sistema") muestras.revisionAdministrativa.push(delta);
+      else muestras.ia.push(delta);
+    }
+  }
+  const resumen = (values: number[]) => ({
+    medianaSegundos: medianaSegundos(values),
+    muestras: values.length,
+  });
+  return {
+    ia: resumen(muestras.ia),
+    revisionAdministrativa: resumen(muestras.revisionAdministrativa),
+    personas: resumen(muestras.personas),
+  };
+}
+
 /**
  * Quién tomó cada sesión, cuánto tardó y cuántas cerró.
  *
@@ -374,8 +437,10 @@ function repartirPorVendedor(
     for (let i = indice - 1; i >= 0; i--) {
       const previo = hilo[i];
       if (previo?.sender !== "lead") continue;
-      const delta = (primeraHumana.created_at.getTime() - previo.created_at.getTime()) / 1000;
-      espera = Math.max(0, delta);
+      if (!previo.platform_created_at) continue;
+      const delta =
+        (primeraHumana.created_at.getTime() - previo.platform_created_at.getTime()) / 1000;
+      if (delta >= 0) espera = delta;
       break;
     }
     if (espera !== null) esperasGlobales.push(espera);

@@ -316,6 +316,21 @@ export function runLeadsContract(makeRepo: () => LeadsRepository) {
       expect(soloIg[0]?.id).toBe(ig.id);
     });
 
+    test("listByIds trae varios leads de una y descarta los que no existen", async () => {
+      const a = await repo.create({ ...baseInsert, telefono: "+549122220001", nombre: "Uno" });
+      const b = await repo.create({ ...baseInsert, telefono: "+549122220002", nombre: "Dos" });
+      await repo.create({ ...baseInsert, telefono: "+549122220003", nombre: "No pedido" });
+
+      const filas = await repo.listByIds([a.id, b.id, crypto.randomUUID()]);
+
+      expect(filas.map((l) => l.id).sort()).toEqual([a.id, b.id].sort());
+    });
+
+    test("listByIds sin ids no consulta y devuelve vacío", async () => {
+      await repo.create({ ...baseInsert, telefono: "+549122220004" });
+      expect(await repo.listByIds([])).toEqual([]);
+    });
+
     test("las cotas de updated_at son desde inclusiva y hasta exclusiva", async () => {
       const lead = await repo.create({ ...baseInsert, telefono: "+549121110001" });
       const sello = lead.updated_at;

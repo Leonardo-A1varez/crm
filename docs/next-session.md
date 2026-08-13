@@ -1,8 +1,10 @@
 # Cómo retomar la sesión
 
-> Última actualización: **2026-08-11**, sobre `master` en `ed50754`, árbol limpio.
-> **El rediseño A-G2 está aplicado entero. Lo que queda abierto no es código de pantalla: es método y rendimiento.**
+> Última actualización: **2026-08-12**. Checkpoint QA listo y verificado, pero el commit quedó pendiente porque el sandbox no pudo escribir `.git` al agotarse la cuota de elevación.
+> **El rediseño A-G2 y el primer corte de correcciones QA están aplicados. Falta QA visual, smoke autenticado de RPC y medición SQL; no declarar rendimiento ni el plan completo.**
 > Users dev: `admin-dev@crm.local` / `dev-admin-2026!` · `vendedor-dev@crm.local` / `dev-vendedor-2026!`.
+
+> **Implementación QA pausada por el dueño:** contrato, corte entregado y pendientes en `docs/implementation-qa-2026-08-12.md`. Las dos migraciones aditivas autorizadas ya se aplicaron con respaldo previo. Siguen prohibidos reset, truncate, `test:integration`, build y cambios al proyecto de tests.
 
 ---
 
@@ -14,23 +16,23 @@
 
 ## Estado real al cierre
 
-| Qué             | Cuánto                                                           |
-| --------------- | ---------------------------------------------------------------- |
-| Rama            | `master`, árbol limpio, `ed50754`                                |
-| Sin pushear     | **39 commits** (`origin/master` quedó en `d84e9fb`)              |
-| Tests unitarios | **1569 pasan, 129 archivos** (medido 2026-08-11)                 |
-| Coverage        | **87.3 / 79.39 / 82.8 / 88.25** — umbral 80/75/80/80, pasa       |
-| Integration     | **congelados, no verdes** — ver bloqueante 1                     |
-| Migraciones     | **33 aplicadas a `crm-dev`**, la última `20260811160000`         |
-| Revisión visual | **ninguna pantalla** se miró con ojos humanos — ver bloqueante 2 |
+| Qué              | Cuánto                                                           |
+| ---------------- | ---------------------------------------------------------------- |
+| Rama             | `master`, árbol preparado pero todavía sucio                     |
+| Commit pendiente | `git add`/`git commit` bloqueados por permisos/cuota del entorno |
+| Tests unitarios  | **1595 pasan, 133 archivos** (medido 2026-08-12)                 |
+| Coverage         | **87.3 / 79.39 / 82.8 / 88.25** — umbral 80/75/80/80, pasa       |
+| Integration      | **congelados, no verdes** — ver bloqueante 1                     |
+| Migraciones      | **35 aplicadas a `crm-dev`**, la última `20260812222808`         |
+| Revisión visual  | **ninguna pantalla** se miró con ojos humanos — ver bloqueante 2 |
 
-**Qué se hizo esta sesión.** Se cerraron los siete sub-proyectos del rediseño (A-G2) y **el handoff de diseño entró al repo** (`docs/handoff-rediseno-README.md`; antes vivía en un zip afuera, y por eso varias pantallas se habían construido contra specs derivados y hubo que auditarlas después, con 22 desvíos corregidos solo en la bandeja). Encima de eso, tres tandas:
+**Qué se hizo esta sesión.** Además del rediseño A-G2, se implementó el checkpoint QA descrito en `docs/implementation-qa-2026-08-12.md`: recuperación de Inbox/Agente, handoff auditable, cancelación durable de recordatorios, edición de leads, timestamps de Meta y semántica honesta de métricas.
 
 - **Instrumentación** — el sistema dejó de descartar lo que el handoff pide medir: autoría real en `mensajes.sender_user_id`, clasificación del turno en `turn_classifications`, procedencia por campo del Twin con el mensaje del que salió cada dato, `etapa_alcanzada` para congelar el rail en los desvíos, y condiciones de escalado configurables en `agente_config`.
 - **Costo de IA** persistido por turno (`llm_usage`) y agregado por conversación y por lead.
 - **Inbox y Leads** — buscador de conversaciones y buscador dentro del hilo, filtros combinables que viven en la URL, ficha del lead editable, etiquetas, cierre de venta con motivo obligatorio, auditoría por turno, y recordatorios de seguimiento con workflow durable.
 
-### Las 12 migraciones de esta sesión
+### Las 14 migraciones de esta sesión
 
 | Migración                                                | Qué hace                                                                           |
 | -------------------------------------------------------- | ---------------------------------------------------------------------------------- |
@@ -46,6 +48,8 @@
 | `20260810230000_leads_nombre_perfil_y_datos_extra`       | `nombre_perfil` que manda Meta + `datos_extra` jsonb                               |
 | `20260811120000_session_recordatorios`                   | recordatorios de seguimiento con fecha + índice de vencidos                        |
 | `20260811160000_mensajes_contenido_trgm`                 | índice GIN trigram sobre `mensajes.contenido` para el buscador del Inbox           |
+| `20260812170131_inbox_active_summary`                    | RPC acotada del Inbox + índice `(lead_session_id, created_at DESC)`                |
+| `20260812222808_qa_handoff_metrics`                      | timestamps Meta, handoff transaccional, template de escalado y perfil nullable     |
 
 ---
 
@@ -55,9 +59,9 @@
 
 `npm run test:integration` llama a `cleanupTestDb`, que hace TRUNCATE sin saber contra qué está corriendo. **Vacía la base de dev. Ya pasó esta sesión.**
 
-La consecuencia no es solo perder los datos de prueba: hay **contract tests que nunca corrieron contra Postgres real** —`turn-classifications`, `llm-usage`, `session-recordatorios`, y los de `agente_config` posteriores a G1—. Todo lo que sabemos de esos repos lo sabemos por la implementación in-memory, que no tiene constraints, ni FKs, ni RLS. Un `not null` mal puesto o una policy que rechaza un insert no lo ve nadie hasta producción.
+La consecuencia no es solo perder los datos de prueba: hay **contract tests que nunca corrieron contra Postgres real** —`turn-classifications`, `llm-usage`, `session-recordatorios`, `handoff-events` y los de `agente_config` posteriores a G1—. Todo lo que sabemos de esos repos lo sabemos por la implementación in-memory, que no tiene constraints, ni FKs, ni RLS. Un `not null` mal puesto o una policy que rechaza un insert no lo ve nadie hasta producción.
 
-**El arreglo es un proyecto Supabase aparte** (free tier alcanza), con `SUPABASE_TEST_URL` y `SUPABASE_TEST_SERVICE_KEY` apuntando ahí y las 33 migraciones aplicadas. Es la única forma de volver a tener esa suite. Requiere que el dueño cree el proyecto.
+**El arreglo es un proyecto Supabase aparte** (free tier alcanza), con `SUPABASE_TEST_URL` y `SUPABASE_TEST_SERVICE_KEY` apuntando ahí y las 35 migraciones aplicadas. Es la única forma de volver a tener esa suite. Requiere que el dueño cree el proyecto.
 
 Hasta entonces: **no correr `test:integration`**. Está anotado en `AGENTS.md` §6.
 
@@ -80,19 +84,19 @@ El método que sí funciona con el panel roto está en `AGENTS.md` §2 lección 
 
 ---
 
-## 🟠 Decisiones que tiene que tomar el dueño
+## 🟢 Decisiones de producto cerradas para esta implementación
 
-### 3. Dos puertas al mismo cierre de sesión
+### 3. Una sola puerta de cierre
 
 Se puede cerrar una sesión desde el rail del embudo en el Twin (`src/components/lead-twin/RailEmbudo.tsx` → `CierreSesion.tsx`) **y** desde el botón viejo del header de la conversación (`src/components/inbox/CloseSessionButton.tsx`). Los dos llaman a `closeSessionAction`.
 
-El rail es lo que pidió el dueño y es donde el cierre tiene sentido: ahí está la etapa, ahí se ve el embudo. **Recomendación registrada: sacar el del header.** Dos caminos al mismo efecto irreversible es una forma de que alguien cierre una venta sin querer.
+**Decisión 2026-08-12:** queda el rail del Twin y se elimina el botón del header. Dos caminos al mismo efecto irreversible no son aceptables.
 
 ### 4. Qué pasa cuando la IA escala y no hay nadie
 
 El dueño dijo que **no quiere vendedores humanos**. Pero el sistema escala a `requiere_humano` —por pedido explícito del cliente, por intents desconocidos seguidos, por palabras de la lista, por cotización alta— y pausa la IA. Con nadie del otro lado, **esas conversaciones quedan detenidas**: el cliente escribió, la IA no contesta, nadie la toma.
 
-No es un bug, es una definición de producto que falta. Las salidas posibles, sin implementar ninguna: que la IA siga respondiendo con una advertencia; que mande una plantilla de "te contactamos" y cierre; que escale a un aviso al dueño en vez de a un vendedor. **No decidir es elegir la primera por omisión, que es la peor: silencio.**
+**Decisión 2026-08-12:** el sistema envía un aviso neutral, marca revisión administrativa y pausa la IA. La causa se persiste con código tipado, nunca con el mensaje del cliente. Una pausa manual no envía nada por omisión.
 
 ### 5. Upstash sigue sin configurar
 
@@ -104,9 +108,9 @@ Lo que sí hay que dejar dicho: el **costo por lead y por conversación sí se p
 
 ## 🟡 Trabajo técnico pendiente
 
-### 6. Rendimiento — nunca abordado
+### 6. Rendimiento — read path corregido, aún sin medición representativa
 
-**Es lo que el dueño pidió al principio y lo que más se fue postergando.** Sigue en cero: no hay una sola medición.
+**Es lo que el dueño pidió al principio y lo que más se fue postergando.** Se está eliminando el N+1 del read path, pero no hay una medición contra Postgres ni datos representativos; no declarar el problema cerrado todavía.
 
 Sospechoso concreto, `listActiveLeads` en `src/server/services/inbox/default-inbox.service.ts`:
 
@@ -114,7 +118,9 @@ Sospechoso concreto, `listActiveLeads` en `src/server/services/inbox/default-inb
 - por cada conversación de ese lead: un `messages.listByConversacion`;
 - y después un `messages.listBySessionId` más.
 
-Con N sesiones activas y C conversaciones por lead eso son `3N + NC` consultas secuenciales, y **el poller la re-ejecuta cada 5 segundos** (`RefreshPoller` montado en `src/app/(panel)/inbox/layout.tsx`). Con las 3 filas de dev no se nota; con el piloto —30 vendedores, ~5K leads/mes— es la primera cosa que se cae.
+La implementación histórica hacía `3N + NC` consultas secuenciales y **el poller la re-ejecuta cada 5 segundos** (`RefreshPoller` montado en `src/app/(panel)/inbox/layout.tsx`). La corrección debe evitar también traer el historial completo de todas las sesiones activas: el presupuesto correcto es un resumen paginado por lead con último mensaje y datos de triage, no `select *` de mensajes cada cinco segundos.
+
+**Aplicado 2026-08-12:** `20260812170131_inbox_active_summary.sql` está en `crm-dev`, con `inbox_recent_messages(...)` (`security invoker`), grants mínimos e índice `(lead_session_id, created_at DESC)`. El repositorio pide únicamente seis columnas y hasta 50 mensajes por sesión; los tests fijan cinco consultas en dos oleadas con 20 y 60 leads. Sigue pendiente ejecutarla con la sesión autenticada del admin y medir `EXPLAIN (ANALYZE, BUFFERS)` sobre el volumen disponible. Sin datos representativos no se afirma rendimiento a escala.
 
 **Para medirlo hace falta `npm run build`**, porque en dev todo está instrumentado y los números no significan nada. Y **no se puede buildear con el dev server vivo: corrompe `.next/`** y el navegador queda colgado con skeletons de `loading.tsx` en rutas que nadie tocó. Matar el árbol de procesos y borrar `.next` antes de buildear.
 
@@ -130,9 +136,9 @@ Con N sesiones activas y C conversaciones por lead eso son `3N + NC` consultas s
 
 `20260811160000_mensajes_contenido_trgm` crea un GIN sobre `mensajes.contenido`. Está bien razonado y con 3 mensajes en la base no prueba nada: no se sabe si el planner lo elige, ni cuánto cuesta el insert de cada mensaje con el índice puesto. Verificarlo pide volumen sintético y `explain analyze`.
 
-### 10. Reprogramar un seguimiento deja un workflow durmiendo
+### 10. Recordatorios: cancelación durable aplicada
 
-`recordatorio-seguimiento.ts` usa `step.sleepUntil(fecha)`. Al reprogramar se emite un evento nuevo con la fecha nueva, pero **la ejecución vieja sigue dormida hasta su fecha original**. Despierta, `marcarAvisado` no encuentra nada que hacer, devuelve `sin-efecto` y termina. Es correcto —no avisa dos veces— pero deja ejecuciones fantasma acumulándose en el dashboard de Inngest, una por cada reprogramación. Se arregla cancelando por evento (`cancelOn`) o barriendo con un cron; ninguna de las dos está hecha.
+`recordatorio-seguimiento.ts` conserva `sleepUntil`, pero ahora tiene `cancelOn` sobre `lead-session/recordatorio.cancelado`, comparando **ID y fecha anterior**. Reprogramar, cancelar manualmente o recibir respuesta del cliente emite la cancelación concreta; la ejecución nueva no coincide. La comparación de fecha en Postgres permanece como segunda barrera ante carreras entre steps. Pendiente de la próxima sesión: observar una ejecución real en el dashboard local de Inngest.
 
 ### 11. Ideas de Inbox sin decidir
 
@@ -175,7 +181,7 @@ npm run dev              # puerto 3001
 npm run inngest:dev      # dev server Inngest (ya lleva -u al puerto 3001)
 npx --yes cloudflared tunnel --url http://localhost:3001   # túnel público
 npm run ci               # typecheck + lint + format + coverage
-npm test                 # solo unit: 1569 en ~40 s
+npm test                 # solo unit: 1595 en ~45 s
 supabase migration list --linked
 # npm run test:integration  ⛔ NO CORRER: vacía la base de dev (ver bloqueante 1)
 ```
@@ -185,10 +191,10 @@ supabase migration list --linked
 ## Conexión Supabase
 
 - Proyecto `crm-dev`, ref `emubzkouwvuzlrtsgorx`, Postgres 17, plan Free.
-- **33 migraciones aplicadas**, la última `20260811160000`.
+- **35 migraciones aplicadas**, la última `20260812222808`.
 - ⚠️ Free tier auto-pausa tras ~1 semana idle: el DNS deja de resolver y `/api/health` da `db: fail`. Se restaura desde el dashboard.
 - **Falta un segundo proyecto para tests.** Ver bloqueante 1.
-- Remoto: `https://github.com/Leonardo-A1varez/crm.git` (privado). `origin/master` en `d84e9fb`, **39 commits locales sin pushear**.
+- Remoto: `https://github.com/Leonardo-A1varez/crm.git` (privado). Verificar `git rev-list --count origin/master..HEAD` al retomar; este checkpoint no se pusheó.
 
 ---
 
@@ -206,29 +212,38 @@ supabase migration list --linked
 ## Prompt de arranque — copiar y pegar
 
 ```text
-Repo: C:\Users\Tinki\Proyectos\crm. Rama master, árbol limpio, HEAD ed50754.
+Repo: C:\Users\Tinki\Proyectos\crm. Rama master. El checkpoint QA del
+2026-08-12 está implementado y verificado, pero NO commiteado: la sesión previa
+agotó la cuota justo al pedir permiso para escribir `.git`.
 
 Leé primero, en este orden:
 1. AGENTS.md completo — reglas de oro, estado y las 10 lecciones de proceso.
 2. docs/next-session.md (este archivo) — bloqueantes y prioridades.
-3. docs/handoff-rediseno-README.md — es LA spec de Bandeja, Leads, Métricas y
-   Agente IA. Si una pantalla no coincide con ese archivo, el que está mal es
-   el código.
+3. docs/implementation-qa-2026-08-12.md — corte exacto implementado y pendientes.
+4. docs/handoff-rediseno-README.md — spec visual/producto.
 
 Estado del repo:
-- 39 commits sin pushear (origin/master quedó en d84e9fb).
-- 1569 tests unitarios pasan; coverage 87.3/79.39/82.8/88.25 sobre umbral
-  80/75/80/80.
-- 33 migraciones aplicadas a crm-dev.
-- El rediseño A-G2 está aplicado entero.
+- 1595 tests unitarios pasan en 133 archivos; typecheck, lint y formato verdes.
+- La cobertura 87.3/79.39/82.8/88.25 es la anterior; no se recalculó.
+- 35 migraciones aplicadas a crm-dev.
+- `20260812170131` recupera/acota Inbox; `20260812222808` agrega handoff,
+  timestamps Meta, template de aviso y perfil de lead nullable.
+- Backups previos al push viven en backups/ y están ignorados por Git.
+- Primera acción: revisar `git status`, agregar explícitamente `.env.local.example
+  .gitignore AGENTS.md README.md docs src supabase/migrations tests .claude
+  vitest.integration.config.ts` y crear `feat: checkpoint QA flows and metrics`.
 
 Lo que NO está verificado, y quiero que lo trates como no verificado:
 - Los integration tests NO corren: SUPABASE_TEST_URL apunta al mismo proyecto
   Supabase que la app y test:integration vacía la base de dev. Hay contract
   tests de varios repos que nunca tocaron Postgres real.
-- Ninguna pantalla fue revisada visualmente. Todo está medido sobre el DOM.
-  Cada vez que mandé una captura apareció algo que la medición no vio.
-- Rendimiento: cero mediciones.
+- Las RPC nuevas no se probaron con la sesión autenticada del admin.
+- No se regeneraron los tipos desde el schema remoto después del push.
+- No se corrió EXPLAIN ni hay volumen representativo: el coste constante está
+  probado en unitarias, no el rendimiento a escala.
+- Las pantallas del checkpoint no se revisaron visualmente en los tres viewports.
+- El desglose de motivos de escalado viaja en el contrato de métricas, pero aún
+  no tiene una ubicación final visible.
 
 Panel: admin-dev@crm.local / dev-admin-2026!
 Arrancar: npm run dev (puerto 3001). El backend lo levanto yo.
@@ -238,24 +253,14 @@ NO corras npm run build con el dev server vivo (corrompe .next/).
 
 Lo más valioso por hacer, en orden:
 
-1. Un proyecto Supabase aparte para tests. Sin eso, esa suite es un botón de
-   borrar la base y hay repos que nunca se probaron contra Postgres real. Yo
-   creo el proyecto; decime exactamente qué necesitás y qué variables van a
-   .env.local.
-
-2. Revisar visualmente, pantalla por pantalla: Leads con sus filtros nuevos,
-   Métricas, /agente, /tags, el buscador del Inbox y reprogramar un
-   seguimiento. Yo te mando capturas. Medir el DOM no alcanza y ya se demostró.
-
-3. Rendimiento de listActiveLeads (src/server/services/inbox/
-   default-inbox.service.ts): consulta dentro de un loop por cada lead y el
-   poller la re-ejecuta cada 5 s. Es lo primero que pedí y lo que más se
-   postergó. Medir con build limpio, sin el dev server vivo.
-
-4. Dos decisiones mías que están anotadas y quiero cerrar: cuál de las dos
-   puertas de cierre de sesión se queda (recomendación registrada: sacar la
-   del header), y qué hace el sistema cuando la IA escala a requiere_humano y
-   no hay nadie del otro lado.
+1. Verificar `inbox_recent_messages` y `transition_handoff` con la sesión
+   autenticada del admin. No enviar mensajes reales por Meta.
+2. Regenerar tipos Supabase y revisar el diff antes de conservarlo.
+3. Ejecutar EXPLAIN (ANALYZE, BUFFERS) sobre datos disponibles, sin extrapolar.
+4. Revisar visualmente /leads, detalle/edición, /metricas, /agente, /tags,
+   /inbox, detalle, handoff y reprogramación en 1440x900, 1024x768 y login móvil.
+5. Ubicar el desglose de razones de revisión administrativa en Métricas.
+6. Crear un proyecto Supabase aparte para tests cuando yo lo autorice/cree.
 
 Antes de escribir código, decime qué vas a hacer, qué no, y esperá que
 confirme.

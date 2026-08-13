@@ -220,6 +220,7 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
       ...input,
       extras: structuredClone(input.extras ?? {}),
       context_summary: input.context_summary ?? null,
+      stage_before_handoff: input.stage_before_handoff ?? null,
       procedencia: {},
       etapa_alcanzada: etapaAlcanzada("nuevo", input.current_stage),
       id: crypto.randomUUID(),

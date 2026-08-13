@@ -7,6 +7,7 @@ import { createSupabaseServerClient } from "@/server/auth/supabase-ssr";
 import { SupabaseAdminAuditRepository } from "@/server/repositories/admin-audit.supabase.repo";
 import { SupabaseAgenteConfigRepository } from "@/server/repositories/agente-config.supabase.repo";
 import { SupabaseLeadSessionRepository } from "@/server/repositories/lead-session.supabase.repo";
+import { SupabaseLeadsRepository } from "@/server/repositories/leads.supabase.repo";
 import { SupabaseLlmUsageRepository } from "@/server/repositories/llm-usage.supabase.repo";
 import { SupabaseMessagesRepository } from "@/server/repositories/messages.supabase.repo";
 import { SupabaseProductsRepository } from "@/server/repositories/productos.supabase.repo";
@@ -17,6 +18,10 @@ import {
 } from "@/server/services/agente/agente-config.service";
 import { CachedAgentConfigProvider } from "@/server/services/agente/config-provider";
 import { DefaultAgentePreviewService } from "@/server/services/agente/preview.service";
+import {
+  DefaultAgentePreviewSessionsService,
+  type AgentePreviewSessionsService,
+} from "@/server/services/agente/preview-sessions.service";
 import { DefaultCatalogMatcherService } from "@/server/services/catalog-matcher.service";
 import { OpenAiAgentLLM } from "@/server/services/llm/openai-ai-agent";
 import { PersistingCostTracker } from "@/server/services/llm/persisting-cost-tracker";
@@ -61,6 +66,16 @@ export function makeAgenteConfigService(db: AppClient): AgenteConfigService {
 /** Panel: client authed del request (RLS real). Uno por request. */
 export async function getAgenteConfigServiceForRequest(): Promise<AgenteConfigService> {
   return makeAgenteConfigService(await createSupabaseServerClient());
+}
+
+/** Selector liviano de sesiones; una falla degrada solo el preview. */
+export async function getAgentePreviewSessionsServiceForRequest(): Promise<AgentePreviewSessionsService> {
+  const db = await createSupabaseServerClient();
+  return new DefaultAgentePreviewSessionsService(
+    new SupabaseLeadSessionRepository(db),
+    new SupabaseLeadsRepository(db),
+    getLogger({ scope: "agente-preview-sessions" }),
+  );
 }
 
 /**

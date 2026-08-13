@@ -51,7 +51,7 @@ export interface SendOutboundInput {
   canal: Canal;
   to: string;
   contenido: string;
-  sender: Extract<Sender, "ia" | "humano">;
+  sender: Extract<Sender, "ia" | "humano" | "sistema">;
   senderUserId?: UUID;
   // Dedup outbound. Si presente y ya existe mensaje out con esta key, retorna
   // existing sin invocar Meta client. Convención: "out:<inbound_meta_message_id>".
@@ -115,6 +115,7 @@ export class DefaultMetaApiService implements MetaApiService {
       meta_message_id: result.meta_message_id,
       idempotency_key: input.idempotencyKey ?? null,
       metadata: metadataDelSaliente(input.plantilla),
+      platform_created_at: null,
     });
 
     await this.conversations.touch(input.conversacionId);
@@ -139,6 +140,7 @@ export class DefaultMetaApiService implements MetaApiService {
       meta_message_id: parsed.meta_message_id,
       idempotency_key: null,
       metadata: { raw: parsed.raw },
+      platform_created_at: parsed.platform_created_at ?? null,
     });
 
     await this.conversations.touch(conversacionId);

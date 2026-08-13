@@ -31,7 +31,7 @@ import {
 import { FakeMetaApiClient } from "../mocks/meta";
 
 describe("makeCrmInngestFunctions", () => {
-  test("produce 11 InngestFunction con IDs esperados", () => {
+  test("produce 12 InngestFunction con IDs esperados", () => {
     const leads = new InMemoryLeadsRepository();
     const conversations = new InMemoryConversationsRepository();
     const sessions = new InMemoryLeadSessionRepository();
@@ -82,12 +82,18 @@ describe("makeCrmInngestFunctions", () => {
       purgeOldSessions: { sessions, purgeSession: async () => {} },
       reactivationPredictor: { sessions, sendReactivation: async () => {} },
       recordatorioSeguimiento: { recordatorios: new InMemorySessionRecordatoriosRepository() },
+      handoffNotification: {
+        sessions,
+        conversations,
+        configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
+        metaApi,
+      },
       detectMergeCandidatesPerLead: { detector: mergeDetector },
       detectMergeCandidatesGlobal: { leads, detector: mergeDetector },
       dispatchOutboxEvents: { outbox, inngestEmit: async () => {} },
     });
 
-    expect(fns).toHaveLength(11);
+    expect(fns).toHaveLength(12);
     const ids = fns.map((f) => f.id());
     expect(ids).toEqual(
       expect.arrayContaining([
@@ -102,6 +108,7 @@ describe("makeCrmInngestFunctions", () => {
         expect.stringContaining("detect-merge-candidates-global"),
         expect.stringContaining("dispatch-outbox-events"),
         expect.stringContaining("recordatorio-seguimiento"),
+        expect.stringContaining("handoff-notification"),
       ]),
     );
   });

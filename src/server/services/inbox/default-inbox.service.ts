@@ -20,6 +20,7 @@ import type { TagsRepository } from "@/server/repositories/tags.repo";
 import type { ToolExecutionsRepository } from "@/server/repositories/tool-executions.repo";
 import type { TurnClassificationsRepository } from "@/server/repositories/turn-classifications.repo";
 import type { HandoffService } from "@/server/services/handoff.service";
+import type { HandoffEventsRepository } from "@/server/repositories/handoff-events.repo";
 import type { MetaApiService } from "@/server/services/meta-api.service";
 import { WORKFLOW_LLM } from "@/types/domain";
 import type { Canal } from "@/types/domain";
@@ -47,6 +48,7 @@ import type { EtiquetaOpcion } from "@/types/leads";
 import type {
   AgregarDatoLeadServiceInput,
   BorrarDatoExtraServiceInput,
+  CancelarAvisoRecordatorioFn,
   CancelarRecordatorioServiceInput,
   CloseSessionServiceInput,
   ConversationView,
@@ -112,6 +114,41 @@ function entradaTriage(
   };
 }
 
+/**
+ * Indexa filas por una clave, conservando el orden en que vinieron.
+ *
+ * Es lo que convierte una consulta en tanda en lo que el loop necesitaba: el
+ * repo devuelve todo junto y ordenado, y cada grupo hereda ese orden.
+ */
+/**
+ * Sesiones anteriores del lead. La abierta se excluye: el bloque cuenta lo que
+ * pasó antes de esta conversación, no la que se está mirando.
+ *
+ * Recibe las filas en vez de pedirlas: la consulta sale en la misma ola que el
+ * resto de lo que solo depende del `leadId`.
+ */
+function contarSesionesPrevias(
+  todas: readonly LeadSession[],
+  actual: LeadSession | null,
+): SesionesPrevias {
+  const previas = todas.filter((s) => s.id !== actual?.id);
+  return {
+    total: previas.length,
+    conCompra: previas.filter((s) => s.resultado === "exito").length,
+  };
+}
+
+function agrupar<T, K>(filas: readonly T[], clave: (fila: T) => K): Map<K, T[]> {
+  const out = new Map<K, T[]>();
+  for (const fila of filas) {
+    const k = clave(fila);
+    const grupo = out.get(k);
+    if (grupo) grupo.push(fila);
+    else out.set(k, [fila]);
+  }
+  return out;
+}
+
 export interface DefaultInboxServiceDeps {
   leads: LeadsRepository;
   sessions: LeadSessionRepository;
@@ -119,6 +156,7 @@ export interface DefaultInboxServiceDeps {
   messages: MessagesRepository;
   metaApi: MetaApiService;
   handoff: HandoffService;
+  handoffEvents?: HandoffEventsRepository;
   /** Para resolver `producto_cotizado_id` al producto del catálogo del Twin. */
   productos: ProductsRepository;
   tags: TagsRepository;
@@ -136,6 +174,8 @@ export interface DefaultInboxServiceDeps {
   recordatorios: SessionRecordatoriosRepository;
   /** Arranca el workflow durable. Ver `ProgramarAvisoRecordatorioFn`. */
   programarAviso: ProgramarAvisoRecordatorioFn;
+  /** Detiene la ejecución asociada a la fecha anterior, sin tocar la nueva. */
+  cancelarAviso?: CancelarAvisoRecordatorioFn;
   /** Inyectable para poder testear el vencimiento sin esperar dos días. */
   now?: () => Date;
 }
@@ -191,16 +231,59 @@ export class DefaultInboxService implements InboxService {
     return new Map(filas.map((r) => [r.lead_session_id, r]));
   }
 
+  /**
+   * La bandeja entera, con un costo que no depende de cuántos leads hay.
+   *
+   * **Por qué está escrita así.** Antes esto era un `for` con cuatro consultas
+   * adentro —el lead, sus conversaciones, un `listByConversacion` por
+   * conversación y el hilo de la sesión—, o sea `2 + 3N + NC`, todas en serie.
+   * Medido con 20 leads y 2 conversaciones daban 102 idas y vueltas, y
+   * `RefreshPoller` re-ejecuta esto cada 5 segundos. Ahora son 5 consultas en 2
+   * olas para cualquier N (`tests/unit/inbox-consultas.test.ts` clava el
+   * número).
+   *
+   * **De dónde sale el último mensaje ahora.** Del hilo de la sesión activa, no
+   * de un `listByConversacion` por conversación. Es el mismo mensaje: las
+   * sesiones de un lead son secuenciales —hay como máximo una abierta— así que
+   * los mensajes de la abierta son los más nuevos que tiene el lead, y el más
+   * nuevo de todos es el último de ese hilo. El canal sale de la conversación a
+   * la que pertenece ese mensaje, que es exactamente lo que hacía el loop.
+   *
+   * El único caso que cambia es una sesión abierta sin un solo mensaje cuyo
+   * lead sí tenga mensajes de sesiones ya cerradas: antes la fila mostraba
+   * aquel mensaje viejo de preview, ahora no muestra ninguno. `ultimaActividad`
+   * y `canalActivo` no se mueven —los resuelve el mismo fallback por
+   * conversación de siempre—, y una sesión sin mensajes no la produce el
+   * pipeline: la sesión nace con el entrante que la abrió.
+   */
   async listActiveLeads(): Promise<InboxItem[]> {
-    const activeSessions = await this.deps.sessions.listActive();
-    const recordatorios = await this.recordatoriosVencidos();
+    const [activeSessions, recordatorios] = await Promise.all([
+      this.deps.sessions.listActive(),
+      this.recordatoriosVencidos(),
+    ]);
+    if (activeSessions.length === 0) return [];
+
+    const leadIds = Array.from(new Set(activeSessions.map((s) => s.lead_id)));
+    const [leadsFilas, convsFilas, mensajes] = await Promise.all([
+      this.deps.leads.listByIds(leadIds),
+      this.deps.convs.listByLeadIds(leadIds),
+      this.deps.messages.listRecentBySessionIds(
+        activeSessions.map((s) => s.id),
+        TRIAGE_MESSAGES_LIMIT,
+      ),
+    ]);
+
+    const leadPorId = new Map<UUID, Lead>(leadsFilas.map((l) => [l.id, l]));
+    const convsPorLead = agrupar(convsFilas, (c) => c.lead_id);
+    const canalPorConv = new Map<UUID, Canal>(convsFilas.map((c) => [c.id, c.canal]));
+    const hiloPorSesion = agrupar(mensajes, (m) => m.lead_session_id);
 
     const items: InboxItem[] = [];
     for (const session of activeSessions) {
-      const lead = await this.deps.leads.findById(session.lead_id);
+      const lead = leadPorId.get(session.lead_id);
       if (!lead) continue;
 
-      const convs = await this.deps.convs.findByLeadId(session.lead_id);
+      const convs = convsPorLead.get(session.lead_id) ?? [];
       const conConversacion: Canal[] = Array.from(new Set(convs.map((c) => c.canal)));
       // Los canales del lead salen de la entidad y no solo de las
       // conversaciones abiertas: un lead con WhatsApp e Instagram vinculados
@@ -208,27 +291,20 @@ export class DefaultInboxService implements InboxService {
       // porque cada pantalla derivaba la lista por su cuenta.
       const canales: Canal[] = canalesDelLead(lead, conConversacion);
 
-      let lastMsg: Mensaje | null = null;
-      let canalActivo: Canal | null = null;
-      for (const conv of convs) {
-        const msgs = await this.deps.messages.listByConversacion(conv.id, { limit: 1 });
-        const candidate = msgs[0];
-        if (!candidate) continue;
-        if (!lastMsg || candidate.created_at.getTime() > lastMsg.created_at.getTime()) {
-          lastMsg = candidate;
-          // El canal del último mensaje, no `canales[0]`: `canales` es un set
-          // sin orden significativo y la bandeja lo mostraba como si lo fuera.
-          canalActivo = conv.canal;
-        }
-      }
+      const hilo = hiloPorSesion.get(session.id) ?? [];
+      const lastMsg = hilo[hilo.length - 1] ?? null;
+      // El canal del último mensaje, no `canales[0]`: `canales` es un set
+      // sin orden significativo y la bandeja lo mostraba como si lo fuera.
+      const canalActivo: Canal | null = lastMsg
+        ? (canalPorConv.get(lastMsg.conversacion_id) ?? null)
+        : null;
 
       const ultimaActividad =
         lastMsg?.created_at ?? convs[0]?.ultima_actividad_at ?? session.started_at;
 
-      const thread = await this.deps.messages.listBySessionId(session.id, {
-        limit: TRIAGE_MESSAGES_LIMIT,
-      });
-      const { sinResponder, esperandoDesde } = calcularSinResponder(thread);
+      // El repositorio ya trajo como máximo la cola que necesita el triage; el
+      // poller no descarga más historia a medida que una conversación crece.
+      const { sinResponder, esperandoDesde } = calcularSinResponder(hilo);
       const { motivo } = triage(entradaTriage(session, recordatorios));
 
       items.push({
@@ -268,14 +344,29 @@ export class DefaultInboxService implements InboxService {
     return items;
   }
 
+  /**
+   * La ficha entera de una conversación.
+   *
+   * Son once consultas y ninguna sobra —cada una alimenta un bloque distinto
+   * del Twin— pero salían encadenadas de a una: lead → sesión →
+   * conversaciones → mensajes → producto → etiquetas → sesiones previas →
+   * gasto → recordatorio, nueve idas y vueltas en serie para once consultas.
+   * Acá se agrupan en dos olas: primero todo lo que solo necesita el `leadId`,
+   * después todo lo que necesita la sesión. Mismo total, un tercio de la
+   * latencia (`tests/unit/inbox-consultas.test.ts` clava los dos números).
+   */
   async getConversation(leadId: UUID): Promise<ConversationView> {
-    const lead = await this.deps.leads.findById(leadId);
+    const [lead, session, convs, tags, tagsDisponibles, todasLasSesiones] = await Promise.all([
+      this.deps.leads.findById(leadId),
+      this.deps.sessions.findActiveByLeadId(leadId),
+      this.deps.convs.findByLeadId(leadId),
+      this.deps.tags.listByLead(leadId),
+      this.deps.tags.list(),
+      this.deps.sessions.listByLeadId(leadId),
+    ]);
     if (!lead) {
       throw new NotFoundError(`lead no encontrado: ${leadId}`, "lead", leadId);
     }
-
-    const session = await this.deps.sessions.findActiveByLeadId(leadId);
-    const convs = await this.deps.convs.findByLeadId(leadId);
 
     let masReciente: Conversacion | null = null;
     for (const conv of convs) {
@@ -288,24 +379,31 @@ export class DefaultInboxService implements InboxService {
     }
     const canalActivo: Canal = masReciente?.canal ?? lead.canal_origen;
 
-    const messages = session
-      ? await this.deps.messages.listBySessionId(session.id, {
-          limit: CONVERSATION_MESSAGES_LIMIT,
-        })
-      : [];
-
-    const producto = await this.resolverProducto(session);
-    const [tags, tagsDisponibles] = await Promise.all([
-      this.deps.tags.listByLead(leadId),
-      this.deps.tags.list(),
+    const [messages, producto, gastoIa, recordatorio, handoffEvents] = await Promise.all([
+      session
+        ? this.deps.messages.listBySessionId(session.id, { limit: CONVERSATION_MESSAGES_LIMIT })
+        : [],
+      this.resolverProducto(session),
+      this.resolverGastoIa(session),
+      // El vivo, no el vencido: el Twin muestra igual el que todavía no llegó
+      // ("faltan 2 días") para que se pueda cancelar antes de que moleste.
+      session ? this.deps.recordatorios.findVivoBySessionId(session.id) : null,
+      session && this.deps.handoffEvents
+        ? this.deps.handoffEvents.listBySessionIds([session.id])
+        : [],
     ]);
-    const sesionesPrevias = await this.contarSesionesPrevias(leadId, session);
-    const gastoIa = await this.resolverGastoIa(session);
-    // El vivo, no el vencido: el Twin muestra igual el que todavía no llegó
-    // ("faltan 2 días") para que se pueda cancelar antes de que moleste.
-    const recordatorio = session
-      ? await this.deps.recordatorios.findVivoBySessionId(session.id)
-      : null;
+
+    const ultimoHandoff = [...handoffEvents].reverse().find((event) => event.action === "pause");
+    const reanudacionPosterior = ultimoHandoff
+      ? handoffEvents.some(
+          (event) => event.action === "resume" && event.created_at > ultimoHandoff.created_at,
+        )
+      : false;
+    const avisoEnviado = ultimoHandoff
+      ? messages.some((message) => message.idempotency_key === `handoff-notice:${ultimoHandoff.id}`)
+      : false;
+
+    const sesionesPrevias = contarSesionesPrevias(todasLasSesiones, session);
 
     return {
       lead,
@@ -327,6 +425,18 @@ export class DefaultInboxService implements InboxService {
       sesionesPrevias,
       gastoIa,
       recordatorio,
+      handoffStatus:
+        ultimoHandoff && !reanudacionPosterior
+          ? {
+              motivo: ultimoHandoff.reason_code,
+              aviso:
+                ultimoHandoff.source === "admin"
+                  ? "no_aplica"
+                  : avisoEnviado
+                    ? "enviado"
+                    : "pendiente",
+            }
+          : null,
     };
   }
 
@@ -399,9 +509,13 @@ export class DefaultInboxService implements InboxService {
       );
     }
 
-    // Workflow nuevo con la fecha nueva. El viejo sigue durmiendo hasta su
-    // fecha y ahí sale por `sin-efecto`: la fila ya no tiene la fecha con la
-    // que él arrancó. Dos ejecuciones vivas un rato, un solo aviso.
+    // Inngest cancela la ejecución vieja por id+fecha. La comparación de fecha
+    // en Postgres sigue siendo la segunda barrera ante carreras entre steps.
+    await this.deps.cancelarAviso?.({
+      recordatorioId: actual.id,
+      recordarAt: actual.recordar_at,
+    });
+
     await this.deps.programarAviso({
       recordatorioId: movido.id,
       leadSessionId: movido.lead_session_id,
@@ -415,7 +529,14 @@ export class DefaultInboxService implements InboxService {
     // Sin `requireActiveSession` y sin error cuando ya no está vivo: apagar un
     // recordatorio siempre tiene que poder terminar bien. El workflow que sigue
     // durmiendo se despierta, encuentra la fila cancelada y no hace nada.
-    await this.deps.recordatorios.cancelar(input.recordatorioId, "manual");
+    const actual = await this.deps.recordatorios.findById(input.recordatorioId);
+    const cancelado = await this.deps.recordatorios.cancelar(input.recordatorioId, "manual");
+    if (actual && cancelado) {
+      await this.deps.cancelarAviso?.({
+        recordatorioId: actual.id,
+        recordarAt: actual.recordar_at,
+      });
+    }
   }
 
   /**
@@ -602,22 +723,6 @@ export class DefaultInboxService implements InboxService {
   private async resolverProducto(session: LeadSession | null): Promise<Producto | null> {
     if (!session?.producto_cotizado_id) return null;
     return this.deps.productos.findById(session.producto_cotizado_id);
-  }
-
-  /**
-   * Sesiones anteriores del lead. La abierta se excluye: el bloque cuenta lo
-   * que pasó antes de esta conversación, no la que se está mirando.
-   */
-  private async contarSesionesPrevias(
-    leadId: UUID,
-    actual: LeadSession | null,
-  ): Promise<SesionesPrevias> {
-    const todas = await this.deps.sessions.listByLeadId(leadId);
-    const previas = todas.filter((s) => s.id !== actual?.id);
-    return {
-      total: previas.length,
-      conCompra: previas.filter((s) => s.resultado === "exito").length,
-    };
   }
 
   async sendMessage(input: SendMessageServiceInput): Promise<Mensaje> {

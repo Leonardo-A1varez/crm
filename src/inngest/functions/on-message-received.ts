@@ -23,6 +23,7 @@ import type { AgentConfigProvider } from "@/server/services/agente/config-provid
 import type { AiAgentService } from "@/server/services/ai-agent.service";
 import type { IntentClassifierService } from "@/server/services/intent-classifier.service";
 import type { MetaApiService } from "@/server/services/meta-api.service";
+import type { HandoffService } from "@/server/services/handoff.service";
 import type { Canal } from "@/types/domain";
 import type { Lead, LeadSession, MetaUserIds, UUID } from "@/types/entities";
 
@@ -48,6 +49,7 @@ export interface OnMessageReceivedDeps {
   metaApi: MetaApiService;
   intentClassifier: IntentClassifierService;
   aiAgent: AiAgentService;
+  handoff?: HandoffService;
   ruleExecutions: RuleExecutionsRepository;
   turnClassifications: TurnClassificationsRepository;
   /** Solo para resolver el intent clasificado a su id al auditar el turno. */
@@ -58,6 +60,7 @@ export interface OnMessageReceivedDeps {
    * para que los callers viejos sigan compilando; `bootstrap.ts` lo wirea.
    */
   recordatorios?: SessionRecordatoriosRepository;
+  cancelarAvisoRecordatorio?: (input: { recordatorioId: UUID; recordarAt: Date }) => Promise<void>;
   configProvider: AgentConfigProvider;
   emit: (event: EmittedEvent) => Promise<void>;
   logger?: Logger;
@@ -148,9 +151,18 @@ export async function onMessageReceivedHandler(
     // hasta que abra. Cancelar de más no rompe nada; no cancelar deja al
     // vendedor persiguiendo a alguien que ya respondió.
     const recordatorios = deps.recordatorios ?? new NoopSessionRecordatoriosRepository();
+    const recordatorioVivo = await recordatorios.findVivoBySessionId(session.id);
     const cancelados = await step.run("cancelar-recordatorios", () =>
       recordatorios.cancelarVivosDeSesion(session.id, "respondio"),
     );
+    if (cancelados > 0 && recordatorioVivo && deps.cancelarAvisoRecordatorio) {
+      await step.run("cancelar-workflow-recordatorio", () =>
+        deps.cancelarAvisoRecordatorio!({
+          recordatorioId: recordatorioVivo.id,
+          recordarAt: recordatorioVivo.recordar_at,
+        }),
+      );
+    }
     // Solo la cuenta: la nota del recordatorio puede tener datos del cliente.
     if (cancelados > 0) logger.info("recordatorios-cancelados", { cantidad: cancelados });
 
@@ -286,10 +298,18 @@ export async function onMessageReceivedHandler(
           sessionId: session.id,
         });
         await step.run("pausar-por-descuento", () =>
-          deps.sessions.update(session.id, {
-            current_stage: "requiere_humano",
-            ia_pausada: true,
-          }),
+          deps.handoff
+            ? deps.handoff.pause({
+                sessionId: session.id,
+                reasonCode: "discount_limit",
+                source: "pipeline_guard",
+                sourceEventKey: `discount-limit:${session.id}:${parsed.meta_message_id}`,
+                notifyCustomer: true,
+              })
+            : deps.sessions.update(session.id, {
+                current_stage: "requiere_humano",
+                ia_pausada: true,
+              }),
         );
         logger.info("pipeline-complete", {
           duplicate: false,
@@ -430,9 +450,9 @@ function buildPlaceholderLead(parsed: ParsedMessage): Parameters<LeadsRepository
     telefono,
     email: null,
     direccion: null,
-    vehiculo_marca: "",
-    vehiculo_modelo: "",
-    vehiculo_anio: 0,
+    vehiculo_marca: null,
+    vehiculo_modelo: null,
+    vehiculo_anio: null,
     vehiculo_motor: null,
     empresa_id: null,
     canal_origen: parsed.canal,

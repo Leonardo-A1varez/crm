@@ -13,8 +13,8 @@ import type { Lead, LeadSession } from "@/types/entities";
  * La línea de meta (teléfono · canales · última actividad) se fue al Twin: acá
  * vivía en una sola línea que se truncaba apenas el nombre era largo, y el
  * Twin tiene los 322px y el scroll para mostrarla entera. `actions` = slot para
- * HandoffToggle + CloseSessionButton (client comps montados desde el RSC page,
- * que es quien importa las Server Actions).
+ * HandoffToggle (client comp montado desde el RSC page). El cierre vive solo
+ * en el rail del Twin: dos puertas para la misma transición confundían el flujo.
  */
 export function ConversationHeader({
   lead,

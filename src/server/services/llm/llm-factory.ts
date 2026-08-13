@@ -123,7 +123,7 @@ export function makeLlmFactory(cfg: LlmFactoryConfig): LlmBundle {
   }
   if (cfg.mode === "real") {
     if (!cfg.openaiApiKey) {
-      throw new Error(
+      throw new ValidationError(
         "LLM_MODE=real requiere openaiApiKey (lee de env.OPENAI_API_KEY). Setear var o cambiar LLM_MODE=mock.",
       );
     }
@@ -156,5 +156,5 @@ export function makeLlmFactory(cfg: LlmFactoryConfig): LlmBundle {
   }
   // Exhaustiveness check + runtime guard si caller bypassa types.
   const _exhaustive: never = cfg.mode;
-  throw new Error(`LLM_MODE desconocido: ${String(_exhaustive)}`);
+  throw new ValidationError(`LLM_MODE desconocido: ${String(_exhaustive)}`);
 }

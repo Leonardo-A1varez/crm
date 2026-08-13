@@ -46,9 +46,11 @@ function sesion(over: Partial<FilaSesionMetrica> = {}): FilaSesionMetrica {
 }
 
 function mensaje(over: Partial<FilaMensajeMetrica> = {}): FilaMensajeMetrica {
+  const createdAt = over.created_at ?? haceDias(1);
   return {
     sender: "lead",
-    created_at: haceDias(1),
+    created_at: createdAt,
+    platform_created_at: "platform_created_at" in over ? over.platform_created_at : createdAt,
     canal: "wa",
     lead_session_id: "s1",
     sender_user_id: null,
@@ -238,7 +240,7 @@ describe("DefaultMetricsService.obtener", () => {
         ],
       }).obtener(30, AHORA);
 
-      expect(m.agente).toEqual({ sinHumano: 1, escaladas: 1 });
+      expect(m.agente).toEqual({ sinIntervencionHumana: 1, resueltasPorIa: 0, escaladas: 1 });
     });
 
     test("pedir humano ya cuenta como escalada aunque nadie haya contestado", async () => {
@@ -246,7 +248,7 @@ describe("DefaultMetricsService.obtener", () => {
         sesiones: [sesion({ id: "a", current_stage: "requiere_humano" })],
       }).obtener(30, AHORA);
 
-      expect(m.agente).toEqual({ sinHumano: 0, escaladas: 1 });
+      expect(m.agente).toEqual({ sinIntervencionHumana: 1, resueltasPorIa: 0, escaladas: 1 });
     });
 
     test("no se cuenta dos veces la sesión que pidió humano y además fue atendida", async () => {
@@ -255,10 +257,10 @@ describe("DefaultMetricsService.obtener", () => {
         mensajes: [mensaje({ sender: "humano", lead_session_id: "a" })],
       }).obtener(30, AHORA);
 
-      expect(m.agente).toEqual({ sinHumano: 0, escaladas: 1 });
+      expect(m.agente).toEqual({ sinIntervencionHumana: 0, resueltasPorIa: 0, escaladas: 1 });
     });
 
-    test("sinHumano y escaladas siempre suman el total de sesiones", async () => {
+    test("sin intervención y escaladas son cortes distintos y no fingen resoluciones", async () => {
       const m = await svc({
         sesiones: [
           sesion({ id: "a" }),
@@ -269,8 +271,86 @@ describe("DefaultMetricsService.obtener", () => {
         mensajes: [mensaje({ sender: "humano", lead_session_id: "c" })],
       }).obtener(30, AHORA);
 
-      expect(m.agente.sinHumano + m.agente.escaladas).toBe(m.totalSesiones);
-      expect(m.agente).toEqual({ sinHumano: 2, escaladas: 2 });
+      expect(m.agente).toEqual({ sinIntervencionHumana: 3, resueltasPorIa: 0, escaladas: 2 });
+    });
+
+    test("una perdida y una abierta no pueden aparecer como 2/2 resueltas por IA", async () => {
+      const m = await svc({
+        sesiones: [sesion({ id: "cerrada", resultado: "perdido" }), sesion({ id: "abierta" })],
+      }).obtener(30, AHORA);
+      expect(m.agente.sinIntervencionHumana).toBe(2);
+      expect(m.agente.resueltasPorIa).toBe(1);
+    });
+  });
+
+  describe("tiempos medibles y motivos de revisión", () => {
+    test("agrupa entrantes consecutivos y mide desde el primero con hora de Meta", async () => {
+      const base = new Date("2026-08-10T10:00:00.000Z");
+      const m = await svc({
+        sesiones: [sesion({ id: "a" })],
+        mensajes: [
+          mensaje({ lead_session_id: "a", created_at: base, platform_created_at: base }),
+          mensaje({
+            lead_session_id: "a",
+            created_at: new Date(base.getTime() + 30_000),
+            platform_created_at: new Date(base.getTime() + 30_000),
+          }),
+          mensaje({
+            lead_session_id: "a",
+            sender: "ia",
+            created_at: new Date(base.getTime() + 90_000),
+            platform_created_at: null,
+          }),
+        ],
+      }).obtener(30, AHORA);
+
+      expect(m.tiempoPrimeraRespuesta.ia).toEqual({ medianaSegundos: 90, muestras: 1 });
+    });
+
+    test("excluye horas ausentes y deltas negativos", async () => {
+      const base = new Date("2026-08-10T10:00:00.000Z");
+      const m = await svc({
+        sesiones: [sesion({ id: "a" }), sesion({ id: "b" })],
+        mensajes: [
+          mensaje({ lead_session_id: "a", created_at: base, platform_created_at: null }),
+          mensaje({
+            lead_session_id: "a",
+            sender: "ia",
+            created_at: new Date(base.getTime() + 1_000),
+          }),
+          mensaje({
+            lead_session_id: "b",
+            created_at: base,
+            platform_created_at: new Date(base.getTime() + 5_000),
+          }),
+          mensaje({ lead_session_id: "b", sender: "humano", created_at: base }),
+        ],
+      }).obtener(30, AHORA);
+      expect(m.tiempoPrimeraRespuesta.ia.muestras).toBe(0);
+      expect(m.tiempoPrimeraRespuesta.personas.muestras).toBe(0);
+    });
+
+    test("razones salen de eventos reales y lo desconocido no se inventa", async () => {
+      const m = await svc({
+        handoffs: [
+          {
+            lead_session_id: "a",
+            action: "pause",
+            reason_code: "discount_limit",
+            created_at: haceDias(1),
+          },
+          {
+            lead_session_id: "b",
+            action: "pause",
+            reason_code: "legacy_code",
+            created_at: haceDias(1),
+          },
+        ],
+      }).obtener(30, AHORA);
+      expect(m.razonesEscalado).toEqual([
+        { motivo: "Límite de descuento", cantidad: 1 },
+        { motivo: "Sin motivo registrado", cantidad: 1 },
+      ]);
     });
   });
 

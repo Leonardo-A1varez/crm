@@ -6,7 +6,9 @@ import { Seccion } from "@/components/metricas/Seccion";
 import { TarjetaKpi } from "@/components/metricas/TarjetaKpi";
 import { DatabaseSearch, PanTool, Savings, SmartToy } from "@/components/icons";
 import {
+  cantidad,
   formatearEntero,
+  formatearEspera,
   formatearPorcentaje,
   formatearUsd,
   porcentajeDe,
@@ -25,9 +27,9 @@ export function PanelAgente({ m }: { m: Metricas }) {
     <div className="flex flex-col gap-4 p-5">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <TarjetaKpi
-          label="Resueltas sin humano"
-          valor={formatearPorcentaje(porcentajeDe(m.agente.sinHumano, m.totalSesiones))}
-          subtitulo={`${formatearEntero(m.agente.sinHumano)} de ${formatearEntero(m.totalSesiones)} sesiones`}
+          label="Resueltas por IA"
+          valor={formatearPorcentaje(porcentajeDe(m.agente.resueltasPorIa, m.totalSesiones))}
+          subtitulo={`${formatearEntero(m.agente.resueltasPorIa)} cerradas sin intervención · ${formatearEntero(m.agente.sinIntervencionHumana)} sin intervención total`}
           icono={SmartToy}
         />
         <TarjetaKpi
@@ -36,9 +38,15 @@ export function PanelAgente({ m }: { m: Metricas }) {
           subtitulo="escribió una persona, o la sesión está pidiendo una"
           icono={PanTool}
         />
-        <KpiFaltante
-          label="Latencia 1ra respuesta"
-          falta="registrar cuándo llegó el mensaje del cliente. mensajes.created_at marca la inserción del webhook, así que el delta entrante→saliente mediría el tiempo de proceso y no la espera real."
+        <TarjetaKpi
+          label="Primera respuesta IA"
+          valor={formatearEspera(m.tiempoPrimeraRespuesta.ia.medianaSegundos)}
+          subtitulo={
+            m.tiempoPrimeraRespuesta.ia.muestras === 0
+              ? "Sin datos medibles"
+              : `${formatearEntero(m.tiempoPrimeraRespuesta.ia.muestras)} muestras con timestamp de Meta`
+          }
+          icono={SmartToy}
         />
         {m.gasto.porLeadUsd === null ? (
           <KpiFaltante
@@ -58,7 +66,7 @@ export function PanelAgente({ m }: { m: Metricas }) {
       <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">
         <Seccion
           titulo="Cómo resolvió cada turno"
-          extra={`${formatearEntero(turnos)} turnos`}
+          extra={cantidad(turnos, "turno")}
           nota="Las reglas IF/THEN no llaman al modelo para generar la respuesta: cada punto que sube esa franja baja el costo. El clasificador de intents sí corre en los tres casos, así que su gasto no se le imputa a ninguna franja."
         >
           <BarraReparto

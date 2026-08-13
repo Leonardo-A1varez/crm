@@ -71,7 +71,7 @@ export type Procedencia = Record<string, ProcedenciaCampo>;
  * del clasificador y del agente, así que no deja fila en ninguna de las cuatro
  * tablas de auditoría, pero se sabe perfectamente qué contestó.
  */
-export const PLANTILLA_SALIENTE = ["fuera_horario"] as const;
+export const PLANTILLA_SALIENTE = ["fuera_horario", "handoff"] as const;
 export type PlantillaSaliente = (typeof PLANTILLA_SALIENTE)[number];
 
 export interface MensajeMetadata {
@@ -113,9 +113,9 @@ export interface Lead {
    * haya dos fuentes del mismo dato.
    */
   datos_extra: Record<string, string>;
-  vehiculo_marca: string;
-  vehiculo_modelo: string;
-  vehiculo_anio: number;
+  vehiculo_marca: string | null;
+  vehiculo_modelo: string | null;
+  vehiculo_anio: number | null;
   vehiculo_motor: string | null;
   empresa_id: UUID | null;
   canal_origen: Canal;
@@ -146,6 +146,8 @@ export interface LeadSession {
   resultado: Resultado | null;
   motivo_perdida: MotivoPerdida | null;
   ia_pausada: boolean;
+  /** Etapa de negocio previa al desvío administrativo; ausente en fixtures legacy. */
+  stage_before_handoff?: CurrentStage | null;
   extras: Record<string, unknown>;
   context_summary: string | null;
   /** Quién escribió cada campo del Twin; ausente = nadie lo escribió todavía. */
@@ -194,10 +196,32 @@ export interface Mensaje {
   idempotency_key: string | null;
   metadata: MensajeMetadata;
   created_at: Date;
+  /** Hora informada por Meta para entrantes; null en datos históricos/salientes. */
+  platform_created_at?: Date | null;
   /** Solo salientes. `null` mientras Meta no reporte el primer estado. */
   estado_entrega: EstadoEntrega | null;
   estado_entrega_at: Date | null;
   error_entrega: string | null;
+}
+
+export interface HandoffEvent {
+  id: UUID;
+  lead_session_id: UUID;
+  action: "pause" | "resume";
+  reason_code:
+    | "unknown_intents"
+    | "sensitive_keyword"
+    | "quote_limit"
+    | "discount_limit"
+    | "rule_handoff"
+    | "manual_pause"
+    | "manual_resume"
+    | "other";
+  source: "auto_handoff" | "agent_guard" | "rule" | "pipeline_guard" | "admin";
+  previous_stage: CurrentStage | null;
+  actor_user_id: UUID | null;
+  source_event_key: string;
+  created_at: Date;
 }
 
 export interface Intent {

@@ -1,5 +1,7 @@
 # Idempotency
 
+> **Aplicado (2026-08-12):** handoff `source_event_key` único, aviso `handoff-notice:<handoffEventId>` y cancelación de recordatorio por `(recordatorioId, recordarAt anterior)`. La guarda de fecha en Postgres se mantiene como segunda barrera aunque Inngest cancele el workflow.
+
 > Keys + dedup strategy por operación. Cada op replay-safe — Inngest puede reintentar sin side-effects duplicados.
 
 ## Principio

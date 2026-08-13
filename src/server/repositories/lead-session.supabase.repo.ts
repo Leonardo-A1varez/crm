@@ -257,6 +257,9 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
     }
     if (patch.metodo_pago !== undefined) updatePayload.metodo_pago = patch.metodo_pago;
     if (patch.ia_pausada !== undefined) updatePayload.ia_pausada = patch.ia_pausada;
+    if (patch.stage_before_handoff !== undefined) {
+      updatePayload.stage_before_handoff = patch.stage_before_handoff;
+    }
     if (patch.extras !== undefined) updatePayload.extras = patch.extras as never;
     if (patch.context_summary !== undefined) {
       updatePayload.context_summary = patch.context_summary;
@@ -460,6 +463,7 @@ interface LeadSessionRow {
   resultado: Resultado | null;
   motivo_perdida: MotivoPerdida | null;
   ia_pausada: boolean;
+  stage_before_handoff: CurrentStage | null;
   extras: unknown;
   context_summary: string | null;
   procedencia: unknown;
@@ -487,6 +491,7 @@ function mapRow(row: LeadSessionRow): LeadSession {
     resultado: row.resultado,
     motivo_perdida: row.motivo_perdida,
     ia_pausada: row.ia_pausada,
+    stage_before_handoff: row.stage_before_handoff,
     extras: structuredClone(extras),
     context_summary: row.context_summary,
     procedencia: (row.procedencia ?? {}) as Procedencia,

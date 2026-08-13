@@ -7,7 +7,7 @@ import path from "node:path";
  *
  * Requiere env vars (typically en .env.local):
  *   SUPABASE_TEST_URL              (e.g. https://<dev-ref>.supabase.co)
- *   SUPABASE_TEST_SERVICE_KEY      service_role key del proyecto dev
+ *   SUPABASE_TEST_SERVICE_KEY      service_role key del proyecto exclusivo de tests
  *
  * Vitest no auto-carga .env.local como Next.js. loadEnv del vite explicit.
  *

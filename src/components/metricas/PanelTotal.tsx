@@ -7,6 +7,7 @@ import { VolumenCanal } from "@/components/metricas/VolumenCanal";
 import { ContactEmergency, Savings, TaskAlt } from "@/components/icons";
 import { MonoMeta } from "@/components/shared/MonoMeta";
 import {
+  cantidad,
   deltaPuntos,
   deltaRelativo,
   formatearEntero,
@@ -57,7 +58,7 @@ export function PanelTotal({ m }: { m: Metricas }) {
       <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">
         <Seccion
           titulo="Embudo por etapa"
-          extra={`${formatearEntero(m.totalSesiones)} sesiones`}
+          extra={cantidad(m.totalSesiones, "sesión", "sesiones")}
           nota="El porcentaje es sobre el total de sesiones del período: las etapas no se acumulan, cada sesión cuenta una sola vez en la etapa donde está hoy."
         >
           {m.totalSesiones === 0 ? (
@@ -97,7 +98,7 @@ export function PanelTotal({ m }: { m: Metricas }) {
           />
         </Seccion>
 
-        <Seccion titulo="Quién contestó" extra={`${formatearEntero(respuestas)} respuestas`}>
+        <Seccion titulo="Quién contestó" extra={cantidad(respuestas, "respuesta")}>
           <BarraReparto
             vacio="Sin respuestas enviadas en el período."
             partes={[

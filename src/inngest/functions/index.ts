@@ -22,6 +22,8 @@ import type { ReactivationPredictorDeps } from "@/inngest/functions/reactivation
 import { makeReactivationPredictorFn } from "@/inngest/functions/reactivation-predictor.cron";
 import type { RecordatorioSeguimientoDeps } from "@/inngest/functions/recordatorio-seguimiento";
 import { makeRecordatorioSeguimientoFn } from "@/inngest/functions/recordatorio-seguimiento";
+import type { HandoffNotificationDeps } from "@/inngest/functions/handoff-notification";
+import { makeHandoffNotificationFn } from "@/inngest/functions/handoff-notification";
 import type { UpdateLeadTwinDeps } from "@/inngest/functions/update-lead-twin";
 import { makeUpdateLeadTwinFn } from "@/inngest/functions/update-lead-twin";
 
@@ -34,6 +36,7 @@ export interface CrmInngestDeps {
   purgeOldSessions: PurgeOldSessionsDeps;
   reactivationPredictor: ReactivationPredictorDeps;
   recordatorioSeguimiento: RecordatorioSeguimientoDeps;
+  handoffNotification: HandoffNotificationDeps;
   detectMergeCandidatesPerLead: DetectMergeCandidatesPerLeadDeps;
   detectMergeCandidatesGlobal: DetectMergeCandidatesGlobalDeps;
   dispatchOutboxEvents: DispatchOutboxEventsDeps;
@@ -49,6 +52,7 @@ export function makeCrmInngestFunctions(deps: CrmInngestDeps) {
     makePurgeOldSessionsFn(deps.purgeOldSessions),
     makeReactivationPredictorFn(deps.reactivationPredictor),
     makeRecordatorioSeguimientoFn(deps.recordatorioSeguimiento),
+    makeHandoffNotificationFn(deps.handoffNotification),
     makeDetectMergeCandidatesPerLeadFn(deps.detectMergeCandidatesPerLead),
     makeDetectMergeCandidatesGlobalFn(deps.detectMergeCandidatesGlobal),
     makeDispatchOutboxEventsFn(deps.dispatchOutboxEvents),

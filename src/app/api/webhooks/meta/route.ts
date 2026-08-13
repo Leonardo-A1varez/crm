@@ -5,10 +5,10 @@
  * `hub.verify_token`. Si match `env.META_VERIFY_TOKEN` → 200 `hub.challenge`.
  *
  * POST inbound: pipeline obligatorio regla §0.9.2:
- *   1. Rate-limit per IP (Upstash si configured, sino Noop fail-open dev).
- *   2. Read rawBody ANTES de JSON.parse (HMAC sobre bytes raw, JSON re-stringify
+ *   1. Read rawBody ANTES de JSON.parse (HMAC sobre bytes raw, JSON re-stringify
  *      cambia bytes y rompe verify).
- *   3. HMAC SHA-256 verify primera línea con `META_APP_SECRET`. Fail → 401.
+ *   2. HMAC SHA-256 verify antes de dependencias externas. Fail → 401.
+ *   3. Rate-limit per IP, solo después de autenticar el origen.
  *   4. JSON.parse rawBody → parseMetaWebhook → ParsedMessage[].
  *   5. Emit Inngest event `meta/message.received` per parsed message.
  *   6. 200 OK rápido (Meta enforce <20s response).
@@ -56,7 +56,19 @@ export function makeMetaWebhookHandlers(deps: MetaWebhookHandlersDeps) {
     async POST(req: Request): Promise<Response> {
       const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
 
-      // 1. Rate-limit per IP. Bloquea bursts antes de HMAC check (HMAC cuesta CPU).
+      // 1. Read rawBody PRE JSON.parse. HMAC sobre bytes exactos enviados por Meta.
+      const rawBody = await req.text();
+
+      // 2. HMAC antes de rate-limit, parser o Inngest (regla §0.9.2).
+      const signature = req.headers.get("X-Hub-Signature-256");
+      if (!verifyMetaSignature(rawBody, signature, deps.appSecret)) {
+        deps.logger.warn("meta.webhook.hmac.invalid", { ip });
+        return new Response("Unauthorized", { status: 401 });
+      }
+
+      // 3. Un request sin firma no puede consumir cuota de Redis ni provocar
+      // un 429 a Meta. HMAC es local y barato; el rate limit protege el origen
+      // autenticado antes de tocar Inngest.
       const limit = await deps.rateLimiter.limit(`meta-webhook:${ip}`);
       if (!limit.success) {
         deps.logger.warn("meta.webhook.rate_limited", { ip, reset: limit.reset });
@@ -65,16 +77,6 @@ export function makeMetaWebhookHandlers(deps: MetaWebhookHandlersDeps) {
           status: 429,
           headers: { "Retry-After": String(retryAfter) },
         });
-      }
-
-      // 2. Read rawBody PRE JSON.parse. HMAC sobre bytes exactos enviados por Meta.
-      const rawBody = await req.text();
-
-      // 3. HMAC verify primera línea (regla §0.9.2).
-      const signature = req.headers.get("X-Hub-Signature-256");
-      if (!verifyMetaSignature(rawBody, signature, deps.appSecret)) {
-        deps.logger.warn("meta.webhook.hmac.invalid", { ip });
-        return new Response("Unauthorized", { status: 401 });
       }
 
       // 4. JSON.parse. Si rawBody mal-formed → 400 (HMAC pasa con bytes válidos

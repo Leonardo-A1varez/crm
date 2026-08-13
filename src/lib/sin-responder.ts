@@ -19,8 +19,10 @@ export interface PendienteDeRespuesta {
  * Espera el hilo en orden cronológico (viejo → nuevo), que es el que devuelve
  * `listBySessionId`.
  */
-export function calcularSinResponder(mensajes: Mensaje[]): PendienteDeRespuesta {
-  const pendientes: Mensaje[] = [];
+export function calcularSinResponder(
+  mensajes: Array<Pick<Mensaje, "direction" | "sender" | "created_at">>,
+): PendienteDeRespuesta {
+  const pendientes: Array<Pick<Mensaje, "direction" | "sender" | "created_at">> = [];
   for (let i = mensajes.length - 1; i >= 0; i--) {
     const m = mensajes[i];
     if (!m) continue;

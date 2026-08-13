@@ -1,6 +1,6 @@
 # Arquitectura
 
-> Detalle vivo. Espejo de decisiones implementadas en `src/`. Actualizado post-REPAIR.
+> Detalle vivo. Espejo de decisiones implementadas en `src/`. Actualizado 2026-08-12.
 
 ## Capas (DDD-light)
 
@@ -90,6 +90,8 @@
 6. **Zod validation en boundary.** Services confían input typed. Excepción defensiva: twin-extractor re-parsea schema LLM output (anti-alucinación).
 7. **Idempotency end-to-end.** Cada step Inngest re-ejecutable sin side-effects duplicados. Ver `docs/idempotency.md`.
 8. **Service-role vs authed clients separados.** `src/server/db/client.ts` expone `serviceRole()` y `authed(jwt)`. Service-role solo en workflows + repos (RLS bypass). Authed solo en `src/app/**` (UI/Server Actions, RLS aplicada). ESLint enforcement vía `eslint-plugin-boundaries` (A7).
+9. **Errores tipados.** `DomainError` separa validación, estado, permisos, conflictos, presupuesto, infraestructura y rate limit. Los workflows reintentan `InfraError`/`RateLimitError`; nunca se lanza `Error` plano desde `src/server/**`.
+10. **Polling acotado.** Inbox usa una función SQL `security invoker` para traer una cola limitada por sesión; no puede descargar el historial completo en cada refresco.
 
 ## Patrones consolidados (post-REPAIR)
 

@@ -10,6 +10,11 @@ export interface ConteoMotivo {
   cantidad: number;
 }
 
+export interface TiempoRespuestaMedible {
+  medianaSegundos: number | null;
+  muestras: number;
+}
+
 export interface ConteoCanal {
   canal: Canal;
   cantidad: number;
@@ -156,13 +161,20 @@ export interface Metricas {
   autoria: Record<Sender, number>;
   /** Corte de sesiones según haya intervenido una persona. Suman `totalSesiones`. */
   agente: {
-    /** Nadie escribió como humano ni la sesión está pidiendo uno. */
-    sinHumano: number;
-    /** Un humano escribió, o la sesión quedó en `requiere_humano`. */
+    /** Nadie escribió como humano; puede incluir sesiones todavía abiertas. */
+    sinIntervencionHumana: number;
+    /** Sesiones terminadas sin que una persona haya escrito. */
+    resueltasPorIa: number;
     escaladas: number;
   };
   /** Sesiones de la ventana en las que una persona llegó a escribir. */
   tomadasPorHumano: number;
+  tiempoPrimeraRespuesta: {
+    ia: TiempoRespuestaMedible;
+    revisionAdministrativa: TiempoRespuestaMedible;
+    personas: TiempoRespuestaMedible;
+  };
+  razonesEscalado: ConteoMotivo[];
   /** El corte por persona del §3.3. */
   vendedores: {
     /** Una fila por vendedor con al menos una sesión tomada, de más a menos. */

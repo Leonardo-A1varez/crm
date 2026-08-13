@@ -1,6 +1,8 @@
 # Modelo de datos
 
-> Espejo de las 11 migraciones en `supabase/migrations/`. Detalle complementa `README.md §Modelo de datos`.
+> Espejo del modelo versionado en `supabase/migrations/`. Detalle complementa `README.md §Modelo de datos`. Los cambios QA autorizados pero todavía no verificados están separados en `docs/implementation-qa-2026-08-12.md`.
+
+> **Aplicado en `crm-dev` (2026-08-12):** `mensajes.platform_created_at`, `lead_session.stage_before_handoff` y `handoff_events` entraron en la migración `20260812222808`. Los datos históricos ausentes permanecen en `null`; no hay backfill inventado.
 
 ## Migraciones (orden)
 

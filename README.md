@@ -2,7 +2,9 @@
 
 CRM conversacional single-org self-hosted con agente IA seller multi-canal (WhatsApp, Instagram, Facebook), motor de intents + reglas, Lead Twin estructurado y workflows durables en Inngest.
 
-> **Estado actual:** Foundation completa (Fases 0-6 + REPAIR R1-R12 + Pre-Slice 1 hardening A1-A9). 394/394 tests pass, coverage 89%, 0 typecheck errors, CI verde. Integraciones reales con Supabase + OpenAI + Meta se conectan en **Slice 1** (siguiente). Detalle progreso → `AGENTS.md §2`. Histórico → `docs/changelog.md`.
+> **Estado actual (2026-08-12):** el rediseño A-G2, la cadena WhatsApp local y la integración real con Supabase, OpenAI y Meta están implementados. No está listo para piloto: catálogo vacío, integración contra una base de pruebas aislada pendiente, revisión visual humana pendiente y rendimiento de Inbox aún por validar bajo carga. Detalle vivo → `docs/next-session.md`; histórico → `docs/changelog.md`.
+
+> Correcciones QA y de flujo en checkpoint: contrato, resultado y pendientes en `docs/implementation-qa-2026-08-12.md`. Falta QA visual y validación autenticada de las RPC; no declarar el plan totalmente cerrado.
 
 ---
 
@@ -54,7 +56,7 @@ Diferenciadores frente a CRMs tradicionales (HubSpot, Pipedrive, Kommo):
 ## Qué NO hace
 
 - Multi-tenancy (single-org).
-- Pipeline kanban arrastrable, deals, tareas/recordatorios.
+- Pipeline kanban arrastrable, deals ni tareas genéricas. Sí incluye recordatorios de seguimiento vinculados a una sesión.
 - Email, SMS, llamadas.
 - Fine-tuning de modelos, RAG vectorial.
 - Workflows visuales tipo n8n (solo reglas IF/THEN).
@@ -77,10 +79,10 @@ Diferenciadores frente a CRMs tradicionales (HubSpot, Pipedrive, Kommo):
 | Workflows + cron               | **Inngest v4**                                           | Durable, retries, replay, dashboard.                                                    |
 | LLM                            | **Vercel AI SDK** (`@ai-sdk/openai`, GPT-4.x)            | `generateObject` Zod-typed, tool calling, multi-step `stopWhen`. Provider swap 1 línea. |
 | Mensajería                     | **Meta Cloud API** (WhatsApp Business + Graph API IG/FB) | Oficial.                                                                                |
-| Observability                  | Logger interface + Pino + Vercel Log Drains (Slice 1)    | Structured JSON.                                                                        |
-| Cost tracking                  | CostTracker + Vercel KV (Slice 1)                        | Daily cap kill switch.                                                                  |
-| Feature flags                  | FeatureFlags + Edge Config (Slice 1)                     | Hot reload sin redeploy.                                                                |
-| Locking                        | SessionLock + Postgres advisory lock (Slice 1)           | Single-flight twin extractor.                                                           |
+| Observability                  | Logger + Pino + Sentry/OTel env-gated                    | Logs estructurados; Sentry requiere DSN real antes de lanzamiento.                      |
+| Cost tracking                  | Persistencia `llm_usage` + CostTracker                   | Coste por turno, conversación y lead; el kill switch depende de Redis configurado.      |
+| Feature flags                  | FeatureFlags                                             | Sin dependencia de Edge Config en el piloto.                                            |
+| Locking                        | SessionLock + Postgres advisory lock                     | Single-flight twin extractor.                                                           |
 | Validación                     | **Zod** + zod env fail-fast                              | Schemas + runtime env.                                                                  |
 | Tests                          | **Vitest** + coverage v8 (threshold 80%)                 | Rápido, ESM nativo.                                                                     |
 | Formato                        | **Prettier** + prettier-plugin-tailwindcss               | Sort classes auto.                                                                      |
@@ -95,7 +97,7 @@ Arquitectura por capas: API/Action → Service → Repository → DB. **Nunca sa
 
 ## Cómo correr
 
-> Disponible cuando Slice 1 esté completo. Hasta entonces todo corre mock in-memory.
+> Requiere `.env.local` con las credenciales de desarrollo. El flujo real se probó localmente; no ejecutar integración hasta tener una base Supabase de pruebas separada.
 
 ```bash
 cd C:\Users\Tinki\Proyectos\crm
@@ -105,28 +107,32 @@ npm run dev                         # Next.js dev server (puerto 3001)
 npm run typecheck                   # tsc (src + tests separados)
 npm run lint                        # eslint + boundaries
 npm run format                      # prettier write
-npm test                            # vitest 394 tests
+npm test                            # tests unitarios
 npm run test:coverage               # con threshold 80/75/80/80
 npm run ci                          # typecheck + lint + format:check + test:coverage
 npm run inngest:dev                 # Inngest Dev Server localhost:8288
 ```
 
-Scripts Supabase (Slice 1+): `npm run db:push`, `db:gen-types`, `db:advisors`, `db:reset`.
+Scripts Supabase: `npm run db:push`, `db:gen-types`, `db:advisors`, `db:reset`.
+
+> **Seguridad de datos:** `npm run test:integration` está bloqueado hasta que `SUPABASE_TEST_URL` apunte a un proyecto exclusivo de pruebas. Hoy puede truncar `crm-dev`. Nunca usar `db:reset` ni tests destructivos contra la base de desarrollo o producción.
 
 ---
 
 ## Documentación técnica
 
-| Documento               | Contenido                                                          |
-| ----------------------- | ------------------------------------------------------------------ |
-| `AGENTS.md`             | Reglas de oro, estado actual, convenciones código, qué NO hacer.   |
-| `docs/architecture.md`  | Capas, patterns, flujo webhook→reply, AI SDK integration.          |
-| `docs/data-model.md`    | 13 migrations, enums, tablas, indexes, RLS planificadas.           |
-| `docs/workflows.md`     | 8 Inngest functions, events catalog, retry semantics.              |
-| `docs/idempotency.md`   | Keys por operación, race tolerance, dedup strategy.                |
-| `docs/failure-modes.md` | Tabla por workflow → modo de falla → retry/skip/alert.             |
-| `docs/cost-budget.md`   | Targets LLM, pricing tables, kill switch, alert thresholds.        |
-| `docs/changelog.md`     | Histórico completo: Fases 0-6 + REPAIR + Pre-Slice 1 + decisiones. |
+| Documento               | Contenido                                                        |
+| ----------------------- | ---------------------------------------------------------------- |
+| `AGENTS.md`             | Reglas de oro, estado actual, convenciones código, qué NO hacer. |
+| `docs/architecture.md`  | Capas, patterns, flujo webhook→reply, AI SDK integration.        |
+| `docs/data-model.md`    | Esquema, enums, tablas, índices y RLS implementados.             |
+| `docs/workflows.md`     | 8 Inngest functions, events catalog, retry semantics.            |
+| `docs/idempotency.md`   | Keys por operación, race tolerance, dedup strategy.              |
+| `docs/failure-modes.md` | Tabla por workflow → modo de falla → retry/skip/alert.           |
+| `docs/cost-budget.md`   | Targets LLM, pricing tables, kill switch, alert thresholds.      |
+| `docs/next-session.md`  | Estado verificable, bloqueantes y orden de trabajo.              |
+| `docs/runbooks/`        | Respuesta operativa: LLM, Meta, coste y rotación de secretos.    |
+| `docs/changelog.md`     | Histórico completo y decisiones.                                 |
 
 ---
 

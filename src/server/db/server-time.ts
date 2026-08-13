@@ -1,3 +1,4 @@
+import { InfraError } from "@/lib/errors";
 import type { AppClient } from "./client";
 import { mapPostgrestError } from "./postgrest-errors";
 
@@ -14,7 +15,7 @@ export async function serverNowIso(db: AppClient): Promise<string> {
   const { data, error } = await db.rpc("server_now");
   if (error) throw mapPostgrestError(error, { resource: "server_now" });
   if (data === null) {
-    throw new Error("server_now() devolvió null inesperadamente");
+    throw new InfraError("server_now() devolvió null inesperadamente", "postgrest");
   }
   return data;
 }

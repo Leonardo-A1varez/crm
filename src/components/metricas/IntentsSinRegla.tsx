@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { AutoAwesome } from "@/components/icons";
-import { formatearEntero, formatearUsd } from "@/lib/ui/metricas";
+import { cantidad, formatearUsd } from "@/lib/ui/metricas";
 import type { IntentSinRegla } from "@/types/metricas";
 
 const FECHA = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short" });
@@ -64,7 +64,7 @@ export function IntentsSinRegla({
             ) : null}
             {i.usos > 0 ? (
               <p className="text-ink-ghost mt-1 font-mono text-[9.5px] tabular-nums">
-                {`${formatearEntero(i.usos)} turnos`}
+                {cantidad(i.usos, "turno")}
                 {promedioTurnoUsd !== null && dias > 0
                   ? ` · ${formatearUsd((i.usos * promedioTurnoUsd) / dias)}/día`
                   : ""}

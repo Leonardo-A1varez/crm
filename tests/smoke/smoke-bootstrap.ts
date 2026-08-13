@@ -206,6 +206,13 @@ export function makeSmokeBundle(): SmokeBundle {
       sendReactivation,
     },
     recordatorioSeguimiento: { recordatorios, logger },
+    handoffNotification: {
+      sessions,
+      conversations,
+      configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
+      metaApi,
+      logger,
+    },
     detectMergeCandidatesPerLead: { detector: mergeDetector, logger },
     detectMergeCandidatesGlobal: { leads, detector: mergeDetector, logger },
     dispatchOutboxEvents: { outbox: eventOutbox, inngestEmit, logger },

@@ -61,6 +61,7 @@ $RECYCLE.BIN/
 supabase/.branches
 supabase/.temp
 .supabase/
+/backups/
 
 # tests
 playwright-report/

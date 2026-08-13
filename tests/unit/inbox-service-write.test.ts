@@ -19,7 +19,10 @@ import {
 import { InMemorySessionRecordatoriosRepository } from "@/server/repositories/session-recordatorios.repo";
 import { reposAuditoria } from "../mocks/inbox-auditoria";
 import { depsRecordatorios } from "../mocks/inbox-recordatorios";
-import type { ProgramarAvisoRecordatorioFn } from "@/server/services/inbox/inbox.service";
+import type {
+  CancelarAvisoRecordatorioFn,
+  ProgramarAvisoRecordatorioFn,
+} from "@/server/services/inbox/inbox.service";
 import type { Lead, LeadSession, UUID } from "@/types/entities";
 
 async function makeLead(
@@ -75,6 +78,7 @@ describe("DefaultInboxService write path", () => {
   let tags: InMemoryTagsRepository;
   let recordatorios: InMemorySessionRecordatoriosRepository;
   let programarAvisoSpy: Mock<ProgramarAvisoRecordatorioFn>;
+  let cancelarAvisoSpy: Mock<CancelarAvisoRecordatorioFn>;
   let client: MetaApiClient;
   let sendTextSpy: Mock<(input: MetaSendTextInput) => Promise<MetaSendResult>>;
   let svc: DefaultInboxService;
@@ -87,6 +91,7 @@ describe("DefaultInboxService write path", () => {
     tags = new InMemoryTagsRepository();
     recordatorios = new InMemorySessionRecordatoriosRepository();
     programarAvisoSpy = vi.fn(async () => {});
+    cancelarAvisoSpy = vi.fn(async () => {});
     sendTextSpy = vi.fn(async (_input: MetaSendTextInput) => ({
       meta_message_id: `wamid.${crypto.randomUUID()}`,
     }));
@@ -104,6 +109,7 @@ describe("DefaultInboxService write path", () => {
       ...reposAuditoria(),
       ...depsRecordatorios(recordatorios),
       programarAviso: programarAvisoSpy,
+      cancelarAviso: cancelarAvisoSpy,
     });
   });
 
@@ -858,6 +864,10 @@ describe("DefaultInboxService write path", () => {
       await svc.cancelarRecordatorio({ recordatorioId: r.id });
 
       expect((await recordatorios.findById(r.id))?.motivo_cancelacion).toBe("manual");
+      expect(cancelarAvisoSpy).toHaveBeenCalledWith({
+        recordatorioId: r.id,
+        recordarAt: EN_DOS_DIAS,
+      });
       await expect(
         svc.programarRecordatorio({
           sessionId: session.id,
@@ -903,6 +913,10 @@ describe("DefaultInboxService write path", () => {
           recordatorioId: r.id,
           leadSessionId: session.id,
           recordarAt: EN_UNA_SEMANA,
+        });
+        expect(cancelarAvisoSpy).toHaveBeenCalledWith({
+          recordatorioId: r.id,
+          recordarAt: EN_DOS_DIAS,
         });
       });
 

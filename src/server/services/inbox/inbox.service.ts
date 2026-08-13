@@ -131,6 +131,12 @@ export type ProgramarAvisoRecordatorioFn = (input: {
   recordarAt: Date;
 }) => Promise<void>;
 
+/** Cancela una ejecución durable concreta sin alcanzar reprogramaciones posteriores. */
+export type CancelarAvisoRecordatorioFn = (input: {
+  recordatorioId: UUID;
+  recordarAt: Date;
+}) => Promise<void>;
+
 export interface InboxService {
   /**
    * Lista leads con sesión activa (resultado IS NULL), ordenados por última

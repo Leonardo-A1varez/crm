@@ -1,6 +1,6 @@
 import { ConflictError } from "@/lib/errors";
 import { esAvance } from "@/lib/entrega";
-import type { Direction, EstadoEntrega } from "@/types/domain";
+import type { Direction, EstadoEntrega, Sender } from "@/types/domain";
 import type { Mensaje, UUID } from "@/types/entities";
 import type { Insert } from "./_types";
 
@@ -50,6 +50,16 @@ export interface BuscarContenidoFilter {
   limit: number;
 }
 
+/** Proyección mínima y sin metadata para el refresco recurrente del Inbox. */
+export interface InboxRecentMessage {
+  conversacion_id: UUID;
+  lead_session_id: UUID;
+  direction: Direction;
+  sender: Sender;
+  contenido: string | null;
+  created_at: Date;
+}
+
 // Deep clone defensivo de metadata (jsonb arbitrario). Garantiza parity con Supabase.
 function cloneMensaje(m: Mensaje): Mensaje {
   return { ...m, metadata: structuredClone(m.metadata) };
@@ -76,6 +86,11 @@ export interface MessagesRepository {
    * `lead_session_id`.
    */
   listBySessionIds(sessionIds: UUID[]): Promise<Mensaje[]>;
+  /**
+   * Cola acotada de cada sesión, ASC global. Es el read model del poller de
+   * Inbox: evita descargar el historial entero para calcular preview y triage.
+   */
+  listRecentBySessionIds(sessionIds: UUID[], limit: number): Promise<InboxRecentMessage[]>;
   /**
    * Mensajes cuyo texto contiene `q`, del más reciente al más viejo.
    *
@@ -125,6 +140,7 @@ export class InMemoryMessagesRepository implements MessagesRepository {
     }
     const msg: Mensaje = {
       ...input,
+      platform_created_at: input.platform_created_at ?? null,
       metadata: structuredClone(input.metadata),
       id: crypto.randomUUID(),
       created_at: new Date(),
@@ -187,6 +203,31 @@ export class InMemoryMessagesRepository implements MessagesRepository {
       .filter((m) => m.lead_session_id !== null && wanted.has(m.lead_session_id))
       .sort((a, b) => a.created_at.getTime() - b.created_at.getTime())
       .map(cloneMensaje);
+  }
+
+  async listRecentBySessionIds(sessionIds: UUID[], limit: number): Promise<InboxRecentMessage[]> {
+    if (sessionIds.length === 0 || limit <= 0) return [];
+    const wanted = new Set(sessionIds);
+    const bySession = new Map<UUID, Mensaje[]>();
+    for (const message of this.store.values()) {
+      if (!wanted.has(message.lead_session_id)) continue;
+      const bucket = bySession.get(message.lead_session_id) ?? [];
+      bucket.push(message);
+      bySession.set(message.lead_session_id, bucket);
+    }
+    return Array.from(bySession.values())
+      .flatMap((rows) =>
+        rows.sort((a, b) => a.created_at.getTime() - b.created_at.getTime()).slice(-limit),
+      )
+      .sort((a, b) => a.created_at.getTime() - b.created_at.getTime())
+      .map((message) => ({
+        conversacion_id: message.conversacion_id,
+        lead_session_id: message.lead_session_id,
+        direction: message.direction,
+        sender: message.sender,
+        contenido: message.contenido,
+        created_at: message.created_at,
+      }));
   }
 
   async buscarContenido(

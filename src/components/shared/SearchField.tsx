@@ -34,7 +34,7 @@ export function SearchField({
       {Object.entries(conservar ?? {}).map(([clave, valor]) => (
         <input key={clave} type="hidden" name={clave} value={valor} />
       ))}
-      <div className="bg-surface-elevated border-line-card flex items-center gap-2 rounded-[9px] border px-2.5 py-[7px]">
+      <div className="bg-surface-elevated border-line-card flex items-center gap-2 rounded-[9px] border py-1 pr-1 pl-2.5">
         <SearchIcon className="text-ink-ghost shrink-0" size={15} />
         <input
           type="search"
@@ -44,6 +44,12 @@ export function SearchField({
           aria-label={label}
           className="text-ink-body placeholder:text-ink-faint min-w-0 flex-1 bg-transparent text-[12px] outline-none"
         />
+        <button
+          type="submit"
+          className="bg-brand text-brand-ink rounded-[7px] px-2.5 py-1.5 text-[10.5px] font-semibold"
+        >
+          Buscar
+        </button>
       </div>
     </Form>
   );

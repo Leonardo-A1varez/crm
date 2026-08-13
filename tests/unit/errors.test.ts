@@ -2,12 +2,15 @@ import { describe, expect, test } from "vitest";
 import {
   ConflictError,
   DomainError,
+  InfraError,
   NotFoundError,
   PermissionDeniedError,
+  RateLimitError,
   ValidationError,
   isDomainError,
   isNonRetriable,
 } from "@/lib/errors";
+import { mapPostgrestError } from "@/server/db/postgrest-errors";
 
 describe("DomainError hierarchy", () => {
   test("NotFoundError extends DomainError + Error con resource/id", () => {
@@ -42,6 +45,19 @@ describe("DomainError hierarchy", () => {
     const e = new PermissionDeniedError("vendedor no puede editar productos");
     expect(e).toBeInstanceOf(PermissionDeniedError);
     expect(e.code).toBe("PERMISSION_DENIED");
+  });
+
+  test("InfraError y RateLimitError son DomainError reintentables", () => {
+    expect(isDomainError(new InfraError("PostgREST no disponible", "postgrest"))).toBe(true);
+    expect(isDomainError(new RateLimitError("Meta limitó", "meta"))).toBe(true);
+    expect(isNonRetriable(new InfraError("x"))).toBe(false);
+    expect(isNonRetriable(new RateLimitError("x"))).toBe(false);
+  });
+
+  test("PostgREST desconocido se mapea a InfraError reintentable", () => {
+    const error = mapPostgrestError({ code: "PGRST003", message: "pool timeout" });
+    expect(error).toBeInstanceOf(InfraError);
+    expect(isNonRetriable(error)).toBe(false);
   });
 
   test("isDomainError detecta clases del módulo", () => {

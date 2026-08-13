@@ -12,6 +12,7 @@ import { evaluarEscalado, textoDelCliente, type CondicionEscalado } from "@/lib/
 import type { AgenteConfigValores } from "@/types/agente";
 import type { RespuestaTipo } from "@/types/domain";
 import type { LeadSession, UUID } from "@/types/entities";
+import type { HandoffService } from "@/server/services/handoff.service";
 import type {
   BuscarRepuestoInput,
   BuscarRepuestoOutput,
@@ -103,6 +104,7 @@ export class DefaultAiAgentService implements AiAgentService {
     private readonly llm: AgentLLM,
     private readonly flags: FeatureFlags = new AllEnabledFeatureFlags(),
     private readonly toolExecutions: ToolExecutionsRepository = new NoopToolExecutionsRepository(),
+    private readonly handoff?: HandoffService,
   ) {}
 
   async respond(input: AgentTurnInput): Promise<AgentTurnResult> {
@@ -140,10 +142,22 @@ export class DefaultAiAgentService implements AiAgentService {
       // Mismo par de campos que la guarda de descuento del pipeline: pausada
       // para que el próximo mensaje tampoco lo conteste la IA, y en
       // `requiere_humano` para que la conversación aparezca en el triage.
-      await this.sessions.update(session.id, {
-        ia_pausada: true,
-        current_stage: "requiere_humano",
-      });
+      if (this.handoff) {
+        await this.handoff.pause({
+          sessionId: session.id,
+          reasonCode: escalado.condicion === "palabra" ? "sensitive_keyword" : "quote_limit",
+          source: "agent_guard",
+          sourceEventKey: `agent-guard:${session.id}:${input.mensajeOrigenId ?? escalado.condicion}`,
+          notifyCustomer: true,
+        });
+      } else {
+        // Compatibilidad de constructores de test antiguos. El bootstrap real
+        // siempre inyecta HandoffService y usa la transición transaccional.
+        await this.sessions.update(session.id, {
+          ia_pausada: true,
+          current_stage: "requiere_humano",
+        });
+      }
       return {
         source: "handoff",
         respuesta_tipo: "handoff",
@@ -157,6 +171,15 @@ export class DefaultAiAgentService implements AiAgentService {
     });
 
     if (ruleMatch) {
+      if (ruleMatch.respuesta_tipo === "handoff" && this.handoff) {
+        await this.handoff.pause({
+          sessionId: session.id,
+          reasonCode: "rule_handoff",
+          source: "rule",
+          sourceEventKey: `rule-handoff:${session.id}:${input.mensajeOrigenId ?? ruleMatch.regla_id}`,
+          notifyCustomer: true,
+        });
+      }
       return {
         source: ruleMatch.respuesta_tipo === "handoff" ? "handoff" : "rule",
         respuesta_tipo: ruleMatch.respuesta_tipo,

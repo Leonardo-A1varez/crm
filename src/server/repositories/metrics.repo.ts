@@ -23,6 +23,15 @@ export interface FilaMensajeMetrica {
    * vendedor sale de acá y no tiene otra fuente.
    */
   sender_user_id: string | null;
+  /** Solo entrantes; null en históricos o payload sin timestamp válido. */
+  platform_created_at?: Date | null;
+}
+
+export interface FilaHandoffMetrica {
+  lead_session_id: string;
+  action: "pause" | "resume";
+  reason_code: string;
+  created_at: Date;
 }
 
 /** Lead reducido a lo que las métricas necesitan contar: solo cuándo entró. */
@@ -106,6 +115,7 @@ export interface MetricsRepository {
   listTurnClassificationsDesde(desde: Date): Promise<FilaTurnClassificationMetrica[]>;
   listToolExecutionsDesde(desde: Date): Promise<FilaToolExecutionMetrica[]>;
   listLlmUsageDesde(desde: Date): Promise<FilaLlmUsageMetrica[]>;
+  listHandoffsDesde(desde: Date): Promise<FilaHandoffMetrica[]>;
   /**
    * Sin ventana: intents y reglas son configuración, no eventos. Cuáles tienen
    * regla es una foto del estado de hoy y no algo que haya pasado en el período.
@@ -128,6 +138,7 @@ export interface MetricsFixture {
   clasificaciones?: FilaTurnClassificationMetrica[];
   usuarios?: FilaUsuarioMetrica[];
   gastos?: FilaLlmUsageMetrica[];
+  handoffs?: FilaHandoffMetrica[];
 }
 
 export class InMemoryMetricsRepository implements MetricsRepository {
@@ -141,6 +152,7 @@ export class InMemoryMetricsRepository implements MetricsRepository {
   private readonly clasificaciones: FilaTurnClassificationMetrica[];
   private readonly usuarios: FilaUsuarioMetrica[];
   private readonly gastos: FilaLlmUsageMetrica[];
+  private readonly handoffs: FilaHandoffMetrica[];
 
   // Un objeto y no 9 parámetros posicionales: con nueve listas del mismo tipo
   // base, equivocarse de posición compila y falla en silencio.
@@ -155,6 +167,7 @@ export class InMemoryMetricsRepository implements MetricsRepository {
     this.clasificaciones = fixture.clasificaciones ?? [];
     this.usuarios = fixture.usuarios ?? [];
     this.gastos = fixture.gastos ?? [];
+    this.handoffs = fixture.handoffs ?? [];
   }
 
   async listSesionesDesde(desde: Date): Promise<FilaSesionMetrica[]> {
@@ -183,6 +196,10 @@ export class InMemoryMetricsRepository implements MetricsRepository {
 
   async listLlmUsageDesde(desde: Date): Promise<FilaLlmUsageMetrica[]> {
     return this.gastos.filter((g) => g.created_at.getTime() >= desde.getTime());
+  }
+
+  async listHandoffsDesde(desde: Date): Promise<FilaHandoffMetrica[]> {
+    return this.handoffs.filter((event) => event.created_at.getTime() >= desde.getTime());
   }
 
   async listIntentsActivos(): Promise<FilaIntentMetrica[]> {

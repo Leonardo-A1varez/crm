@@ -102,6 +102,11 @@ const PLANTILLA: Record<PlantillaSaliente, { chip: string; explicacion: string }
     explicacion:
       "Cuando entró el mensaje el negocio estaba cerrado, así que se contestó con el texto configurado y el turno terminó ahí: no corrió el clasificador, ni las reglas, ni el agente vendedor. Por eso no hay decisión, herramientas ni gasto para mostrar.",
   },
+  handoff: {
+    chip: "Aviso de revisión administrativa",
+    explicacion:
+      "El sistema pausó al agente y envió el aviso neutral configurado. Este texto no es una respuesta comercial y no confirma precios ni condiciones.",
+  },
 };
 
 function Detalle({ auditoria }: { auditoria: Auditoria }) {

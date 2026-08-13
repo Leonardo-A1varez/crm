@@ -21,6 +21,7 @@ export function makeLeadsService(db: AppClient): LeadsService {
     candidates: new SupabaseMergeCandidatesRepository(db),
     tags: new SupabaseTagsRepository(db),
     messages: new SupabaseMessagesRepository(db),
+    audit: new DefaultAdminAuditService(new SupabaseAdminAuditRepository(db)),
   });
 }
 

@@ -2,6 +2,8 @@
 
 > 6 functions definidas en `src/inngest/functions/`. Cada una = pure handler (testable) + factory binding (`makeXFn(deps)`). Real wireup deps en Slice 1 sub-paso 7.12.
 
+> **Aplicado en el checkpoint QA:** `recordatorio-seguimiento` usa `cancelOn` por `recordatorioId + recordarAt`, y los escalados automáticos publican un aviso durable e idempotente. Tests unitarios verdes; falta observar ambos workflows en Inngest local sin enviar mensajes reales a Meta.
+
 ## Patrón factory + handler
 
 ```typescript

@@ -6,17 +6,21 @@ import { cn } from "@/lib/utils";
 import type { ToggleHandoffInput } from "@/lib/validation/inbox.schema";
 import type { ActionResult } from "@/types/inbox";
 import type { UUID } from "@/types/entities";
+import type { ConversationView } from "@/types/inbox";
+import { motivoHandoffLabel } from "@/lib/ui/handoff";
 
 export function HandoffToggle({
   leadId,
   sessionId,
   iaPausada,
   onToggle,
+  handoffStatus,
 }: {
   leadId: UUID;
   sessionId: UUID;
   iaPausada: boolean;
   onToggle: (input: ToggleHandoffInput) => Promise<ActionResult>;
+  handoffStatus: ConversationView["handoffStatus"];
 }) {
   const [isPending, startTransition] = useTransition();
 
@@ -57,7 +61,11 @@ export function HandoffToggle({
           iaPausada ? "bg-warn" : "bg-ok animate-pulse-dot",
         )}
       />
-      {iaPausada ? "IA pausada" : "IA activa"}
+      {iaPausada && handoffStatus
+        ? `Revisión administrativa · ${motivoHandoffLabel(handoffStatus.motivo)} · aviso ${handoffStatus.aviso === "no_aplica" ? "no enviado" : handoffStatus.aviso}`
+        : iaPausada
+          ? "Revisión administrativa"
+          : "IA activa"}
     </button>
   );
 }

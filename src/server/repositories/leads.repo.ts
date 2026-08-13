@@ -43,6 +43,18 @@ export interface LeadsRepository {
   findByMetaUserId(canal: Canal, metaUserId: string): Promise<Lead | null>;
   update(id: UUID, patch: LeadUpdate): Promise<Lead>;
   list(filter?: LeadListFilter): Promise<Lead[]>;
+  /**
+   * Varios leads por id, de una sola consulta.
+   *
+   * Existe para la bandeja: `listActive()` devuelve sesiones y de cada una hay
+   * que llegar al lead. Con un `findById` por sesión eso es una consulta por
+   * fila de la pantalla, y el poller la repite cada 5 segundos.
+   *
+   * Ids inexistentes o no-UUID simplemente no aparecen: no es un error, entre
+   * dos consultas alguien pudo borrar el lead. Mismo criterio que
+   * `LeadSessionRepository.listByIds`.
+   */
+  listByIds(ids: UUID[]): Promise<Lead[]>;
   // Borra el lead (merge: perdedor post-reasignación). Id inexistente o
   // no-UUID = no-op (replay-safe). FK CASCADE limpia merge_candidates del
   // lead. Con cliente authed (vendedor), si RLS deniega el DELETE lanza
@@ -155,6 +167,14 @@ export class InMemoryLeadsRepository implements LeadsRepository {
     const offset = filter.offset ?? 0;
     const limit = filter.limit ?? rows.length;
     return rows.slice(offset, offset + limit).map(cloneLead);
+  }
+
+  async listByIds(ids: UUID[]): Promise<Lead[]> {
+    if (ids.length === 0) return [];
+    const buscados = new Set(ids);
+    return Array.from(this.store.values())
+      .filter((l) => buscados.has(l.id))
+      .map(cloneLead);
   }
 
   async delete(id: UUID): Promise<void> {

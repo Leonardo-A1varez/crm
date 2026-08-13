@@ -18,6 +18,7 @@ import type {
   VehiculoOpcion,
 } from "@/types/leads";
 import type { LeadsListInput, LeadsService } from "./leads.service";
+import { ADMIN_ACTIONS, type AdminAuditService } from "@/server/services/admin-audit.service";
 
 // Cap defensivo (patrón fase 9): sin paginación v1, la búsqueda acota.
 const LIST_LIMIT = 1000;
@@ -30,11 +31,12 @@ export interface DefaultLeadsServiceDeps {
   tags: TagsRepository;
   /** Solo para el filtro "sin responder": los hilos se leen agrupados. */
   messages: MessagesRepository;
+  audit: AdminAuditService;
 }
 
 /** "Toyota Corolla 2018". El año se omite cuando la fila no lo tiene. */
-function textoVehiculo(marca: string, modelo: string, anio: number): string {
-  return [marca, modelo, anio > 0 ? String(anio) : ""]
+function textoVehiculo(marca: string | null, modelo: string | null, anio: number | null): string {
+  return [marca ?? "", modelo ?? "", anio !== null && anio > 0 ? String(anio) : ""]
     .map((s) => s.trim())
     .filter(Boolean)
     .join(" ");
@@ -53,9 +55,9 @@ function vehiculoDe(lead: Lead): string {
 function vehiculosDe(leads: readonly Lead[]): VehiculoOpcion[] {
   const out = new Map<string, VehiculoOpcion>();
   for (const l of leads) {
-    const marca = l.vehiculo_marca.trim();
-    const modelo = l.vehiculo_modelo.trim();
-    const anio = l.vehiculo_anio > 0 ? l.vehiculo_anio : 0;
+    const marca = l.vehiculo_marca?.trim() ?? "";
+    const modelo = l.vehiculo_modelo?.trim() ?? "";
+    const anio = l.vehiculo_anio !== null && l.vehiculo_anio > 0 ? l.vehiculo_anio : 0;
     const texto = textoVehiculo(marca, modelo, anio);
     if (texto === "") continue;
     const clave = `${marca}|${modelo}|${anio}`;
@@ -253,5 +255,44 @@ export class DefaultLeadsService implements LeadsService {
       sesionActiva: sesiones.find((s) => s.resultado === null) ?? null,
       duplicados,
     };
+  }
+
+  async updateLeadProfile(
+    input: import("@/lib/validation/leads.schema").UpdateLeadProfileInput & {
+      actorUserId: UUID;
+    },
+  ): Promise<{ lead: Lead; changedFields: string[] }> {
+    const current = await this.deps.leads.findById(input.leadId);
+    if (!current) {
+      throw new NotFoundError(`lead no encontrado: ${input.leadId}`, "lead", input.leadId);
+    }
+
+    const requested = {
+      nombre: input.nombre,
+      email: input.email,
+      direccion: input.direccion,
+      vehiculo_marca: input.vehiculoMarca,
+      vehiculo_modelo: input.vehiculoModelo,
+      vehiculo_anio: input.vehiculoAnio,
+      vehiculo_motor: input.vehiculoMotor,
+    };
+    const changedFields = Object.entries(requested)
+      .filter(([field, value]) => current[field as keyof typeof requested] !== value)
+      .map(([field]) => field);
+
+    if (changedFields.length === 0) return { lead: current, changedFields };
+
+    const patch = Object.fromEntries(
+      Object.entries(requested).filter(([field]) => changedFields.includes(field)),
+    );
+    const lead = await this.deps.leads.update(current.id, patch);
+    await this.deps.audit.recordAction({
+      actorUserId: input.actorUserId,
+      action: ADMIN_ACTIONS.LEAD_UPDATE,
+      entityType: "lead",
+      entityId: current.id,
+      payload: { fields: changedFields },
+    });
+    return { lead, changedFields };
   }
 }

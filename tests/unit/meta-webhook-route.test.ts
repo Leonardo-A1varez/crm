@@ -93,6 +93,22 @@ describe("meta webhook POST — HMAC verify", () => {
     expect((deps.inngest as { send: ReturnType<typeof vi.fn> }).send).not.toHaveBeenCalled();
   });
 
+  test("firma inválida no consume cuota del rate limiter", async () => {
+    const limit = vi.fn();
+    const deps = makeDeps({ rateLimiter: { limit } as unknown as RateLimiter });
+    const { POST } = makeMetaWebhookHandlers(deps);
+    const body = JSON.stringify({ object: "whatsapp_business_account", entry: [] });
+    const res = await POST(
+      new Request("http://localhost/api/webhooks/meta", {
+        method: "POST",
+        body,
+        headers: { "X-Hub-Signature-256": "sha256=deadbeef" },
+      }),
+    );
+    expect(res.status).toBe(401);
+    expect(limit).not.toHaveBeenCalled();
+  });
+
   test("signature válida con secret incorrecto → 401", async () => {
     const deps = makeDeps();
     const { POST } = makeMetaWebhookHandlers(deps);
@@ -245,7 +261,7 @@ describe("meta webhook POST — emit pipeline", () => {
 // POST rate-limit
 // ============================================================================
 describe("meta webhook POST — rate-limit", () => {
-  test("rate-limit exceeded → 429 sin verificar HMAC ni emit", async () => {
+  test("rate-limit exceeded → 429 después de verificar HMAC y sin emit", async () => {
     const exceeded: RateLimiter = {
       async limit() {
         return { success: false, remaining: 0, limit: 100, reset: Date.now() + 60000 };

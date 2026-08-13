@@ -50,6 +50,8 @@ export interface AgenteConfigValores {
   horario: Horario;
   horario_timezone: string;
   plantilla_fuera_horario: string;
+  /** Aviso neutral que recibe el cliente al escalar automáticamente. */
+  plantilla_escalado: string;
 }
 
 /** Una versión persistida: valores + procedencia. */

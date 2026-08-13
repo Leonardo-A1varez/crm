@@ -108,6 +108,38 @@ export function runConversationsContract(
       expect(await repo.findByLeadId(fixtures.leadIds.empty)).toEqual([]);
     });
 
+    test("listByLeadIds trae los hilos de varios leads en un solo orden DESC", async () => {
+      const viejaA = await repo.create(
+        baseInsert(fixtures.leadIds.A, { canal: "wa", canal_thread_id: "lote-a1" }),
+      );
+      await new Promise((r) => setTimeout(r, 5));
+      const deB = await repo.create(
+        baseInsert(fixtures.leadIds.B, { canal: "wa", canal_thread_id: "lote-b1" }),
+      );
+      await new Promise((r) => setTimeout(r, 5));
+      const nuevaA = await repo.create(
+        baseInsert(fixtures.leadIds.A, { canal: "ig", canal_thread_id: "lote-a2" }),
+      );
+      // De otro lead que no se pide: no puede colarse.
+      await repo.create(baseInsert(fixtures.leadIds.one, { canal_thread_id: "lote-otro" }));
+
+      const list = await repo.listByLeadIds([fixtures.leadIds.A, fixtures.leadIds.B]);
+
+      expect(list.map((c) => c.id)).toEqual([nuevaA.id, deB.id, viejaA.id]);
+      // Agrupar por lead conservando ese orden deja cada grupo como lo devuelve
+      // `findByLeadId`: es de lo que depende la bandeja para elegir el hilo
+      // activo sin una consulta por fila.
+      expect(list.filter((c) => c.lead_id === fixtures.leadIds.A).map((c) => c.id)).toEqual([
+        nuevaA.id,
+        viejaA.id,
+      ]);
+    });
+
+    test("listByLeadIds sin ids no consulta y devuelve vacío", async () => {
+      await repo.create(baseInsert(fixtures.leadIds.one, { canal_thread_id: "lote-vacio" }));
+      expect(await repo.listByLeadIds([])).toEqual([]);
+    });
+
     test("upsertByCanalThread crea cuando no existe", async () => {
       const c = await repo.upsertByCanalThread("wa", "thread_new", fixtures.leadIds.one);
       expect(c.lead_id).toBe(fixtures.leadIds.one);

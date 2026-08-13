@@ -1,6 +1,12 @@
 import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
 import { UMBRAL_INTENTS_MAX, UMBRAL_INTENTS_MIN } from "@/lib/agente/escalado";
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
+import {
+  InMemoryHandoffEventsRepository,
+  type HandoffEventsRepository,
+  type HandoffReasonCode,
+  type HandoffSource,
+} from "@/server/repositories/handoff-events.repo";
 import type { HandoffDecision, IntentClassification } from "@/lib/validation/ai";
 import { ConflictError, NotFoundError } from "@/lib/errors";
 import {
@@ -23,8 +29,23 @@ export interface AutoHandoffInput {
   threshold?: number;
 }
 
+export interface PauseHandoffInput {
+  sessionId: UUID;
+  reasonCode: HandoffReasonCode;
+  source: HandoffSource;
+  sourceEventKey?: string;
+  notifyCustomer?: boolean;
+}
+
+export interface ResumeHandoffInput {
+  sessionId: UUID;
+  sourceEventKey?: string;
+}
+
 export interface HandoffService {
+  pause(input: PauseHandoffInput): Promise<LeadSession>;
   pause(sessionId: UUID, motivo: string): Promise<LeadSession>;
+  resume(input: ResumeHandoffInput): Promise<LeadSession>;
   resume(sessionId: UUID): Promise<LeadSession>;
   evaluate(input: AutoHandoffInput): HandoffDecision;
   /**
@@ -48,27 +69,62 @@ function acotarUmbral(valor: number): number {
 
 export class DefaultHandoffService implements HandoffService {
   private readonly config: AgentConfigProvider;
+  private readonly events: HandoffEventsRepository;
 
   constructor(
     private readonly sessions: LeadSessionRepository,
     config?: AgentConfigProvider,
+    events?: HandoffEventsRepository,
   ) {
     // Sin provider el servicio sigue siendo usable (el panel de Bandeja solo
     // llama pause/resume) y `evaluateConConfig` devuelve lo mismo que
     // `evaluate`, en vez de fallar por una dependencia que ese caso no usa.
     this.config = config ?? new StaticAgentConfigProvider(CONFIG_DE_FABRICA);
+    this.events = events ?? new InMemoryHandoffEventsRepository(sessions);
   }
 
-  async pause(sessionId: UUID, _motivo: string): Promise<LeadSession> {
+  async pause(input: PauseHandoffInput): Promise<LeadSession>;
+  async pause(sessionId: UUID, motivo: string): Promise<LeadSession>;
+  async pause(inputOrId: PauseHandoffInput | UUID, _legacyMotivo?: string): Promise<LeadSession> {
+    const input: PauseHandoffInput =
+      typeof inputOrId === "string"
+        ? { sessionId: inputOrId, reasonCode: "manual_pause", source: "admin" }
+        : inputOrId;
+    const sessionId = input.sessionId;
     const current = await this.requireOpen(sessionId);
     if (current.ia_pausada) return current;
-    return this.sessions.update(sessionId, { ia_pausada: true });
+    const sourceEventKey =
+      input.sourceEventKey ??
+      `${input.source}:pause:${sessionId}:${current.updated_at.toISOString()}`;
+    const result = await this.events.transition({
+      sessionId,
+      action: "pause",
+      reasonCode: input.reasonCode,
+      source: input.source,
+      sourceEventKey,
+      notifyCustomer: input.notifyCustomer ?? false,
+    });
+    return result.session;
   }
 
-  async resume(sessionId: UUID): Promise<LeadSession> {
+  async resume(input: ResumeHandoffInput): Promise<LeadSession>;
+  async resume(sessionId: UUID): Promise<LeadSession>;
+  async resume(inputOrId: ResumeHandoffInput | UUID): Promise<LeadSession> {
+    const input = typeof inputOrId === "string" ? { sessionId: inputOrId } : inputOrId;
+    const sessionId = input.sessionId;
     const current = await this.requireOpen(sessionId);
     if (!current.ia_pausada) return current;
-    return this.sessions.update(sessionId, { ia_pausada: false });
+    const sourceEventKey =
+      input.sourceEventKey ?? `admin:resume:${sessionId}:${current.updated_at.toISOString()}`;
+    const result = await this.events.transition({
+      sessionId,
+      action: "resume",
+      reasonCode: "manual_resume",
+      source: "admin",
+      sourceEventKey,
+      notifyCustomer: false,
+    });
+    return result.session;
   }
 
   evaluate(input: AutoHandoffInput): HandoffDecision {

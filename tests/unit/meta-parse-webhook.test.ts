@@ -66,6 +66,7 @@ describe("parseMetaWebhook", () => {
       tipo: "text",
       contenido: "hola, hay pastillas?",
       media_url: null,
+      platform_created_at: new Date("2023-11-14T22:13:20.000Z"),
     });
   });
 
@@ -75,7 +76,7 @@ describe("parseMetaWebhook", () => {
         {
           sender: { id: "IGSID_LEAD" },
           recipient: { id: "PAGE" },
-          timestamp: 1700000000,
+          timestamp: 1700000000000,
           message: { mid: "mid.123", text: "hola" },
         },
       ]),
@@ -89,6 +90,7 @@ describe("parseMetaWebhook", () => {
       meta_message_id: "mid.123",
       tipo: "text",
       contenido: "hola",
+      platform_created_at: new Date("2023-11-14T22:13:20.000Z"),
     });
   });
 
@@ -108,6 +110,17 @@ describe("parseMetaWebhook", () => {
     expect(result[0].canal).toBe("fb");
     expect(result[0].canal_thread_id).toBe("FB_PSID");
     expect(result[0].contenido).toBe("hola fb");
+  });
+
+  test("timestamp ausente o inválido queda null, nunca usa la recepción", () => {
+    const [wa] = parseMetaWebhook(
+      waPayload([{ from: "1", id: "m1", timestamp: "roto", type: "text", text: { body: "x" } }]),
+    );
+    const [ig] = parseMetaWebhook(
+      igPayload([{ sender: { id: "1" }, message: { mid: "m2", text: "x" } }]),
+    );
+    expect(wa?.platform_created_at).toBeNull();
+    expect(ig?.platform_created_at).toBeNull();
   });
 
   test("WA image sin caption produce ParsedMessage tipo=image contenido null", () => {

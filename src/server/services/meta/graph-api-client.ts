@@ -1,4 +1,4 @@
-import { ConflictError, ValidationError } from "@/lib/errors";
+import { InfraError, RateLimitError, ValidationError } from "@/lib/errors";
 import { withSpan } from "@/lib/observability/tracing";
 import type {
   MetaApiClient,
@@ -62,11 +62,11 @@ interface GraphErrorBody {
  * (pilot WA-only puede arrancar; agregar env vars cuando cliente conecte IG/FB).
  *
  * Error mapping Graph API (todos los canales):
- * - 429 rate-limit → ConflictError "meta_rate_limited" (retryable)
+ * - 429 rate-limit → RateLimitError (retryable)
  * - 400 invalid request → ValidationError (NonRetriable bug del caller o
  *   IG/FB 24h messaging window cerrada)
  * - 401/403 auth → ValidationError "meta_unauthorized" (token expirado/scope)
- * - 5xx server → generic Error (Inngest retry handles)
+ * - 5xx server → InfraError (Inngest retry handles)
  */
 export class GraphApiMetaClient implements MetaApiClient {
   private readonly fetchImpl: typeof fetch;
@@ -182,11 +182,7 @@ async function throwMappedGraphError(res: Response, operation: string): Promise<
   const ctx = { operation, status: res.status, code: errCode, trace };
 
   if (res.status === 429) {
-    throw new ConflictError(
-      `Meta rate-limited (${operation}): ${errMsg}`,
-      "meta_rate_limited",
-      ctx,
-    );
+    throw new RateLimitError(`Meta rate-limited (${operation}): ${errMsg}`, "meta", undefined, ctx);
   }
   if (res.status === 401 || res.status === 403) {
     throw new ValidationError(`Meta auth error (${operation}): ${errMsg}`, ctx);
@@ -194,6 +190,6 @@ async function throwMappedGraphError(res: Response, operation: string): Promise<
   if (res.status === 400) {
     throw new ValidationError(`Meta invalid request (${operation}): ${errMsg}`, ctx);
   }
-  // 5xx + otros: generic Error → Inngest retry.
-  throw new Error(`Meta ${operation} HTTP ${res.status}: ${errMsg}`);
+  // 5xx + otros: dependencia transitoria → Inngest retry.
+  throw new InfraError(`Meta ${operation} HTTP ${res.status}: ${errMsg}`, "meta", ctx);
 }

@@ -168,6 +168,10 @@ export interface ConversationView {
    * ninguno y el Twin ofrece programarlo.
    */
   recordatorio: SessionRecordatorio | null;
+  handoffStatus: {
+    motivo: import("@/types/entities").HandoffEvent["reason_code"];
+    aviso: "enviado" | "pendiente" | "no_aplica";
+  } | null;
 }
 
 /**

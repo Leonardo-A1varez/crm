@@ -86,6 +86,33 @@ export class BudgetExceededError extends DomainError {
   }
 }
 
+/** Fallo transitorio de una dependencia externa o de infraestructura. */
+export class InfraError extends DomainError {
+  readonly code = "INFRA";
+
+  constructor(
+    message: string,
+    public readonly dependency?: string,
+    cause?: unknown,
+  ) {
+    super(message, cause);
+  }
+}
+
+/** Una dependencia pidió bajar el ritmo; es reintentable, no un conflicto de dominio. */
+export class RateLimitError extends DomainError {
+  readonly code = "RATE_LIMIT";
+
+  constructor(
+    message: string,
+    public readonly dependency?: string,
+    public readonly retryAfterSeconds?: number,
+    cause?: unknown,
+  ) {
+    super(message, cause);
+  }
+}
+
 export function isDomainError(e: unknown): e is DomainError {
   return e instanceof DomainError;
 }

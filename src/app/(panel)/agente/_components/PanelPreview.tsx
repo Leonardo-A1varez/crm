@@ -15,12 +15,14 @@ import type { AgenteConfigValores } from "@/types/agente";
 export function PanelPreview({
   valores,
   sesiones,
+  disponible,
   onPrevisualizar,
   resultado,
   cargando,
 }: {
   valores: AgenteConfigValores;
   sesiones: { id: string; etiqueta: string }[];
+  disponible: boolean;
   onPrevisualizar: (leadSessionId: string) => Promise<void>;
   resultado: { respuesta: string; respuestaOriginal: string | null } | null;
   cargando: boolean;
@@ -43,7 +45,11 @@ export function PanelPreview({
         tono: {valores.tono} · largo: {valores.largo} · emojis: {valores.emojis} · {valores.modelo}
       </MonoMeta>
 
-      {sesiones.length === 0 ? (
+      {!disponible ? (
+        <p className="text-status-warning text-[10.5px]">
+          Preview temporalmente no disponible. La configuración y las reglas siguen operativas.
+        </p>
+      ) : sesiones.length === 0 ? (
         <p className="text-ink-ghost text-[10.5px] italic">No hay sesiones disponibles.</p>
       ) : (
         <div className="flex items-center gap-2">

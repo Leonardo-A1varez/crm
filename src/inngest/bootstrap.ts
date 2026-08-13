@@ -27,6 +27,7 @@ import { DefaultTwinExtractorService } from "@/server/services/twin-extractor.se
 
 import { SupabaseConversationsRepository } from "@/server/repositories/conversations.supabase.repo";
 import { SupabaseEventOutboxRepository } from "@/server/repositories/event-outbox.supabase.repo";
+import { SupabaseHandoffEventsRepository } from "@/server/repositories/handoff-events.supabase.repo";
 import { SupabaseIntentsRepository } from "@/server/repositories/intents.supabase.repo";
 import { SupabaseLeadSessionRepository } from "@/server/repositories/lead-session.supabase.repo";
 import { SupabaseLeadsRepository } from "@/server/repositories/leads.supabase.repo";
@@ -56,6 +57,7 @@ import type { CrmInngestClient } from "@/inngest/client";
 import type { CrmInngestDeps } from "@/inngest/functions";
 
 import { makeEmitForOnMessageReceived, makeInngestEmitForOutbox } from "@/inngest/callbacks/emit";
+import { recordatorioCancelado } from "@/inngest/events";
 import { makePurgeSession } from "@/inngest/callbacks/purge-session";
 import { makeSendReactivation } from "@/inngest/callbacks/send-reactivation";
 
@@ -97,6 +99,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   const eventOutbox = new SupabaseEventOutboxRepository(db);
   const toolExecutions = new SupabaseToolExecutionsRepository(db);
   const recordatorios = new SupabaseSessionRecordatoriosRepository(db);
+  const handoffEvents = new SupabaseHandoffEventsRepository(db, sessions);
 
   // ===== Infrastructure (cost tracker, LLM bundle) =====
   // Dos responsabilidades distintas, deliberadamente separadas:
@@ -156,7 +159,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   const twinExtractor = new DefaultTwinExtractorService(sessions, llmBundle.twinExtractor);
   // Con el provider, el umbral de escalado sale de la config activa en vez
   // del valor de fábrica: es el mismo cache de 30s que usa el resto del turno.
-  const handoff = new DefaultHandoffService(sessions, agenteConfigProvider);
+  const handoff = new DefaultHandoffService(sessions, agenteConfigProvider, handoffEvents);
   const metaApi = new DefaultMetaApiService(conversations, messages, metaClient);
   const mergeDetector = new DefaultLeadMergeDetectorService(leads, mergeCandidates);
   const aiAgent = new DefaultAiAgentService(
@@ -166,6 +169,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     llmBundle.agent,
     undefined, // flags (default AllEnabled)
     toolExecutions,
+    handoff,
   );
 
   // ===== Callbacks =====
@@ -188,7 +192,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     logger: logger.child({ scope: "send-reactivation" }),
   });
 
-  // ===== CrmInngestDeps wireup (10 functions) =====
+  // ===== CrmInngestDeps wireup =====
   const deps: CrmInngestDeps = {
     onMessageReceived: {
       leads,
@@ -198,6 +202,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       metaApi,
       intentClassifier,
       aiAgent,
+      handoff,
       // Misma instancia usada por el LlmBundle: un solo cache de 30s sirve a
       // todo el pipeline en vez de duplicar lecturas a la DB.
       configProvider: agenteConfigProvider,
@@ -206,6 +211,16 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       intents,
       // Apaga el seguimiento apenas el cliente vuelve a escribir.
       recordatorios,
+      cancelarAvisoRecordatorio: async (input) => {
+        await inngest.send({
+          name: recordatorioCancelado.name,
+          data: {
+            recordatorioId: input.recordatorioId,
+            recordarAt: input.recordarAt.toISOString(),
+          },
+          id: `recordatorio-cancelado:${input.recordatorioId}:${input.recordarAt.toISOString()}`,
+        });
+      },
       emit,
       logger,
     },
@@ -239,6 +254,13 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       // `avisarAlCliente` NO se wirea a propósito: el recordatorio avisa al
       // vendedor y no le manda nada al cliente. Ver el comentario largo en
       // `recordatorio-seguimiento.ts`.
+      logger,
+    },
+    handoffNotification: {
+      sessions,
+      conversations,
+      configProvider: agenteConfigProvider,
+      metaApi,
       logger,
     },
     detectMergeCandidatesPerLead: {

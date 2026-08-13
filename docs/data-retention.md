@@ -193,7 +193,7 @@ Per legislaciones Latam, retention obligatoria pese a solicitud erasure:
 - **Frequency:** monthly cron via Inngest.
 - **Method:** `pg_dump` → encrypt (gpg) → upload S3 cliente bucket.
 - **Retention:** 1 año.
-- **Restore:** documented runbook `docs/runbooks/restore-from-backup.md` (Slice 4).
+- **Restore:** el runbook `docs/runbooks/restore-from-backup.md` aún no existe. No afirmar capacidad de restore operativa hasta crearlo y ejercitarla.
 
 ### Backup compliance considerations
 
@@ -278,7 +278,7 @@ Retention `admin_actions`: **5 años mínimo** (no purgable sin DPO authorizatio
 | Colombia  | <15 días hábiles  | <15 días hábiles    |
 | Perú      | <60 días          | <60 días            |
 
-### Runbook → `docs/runbooks/data-breach.md` (Slice 4)
+### Runbook de incidente de datos (pendiente)
 
 ---
 
@@ -292,7 +292,7 @@ Retention `admin_actions`: **5 años mínimo** (no purgable sin DPO authorizatio
 | Backup data subject to same rules | Documented + automation expire backup data >retention                      |
 | Audit trail 5 años                | `admin_actions` no-purge sin DPO + S3 archive yearly                       |
 | Sub-processor disclosure          | `docs/data-retention.md` § 6 + aviso privacidad cliente                    |
-| Breach notification               | `docs/runbooks/data-breach.md` + alert canal (Slice 1 7.7)                 |
+| Breach notification               | Runbook de incidente de datos pendiente + canal de alertas por definir     |
 | DPO contact                       | Per-client config UI (admin settings)                                      |
 
 ---

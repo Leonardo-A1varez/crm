@@ -38,6 +38,7 @@ function aValores(c: AgenteConfigValores): AgenteConfigValores {
     horario: c.horario,
     horario_timezone: c.horario_timezone,
     plantilla_fuera_horario: c.plantilla_fuera_horario,
+    plantilla_escalado: c.plantilla_escalado,
   };
 }
 

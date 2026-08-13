@@ -30,6 +30,18 @@ export function formatearEntero(n: number): string {
   return ENTERO.format(n);
 }
 
+export function formatearEspera(segundos: number | null): string {
+  if (segundos === null) return "—";
+  if (segundos < 60) return `${segundos} s`;
+  const minutos = Math.floor(segundos / 60);
+  const resto = segundos % 60;
+  return resto === 0 ? `${minutos} m` : `${minutos} m ${resto} s`;
+}
+
+export function cantidad(n: number, singular: string, plural = `${singular}s`): string {
+  return `${formatearEntero(n)} ${n === 1 ? singular : plural}`;
+}
+
 /**
  * USD con la precisión que el número necesita. Un turno con un modelo nano
  * cuesta del orden de una milésima de dólar: con dos decimales fijos, todo el

@@ -12,6 +12,17 @@ export interface ConversationsRepository {
   findByCanalThread(canal: Canal, canalThreadId: string): Promise<Conversacion | null>;
   // Conversaciones de un lead ordenadas por ultima_actividad_at DESC (multi-canal en inbox).
   findByLeadId(leadId: UUID): Promise<Conversacion[]>;
+  /**
+   * Conversaciones de varios leads, de una sola consulta, en el mismo orden
+   * global por `ultima_actividad_at` DESC.
+   *
+   * Existe para la bandeja, que necesita los canales y el hilo más activo de
+   * cada fila: con un `findByLeadId` por lead eso es una consulta por fila y el
+   * poller la repite cada 5 segundos. Quien llama agrupa por `lead_id`; el
+   * orden global DESC hace que cada grupo quede también DESC, que es lo que
+   * `findByLeadId` devuelve para un lead solo.
+   */
+  listByLeadIds(leadIds: UUID[]): Promise<Conversacion[]>;
   // Find or create. Throw si (canal, threadId) ya pertenece a otro lead (merge debe ser explícito).
   upsertByCanalThread(canal: Canal, canalThreadId: string, leadId: UUID): Promise<Conversacion>;
   // Marca actividad. `at` default = now.
@@ -55,6 +66,15 @@ export class InMemoryConversationsRepository implements ConversationsRepository 
   async findByLeadId(leadId: UUID): Promise<Conversacion[]> {
     return Array.from(this.store.values())
       .filter((c) => c.lead_id === leadId)
+      .sort((a, b) => b.ultima_actividad_at.getTime() - a.ultima_actividad_at.getTime())
+      .map((c) => ({ ...c }));
+  }
+
+  async listByLeadIds(leadIds: UUID[]): Promise<Conversacion[]> {
+    if (leadIds.length === 0) return [];
+    const buscados = new Set(leadIds);
+    return Array.from(this.store.values())
+      .filter((c) => buscados.has(c.lead_id))
       .sort((a, b) => b.ultima_actividad_at.getTime() - a.ultima_actividad_at.getTime())
       .map((c) => ({ ...c }));
   }

@@ -3,18 +3,15 @@ import { BloqueFaltante, KpiFaltante } from "@/components/metricas/Faltante";
 import { Seccion } from "@/components/metricas/Seccion";
 import { TarjetaKpi } from "@/components/metricas/TarjetaKpi";
 import { Group, Schedule, TaskAlt } from "@/components/icons";
-import { formatearEntero, formatearPorcentaje, porcentajeDe } from "@/lib/ui/metricas";
+import {
+  cantidad,
+  formatearEntero,
+  formatearEspera,
+  formatearPorcentaje,
+  porcentajeDe,
+} from "@/lib/ui/metricas";
 import { stageColor } from "@/lib/ui/stage";
 import type { Metricas } from "@/types/metricas";
-
-/** Segundos como "2 m 30 s" / "45 s". Sin dato, el guion del resto de la pantalla. */
-function formatearEspera(segundos: number | null): string {
-  if (segundos === null) return "—";
-  if (segundos < 60) return `${segundos} s`;
-  const min = Math.floor(segundos / 60);
-  const resto = segundos % 60;
-  return resto === 0 ? `${min} m` : `${min} m ${resto} s`;
-}
 
 /**
  * La tabla del handoff §3.3, con las columnas que hoy tienen dato. "Ticket
@@ -110,7 +107,11 @@ export function PanelVendedores({ m }: { m: Metricas }) {
         <TarjetaKpi
           label="Tiempo hasta tomar"
           valor={formatearEspera(m.vendedores.tomaEnSegundos)}
-          subtitulo="mediana de lo que esperó el cliente hasta la primera respuesta de una persona"
+          subtitulo={
+            m.tiempoPrimeraRespuesta.personas.muestras === 0
+              ? "Sin datos medibles"
+              : `${formatearEntero(m.tiempoPrimeraRespuesta.personas.muestras)} muestras con timestamp de Meta`
+          }
           icono={Schedule}
         />
       </div>
@@ -120,7 +121,7 @@ export function PanelVendedores({ m }: { m: Metricas }) {
       <div className="grid gap-4 lg:grid-cols-2">
         <Seccion
           titulo="Reparto de la atención"
-          extra={`${formatearEntero(m.totalSesiones)} sesiones`}
+          extra={cantidad(m.totalSesiones, "sesión", "sesiones")}
           nota="Es lo más cerca que se puede estar hoy del corte por vendedor: separa lo que tocó una persona de lo que no, sin poder decir cuál."
         >
           <BarraReparto
@@ -128,7 +129,7 @@ export function PanelVendedores({ m }: { m: Metricas }) {
             partes={[
               {
                 label: "Las resolvió el agente",
-                cantidad: m.agente.sinHumano,
+                cantidad: m.agente.sinIntervencionHumana,
                 color: "var(--color-brand)",
               },
               {

@@ -12,6 +12,7 @@ import type {
   FilaToolExecutionMetrica,
   FilaTurnClassificationMetrica,
   FilaUsuarioMetrica,
+  FilaHandoffMetrica,
   MetricsRepository,
 } from "./metrics.repo";
 
@@ -48,7 +49,9 @@ export class SupabaseMetricsRepository implements MetricsRepository {
   async listMensajesDesde(desde: Date): Promise<FilaMensajeMetrica[]> {
     const { data, error } = await this.db
       .from("mensajes")
-      .select("sender, created_at, lead_session_id, sender_user_id, conversaciones!inner(canal)")
+      .select(
+        "sender, created_at, platform_created_at, lead_session_id, sender_user_id, conversaciones!inner(canal)",
+      )
       .gte("created_at", desde.toISOString());
     if (error) throw mapPostgrestError(error, { resource: "mensajes" });
     return (data ?? []).map((r) => ({
@@ -57,6 +60,7 @@ export class SupabaseMetricsRepository implements MetricsRepository {
       canal: r.conversaciones.canal as Canal,
       lead_session_id: r.lead_session_id,
       sender_user_id: r.sender_user_id,
+      platform_created_at: r.platform_created_at ? new Date(r.platform_created_at) : null,
     }));
   }
 
@@ -153,5 +157,19 @@ export class SupabaseMetricsRepository implements MetricsRepository {
     const { data, error } = await this.db.from("usuarios").select("id, nombre");
     if (error) throw mapPostgrestError(error, { resource: "usuarios" });
     return (data ?? []).map((r) => ({ id: r.id, nombre: r.nombre }));
+  }
+
+  async listHandoffsDesde(desde: Date): Promise<FilaHandoffMetrica[]> {
+    const { data, error } = await this.db
+      .from("handoff_events")
+      .select("lead_session_id, action, reason_code, created_at")
+      .gte("created_at", desde.toISOString());
+    if (error) throw mapPostgrestError(error, { resource: "handoff_events" });
+    return (data ?? []).map((row) => ({
+      lead_session_id: row.lead_session_id,
+      action: row.action as "pause" | "resume",
+      reason_code: row.reason_code,
+      created_at: new Date(row.created_at),
+    }));
   }
 }

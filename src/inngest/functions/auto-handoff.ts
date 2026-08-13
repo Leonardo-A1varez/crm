@@ -16,6 +16,7 @@ export interface AutoHandoffInput {
   leadSessionId: UUID;
   recentClassifications: IntentClassification[];
   threshold?: number;
+  sourceEventKey?: string;
 }
 
 export interface AutoHandoffResult {
@@ -43,7 +44,13 @@ export async function autoHandoffHandler(
     return { paused: false, motivo: "" };
   }
 
-  await deps.handoff.pause(input.leadSessionId, decision.motivo);
+  await deps.handoff.pause({
+    sessionId: input.leadSessionId,
+    reasonCode: "unknown_intents",
+    source: "auto_handoff",
+    sourceEventKey: input.sourceEventKey,
+    notifyCustomer: true,
+  });
   return { paused: true, motivo: decision.motivo };
 }
 
@@ -58,6 +65,7 @@ export function makeAutoHandoffFn(deps: AutoHandoffDeps) {
               leadSessionId: event.data.leadSessionId,
               recentClassifications: event.data.recentClassifications,
               threshold: event.data.threshold,
+              sourceEventKey: `auto-handoff:${event.id}`,
             },
             deps,
           );

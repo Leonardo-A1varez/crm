@@ -61,7 +61,7 @@ export interface VehiculoOpcion {
   texto: string;
   marca: string;
   modelo: string;
-  /** `0` cuando no hay año cargado: `leads.vehiculo_anio` es un `int` NOT NULL. */
+  /** `0` solo representa la opción visual "sin año"; la columna es nullable. */
   anio: number;
 }
 

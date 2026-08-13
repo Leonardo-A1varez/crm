@@ -115,6 +115,7 @@ export const GuardarConfigSchema = z.object({
   horario: HorarioSchema,
   horario_timezone: HorarioTimezoneSchema,
   plantilla_fuera_horario: z.string().max(1000),
+  plantilla_escalado: z.string().min(20).max(1000),
 });
 export type GuardarConfigFormInput = z.infer<typeof GuardarConfigSchema>;
 

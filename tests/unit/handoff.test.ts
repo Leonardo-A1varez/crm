@@ -3,6 +3,7 @@ import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import { StaticAgentConfigProvider } from "@/server/services/agente/config-provider";
 import { DefaultHandoffService } from "@/server/services/handoff.service";
+import { InMemoryHandoffEventsRepository } from "@/server/repositories/handoff-events.repo";
 import type { LeadSession } from "@/types/entities";
 import type { IntentClassification } from "@/lib/validation/ai";
 
@@ -82,6 +83,51 @@ describe("HandoffService", () => {
       const s = await createSession(sessions);
       await sessions.close(s.id, { resultado: "exito" });
       await expect(svc.resume(s.id)).rejects.toThrow(/cerrada/i);
+    });
+
+    test("restaura la etapa previa y deja historial append-only", async () => {
+      const events = new InMemoryHandoffEventsRepository(sessions);
+      const withEvents = new DefaultHandoffService(sessions, undefined, events);
+      const s = await createSession(sessions, { current_stage: "negociando" });
+
+      const paused = await withEvents.pause({
+        sessionId: s.id,
+        reasonCode: "unknown_intents",
+        source: "auto_handoff",
+        sourceEventKey: "auto:evt-1",
+        notifyCustomer: true,
+      });
+      expect(paused).toMatchObject({
+        ia_pausada: true,
+        current_stage: "requiere_humano",
+        stage_before_handoff: "negociando",
+      });
+
+      const resumed = await withEvents.resume({ sessionId: s.id, sourceEventKey: "admin:evt-2" });
+      expect(resumed).toMatchObject({
+        ia_pausada: false,
+        current_stage: "negociando",
+        stage_before_handoff: null,
+      });
+      expect((await events.listBySessionIds([s.id])).map((event) => event.action)).toEqual([
+        "pause",
+        "resume",
+      ]);
+    });
+
+    test("la misma sourceEventKey no duplica el evento", async () => {
+      const events = new InMemoryHandoffEventsRepository(sessions);
+      const withEvents = new DefaultHandoffService(sessions, undefined, events);
+      const s = await createSession(sessions);
+      const input = {
+        sessionId: s.id,
+        reasonCode: "manual_pause" as const,
+        source: "admin" as const,
+        sourceEventKey: "manual:una-accion",
+      };
+      await withEvents.pause(input);
+      await events.transition({ ...input, action: "pause", notifyCustomer: false });
+      expect(await events.listBySessionIds([s.id])).toHaveLength(1);
     });
   });
 

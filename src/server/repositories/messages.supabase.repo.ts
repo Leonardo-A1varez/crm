@@ -12,6 +12,7 @@ import type {
   EstadoEntregaPatch,
   ListByConversacionFilter,
   ListBySessionFilter,
+  InboxRecentMessage,
   MensajeInsert,
   MessagesRepository,
 } from "./messages.repo";
@@ -55,6 +56,7 @@ export class SupabaseMessagesRepository implements MessagesRepository {
         meta_message_id: input.meta_message_id,
         idempotency_key: input.idempotency_key,
         metadata: input.metadata as never,
+        platform_created_at: input.platform_created_at?.toISOString() ?? null,
       })
       .select()
       .single();
@@ -169,6 +171,23 @@ export class SupabaseMessagesRepository implements MessagesRepository {
     return out.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
   }
 
+  async listRecentBySessionIds(sessionIds: UUID[], limit: number): Promise<InboxRecentMessage[]> {
+    const ids = sessionIds.filter(isUuid);
+    if (ids.length === 0 || limit <= 0) return [];
+
+    // La función SQL aplica LIMIT dentro de cada sesión. Un `.in()` con LIMIT
+    // limitaría el conjunto global y dejaría algunas sesiones sin mensajes.
+    const { data, error } = await this.db.rpc("inbox_recent_messages", {
+      p_session_ids: ids,
+      p_limit: Math.min(limit, 200),
+    });
+    if (error) throw mapPostgrestError(error, { resource: "inbox_recent_messages" });
+    return (data ?? []).map((row) => ({
+      ...row,
+      created_at: new Date(row.created_at),
+    }));
+  }
+
   async buscarContenido(
     q: string,
     filter: BuscarContenidoFilter,
@@ -245,6 +264,7 @@ interface MensajeRow {
   idempotency_key: string | null;
   metadata: unknown;
   created_at: string;
+  platform_created_at: string | null;
   estado_entrega: EstadoEntrega | null;
   estado_entrega_at: string | null;
   error_entrega: string | null;
@@ -266,6 +286,7 @@ function mapRow(row: MensajeRow): Mensaje {
     idempotency_key: row.idempotency_key,
     metadata: structuredClone(meta),
     created_at: new Date(row.created_at),
+    platform_created_at: row.platform_created_at ? new Date(row.platform_created_at) : null,
     estado_entrega: row.estado_entrega,
     estado_entrega_at: row.estado_entrega_at ? new Date(row.estado_entrega_at) : null,
     error_entrega: row.error_entrega,

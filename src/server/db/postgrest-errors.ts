@@ -13,7 +13,7 @@
  * - PGRST301 JWT expired           → PermissionDeniedError
  */
 
-import { ConflictError, PermissionDeniedError, ValidationError } from "@/lib/errors";
+import { ConflictError, InfraError, PermissionDeniedError, ValidationError } from "@/lib/errors";
 
 export interface PostgrestErrorLike {
   code?: string;
@@ -29,13 +29,13 @@ export function isPostgrestError(e: unknown): e is PostgrestErrorLike {
 }
 
 /**
- * Map a Postgrest error a DomainError correspondiente. Si no matchea code conocido,
- * retorna un Error genérico (caller decide qué hacer — típicamente re-throw raw).
+ * Map a PostgREST error a DomainError. Los códigos no clasificados son fallas
+ * reintentables de infraestructura, nunca `Error` plano.
  */
 export function mapPostgrestError(
   err: PostgrestErrorLike,
   context: { resource?: string } = {},
-): Error {
+): import("@/lib/errors").DomainError {
   const code = err.code ?? "";
   const msg = `${err.message}${err.details ? ` (${err.details})` : ""}`;
 
@@ -52,7 +52,7 @@ export function mapPostgrestError(
     case "PGRST301":
       return new PermissionDeniedError(msg, err);
     default:
-      return new Error(`Postgrest error [${code}]: ${msg}`, { cause: err });
+      return new InfraError(`PostgREST error [${code}]: ${msg}`, "postgrest", err);
   }
 }
 

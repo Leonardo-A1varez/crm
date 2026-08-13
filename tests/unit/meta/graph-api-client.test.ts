@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
-import { ConflictError, ValidationError } from "@/lib/errors";
+import { InfraError, RateLimitError, ValidationError } from "@/lib/errors";
 import { GraphApiMetaClient } from "@/server/services/meta/graph-api-client";
 
 function makeOkResponse(body: unknown, status = 200): Response {
@@ -72,7 +72,7 @@ describe("GraphApiMetaClient — WA send", () => {
     expect((body.text as { body: string }).body).toBe("hola");
   });
 
-  test("sendText 429 rate-limit → ConflictError meta_rate_limited", async () => {
+  test("sendText 429 rate-limit → RateLimitError", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       makeErrorResponse(
         {
@@ -87,8 +87,7 @@ describe("GraphApiMetaClient — WA send", () => {
       await client.sendText({ canal: "wa", to: "+59", text: "x" });
       expect.fail("expected throw");
     } catch (e) {
-      expect(e).toBeInstanceOf(ConflictError);
-      expect((e as ConflictError).conflictType).toBe("meta_rate_limited");
+      expect(e).toBeInstanceOf(RateLimitError);
     }
   });
 
@@ -121,7 +120,7 @@ describe("GraphApiMetaClient — WA send", () => {
     );
   });
 
-  test("sendText 500 server error → generic Error (Inngest retry)", async () => {
+  test("sendText 500 server error → InfraError reintentable", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue(makeErrorResponse({ error: { message: "Internal" } }, 500));
@@ -131,9 +130,7 @@ describe("GraphApiMetaClient — WA send", () => {
       await client.sendText({ canal: "wa", to: "+59", text: "x" });
       expect.fail("expected throw");
     } catch (e) {
-      expect(e).toBeInstanceOf(Error);
-      expect(e).not.toBeInstanceOf(ConflictError);
-      expect(e).not.toBeInstanceOf(ValidationError);
+      expect(e).toBeInstanceOf(InfraError);
       expect((e as Error).message).toContain("500");
     }
   });
@@ -221,7 +218,7 @@ describe("GraphApiMetaClient — IG send", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("sendText IG 429 → ConflictError meta_rate_limited", async () => {
+  test("sendText IG 429 → RateLimitError", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue(
@@ -236,8 +233,7 @@ describe("GraphApiMetaClient — IG send", () => {
       await client.sendText({ canal: "ig", to: "u", text: "x" });
       expect.fail("expected throw");
     } catch (e) {
-      expect(e).toBeInstanceOf(ConflictError);
-      expect((e as ConflictError).conflictType).toBe("meta_rate_limited");
+      expect(e).toBeInstanceOf(RateLimitError);
     }
   });
 
@@ -321,7 +317,7 @@ describe("GraphApiMetaClient — FB Messenger send", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("sendText FB 429 → ConflictError meta_rate_limited", async () => {
+  test("sendText FB 429 → RateLimitError", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValue(makeErrorResponse({ error: { message: "FB rate limit" } }, 429));
@@ -331,7 +327,7 @@ describe("GraphApiMetaClient — FB Messenger send", () => {
       await client.sendText({ canal: "fb", to: "u", text: "x" });
       expect.fail("expected throw");
     } catch (e) {
-      expect(e).toBeInstanceOf(ConflictError);
+      expect(e).toBeInstanceOf(RateLimitError);
     }
   });
 

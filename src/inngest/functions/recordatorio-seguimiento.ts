@@ -1,6 +1,6 @@
 import { NonRetriableError } from "inngest";
 import { inngest } from "@/inngest/client";
-import { recordatorioProgramado } from "@/inngest/events";
+import { recordatorioCancelado, recordatorioProgramado } from "@/inngest/events";
 import { isNonRetriable } from "@/lib/errors";
 import { NoopLogger, type Logger } from "@/lib/observability/logger";
 import type { SessionRecordatoriosRepository } from "@/server/repositories/session-recordatorios.repo";
@@ -118,6 +118,12 @@ export function makeRecordatorioSeguimientoFn(deps: RecordatorioSeguimientoDeps)
     {
       id: "recordatorio-seguimiento",
       triggers: [{ event: recordatorioProgramado }],
+      cancelOn: [
+        {
+          event: recordatorioCancelado.name,
+          if: "async.data.recordatorioId == event.data.recordatorioId && async.data.recordarAt == event.data.recordarAt",
+        },
+      ],
     },
     async ({ event, step }) => {
       const { recordatorioId, leadSessionId, recordarAt } = event.data;

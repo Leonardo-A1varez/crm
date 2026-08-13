@@ -13,6 +13,7 @@ import { approveMergeAction } from "../_actions/approve-merge.action";
 import { createManualCandidateAction } from "../_actions/create-manual-candidate.action";
 import { rejectMergeAction } from "../_actions/reject-merge.action";
 import { searchLeadsAction } from "../_actions/search-leads.action";
+import { updateLeadProfileAction } from "../_actions/update-lead-profile.action";
 import type { LeadDetail } from "@/types/leads";
 
 export const dynamic = "force-dynamic";
@@ -63,7 +64,7 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
         }
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <LeadFicha lead={detail.lead} tags={detail.tags} />
+        <LeadFicha lead={detail.lead} tags={detail.tags} onUpdate={updateLeadProfileAction} />
         <div className="border-line-layout border-t px-5 pt-4 pb-1">
           <Eyebrow>Sesiones ({detail.sesiones.length})</Eyebrow>
         </div>

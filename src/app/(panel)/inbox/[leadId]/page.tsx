@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
 import { ChatThread } from "@/components/inbox/ChatThread";
-import { CloseSessionButton } from "@/components/inbox/CloseSessionButton";
 import { ConversationHeader } from "@/components/inbox/ConversationHeader";
 import { HandoffToggle } from "@/components/inbox/HandoffToggle";
 import { MessageInput } from "@/components/inbox/MessageInput";
@@ -71,19 +70,13 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
           canalActivo={view.canalActivo}
           actions={
             view.session ? (
-              <>
-                <HandoffToggle
-                  leadId={view.lead.id}
-                  sessionId={view.session.id}
-                  iaPausada={view.session.ia_pausada}
-                  onToggle={toggleHandoffAction}
-                />
-                <CloseSessionButton
-                  leadId={view.lead.id}
-                  sessionId={view.session.id}
-                  onClose={closeSessionAction}
-                />
-              </>
+              <HandoffToggle
+                leadId={view.lead.id}
+                sessionId={view.session.id}
+                iaPausada={view.session.ia_pausada}
+                onToggle={toggleHandoffAction}
+                handoffStatus={view.handoffStatus}
+              />
             ) : null
           }
         />
