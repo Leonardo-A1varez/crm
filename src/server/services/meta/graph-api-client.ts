@@ -98,14 +98,19 @@ export class GraphApiMetaClient implements MetaApiClient {
       text: { body: input.text, preview_url: false },
     };
 
-    const res = await this.fetchImpl(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.cfg.whatsappAccessToken}`,
-        "Content-Type": "application/json",
+    const res = await fetchOrInfra(
+      this.fetchImpl,
+      url,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.cfg.whatsappAccessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    });
+      "wa.sendText",
+    );
 
     if (!res.ok) {
       await throwMappedGraphError(res, "wa.sendText");
@@ -145,14 +150,19 @@ export class GraphApiMetaClient implements MetaApiClient {
       message: { text: input.text },
     };
 
-    const res = await this.fetchImpl(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
+    const res = await fetchOrInfra(
+      this.fetchImpl,
+      url,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    });
+      `${canal}.sendText`,
+    );
 
     if (!res.ok) {
       await throwMappedGraphError(res, `${canal}.sendText`);
@@ -166,6 +176,25 @@ export class GraphApiMetaClient implements MetaApiClient {
       });
     }
     return { meta_message_id: id };
+  }
+}
+
+/**
+ * `fetch` rechaza sin pasar por `throwMappedGraphError` cuando el fallo es de
+ * red y no de protocolo. Sin esto, un `TypeError` crudo escapa del cliente y
+ * el llamador no puede distinguir "Meta rechazó" de "no llegamos a Meta".
+ */
+async function fetchOrInfra(
+  fetchImpl: typeof fetch,
+  url: string,
+  init: RequestInit,
+  operation: string,
+): Promise<Response> {
+  try {
+    return await fetchImpl(url, init);
+  } catch (cause) {
+    const detalle = cause instanceof Error ? cause.message : String(cause);
+    throw new InfraError(`Meta ${operation} sin respuesta: ${detalle}`, "meta", cause);
   }
 }
 

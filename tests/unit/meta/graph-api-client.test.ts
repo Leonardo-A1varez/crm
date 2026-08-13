@@ -352,4 +352,12 @@ describe("GraphApiMetaClient — FB Messenger send", () => {
       ValidationError,
     );
   });
+
+  test("un fallo de red sale como InfraError y no como TypeError", async () => {
+    const client = makeWaClient(() => Promise.reject(new TypeError("fetch failed")));
+
+    await expect(
+      client.sendText({ canal: "wa", to: "5491155550000", text: "hola" }),
+    ).rejects.toBeInstanceOf(InfraError);
+  });
 });
