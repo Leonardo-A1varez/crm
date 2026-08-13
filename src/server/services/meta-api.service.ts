@@ -1,3 +1,4 @@
+import { RateLimitError } from "@/lib/errors";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { ParsedMessage } from "@/lib/meta/parse-webhook";
@@ -79,6 +80,11 @@ function metadataDelSaliente(plantilla: PlantillaSaliente | undefined): MensajeM
   return plantilla === undefined ? {} : { plantilla };
 }
 
+/** Texto del error para `error_entrega`. Nunca incluye el contenido del mensaje. */
+function mensajeDeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export interface MetaApiService {
   sendOutbound(input: SendOutboundInput): Promise<Mensaje>;
   recordInbound(input: RecordInboundInput): Promise<Mensaje>;
@@ -92,18 +98,18 @@ export class DefaultMetaApiService implements MetaApiService {
   ) {}
 
   async sendOutbound(input: SendOutboundInput): Promise<Mensaje> {
+    // Una reserva sin `meta_message_id` significa "ya se intentó, desenlace
+    // desconocido". No se reenvía: un WhatsApp duplicado no se puede retirar,
+    // y esta fila sí se ve en el hilo marcada como fallida.
     if (input.idempotencyKey) {
       const existing = await this.messages.findByIdempotencyKey(input.idempotencyKey);
       if (existing) return existing;
     }
 
-    const result = await this.client.sendText({
-      canal: input.canal,
-      to: input.to,
-      text: input.contenido,
-    });
-
-    const msg = await this.messages.create({
+    // La fila se escribe ANTES de llamar a Meta. Si se escribiera después, un
+    // fallo de esa escritura dejaría al reintento sin rastro del envío y el
+    // cliente recibiría el mensaje dos veces.
+    const reserva = await this.messages.create({
       conversacion_id: input.conversacionId,
       lead_session_id: input.leadSessionId,
       direction: "out",
@@ -112,12 +118,34 @@ export class DefaultMetaApiService implements MetaApiService {
       tipo: "text",
       contenido: input.contenido,
       media_url: null,
-      meta_message_id: result.meta_message_id,
+      meta_message_id: null,
       idempotency_key: input.idempotencyKey ?? null,
       metadata: metadataDelSaliente(input.plantilla),
       platform_created_at: null,
     });
 
+    let result: MetaSendResult;
+    try {
+      result = await this.client.sendText({
+        canal: input.canal,
+        to: input.to,
+        text: input.contenido,
+      });
+    } catch (error) {
+      // 429: Meta rechazó explícitamente, no llegó nada. Se libera la clave
+      // para que el reintento pueda volver a intentar de verdad.
+      if (error instanceof RateLimitError) {
+        await this.messages.liberarReserva(reserva.id);
+        throw error;
+      }
+      // Todo lo demás queda visible en el hilo. Para ValidationError el envío
+      // está descartado; para InfraError el desenlace es desconocido y esa
+      // ambigüedad es justamente lo que la marca comunica.
+      await this.messages.marcarFalloEnvio(reserva.id, mensajeDeError(error));
+      throw error;
+    }
+
+    const msg = await this.messages.confirmarEnvio(reserva.id, result.meta_message_id);
     await this.conversations.touch(input.conversacionId);
     return msg;
   }

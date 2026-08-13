@@ -235,7 +235,7 @@ describe("DefaultInboxService write path", () => {
       expect(sendTextSpy).not.toHaveBeenCalled();
     });
 
-    test("si Meta falla, propaga y NO persiste mensaje", async () => {
+    test("si Meta falla, propaga y deja el saliente marcado como fallido", async () => {
       const lead = await makeLead(leads);
       const session = await makeSession(sessions, lead.id);
       await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: lead.telefono });
@@ -251,8 +251,13 @@ describe("DefaultInboxService write path", () => {
         }),
       ).rejects.toThrow("meta caída");
 
+      // El saliente se reserva ANTES de llamar a Meta; un error genérico lo deja
+      // visible en el hilo como fallido en vez de desaparecer sin rastro.
       const thread = await messages.listBySessionId(session.id);
-      expect(thread).toHaveLength(0);
+      expect(thread).toHaveLength(1);
+      expect(thread[0]?.meta_message_id).toBeNull();
+      expect(thread[0]?.estado_entrega).toBe("fallido");
+      expect(thread[0]?.error_entrega).toContain("meta caída");
     });
   });
 
