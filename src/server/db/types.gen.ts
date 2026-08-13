@@ -1144,6 +1144,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      approve_lead_merge: {
+        Args: { p_candidate_id: string; p_keep_lead_id: string }
+        Returns: {
+          error_code: string | null
+          ganador_id: string | null
+        }[]
+      }
       current_rol: {
         Args: never
         Returns: Database["public"]["Enums"]["rol_usuario_enum"]

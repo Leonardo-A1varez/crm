@@ -6,7 +6,7 @@ import type { LeadsRepository, LeadUpdate } from "@/server/repositories/leads.re
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { MergeCandidatesRepository } from "@/server/repositories/merge-candidates.repo";
 import type { TagsRepository } from "@/server/repositories/tags.repo";
-import type { SessionLock } from "@/server/lock/session-lock";
+import type { LeadMergeRepository } from "@/server/repositories/lead-merge.repo";
 import type { Lead, MergeCandidate, UUID } from "@/types/entities";
 
 export interface ApproveMergeInput {
@@ -36,12 +36,6 @@ export interface DefaultMergeExecutorServiceDeps {
   tags: TagsRepository;
   candidates: MergeCandidatesRepository;
   audit: AdminAuditService;
-  /**
-   * Serializa el merge por par de leads. Sin esto, entre la validación de
-   * "no hay dos sesiones activas" y `reassignLead` puede entrar un mensaje y
-   * crear una sesión activa nueva, dejando al ganador con dos.
-   */
-  lock: SessionLock;
 }
 
 /** Huecos del ganador que el perdedor puede rellenar. NUNCA sobrescribe valores. */
@@ -85,22 +79,8 @@ export class DefaultMergeExecutorService implements MergeExecutorService {
   constructor(private readonly deps: DefaultMergeExecutorServiceDeps) {}
 
   async approveMerge(input: ApproveMergeInput): Promise<{ ganadorId: UUID }> {
-    const candidate = await this.deps.candidates.findById(input.candidateId);
-    if (!candidate) {
-      throw new NotFoundError(
-        `merge_candidate no encontrado: ${input.candidateId}`,
-        "merge_candidate",
-        input.candidateId,
-      );
-    }
-    // Ordenados para que el par (A,B) y (B,A) tomen el mismo lock.
-    const clave = `merge:${[candidate.src_lead_id, candidate.dst_lead_id].sort().join(":")}`;
-    return this.deps.lock.withLock(clave, () => this.ejecutarMerge(input));
-  }
-
-  private async ejecutarMerge(input: ApproveMergeInput): Promise<{ ganadorId: UUID }> {
-    // 1. Validaciones (todas ANTES de cualquier escritura). Se relee el
-    // candidate: la validación de "ya resuelto" tiene que correr dentro del lock.
+    // Implementación in-memory para contratos unitarios. Producción usa
+    // TransactionalMergeExecutorService y ejecuta esta transición en Postgres.
     const candidate = await this.deps.candidates.findById(input.candidateId);
     if (!candidate) {
       throw new NotFoundError(
@@ -205,5 +185,34 @@ export class DefaultMergeExecutorService implements MergeExecutorService {
       similarity_score: 1,
       reasons: ["manual"],
     });
+  }
+}
+
+/**
+ * Producción: approve es una sola transacción Postgres. Reject y creación
+ * manual siguen usando los repos existentes porque cada una es una escritura
+ * única y no necesita una transición multi-tabla.
+ */
+export class TransactionalMergeExecutorService implements MergeExecutorService {
+  constructor(
+    private readonly approval: LeadMergeRepository,
+    private readonly delegate: MergeExecutorService,
+  ) {}
+
+  approveMerge(input: ApproveMergeInput): Promise<{ ganadorId: UUID }> {
+    // El actor se deriva de auth.uid() dentro de la RPC; aceptar un UUID del
+    // cliente para el audit permitiría atribuir la acción a otra persona.
+    return this.approval.approve({
+      candidateId: input.candidateId,
+      keepLeadId: input.keepLeadId,
+    });
+  }
+
+  rejectMerge(input: { candidateId: UUID; actorUserId: UUID | null }): Promise<void> {
+    return this.delegate.rejectMerge(input);
+  }
+
+  createManualCandidate(input: { leadId: UUID; otherLeadId: UUID }): Promise<MergeCandidate> {
+    return this.delegate.createManualCandidate(input);
   }
 }

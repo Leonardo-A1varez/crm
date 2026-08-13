@@ -2,14 +2,17 @@ import { createSupabaseServerClient } from "@/server/auth/supabase-ssr";
 import { SupabaseAdminAuditRepository } from "@/server/repositories/admin-audit.supabase.repo";
 import { SupabaseConversationsRepository } from "@/server/repositories/conversations.supabase.repo";
 import { SupabaseLeadSessionRepository } from "@/server/repositories/lead-session.supabase.repo";
+import { SupabaseLeadMergeRepository } from "@/server/repositories/lead-merge.supabase.repo";
 import { SupabaseLeadsRepository } from "@/server/repositories/leads.supabase.repo";
 import { SupabaseMergeCandidatesRepository } from "@/server/repositories/merge-candidates.supabase.repo";
 import { SupabaseMessagesRepository } from "@/server/repositories/messages.supabase.repo";
 import { SupabaseTagsRepository } from "@/server/repositories/tags.supabase.repo";
 import { DefaultAdminAuditService } from "@/server/services/admin-audit.service";
 import { DefaultLeadsService } from "@/server/services/leads/default-leads.service";
-import { DefaultMergeExecutorService } from "@/server/services/leads/merge-executor.service";
-import { NoopSessionLock } from "@/server/lock/session-lock";
+import {
+  DefaultMergeExecutorService,
+  TransactionalMergeExecutorService,
+} from "@/server/services/leads/merge-executor.service";
 import type { AppClient } from "@/server/db/client";
 import type { LeadsService } from "@/server/services/leads/leads.service";
 import type { MergeExecutorService } from "@/server/services/leads/merge-executor.service";
@@ -27,18 +30,15 @@ export function makeLeadsService(db: AppClient): LeadsService {
 }
 
 export function makeMergeExecutorService(db: AppClient): MergeExecutorService {
-  return new DefaultMergeExecutorService({
+  const delegate = new DefaultMergeExecutorService({
     leads: new SupabaseLeadsRepository(db),
     sessions: new SupabaseLeadSessionRepository(db),
     convs: new SupabaseConversationsRepository(db),
     tags: new SupabaseTagsRepository(db),
     candidates: new SupabaseMergeCandidatesRepository(db),
     audit: new DefaultAdminAuditService(new SupabaseAdminAuditRepository(db)),
-    // Paridad con el twin-extractor: Noop passthrough hasta que exista el lock
-    // Postgres (pg_advisory_xact_lock). La garantía dura sigue siendo el índice
-    // UNIQUE parcial (lead_id) WHERE resultado IS NULL.
-    lock: new NoopSessionLock(),
   });
+  return new TransactionalMergeExecutorService(new SupabaseLeadMergeRepository(db), delegate);
 }
 
 /** Panel: client authed del request (RLS real). Uno por request. */
