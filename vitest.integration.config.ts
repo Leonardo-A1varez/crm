@@ -37,6 +37,9 @@ export default defineConfig(({ mode }) => {
       env: {
         SUPABASE_TEST_URL: env["SUPABASE_TEST_URL"] ?? "",
         SUPABASE_TEST_SERVICE_KEY: env["SUPABASE_TEST_SERVICE_KEY"] ?? "",
+        // La guarda assertBaseDeTestsAislada compara SUPABASE_TEST_URL contra
+        // esta: sin inyectarla, la guarda no puede ver la url de la app.
+        NEXT_PUBLIC_SUPABASE_URL: env["NEXT_PUBLIC_SUPABASE_URL"] ?? "",
         // Suite RLS (Slice 3): clients authed reales necesitan la anon key.
         NEXT_PUBLIC_SUPABASE_ANON_KEY: env["NEXT_PUBLIC_SUPABASE_ANON_KEY"] ?? "",
         // Suite de contrato schemas↔OpenAI: valida que los schemas Zod que

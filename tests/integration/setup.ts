@@ -36,6 +36,32 @@ const TABLES_TO_TRUNCATE = [
   "empresas",
 ] as const;
 
+function normalizarUrl(url: string): string {
+  return url.trim().toLowerCase().replace(/\/+$/, "");
+}
+
+/**
+ * Corta la ejecución si los tests de integración apuntan al mismo proyecto
+ * Supabase que la aplicación.
+ *
+ * `cleanupTestDb` borra 17 tablas, incluidas `usuarios` y `empresas`. Correr
+ * la suite contra la base de la app la vacía — ya pasó una vez. La protección
+ * anterior era un comentario, y un comentario no detiene un comando.
+ */
+export function assertBaseDeTestsAislada(
+  testUrl: string | undefined,
+  appUrl: string | undefined,
+): void {
+  if (!testUrl || !appUrl) return;
+  if (normalizarUrl(testUrl) !== normalizarUrl(appUrl)) return;
+  throw new Error(
+    "SUPABASE_TEST_URL apunta al mismo proyecto Supabase que NEXT_PUBLIC_SUPABASE_URL. " +
+      "cleanupTestDb vaciaria la base de la aplicacion. " +
+      "Crear un proyecto Supabase exclusivo para tests y apuntar ahi " +
+      "SUPABASE_TEST_URL + SUPABASE_TEST_SERVICE_KEY.",
+  );
+}
+
 export function makeTestSupabaseClient(): TestClient {
   const url = process.env["SUPABASE_TEST_URL"];
   const key = process.env["SUPABASE_TEST_SERVICE_KEY"];
@@ -45,6 +71,7 @@ export function makeTestSupabaseClient(): TestClient {
         "Ver tests/integration/setup.ts.",
     );
   }
+  assertBaseDeTestsAislada(url, process.env["NEXT_PUBLIC_SUPABASE_URL"]);
   return createClient<Database>(url, key, {
     auth: {
       autoRefreshToken: false,
