@@ -1,4 +1,5 @@
 import { describe, expect, test, beforeEach } from "vitest";
+import { ConflictError } from "@/lib/errors";
 import type { MensajeInsert, MessagesRepository } from "@/server/repositories/messages.repo";
 import type { UUID } from "@/types/entities";
 
@@ -332,6 +333,70 @@ export function runMessagesContract(
         }),
       );
       expect(await repo.buscarContenido("jpg", { limit: 10 })).toEqual([]);
+    });
+
+    test("confirmarEnvio escribe meta_message_id sobre una reserva", async () => {
+      const reserva = await repo.create(
+        baseInsert(fixtures, {
+          direction: "out",
+          sender: "ia",
+          meta_message_id: null,
+          idempotency_key: "out:ABC",
+        }),
+      );
+
+      const confirmado = await repo.confirmarEnvio(reserva.id, "wamid.REAL");
+
+      expect(confirmado.meta_message_id).toBe("wamid.REAL");
+      expect(confirmado.id).toBe(reserva.id);
+      expect(await repo.findByMetaMessageId("wamid.REAL")).not.toBeNull();
+    });
+
+    test("marcarFalloEnvio deja la fila visible como fallida con el motivo", async () => {
+      const reserva = await repo.create(
+        baseInsert(fixtures, {
+          direction: "out",
+          sender: "ia",
+          meta_message_id: null,
+          idempotency_key: "out:DEF",
+        }),
+      );
+
+      const fallida = await repo.marcarFalloEnvio(reserva.id, "Meta 503");
+
+      expect(fallida.estado_entrega).toBe("fallido");
+      expect(fallida.error_entrega).toBe("Meta 503");
+      expect(fallida.estado_entrega_at).not.toBeNull();
+    });
+
+    test("liberarReserva borra la fila y libera la idempotency_key", async () => {
+      const reserva = await repo.create(
+        baseInsert(fixtures, {
+          direction: "out",
+          sender: "ia",
+          meta_message_id: null,
+          idempotency_key: "out:GHI",
+        }),
+      );
+
+      await repo.liberarReserva(reserva.id);
+
+      expect(await repo.findById(reserva.id)).toBeNull();
+      expect(await repo.findByIdempotencyKey("out:GHI")).toBeNull();
+    });
+
+    test("liberarReserva se niega a borrar un mensaje ya confirmado", async () => {
+      const enviado = await repo.create(
+        baseInsert(fixtures, {
+          direction: "out",
+          sender: "ia",
+          meta_message_id: "wamid.YA",
+          idempotency_key: "out:JKL",
+        }),
+      );
+
+      await expect(repo.liberarReserva(enviado.id)).rejects.toThrow(ConflictError);
+      expect(await repo.findById(enviado.id)).not.toBeNull();
     });
   });
 }

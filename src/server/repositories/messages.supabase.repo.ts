@@ -227,6 +227,51 @@ export class SupabaseMessagesRepository implements MessagesRepository {
     return out;
   }
 
+  async confirmarEnvio(id: UUID, metaMessageId: string): Promise<Mensaje> {
+    const { data, error } = await this.db
+      .from("mensajes")
+      .update({ meta_message_id: metaMessageId })
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw mapPostgrestError(error, { resource: "mensajes" });
+    return mapRow(data as MensajeRow);
+  }
+
+  async marcarFalloEnvio(id: UUID, error: string): Promise<Mensaje> {
+    const { data, error: dbError } = await this.db
+      .from("mensajes")
+      .update({
+        estado_entrega: "fallido",
+        estado_entrega_at: new Date().toISOString(),
+        error_entrega: error,
+      })
+      .eq("id", id)
+      .select()
+      .single();
+    if (dbError) throw mapPostgrestError(dbError, { resource: "mensajes" });
+    return mapRow(data as MensajeRow);
+  }
+
+  async liberarReserva(id: UUID): Promise<void> {
+    const actual = await this.findById(id);
+    if (!actual) return;
+    if (actual.meta_message_id !== null) {
+      throw new ConflictError(
+        `mensaje ya confirmado por Meta, no se libera: ${id}`,
+        "reserva_confirmada",
+      );
+    }
+    // El filtro `is null` sobre meta_message_id repite la guarda en SQL: entre
+    // el findById y este delete pudo entrar la confirmación del envío.
+    const { error } = await this.db
+      .from("mensajes")
+      .delete()
+      .eq("id", id)
+      .is("meta_message_id", null);
+    if (error) throw mapPostgrestError(error, { resource: "mensajes" });
+  }
+
   async aplicarEstadoEntrega(
     metaMessageId: string,
     patch: EstadoEntregaPatch,

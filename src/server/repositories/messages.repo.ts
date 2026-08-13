@@ -1,4 +1,4 @@
-import { ConflictError } from "@/lib/errors";
+import { ConflictError, NotFoundError } from "@/lib/errors";
 import { esAvance } from "@/lib/entrega";
 import type { Direction, EstadoEntrega, Sender } from "@/types/domain";
 import type { Mensaje, UUID } from "@/types/entities";
@@ -106,6 +106,30 @@ export interface MessagesRepository {
    * mensaje.
    */
   buscarContenido(q: string, filter: BuscarContenidoFilter): Promise<CoincidenciaContenido[]>;
+  /**
+   * Completa una reserva con el id que devolvió Meta.
+   *
+   * Existe porque el saliente se escribe ANTES de llamar a Meta: si se
+   * escribiera después, un fallo de la escritura haría que el reintento
+   * volviera a llamar a Meta y el cliente recibiera el mensaje dos veces.
+   */
+  confirmarEnvio(id: UUID, metaMessageId: string): Promise<Mensaje>;
+  /**
+   * Deja la reserva marcada como fallida con el motivo.
+   *
+   * `MessageBubble` ya pinta `estado_entrega === "fallido"` junto con
+   * `error_entrega`, así que un envío que no se pudo confirmar se ve en el
+   * hilo sin construir nada nuevo.
+   */
+  marcarFalloEnvio(id: UUID, error: string): Promise<Mensaje>;
+  /**
+   * Borra una reserva que Meta rechazó explícitamente, liberando su
+   * `idempotency_key` para que el reintento pueda volver a intentar.
+   *
+   * Lanza `ConflictError` si la fila ya tiene `meta_message_id`: eso significa
+   * que Meta la aceptó y borrarla perdería el mensaje.
+   */
+  liberarReserva(id: UUID): Promise<void>;
   // Estado de entrega desde el webhook de Meta. `meta_message_id` desconocido
   // = no-op y devuelve null: Meta reporta estados de mensajes que no mandamos
   // nosotros (plantillas disparadas desde su consola) y no son un error.
@@ -250,6 +274,34 @@ export class InMemoryMessagesRepository implements MessagesRepository {
         direction: m.direction,
         createdAt: m.created_at,
       }));
+  }
+
+  async confirmarEnvio(id: UUID, metaMessageId: string): Promise<Mensaje> {
+    const m = this.store.get(id);
+    if (!m) throw new NotFoundError(`mensaje no encontrado: ${id}`, "mensaje", id);
+    m.meta_message_id = metaMessageId;
+    return cloneMensaje(m);
+  }
+
+  async marcarFalloEnvio(id: UUID, error: string): Promise<Mensaje> {
+    const m = this.store.get(id);
+    if (!m) throw new NotFoundError(`mensaje no encontrado: ${id}`, "mensaje", id);
+    m.estado_entrega = "fallido";
+    m.estado_entrega_at = new Date();
+    m.error_entrega = error;
+    return cloneMensaje(m);
+  }
+
+  async liberarReserva(id: UUID): Promise<void> {
+    const m = this.store.get(id);
+    if (!m) return;
+    if (m.meta_message_id !== null) {
+      throw new ConflictError(
+        `mensaje ya confirmado por Meta, no se libera: ${id}`,
+        "reserva_confirmada",
+      );
+    }
+    this.store.delete(id);
   }
 
   async aplicarEstadoEntrega(
