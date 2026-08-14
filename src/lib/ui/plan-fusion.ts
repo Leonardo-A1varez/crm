@@ -7,7 +7,7 @@ import type { Lead } from "@/types/entities";
  * descarta, en vez de descubrirlo después sobre un lead que ya se borró. Es la
  * diferencia entre "estos dos se parecen" y "esto es lo que voy a perder".
  *
- * Espeja las reglas de `approve_lead_merge` (migración `20260814120000`), que
+ * Espeja las reglas de `approve_lead_merge` (migración `20260814190000`), que
  * es la autoridad en producción. Si esa función cambia, este módulo miente: los
  * tests de acá son lo que obliga a tocar los dos juntos.
  */
@@ -23,6 +23,17 @@ const CAMPOS_QUE_SE_RELLENAN = [
   "nombre_perfil",
 ] as const;
 
+/**
+ * Los campos que además se acumulan en `lead_identificadores`.
+ *
+ * Un valor distinto en el ganador ya no descarta el del perdedor: los dos
+ * quedan sobre el lead fusionado. La columna sigue teniendo un solo valor —el
+ * principal— pero el otro no se pierde, y por eso acá se dice "se suma" en vez
+ * de "se pierde". Lo hace `approve_lead_merge` desde la migración
+ * `20260814190000`.
+ */
+const CAMPOS_QUE_SE_ACUMULAN = ["telefono", "email"] as const;
+
 export type DestinoCampo =
   /** Los dos tienen el mismo valor: la fusión no cambia nada. */
   | "iguales"
@@ -32,6 +43,12 @@ export type DestinoCampo =
   | "solo_ganador"
   /** El ganador está vacío y el perdedor tiene: se copia al ganador. */
   | "se_copia"
+  /**
+   * Los dos tienen valor distinto y los dos quedan sobre el lead fusionado. El
+   * de la columna sigue siendo el del ganador; el otro pasa a ser un
+   * identificador más. No se pierde nada.
+   */
+  | "se_suma"
   /** Los dos tienen valor distinto: gana el ganador y el del perdedor se pierde. */
   | "se_descarta";
 
@@ -62,49 +79,48 @@ function claves(valor: object | null | undefined): string {
   return Object.keys(valor).sort().join(", ");
 }
 
-function destino(g: string, p: string, seRellena: boolean): DestinoCampo {
+function destino(g: string, p: string, seRellena: boolean, seAcumula: boolean): DestinoCampo {
   if (g === "" && p === "") return "vacios";
   if (g === p) return "iguales";
   if (g === "") return seRellena ? "se_copia" : "solo_ganador";
   if (p === "") return "solo_ganador";
-  // Los dos tienen valor y difieren: el ganador manda, sin importar si el campo
-  // se rellena o no — `coalesce(g.campo, ...)` solo actúa sobre el nulo.
-  return "se_descarta";
+  // Los dos tienen valor y difieren. La columna se la queda el ganador
+  // (`coalesce` solo actúa sobre el nulo), pero si el campo se acumula el valor
+  // del perdedor sobrevive como identificador en vez de descartarse.
+  return seAcumula ? "se_suma" : "se_descarta";
 }
 
-function fila(campo: string, g: unknown, p: unknown, seRellena: boolean): FilaComparacion {
+function fila(campo: string, clave: string, g: unknown, p: unknown): FilaComparacion {
   const ganador = texto(g);
   const perdedor = texto(p);
-  return { campo, ganador, perdedor, destino: destino(ganador, perdedor, seRellena) };
+  const seRellena = (CAMPOS_QUE_SE_RELLENAN as readonly string[]).includes(clave);
+  const seAcumula = (CAMPOS_QUE_SE_ACUMULAN as readonly string[]).includes(clave);
+  return { campo, ganador, perdedor, destino: destino(ganador, perdedor, seRellena, seAcumula) };
 }
 
 /**
  * La comparación campo por campo, en el orden en que se lee una ficha.
  *
- * `nombre`, `telefono` y `canal_origen` **no** están entre los que se rellenan:
- * el merge nunca los toca, así que un valor distinto del perdedor se pierde. Se
- * muestran igual —son los que identifican a la persona— justamente para que esa
- * pérdida se vea antes de confirmar.
+ * `nombre` y `canal_origen` no se rellenan ni se acumulan: el merge nunca los
+ * toca, así que un valor distinto del perdedor se pierde. Se muestran
+ * igual —identifican a la persona— justamente para que esa pérdida se vea antes
+ * de confirmar.
+ *
+ * `telefono` y `email` sí se acumulan: la columna se la queda el ganador, pero
+ * el valor del perdedor sobrevive como identificador.
  */
 export function planDeFusion(ganador: Lead, perdedor: Lead): FilaComparacion[] {
-  const rellena = (campo: string) => (CAMPOS_QUE_SE_RELLENAN as readonly string[]).includes(campo);
-
   return [
-    fila("Nombre", ganador.nombre, perdedor.nombre, rellena("nombre")),
-    fila(
-      "Nombre de perfil",
-      ganador.nombre_perfil,
-      perdedor.nombre_perfil,
-      rellena("nombre_perfil"),
-    ),
-    fila("Teléfono", ganador.telefono, perdedor.telefono, rellena("telefono")),
-    fila("Email", ganador.email, perdedor.email, rellena("email")),
-    fila("Dirección", ganador.direccion, perdedor.direccion, rellena("direccion")),
-    fila("Marca", ganador.vehiculo_marca, perdedor.vehiculo_marca, rellena("vehiculo_marca")),
-    fila("Modelo", ganador.vehiculo_modelo, perdedor.vehiculo_modelo, rellena("vehiculo_modelo")),
-    fila("Año", ganador.vehiculo_anio, perdedor.vehiculo_anio, rellena("vehiculo_anio")),
-    fila("Motor", ganador.vehiculo_motor, perdedor.vehiculo_motor, rellena("vehiculo_motor")),
-    fila("Canal de origen", ganador.canal_origen, perdedor.canal_origen, rellena("canal_origen")),
+    fila("Nombre", "nombre", ganador.nombre, perdedor.nombre),
+    fila("Nombre de perfil", "nombre_perfil", ganador.nombre_perfil, perdedor.nombre_perfil),
+    fila("Teléfono", "telefono", ganador.telefono, perdedor.telefono),
+    fila("Email", "email", ganador.email, perdedor.email),
+    fila("Dirección", "direccion", ganador.direccion, perdedor.direccion),
+    fila("Marca", "vehiculo_marca", ganador.vehiculo_marca, perdedor.vehiculo_marca),
+    fila("Modelo", "vehiculo_modelo", ganador.vehiculo_modelo, perdedor.vehiculo_modelo),
+    fila("Año", "vehiculo_anio", ganador.vehiculo_anio, perdedor.vehiculo_anio),
+    fila("Motor", "vehiculo_motor", ganador.vehiculo_motor, perdedor.vehiculo_motor),
+    fila("Canal de origen", "canal_origen", ganador.canal_origen, perdedor.canal_origen),
     // Las identidades de Meta se unen (el ganador prima por canal), así que
     // nunca se descarta ninguna: se listan las claves para que se vea qué gana
     // el ganador.
@@ -136,7 +152,9 @@ function unionDestino(g: string, p: string): DestinoCampo {
 
 /** Solo las filas donde la fusión cambia algo. Es lo que hay que mirar. */
 export function filasQueCambian(filas: FilaComparacion[]): FilaComparacion[] {
-  return filas.filter((f) => f.destino === "se_copia" || f.destino === "se_descarta");
+  return filas.filter(
+    (f) => f.destino === "se_copia" || f.destino === "se_suma" || f.destino === "se_descarta",
+  );
 }
 
 /** Cuántos valores del perdedor se van a perder. Cero significa fusión limpia. */

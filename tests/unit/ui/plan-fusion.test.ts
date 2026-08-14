@@ -34,12 +34,21 @@ describe("planDeFusion", () => {
     expect(destinoDe(filas, "Email")).toBe("se_copia");
   });
 
-  test("dos valores distintos: gana el ganador y el otro se pierde", () => {
+  test("dos emails distintos se suman: los dos quedan como identificadores", () => {
     const filas = planDeFusion(
       lead({ email: "bueno@mail.com" }),
       lead({ email: "viejo@mail.com" }),
     );
-    expect(destinoDe(filas, "Email")).toBe("se_descarta");
+    expect(destinoDe(filas, "Email")).toBe("se_suma");
+    expect(contarDescartes(filas)).toBe(0);
+  });
+
+  test("dos valores distintos de un campo que NO se acumula: se pierde uno", () => {
+    const filas = planDeFusion(
+      lead({ vehiculo_modelo: "Hilux" }),
+      lead({ vehiculo_modelo: "Corolla" }),
+    );
+    expect(destinoDe(filas, "Modelo")).toBe("se_descarta");
     expect(contarDescartes(filas)).toBe(1);
   });
 
@@ -49,14 +58,15 @@ describe("planDeFusion", () => {
     expect(contarDescartes(filas)).toBe(0);
   });
 
-  test("el telefono del perdedor SIEMPRE se pierde: el merge no lo copia", () => {
-    // `telefono` no está entre los campos que rellena `approve_lead_merge`, así
-    // que aunque el ganador lo tuviera vacío el del perdedor no se copiaría.
+  test("dos telefonos distintos se suman: el lead fusionado se queda con los dos", () => {
+    // La columna `telefono` la conserva el ganador, pero el del perdedor pasa a
+    // `lead_identificadores` en vez de descartarse (migración 20260814190000).
     const filas = planDeFusion(
       lead({ telefono: "+5491111111111" }),
       lead({ telefono: "+5492222222222" }),
     );
-    expect(destinoDe(filas, "Teléfono")).toBe("se_descarta");
+    expect(destinoDe(filas, "Teléfono")).toBe("se_suma");
+    expect(contarDescartes(filas)).toBe(0);
   });
 
   test("un nombre distinto se descarta: el merge conserva el del ganador", () => {

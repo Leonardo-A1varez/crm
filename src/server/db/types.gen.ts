@@ -361,6 +361,47 @@ export type Database = {
         }
         Relationships: []
       }
+      lead_identificadores: {
+        Row: {
+          created_at: string
+          id: string
+          lead_id: string
+          origen: string
+          principal: boolean
+          tipo: Database["public"]["Enums"]["identificador_tipo_enum"]
+          valor: string
+          valor_original: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          lead_id: string
+          origen?: string
+          principal?: boolean
+          tipo: Database["public"]["Enums"]["identificador_tipo_enum"]
+          valor: string
+          valor_original?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          lead_id?: string
+          origen?: string
+          principal?: boolean
+          tipo?: Database["public"]["Enums"]["identificador_tipo_enum"]
+          valor?: string
+          valor_original?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_identificadores_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       lead_session: {
         Row: {
           bloqueador: string | null
@@ -1217,6 +1258,7 @@ export type Database = {
         | "requiere_humano"
       direction_enum: "in" | "out"
       estado_entrega_enum: "enviado" | "entregado" | "leido" | "fallido"
+      identificador_tipo_enum: "telefono" | "email" | "ruc" | "placa" | "vin"
       merge_candidate_status_enum:
         | "pending"
         | "approved"
@@ -1386,6 +1428,7 @@ export const Constants = {
       ],
       direction_enum: ["in", "out"],
       estado_entrega_enum: ["enviado", "entregado", "leido", "fallido"],
+      identificador_tipo_enum: ["telefono", "email", "ruc", "placa", "vin"],
       merge_candidate_status_enum: [
         "pending",
         "approved",

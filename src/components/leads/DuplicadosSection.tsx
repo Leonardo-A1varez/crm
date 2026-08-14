@@ -55,6 +55,17 @@ function MarcaDestino({ destino }: { destino: DestinoCampo }) {
       </span>
     );
   }
+  if (destino === "se_suma") {
+    return (
+      <span
+        title="Los dos valores quedan sobre el lead fusionado. No se pierde ninguno."
+        className="text-go inline-flex items-center gap-1 font-mono text-[9.5px] font-semibold"
+      >
+        <ArrowForward size={11} className="shrink-0" />
+        se suma
+      </span>
+    );
+  }
   if (destino === "se_descarta") {
     return (
       <span
@@ -99,7 +110,8 @@ function TablaComparacion({ ganador, perdedor }: { ganador: Lead; perdedor: Lead
           </thead>
           <tbody>
             {filas.map((f) => {
-              const cambia = f.destino === "se_copia" || f.destino === "se_descarta";
+              const cambia =
+                f.destino === "se_copia" || f.destino === "se_suma" || f.destino === "se_descarta";
               return (
                 <tr key={f.campo} className="border-line-card/60 border-b last:border-b-0">
                   <td className="text-ink-dim px-2.5 py-1.5 align-top text-[11px] whitespace-nowrap">
