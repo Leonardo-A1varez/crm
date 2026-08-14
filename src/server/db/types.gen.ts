@@ -553,6 +553,59 @@ export type Database = {
           },
         ]
       }
+      lead_vehiculos: {
+        Row: {
+          anio: number | null
+          created_at: string
+          id: string
+          lead_id: string
+          marca: string | null
+          modelo: string | null
+          motor: string | null
+          placa: string | null
+          placa_original: string | null
+          principal: boolean
+          vin: string | null
+          vin_original: string | null
+        }
+        Insert: {
+          anio?: number | null
+          created_at?: string
+          id?: string
+          lead_id: string
+          marca?: string | null
+          modelo?: string | null
+          motor?: string | null
+          placa?: string | null
+          placa_original?: string | null
+          principal?: boolean
+          vin?: string | null
+          vin_original?: string | null
+        }
+        Update: {
+          anio?: number | null
+          created_at?: string
+          id?: string
+          lead_id?: string
+          marca?: string | null
+          modelo?: string | null
+          motor?: string | null
+          placa?: string | null
+          placa_original?: string | null
+          principal?: boolean
+          vin?: string | null
+          vin_original?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_vehiculos_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       leads: {
         Row: {
           canal_origen: Database["public"]["Enums"]["canal_enum"]
@@ -1265,7 +1318,13 @@ export type Database = {
         | "requiere_humano"
       direction_enum: "in" | "out"
       estado_entrega_enum: "enviado" | "entregado" | "leido" | "fallido"
-      identificador_tipo_enum: "telefono" | "email" | "ruc" | "placa" | "vin"
+      identificador_tipo_enum:
+        | "telefono"
+        | "email"
+        | "ruc"
+        | "cedula"
+        | "placa"
+        | "vin"
       merge_candidate_status_enum:
         | "pending"
         | "approved"
@@ -1435,7 +1494,14 @@ export const Constants = {
       ],
       direction_enum: ["in", "out"],
       estado_entrega_enum: ["enviado", "entregado", "leido", "fallido"],
-      identificador_tipo_enum: ["telefono", "email", "ruc", "placa", "vin"],
+      identificador_tipo_enum: [
+        "telefono",
+        "email",
+        "ruc",
+        "cedula",
+        "placa",
+        "vin",
+      ],
       merge_candidate_status_enum: [
         "pending",
         "approved",
