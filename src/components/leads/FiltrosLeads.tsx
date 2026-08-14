@@ -4,10 +4,13 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { Close, Tune } from "@/components/icons";
 import { ChipFiltro, CHIP_BASE, CHIP_OFF, CHIP_ON } from "@/components/leads/ChipFiltro";
+import { FiltroPerdido } from "@/components/leads/FiltroPerdido";
 import { SelectorBuscable } from "@/components/leads/SelectorBuscable";
 import { ChannelDot } from "@/components/shared/ChannelDot";
 import {
   contarFiltrosActivos,
+  ETAPA_REQUIERE_HUMANO,
+  ETAPAS_FILTRO,
   PARAM,
   PARAMS_VEHICULO,
   parseFiltrosLeads,
@@ -16,24 +19,13 @@ import {
 } from "@/lib/ui/filtros-leads";
 import { motivoPerdidaLabel } from "@/lib/ui/motivo-perdida";
 import { canalLabel } from "@/lib/ui/canal";
-import { stageLabel } from "@/lib/ui/stage";
+import { stageColor, stageLabel } from "@/lib/ui/stage";
 import { cn } from "@/lib/utils";
-import { CANAL, CURRENT_STAGE, RESULTADO } from "@/types/domain";
+import { CANAL } from "@/types/domain";
 import type { OpcionBuscable } from "@/components/leads/SelectorBuscable";
 import type { MotivoPerdida } from "@/types/domain";
 import type { EtiquetaOpcion, VehiculoOpcion } from "@/types/leads";
 import type { ReactNode } from "react";
-
-/**
- * Cómo se codifica una opción del selector de cierre.
- *
- * El control es uno solo —"cómo terminó"— pero escribe dos params distintos:
- * "Ganado" es un resultado y "Perdido: Precio" es un motivo. El prefijo dice
- * cuál de los dos, y elegir uno siempre limpia el otro: `resultado=exito` con
- * `motivo=precio` es una combinación que no puede devolver nada.
- */
-const PREFIJO_RESULTADO = "resultado:";
-const PREFIJO_MOTIVO = "motivo:";
 
 function Grupo({ titulo, children }: { titulo: string; children: ReactNode }) {
   return (
@@ -112,39 +104,17 @@ export function FiltrosLeads({
     ]);
   }
 
-  const opcionesCierre: OpcionBuscable[] = [
-    ...RESULTADO.map((r) => ({ valor: `${PREFIJO_RESULTADO}${r}`, texto: resultadoLabel(r) })),
-    ...motivos.map((m) => ({
-      valor: `${PREFIJO_MOTIVO}${m}`,
-      texto: `Perdido: ${motivoPerdidaLabel(m)}`,
-    })),
-  ];
-  const valorCierre =
-    filtros.motivoPerdida !== undefined
-      ? `${PREFIJO_MOTIVO}${filtros.motivoPerdida}`
-      : filtros.resultado !== undefined
-        ? `${PREFIJO_RESULTADO}${filtros.resultado}`
-        : undefined;
+  // Ganado y Perdido comparten el param `resultado`, así que se excluyen solos:
+  // prender uno apaga el otro sin que haya que limpiarlo a mano. El motivo solo
+  // acompaña a Perdido y se limpia en cualquier otra transición.
+  const ganado = filtros.resultado === "exito";
+  const perdido = filtros.resultado === "perdido";
 
-  function elegirCierre(valor: string | null) {
-    if (valor === null) {
-      navegar([
-        [PARAM.resultado, null],
-        [PARAM.motivo, null],
-      ]);
-      return;
-    }
-    navegar(
-      valor.startsWith(PREFIJO_MOTIVO)
-        ? [
-            [PARAM.resultado, null],
-            [PARAM.motivo, valor.slice(PREFIJO_MOTIVO.length)],
-          ]
-        : [
-            [PARAM.resultado, valor.slice(PREFIJO_RESULTADO.length)],
-            [PARAM.motivo, null],
-          ],
-    );
+  function alternarGanado() {
+    navegar([
+      [PARAM.resultado, ganado ? null : "exito"],
+      [PARAM.motivo, null],
+    ]);
   }
 
   const opcionesEtiquetas: OpcionBuscable[] = etiquetas.map((e) => ({
@@ -235,7 +205,7 @@ export function FiltrosLeads({
       {abierto ? (
         <div className="mt-2.5 flex flex-col gap-2">
           <Grupo titulo="Etapa">
-            {CURRENT_STAGE.map((s) => (
+            {ETAPAS_FILTRO.map((s) => (
               <ChipFiltro
                 key={s}
                 activo={filtros.etapa === s}
@@ -247,14 +217,34 @@ export function FiltrosLeads({
           </Grupo>
 
           <Grupo titulo="Cierre">
-            <SelectorBuscable
-              etiqueta="Cierre"
-              vacio="Cómo terminó"
-              placeholder="Buscar cierre o motivo…"
-              opciones={opcionesCierre}
-              valor={valorCierre}
-              sinOpciones="Todavía no hay sesiones cerradas."
-              onElegir={elegirCierre}
+            <ChipFiltro activo={ganado} onClick={alternarGanado}>
+              {resultadoLabel("exito")}
+            </ChipFiltro>
+            <FiltroPerdido
+              activo={perdido}
+              motivo={filtros.motivoPerdida}
+              motivos={motivos}
+              onPrender={() =>
+                navegar([
+                  [PARAM.resultado, "perdido"],
+                  [PARAM.motivo, null],
+                ])
+              }
+              onApagar={() =>
+                navegar([
+                  [PARAM.resultado, null],
+                  [PARAM.motivo, null],
+                ])
+              }
+              // `resultado` se mantiene junto al motivo: el service los aplica
+              // con AND, así que el recorte queda explícito y el chip sigue
+              // encendido aunque el motivo cambie.
+              onElegirMotivo={(m) =>
+                navegar([
+                  [PARAM.resultado, "perdido"],
+                  [PARAM.motivo, m],
+                ])
+              }
             />
           </Grupo>
 
@@ -281,6 +271,27 @@ export function FiltrosLeads({
               sinOpciones="Todavía no hay etiquetas."
               onElegir={(id) => navegar([[PARAM.etiqueta, id]])}
             />
+            {/* No es una etiqueta del catálogo sino `current_stage`, pero para
+                quien filtra es una marca sobre el lead y no un paso del embudo.
+                Vive acá y escribe `etapa`: sin fila en `lead_tags`, no hay copia
+                que pueda quedar desincronizada del estado real. */}
+            <ChipFiltro
+              activo={filtros.etapa === ETAPA_REQUIERE_HUMANO}
+              onClick={() =>
+                alternar(
+                  PARAM.etapa,
+                  ETAPA_REQUIERE_HUMANO,
+                  filtros.etapa === ETAPA_REQUIERE_HUMANO,
+                )
+              }
+            >
+              <span
+                aria-hidden
+                className="size-[6px] shrink-0 rounded-full"
+                style={{ backgroundColor: stageColor(ETAPA_REQUIERE_HUMANO) }}
+              />
+              {stageLabel(ETAPA_REQUIERE_HUMANO)}
+            </ChipFiltro>
           </Grupo>
 
           <Grupo titulo="Vehículos">
@@ -324,16 +335,21 @@ function resumen(
   etiquetas: EtiquetaOpcion[],
 ): { claves: readonly string[]; texto: string }[] {
   const out: { claves: readonly string[]; texto: string }[] = [];
-  if (filtros.etapa) {
+  if (filtros.etapa === ETAPA_REQUIERE_HUMANO) {
+    // Sin el prefijo "Etapa:": se eligió desde Etiquetas y así se nombra.
+    out.push({ claves: [PARAM.etapa], texto: stageLabel(ETAPA_REQUIERE_HUMANO) });
+  } else if (filtros.etapa) {
     out.push({ claves: [PARAM.etapa], texto: `Etapa: ${stageLabel(filtros.etapa)}` });
   }
-  if (filtros.resultado) {
-    out.push({ claves: [PARAM.resultado], texto: resultadoLabel(filtros.resultado) });
-  }
-  if (filtros.motivoPerdida) {
+  // El cierre es un renglón solo aunque ocupe dos params: se eligió con un
+  // gesto y se quita con uno, igual que el vehículo.
+  if (filtros.resultado !== undefined || filtros.motivoPerdida !== undefined) {
     out.push({
-      claves: [PARAM.motivo],
-      texto: `Motivo: ${motivoPerdidaLabel(filtros.motivoPerdida)}`,
+      claves: [PARAM.resultado, PARAM.motivo],
+      texto:
+        filtros.motivoPerdida !== undefined
+          ? `${resultadoLabel("perdido")}: ${motivoPerdidaLabel(filtros.motivoPerdida)}`
+          : resultadoLabel(filtros.resultado ?? "perdido"),
     });
   }
   if (filtros.canal) out.push({ claves: [PARAM.canal], texto: canalLabel(filtros.canal) });

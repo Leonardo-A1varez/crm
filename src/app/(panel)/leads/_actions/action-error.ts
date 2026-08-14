@@ -10,7 +10,16 @@ import { getLogger } from "@/lib/observability/get-logger";
 const logger = getLogger({ scope: "leads-actions" });
 
 /** Mapea errores de service a mensaje curado para toast (detalle técnico solo a logs). */
-export function toActionError(e: unknown, accion: string): { ok: false; error: string } {
+export function toActionError(
+  e: unknown,
+  accion: string,
+  /**
+   * Copys alternativos para las acciones de esta pantalla que no fusionan. Los
+   * defaults hablan de fusionar leads porque ese es el grueso de `/leads`; en
+   * una acción que reanuda la IA, ese texto sería una pista falsa.
+   */
+  opciones: { permisoDenegado?: string } = {},
+): { ok: false; error: string } {
   if (e instanceof ConflictError) {
     return { ok: false, error: "Este par ya fue resuelto o no existe. Refrescá la página." };
   }
@@ -32,7 +41,7 @@ export function toActionError(e: unknown, accion: string): { ok: false; error: s
   }
   if (e instanceof PermissionDeniedError) {
     logger.warn("permiso denegado en action leads", { accion, code: e.code });
-    return { ok: false, error: "Solo un admin puede fusionar leads." };
+    return { ok: false, error: opciones.permisoDenegado ?? "Solo un admin puede fusionar leads." };
   }
   if (e instanceof DomainError) {
     logger.warn("domain error en action leads", { accion, code: e.code, error: e.message });

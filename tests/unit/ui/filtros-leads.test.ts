@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
   contarFiltrosActivos,
+  ETAPA_REQUIERE_HUMANO,
+  ETAPAS_FILTRO,
   parseFiltrosLeads,
   resultadoLabel,
   vehiculoLabel,
@@ -46,8 +48,10 @@ describe("parseFiltrosLeads", () => {
       vehiculoAnio: 2018,
     });
     // `q` no cuenta como chip: tiene su propia caja en el encabezado.
-    // 7 dimensiones sueltas + el vehículo, que cuenta uno con sus tres params.
-    expect(contarFiltrosActivos(f)).toBe(8);
+    // 5 dimensiones sueltas (canal, etapa, etiqueta, sin responder, duplicados)
+    // + el vehículo, que cuenta uno con sus tres params, + el cierre, que
+    // cuenta uno con `resultado` y `motivo`.
+    expect(contarFiltrosActivos(f)).toBe(7);
   });
 
   test("actividad y sesión ya no se leen de la URL: salieron de la barra", () => {
@@ -116,5 +120,50 @@ describe("etiquetas de los chips", () => {
   test("cada opción tiene nombre en castellano", () => {
     expect(resultadoLabel("exito")).toBe("Ganado");
     expect(motivoPerdidaLabel("no_responde")).toBe("No responde");
+  });
+});
+
+describe("ETAPAS_FILTRO", () => {
+  test("son las etapas del embudo sin cerrado", () => {
+    expect(ETAPAS_FILTRO).toEqual([
+      "nuevo",
+      "identificando",
+      "cotizado",
+      "negociando",
+      "esperando_pago",
+    ]);
+  });
+
+  test("no ofrece como etapa lo que ya deciden Cierre y Etiquetas", () => {
+    // `cerrado` y `perdido` los cubre el grupo Cierre; `requiere_humano` no es
+    // una etapa del embudo sino un aviso, y vive en Etiquetas.
+    for (const fuera of ["cerrado", "perdido", ETAPA_REQUIERE_HUMANO]) {
+      expect(ETAPAS_FILTRO).not.toContain(fuera);
+    }
+  });
+
+  test("el parser sigue aceptando las etapas que ya no son chip", () => {
+    // Un link viejo con `?etapa=cerrado` tiene que seguir abriendo la pantalla:
+    // sacar el chip cambia lo que se ofrece, no lo que se entiende.
+    expect(parseFiltrosLeads({ etapa: "cerrado" }).etapa).toBe("cerrado");
+    expect(parseFiltrosLeads({ etapa: "perdido" }).etapa).toBe("perdido");
+    expect(parseFiltrosLeads({ etapa: ETAPA_REQUIERE_HUMANO }).etapa).toBe(ETAPA_REQUIERE_HUMANO);
+  });
+});
+
+describe("el cierre cuenta como un solo filtro", () => {
+  test("Perdido con motivo suma uno, no dos", () => {
+    const soloPerdido = parseFiltrosLeads({ resultado: "perdido" });
+    const conMotivo = parseFiltrosLeads({ resultado: "perdido", motivo: "precio" });
+    expect(contarFiltrosActivos(soloPerdido)).toBe(1);
+    expect(contarFiltrosActivos(conMotivo)).toBe(1);
+  });
+
+  test("Ganado suma uno", () => {
+    expect(contarFiltrosActivos(parseFiltrosLeads({ resultado: "exito" }))).toBe(1);
+  });
+
+  test("un motivo suelto de un link viejo sigue contando uno", () => {
+    expect(contarFiltrosActivos(parseFiltrosLeads({ motivo: "stock" }))).toBe(1);
   });
 });

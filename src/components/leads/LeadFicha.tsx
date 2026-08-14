@@ -2,13 +2,16 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
+import { Close } from "@/components/icons";
 import { ChannelIcons } from "@/components/inbox/ChannelIcons";
 import { InitialsAvatar } from "@/components/shared/InitialsAvatar";
 import { UpdateLeadProfileSchema } from "@/lib/validation/leads.schema";
 import { canalesDelLead } from "@/lib/ui/canal";
+import { ETAPA_REQUIERE_HUMANO } from "@/lib/ui/filtros-leads";
+import { stageBadgeBackground, stageColor, stageLabel } from "@/lib/ui/stage";
 import { formatearTelefono } from "@/lib/ui/telefono";
 import type { ActionResult } from "@/types/inbox";
-import type { Lead } from "@/types/entities";
+import type { Lead, UUID } from "@/types/entities";
 import type { LeadTagView } from "@/types/leads";
 
 function Campo({ label, value }: { label: string; value: string | null }) {
@@ -59,11 +62,20 @@ function Entrada({
 export function LeadFicha({
   lead,
   tags,
+  requiereHumano,
   onUpdate,
+  onQuitarRequiereHumano,
 }: {
   lead: Lead;
   tags: LeadTagView[];
+  /**
+   * La sesión activa cuando está escalada, o `null`. No es una etiqueta del
+   * catálogo: sale de `current_stage`, así que no hay nada que borrar de
+   * `lead_tags` ni copia que pueda quedar desincronizada.
+   */
+  requiereHumano: { sessionId: UUID } | null;
   onUpdate: (formData: FormData) => Promise<ActionResult>;
+  onQuitarRequiereHumano: (raw: unknown) => Promise<ActionResult>;
 }) {
   const router = useRouter();
   const [editando, setEditando] = useState(false);
@@ -94,6 +106,25 @@ export function LeadFicha({
       }
       setFeedback("Cambios guardados.");
       setEditando(false);
+      router.refresh();
+    });
+  }
+
+  function quitarRequiereHumano() {
+    if (requiereHumano === null) return;
+    startTransition(async () => {
+      const result = await onQuitarRequiereHumano({
+        leadId: lead.id,
+        sessionId: requiereHumano.sessionId,
+        action: "resume",
+      });
+      if (!result.ok) {
+        setFeedback(result.error);
+        return;
+      }
+      // Qué pasó, no solo que salió bien: la sesión vuelve a la etapa que traía
+      // y la IA queda contestando de nuevo.
+      setFeedback("La IA volvió a atender este lead.");
       router.refresh();
     });
   }
@@ -203,8 +234,31 @@ export function LeadFicha({
           {feedback}
         </p>
       ) : null}
-      {tags.length > 0 ? (
+      {requiereHumano !== null || tags.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1.5">
+          {/* Va primero y con fondo: es lo único de esta fila que pide una
+              acción, y las etiquetas del catálogo son descriptivas. */}
+          {requiereHumano !== null ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-md py-[2.5px] pr-[5px] pl-[7px] text-[10px] font-semibold"
+              style={{
+                color: stageColor(ETAPA_REQUIERE_HUMANO),
+                backgroundColor: stageBadgeBackground(ETAPA_REQUIERE_HUMANO),
+              }}
+            >
+              {stageLabel(ETAPA_REQUIERE_HUMANO)}
+              <button
+                type="button"
+                disabled={pending}
+                onClick={quitarRequiereHumano}
+                title="Reanudar la IA y devolver el lead a su etapa"
+                aria-label="Quitar Requiere humano y reanudar la IA"
+                className="opacity-70 transition-opacity hover:opacity-100 disabled:opacity-40"
+              >
+                <Close size={11} />
+              </button>
+            </span>
+          ) : null}
           {tags.map((tag) => (
             <span
               key={tag.id}
