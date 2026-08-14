@@ -5,6 +5,7 @@ import type {
   EstadoEntrega,
   EstadoRecordatorio,
   EtapaEmbudo,
+  IdentificadorTipo,
   MergeCandidateStatus,
   MetodoPago,
   MotivoCancelacionRecordatorio,
@@ -265,6 +266,28 @@ export interface TurnClassification {
   /** Nombre tal como se clasificó; sobrevive al rename o borrado del intent. */
   intent_nombre: string | null;
   confidence: number;
+  created_at: Date;
+}
+
+/**
+ * Un dato que identifica a un lead. Varios por lead.
+ *
+ * La columna `leads.telefono` sigue siendo la identidad canónica de WhatsApp
+ * que usa el pipeline; esta tabla es aditiva y guarda todo lo demás: el segundo
+ * teléfono que trajo una fusión, el correo de trabajo, el RUC, la placa, el VIN.
+ */
+export interface LeadIdentificador {
+  id: UUID;
+  lead_id: UUID;
+  tipo: IdentificadorTipo;
+  /** Normalizado para comparar. Es contra esto que el detector busca. */
+  valor: string;
+  /** Como lo escribió la persona. Es lo que se muestra. */
+  valor_original: string | null;
+  /** El que va en la ficha cuando hay varios del mismo tipo. */
+  principal: boolean;
+  /** `meta` · `manual` · `extractor` · `merge`. A cuál creerle si se contradicen. */
+  origen: string;
   created_at: Date;
 }
 

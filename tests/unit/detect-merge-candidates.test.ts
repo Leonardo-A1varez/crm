@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
 import { InMemoryMergeCandidatesRepository } from "@/server/repositories/merge-candidates.repo";
 import { DefaultLeadMergeDetectorService } from "@/server/services/lead-merge-detector.service";
+import { InMemoryLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
 import {
   detectMergeCandidatesGlobalHandler,
   detectMergeCandidatesPerLeadHandler,
@@ -36,15 +37,39 @@ async function seedLead(
   return created;
 }
 
+/**
+ * Le da el mismo telefono a dos leads. Es lo que el detector nuevo necesita
+ * para proponer el par: llamarse igual dejo de alcanzar.
+ */
+async function compartirTelefono(
+  repo: InMemoryLeadIdentificadoresRepository,
+  leadA: string,
+  leadB: string,
+  valor: string,
+) {
+  for (const lead_id of [leadA, leadB]) {
+    await repo.create({
+      lead_id,
+      tipo: "telefono",
+      valor,
+      valor_original: valor,
+      principal: true,
+      origen: "manual",
+    });
+  }
+}
+
 describe("detectMergeCandidatesPerLeadHandler", () => {
   let leads: InMemoryLeadsRepository;
   let candidates: InMemoryMergeCandidatesRepository;
+  let identificadores: InMemoryLeadIdentificadoresRepository;
   let detector: DefaultLeadMergeDetectorService;
 
   beforeEach(() => {
     leads = new InMemoryLeadsRepository();
     candidates = new InMemoryMergeCandidatesRepository();
-    detector = new DefaultLeadMergeDetectorService(leads, candidates);
+    identificadores = new InMemoryLeadIdentificadoresRepository();
+    detector = new DefaultLeadMergeDetectorService(leads, candidates, identificadores);
   });
 
   test("no dup en BD: no proposals, no recorded", async () => {
@@ -59,9 +84,11 @@ describe("detectMergeCandidatesPerLeadHandler", () => {
     expect(result.recorded).toBe(0);
   });
 
-  test("dup canal distinto mismo nombre → proposal + recorded", async () => {
+  test("dup por identificador compartido → proposal + recorded", async () => {
     const leadWa = await seedLead(leads, "Juan Perez", "wa", "549110");
-    await seedLead(leads, "Juan Perez", "ig", "ig_user_1");
+    const leadIg = await seedLead(leads, "Juan Perez", "ig", "ig_user_1");
+    // El nombre igual ya no alcanza: lo que los ata es el telefono.
+    await compartirTelefono(identificadores, leadWa.id, leadIg.id, "5491155550001");
 
     const result = await detectMergeCandidatesPerLeadHandler(
       { leadId: leadWa.id },
@@ -98,18 +125,21 @@ describe("detectMergeCandidatesPerLeadHandler", () => {
 describe("detectMergeCandidatesGlobalHandler", () => {
   let leads: InMemoryLeadsRepository;
   let candidates: InMemoryMergeCandidatesRepository;
+  let identificadores: InMemoryLeadIdentificadoresRepository;
   let detector: DefaultLeadMergeDetectorService;
 
   beforeEach(() => {
     leads = new InMemoryLeadsRepository();
     candidates = new InMemoryMergeCandidatesRepository();
-    detector = new DefaultLeadMergeDetectorService(leads, candidates);
+    identificadores = new InMemoryLeadIdentificadoresRepository();
+    detector = new DefaultLeadMergeDetectorService(leads, candidates, identificadores);
   });
 
   test("scan recientes detecta dup cross-canal", async () => {
-    await seedLead(leads, "Maria Lopez", "wa", "549111", daysAgo(1));
-    await seedLead(leads, "Maria Lopez", "ig", "ig_user_2", daysAgo(2));
+    const maria1 = await seedLead(leads, "Maria Lopez", "wa", "549111", daysAgo(1));
+    const maria2 = await seedLead(leads, "Maria Lopez", "ig", "ig_user_2", daysAgo(2));
     await seedLead(leads, "Pedro Ruiz", "fb", "fb_user_3", daysAgo(3));
+    await compartirTelefono(identificadores, maria1.id, maria2.id, "5491199990001");
 
     const result = await detectMergeCandidatesGlobalHandler(
       {},

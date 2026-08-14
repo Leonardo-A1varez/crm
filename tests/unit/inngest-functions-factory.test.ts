@@ -15,6 +15,7 @@ import { DefaultCatalogMatcherService } from "@/server/services/catalog-matcher.
 import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultIntentClassifierService } from "@/server/services/intent-classifier.service";
 import { DefaultLeadMergeDetectorService } from "@/server/services/lead-merge-detector.service";
+import { InMemoryLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
 import { DefaultRuleEngineService } from "@/server/services/rule-engine.service";
 import { DefaultTwinExtractorService } from "@/server/services/twin-extractor.service";
@@ -52,7 +53,11 @@ describe("makeCrmInngestFunctions", () => {
     const aiAgent = new DefaultAiAgentService(sessions, ruleEngine, catalog, new FakeAgentLLM());
     const twinExtractor = new DefaultTwinExtractorService(sessions, new FakeTwinExtractorLLM());
     const handoff = new DefaultHandoffService(sessions);
-    const mergeDetector = new DefaultLeadMergeDetectorService(leads, mergeCandidates);
+    const mergeDetector = new DefaultLeadMergeDetectorService(
+      leads,
+      mergeCandidates,
+      new InMemoryLeadIdentificadoresRepository(),
+    );
 
     const fns = makeCrmInngestFunctions({
       onMessageReceived: {

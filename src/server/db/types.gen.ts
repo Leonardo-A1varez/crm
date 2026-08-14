@@ -1215,6 +1215,13 @@ export type Database = {
       }
       is_admin: { Args: never; Returns: boolean }
       is_vendedor: { Args: never; Returns: boolean }
+      leads_que_comparten_identificador: {
+        Args: { p_lead_id: string }
+        Returns: {
+          lead_id: string
+          tipos: string[]
+        }[]
+      }
       revert_lead_merge: {
         Args: { p_merge_action_id: string }
         Returns: {

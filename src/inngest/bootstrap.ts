@@ -31,6 +31,7 @@ import { SupabaseHandoffEventsRepository } from "@/server/repositories/handoff-e
 import { SupabaseIntentsRepository } from "@/server/repositories/intents.supabase.repo";
 import { SupabaseLeadSessionRepository } from "@/server/repositories/lead-session.supabase.repo";
 import { SupabaseLeadsRepository } from "@/server/repositories/leads.supabase.repo";
+import { SupabaseLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.supabase.repo";
 import { SupabaseMergeCandidatesRepository } from "@/server/repositories/merge-candidates.supabase.repo";
 import { SupabaseMessagesRepository } from "@/server/repositories/messages.supabase.repo";
 import { SupabaseProductsRepository } from "@/server/repositories/productos.supabase.repo";
@@ -161,7 +162,11 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   // del valor de fábrica: es el mismo cache de 30s que usa el resto del turno.
   const handoff = new DefaultHandoffService(sessions, agenteConfigProvider, handoffEvents);
   const metaApi = new DefaultMetaApiService(conversations, messages, metaClient);
-  const mergeDetector = new DefaultLeadMergeDetectorService(leads, mergeCandidates);
+  const mergeDetector = new DefaultLeadMergeDetectorService(
+    leads,
+    mergeCandidates,
+    new SupabaseLeadIdentificadoresRepository(db),
+  );
   const aiAgent = new DefaultAiAgentService(
     sessions,
     ruleEngine,

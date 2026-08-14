@@ -138,6 +138,31 @@ export type MotivoCancelacionRecordatorio = (typeof MOTIVO_CANCELACION_RECORDATO
 export const TAG_SOURCE = ["manual", "workflow"] as const;
 export type TagSource = (typeof TAG_SOURCE)[number];
 
+/**
+ * Los datos que identifican a una persona y que no es normal tener repetidos.
+ *
+ * Son la base del detector de duplicados: dos leads que comparten uno son casi
+ * seguro la misma persona. El nombre NO está acá a propósito — hay cientos de
+ * "Carlos Gómez" y proponerlos como duplicados es ruido.
+ */
+export const IDENTIFICADOR_TIPO = ["telefono", "email", "ruc", "placa", "vin"] as const;
+export type IdentificadorTipo = (typeof IDENTIFICADOR_TIPO)[number];
+
+/**
+ * Cuánta certeza da compartir cada tipo, de 0 a 1.
+ *
+ * El VIN identifica un auto único en el mundo y el RUC una empresa registrada:
+ * compartirlos no admite coincidencia. Un correo se comparte más seguido
+ * —cuentas de trabajo, familiares— así que pesa menos.
+ */
+export const CERTEZA_IDENTIFICADOR: Record<IdentificadorTipo, number> = {
+  vin: 1,
+  ruc: 1,
+  placa: 0.95,
+  telefono: 0.9,
+  email: 0.85,
+};
+
 export const RESPUESTA_TIPO = ["text", "template", "handoff"] as const;
 export type RespuestaTipo = (typeof RESPUESTA_TIPO)[number];
 

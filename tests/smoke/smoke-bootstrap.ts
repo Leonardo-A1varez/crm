@@ -23,6 +23,7 @@ import { DefaultCatalogMatcherService } from "@/server/services/catalog-matcher.
 import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultIntentClassifierService } from "@/server/services/intent-classifier.service";
 import { DefaultLeadMergeDetectorService } from "@/server/services/lead-merge-detector.service";
+import { InMemoryLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
 import { DefaultRuleEngineService } from "@/server/services/rule-engine.service";
 import { DefaultTwinExtractorService } from "@/server/services/twin-extractor.service";
@@ -144,7 +145,11 @@ export function makeSmokeBundle(): SmokeBundle {
   const twinExtractor = new DefaultTwinExtractorService(sessions, llmBundle.twinExtractor);
   const handoff = new DefaultHandoffService(sessions);
   const metaApi = new DefaultMetaApiService(conversations, messages, metaClient);
-  const mergeDetector = new DefaultLeadMergeDetectorService(leads, mergeCandidates);
+  const mergeDetector = new DefaultLeadMergeDetectorService(
+    leads,
+    mergeCandidates,
+    new InMemoryLeadIdentificadoresRepository(),
+  );
   const aiAgent = new DefaultAiAgentService(
     sessions,
     ruleEngine,

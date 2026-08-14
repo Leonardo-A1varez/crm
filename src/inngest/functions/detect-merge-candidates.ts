@@ -43,10 +43,7 @@ export async function detectMergeCandidatesPerLeadHandler(
   });
   logger.info("scan-start");
 
-  const proposals = await deps.detector.findCandidatesFor({
-    leadId: input.leadId,
-    now: deps.now,
-  });
+  const proposals = await deps.detector.findCandidatesFor({ leadId: input.leadId });
   let recorded = 0;
   for (const p of proposals) {
     const created = await deps.detector.recordCandidate(p);
@@ -110,11 +107,10 @@ export async function detectMergeCandidatesGlobalHandler(
   let proposed = 0;
   let recorded = 0;
   for (const lead of recent) {
-    const proposals = await deps.detector.findCandidatesFor({
-      leadId: lead.id,
-      windowDays,
-      now: deps.now,
-    });
+    // `windowDays` acota a qué leads se les busca duplicado, no cuáles pueden
+    // serlo: el detector ya no tiene ventana. Un lead nuevo puede resultar
+    // duplicado de uno de hace un año, y eso ahora se propone.
+    const proposals = await deps.detector.findCandidatesFor({ leadId: lead.id });
     proposed += proposals.length;
     for (const p of proposals) {
       const created = await deps.detector.recordCandidate(p);

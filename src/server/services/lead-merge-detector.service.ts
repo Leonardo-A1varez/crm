@@ -1,16 +1,21 @@
 import { NotFoundError } from "@/lib/errors";
+import type { LeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MergeCandidatesRepository } from "@/server/repositories/merge-candidates.repo";
-import type { Lead, MergeCandidate, UUID } from "@/types/entities";
+import { CERTEZA_IDENTIFICADOR } from "@/types/domain";
+import type { IdentificadorTipo } from "@/types/domain";
+import type { MergeCandidate, UUID } from "@/types/entities";
 
-const DEFAULT_WINDOW_DAYS = 7;
-const DAY_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_SCORE = 0.7;
+/**
+ * Qué suma que además se llamen igual.
+ *
+ * El nombre nunca dispara una propuesta por sí solo —hay cientos de "Carlos
+ * Gómez"— pero si dos leads ya comparten un teléfono, llamarse igual confirma.
+ */
+const BONUS_MISMO_NOMBRE = 0.05;
 
 export interface DetectCandidatesInput {
   leadId: UUID;
-  windowDays?: number;
-  now?: () => Date;
 }
 
 export interface CandidateProposal {
@@ -27,10 +32,24 @@ export interface LeadMergeDetectorService {
   recordCandidate(proposal: CandidateProposal): Promise<MergeCandidate | null>;
 }
 
+/**
+ * Propone fusiones a partir de identificadores compartidos.
+ *
+ * La versión anterior exigía nombre exacto, canales distintos y que alguno de
+ * los dos leads tuviera menos de 7 días. Fallaba de las dos maneras posibles:
+ * proponía a cualquier par de homónimos, y no encontraba a la misma persona si
+ * escribía dos veces por el mismo canal o si el duplicado tenía ocho días.
+ * Además descartaba el par cuando los vehículos no coincidían, con lo cual una
+ * persona con dos autos quedaba partida en dos leads para siempre.
+ *
+ * Ahora la señal es compartir algo que no se comparte por casualidad: un VIN,
+ * un RUC, una placa, un teléfono o un correo. El nombre solo suma certeza.
+ */
 export class DefaultLeadMergeDetectorService implements LeadMergeDetectorService {
   constructor(
     private readonly leads: LeadsRepository,
     private readonly candidates: MergeCandidatesRepository,
+    private readonly identificadores: LeadIdentificadoresRepository,
   ) {}
 
   async findCandidatesFor(input: DetectCandidatesInput): Promise<CandidateProposal[]> {
@@ -38,24 +57,33 @@ export class DefaultLeadMergeDetectorService implements LeadMergeDetectorService
     if (!target) {
       throw new NotFoundError(`lead no encontrado: ${input.leadId}`, "lead", input.leadId);
     }
-    const targetName = normalize(target.nombre);
-    if (targetName.length === 0) return [];
 
-    const windowDays = input.windowDays ?? DEFAULT_WINDOW_DAYS;
-    const now = (input.now ?? (() => new Date()))();
-    const cutoff = new Date(now.getTime() - windowDays * DAY_MS);
-
-    const all = await this.leads.list();
+    const coincidencias = await this.identificadores.findCoincidencias(target.id);
     const out: CandidateProposal[] = [];
-    for (const other of all) {
-      if (other.id === target.id) continue;
-      const matches = scoreMatch(target, other, cutoff);
-      if (matches === null) continue;
+
+    for (const coincidencia of coincidencias) {
+      if (coincidencia.leadId === target.id) continue;
+      if (coincidencia.tipos.length === 0) continue;
+
+      const other = await this.leads.findById(coincidencia.leadId);
+      // Sin el lead no se puede evaluar el nombre ni mostrar la propuesta. La
+      // FK con CASCADE lo hace improbable; es defensa, no un caso esperado.
+      if (!other) continue;
+
       const existing = await this.candidates.findAnyPair(target.id, other.id);
-      if (existing && existing.status === "approved") continue;
-      if (existing && existing.status === "pending") continue;
-      out.push(matches);
+      if (existing && (existing.status === "approved" || existing.status === "pending")) continue;
+
+      const mismoNombre =
+        normalize(target.nombre).length > 0 && normalize(target.nombre) === normalize(other.nombre);
+
+      out.push({
+        src_lead_id: target.id,
+        dst_lead_id: other.id,
+        similarity_score: puntaje(coincidencia.tipos, mismoNombre),
+        reasons: motivos(coincidencia.tipos, mismoNombre),
+      });
     }
+
     return out;
   }
 
@@ -79,37 +107,24 @@ function normalize(s: string): string {
   return s.toLowerCase().trim().replace(/\s+/g, " ");
 }
 
-function scoreMatch(target: Lead, other: Lead, cutoff: Date): CandidateProposal | null {
-  const targetName = normalize(target.nombre);
-  const otherName = normalize(other.nombre);
-  if (otherName.length === 0) return null;
-  if (targetName !== otherName) return null;
-  if (target.canal_origen === other.canal_origen) return null;
+/**
+ * El más fuerte de los tipos compartidos, más el bonus del nombre.
+ *
+ * Se toma el máximo y no la suma: compartir el VIN ya es certeza, y sumarle el
+ * teléfono no la hace mayor que 1. Lo que cambia la decisión es el tipo más
+ * confiable, no cuántos coincidan.
+ */
+function puntaje(tipos: readonly IdentificadorTipo[], mismoNombre: boolean): number {
+  const mejor = Math.max(...tipos.map((t) => CERTEZA_IDENTIFICADOR[t]));
+  return Math.min(1, mejor + (mismoNombre ? BONUS_MISMO_NOMBRE : 0));
+}
 
-  // Window check sobre cualquiera de los dos. Si ambos antiguos, skip.
-  if (target.created_at < cutoff && other.created_at < cutoff) return null;
-
-  // Vehicle hard-conflict descarta merge (probable lead físico distinto).
-  if (
-    target.vehiculo_marca &&
-    other.vehiculo_marca &&
-    normalize(target.vehiculo_marca) !== normalize(other.vehiculo_marca)
-  ) {
-    return null;
-  }
-  if (
-    target.vehiculo_modelo &&
-    other.vehiculo_modelo &&
-    normalize(target.vehiculo_modelo) !== normalize(other.vehiculo_modelo)
-  ) {
-    return null;
-  }
-
-  const reasons = ["nombre_exacto", "canales_distintos"];
-  return {
-    src_lead_id: target.id,
-    dst_lead_id: other.id,
-    similarity_score: DEFAULT_SCORE,
-    reasons,
-  };
+/** Por qué se propuso, en el orden en que se lee: lo más fuerte primero. */
+function motivos(tipos: readonly IdentificadorTipo[], mismoNombre: boolean): string[] {
+  const ordenados = [...tipos].sort(
+    (a, b) => CERTEZA_IDENTIFICADOR[b] - CERTEZA_IDENTIFICADOR[a] || a.localeCompare(b),
+  );
+  const out = ordenados.map((t) => `mismo_${t}`);
+  if (mismoNombre) out.push("mismo_nombre");
+  return out;
 }
