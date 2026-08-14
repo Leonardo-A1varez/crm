@@ -30,6 +30,7 @@ import type {
   MoverEtapaInput,
   ProgramarRecordatorioInput,
   QuitarEtiquetaInput,
+  ToggleHandoffInput,
   RenombrarLeadInput,
   ReprogramarRecordatorioInput,
 } from "@/lib/validation/inbox.schema";
@@ -439,6 +440,7 @@ export function TwinPanel({
   onAsignarEtiqueta,
   onQuitarEtiqueta,
   onCrearEtiqueta,
+  onToggleHandoff,
   onProgramarRecordatorio,
   onCancelarRecordatorio,
   onReprogramarRecordatorio,
@@ -473,6 +475,11 @@ export function TwinPanel({
   onAsignarEtiqueta: (input: AsignarEtiquetaInput) => Promise<ActionResult>;
   onQuitarEtiqueta: (input: QuitarEtiquetaInput) => Promise<ActionResult>;
   onCrearEtiqueta: (input: CrearEtiquetaInput) => Promise<ActionResult>;
+  /**
+   * El mismo `resume`/`pause` del toggle del encabezado. Acá se usa solo para
+   * reanudar, desde el chip de "Requiere humano".
+   */
+  onToggleHandoff: (input: ToggleHandoffInput) => Promise<ActionResult>;
   onProgramarRecordatorio: (input: ProgramarRecordatorioInput) => Promise<ActionResult>;
   onCancelarRecordatorio: (input: CancelarRecordatorioInput) => Promise<ActionResult>;
   onReprogramarRecordatorio: (input: ReprogramarRecordatorioInput) => Promise<ActionResult>;
@@ -505,9 +512,17 @@ export function TwinPanel({
           leadId={leadId}
           tags={tags}
           disponibles={tagsDisponibles}
+          // Solo la sesión abierta puede estar escalada: una cerrada es
+          // historial y su etapa quedó congelada donde terminó.
+          requiereHumano={
+            session !== null && session.current_stage === "requiere_humano"
+              ? { sessionId: session.id }
+              : null
+          }
           onAsignar={onAsignarEtiqueta}
           onQuitar={onQuitarEtiqueta}
           onCrear={onCrearEtiqueta}
+          onQuitarRequiereHumano={onToggleHandoff}
         />
       </div>
     </Seccion>

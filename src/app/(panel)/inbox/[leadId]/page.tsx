@@ -126,6 +126,7 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
           onAsignarEtiqueta={asignarEtiquetaAction}
           onQuitarEtiqueta={quitarEtiquetaAction}
           onCrearEtiqueta={crearEtiquetaAction}
+          onToggleHandoff={toggleHandoffAction}
           onProgramarRecordatorio={programarRecordatorioAction}
           onCancelarRecordatorio={cancelarRecordatorioAction}
           onReprogramarRecordatorio={reprogramarRecordatorioAction}
