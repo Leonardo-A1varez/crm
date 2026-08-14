@@ -13,6 +13,7 @@
  * alias conserva la trazabilidad contra el handoff.
  */
 export {
+  ArrowRight as ArrowForward,
   BarChart3 as BarChartIcon,
   Bot as SmartToy,
   BrainCircuit as Psychology,

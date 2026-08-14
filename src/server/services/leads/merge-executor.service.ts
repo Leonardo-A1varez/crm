@@ -38,7 +38,14 @@ export interface DefaultMergeExecutorServiceDeps {
   audit: AdminAuditService;
 }
 
-/** Huecos del ganador que el perdedor puede rellenar. NUNCA sobrescribe valores. */
+/**
+ * Huecos del ganador que el perdedor puede rellenar. NUNCA sobrescribe valores.
+ *
+ * Solo lo usa la implementación in-memory de abajo; producción ejecuta estas
+ * mismas reglas dentro de `approve_lead_merge`, que es la autoridad. La vista
+ * previa de la fusión las espeja una tercera vez en `lib/ui/plan-fusion`:
+ * cambiar cualquiera de las tres obliga a mirar las otras dos.
+ */
 function buildFillPatch(ganador: Lead, perdedor: Lead): LeadUpdate {
   const patch: LeadUpdate = {};
   if (ganador.email === null && perdedor.email !== null) patch.email = perdedor.email;
