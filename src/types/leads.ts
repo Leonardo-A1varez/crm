@@ -1,5 +1,5 @@
 import type { Canal, CurrentStage, MotivoPerdida, Resultado, TagSource } from "./domain";
-import type { Lead, LeadSession, UUID } from "./entities";
+import type { Lead, LeadIdentificador, LeadSession, UUID } from "./entities";
 
 /**
  * Ventanas del filtro de última actividad, medidas sobre `leads.updated_at`.
@@ -121,6 +121,12 @@ export interface LeadDetail {
   duplicados: DuplicadoPendiente[]; // pending que involucran al lead
   /** Fusiones que absorbieron otros leads dentro de este, de la más nueva a la más vieja. */
   fusiones: FusionRegistrada[];
+  /**
+   * Todo lo que identifica al lead: teléfonos, correos, documento fiscal, placa
+   * y VIN. Viajan sin agrupar, en el orden del repo (`created_at` ascendente);
+   * el agrupado por tipo es decisión de la vista y vive en `lib/ui`.
+   */
+  identificadores: LeadIdentificador[];
 }
 
 /**

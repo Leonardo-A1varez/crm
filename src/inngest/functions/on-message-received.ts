@@ -10,6 +10,10 @@ import type { ParsedMessage } from "@/lib/meta/parse-webhook";
 import type { IntentClassification } from "@/lib/validation/ai";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
 import type { IntentsRepository } from "@/server/repositories/intents.repo";
+import {
+  normalizarIdentificador,
+  type LeadIdentificadoresRepository,
+} from "@/server/repositories/lead-identificadores.repo";
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
@@ -54,6 +58,13 @@ export interface OnMessageReceivedDeps {
   turnClassifications: TurnClassificationsRepository;
   /** Solo para resolver el intent clasificado a su id al auditar el turno. */
   intents: IntentsRepository;
+  /**
+   * Dónde queda el teléfono del lead nuevo. Es lo que lo hace visible para el
+   * detector de duplicados, que busca por identidad compartida y no mira
+   * `leads.telefono`. Obligatoria a propósito: con default, un caller que la
+   * olvide reproduce en silencio el bug que esta dependencia arregla.
+   */
+  identificadores: LeadIdentificadoresRepository;
   /**
    * Para apagar el seguimiento cuando el cliente vuelve solo. Opcional con
    * default Noop —mismo criterio que `dispatches` en el cron de reactivación—
@@ -116,6 +127,23 @@ export async function onMessageReceivedHandler(
     );
     if (leadCreated) {
       logger.info("lead-created", { lead_id: lead.id });
+      // Solo WhatsApp. IG y Messenger no exponen número y `buildPlaceholderLead`
+      // les guarda `ig:12345` para poder llenar la columna: si ese relleno
+      // entrara, dos leads de Instagram sin número real se propondrían como
+      // duplicados entre sí por un valor que solo significa "no sabemos el
+      // número". Misma exclusión que el backfill y el merge
+      // (`supabase/migrations/20260814180000`).
+      //
+      // Va ANTES de `emit-lead-created`: ese evento dispara
+      // `detect-merge-candidates-per-lead`, que busca por identificador
+      // compartido. Con la fila escrita después, el lead recién creado no
+      // coincide con nada y la detección per-lead queda dependiendo del cron
+      // global de las 5 AM.
+      if (parsed.canal === "wa") {
+        await step.run("crear-identificador", () =>
+          registrarTelefono(lead, deps.identificadores, logger),
+        );
+      }
       await step.run("emit-lead-created", () =>
         deps.emit({
           name: "lead/created",
@@ -415,6 +443,46 @@ async function resolveLead(
 
   const created = await leads.create(buildPlaceholderLead(parsed));
   return { lead: created, created: true };
+}
+
+/**
+ * Deja el teléfono del lead recién creado en `lead_identificadores`.
+ *
+ * `leads.telefono` sigue siendo la identidad canónica de WhatsApp que usa el
+ * pipeline, pero el detector de duplicados no mira esa columna: mira la tabla.
+ * Sin esta escritura los leads que nacen del webhook son invisibles para la
+ * detección y solo los del backfill tienen identificador.
+ *
+ * Un fallo no tumba el turno: el lead ya existe y el mensaje del cliente tiene
+ * que contestarse igual. Se traga adentro del step y no afuera para que Inngest
+ * no reintente por una fila que solo sirve para detectar duplicados; el cron
+ * global de merge vuelve a pasar por este lead de todos modos.
+ */
+async function registrarTelefono(
+  lead: Lead,
+  identificadores: LeadIdentificadoresRepository,
+  logger: Logger,
+): Promise<void> {
+  try {
+    await identificadores.create({
+      lead_id: lead.id,
+      tipo: "telefono",
+      valor: normalizarIdentificador("telefono", lead.telefono),
+      valor_original: lead.telefono,
+      principal: true,
+      origen: "meta",
+    });
+  } catch (e) {
+    // Sin `error_message` a propósito: `mapPostgrestError` le concatena el
+    // `details` de Postgres, y el de un 23505 sobre esta tabla trae el valor
+    // que colisionó — es decir, el teléfono. `error_name` distingue igual las
+    // cuatro causas reales (conflicto, validación, permisos, infra).
+    logger.warn("identificador-no-creado", {
+      lead_id: lead.id,
+      tipo: "telefono",
+      error_name: (e as Error).name,
+    });
+  }
 }
 
 /**

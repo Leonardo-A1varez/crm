@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DuplicadosSection } from "@/components/leads/DuplicadosSection";
 import { FusionesSection } from "@/components/leads/FusionesSection";
+import { IdentificadoresSection } from "@/components/leads/IdentificadoresSection";
 import { LeadFicha } from "@/components/leads/LeadFicha";
 import { MarcarDuplicadoDialog } from "@/components/leads/MarcarDuplicadoDialog";
 import { SesionesHistorial } from "@/components/leads/SesionesHistorial";
@@ -11,7 +12,9 @@ import { NotFoundError } from "@/lib/errors";
 import { getCurrentRol } from "@/server/auth/guards";
 import { getLeadsServiceForRequest } from "@/server/bootstrap/leads-bootstrap";
 import { approveMergeAction } from "../_actions/approve-merge.action";
+import { agregarIdentificadorAction } from "../_actions/agregar-identificador.action";
 import { createManualCandidateAction } from "../_actions/create-manual-candidate.action";
+import { quitarIdentificadorAction } from "../_actions/quitar-identificador.action";
 import { quitarRequiereHumanoAction } from "../_actions/quitar-requiere-humano.action";
 import { rejectMergeAction } from "../_actions/reject-merge.action";
 import { revertMergeAction } from "../_actions/revert-merge.action";
@@ -79,6 +82,12 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
           }
           onUpdate={updateLeadProfileAction}
           onQuitarRequiereHumano={quitarRequiereHumanoAction}
+        />
+        <IdentificadoresSection
+          leadId={detail.lead.id}
+          identificadores={detail.identificadores}
+          onAgregar={agregarIdentificadorAction}
+          onQuitar={quitarIdentificadorAction}
         />
         <div className="border-line-layout border-t px-5 pt-4 pb-1">
           <Eyebrow>Sesiones ({detail.sesiones.length})</Eyebrow>

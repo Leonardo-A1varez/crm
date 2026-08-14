@@ -1,6 +1,6 @@
 # Modelo de datos
 
-> Espejo del modelo versionado en `supabase/migrations/`. Estado verificado el 2026-08-13: **38 migraciones locales y 38 aplicadas en `crm-dev`**, sin drift de timestamps. Detalle complementa `README.md §Modelo de datos`.
+> Espejo del modelo versionado en `supabase/migrations/`. Estado verificado el 2026-08-14: **43 migraciones locales y 43 aplicadas en `crm-dev`**, sin drift de timestamps. Detalle complementa `README.md §Modelo de datos`.
 
 > **Aplicado en `crm-dev` (2026-08-12):** `mensajes.platform_created_at`, `lead_session.stage_before_handoff` y `handoff_events` entraron en la migración `20260812222808`. Los datos históricos ausentes permanecen en `null`; no hay backfill inventado.
 
@@ -48,10 +48,46 @@
 | 36    | `20260813090000_server_now_search_path.sql`                  | `search_path` seguro de `server_now()`                                                                                                  |
 | 37    | `20260813163957_approve_lead_merge_transaction.sql`          | Merge administrativo atómico con locks ordenados, RLS y auditoría                                                                       |
 | 38    | `20260813172558_fix_approve_lead_merge_lint.sql`             | Reemplazo aditivo de la RPC sin la variable PL/pgSQL muerta detectada por `db lint`                                                     |
+| 39    | `20260814120000_merge_audit_reversible.sql`                  | El audit del merge registra qué se movió y cómo estaba el ganador antes (`payload_version` 2), para poder deshacerlo                    |
+| 40    | `20260814150000_revert_lead_merge.sql`                       | RPC `revert_lead_merge`: resucita el lead absorbido y devuelve solo lo que la fusión movió y sigue como lo dejó                         |
+| 41    | `20260814180000_lead_identificadores.sql`                    | Tabla `lead_identificadores` (telefono/email/ruc/placa/vin), varios por lead + backfill sin los teléfonos de relleno de IG/FB           |
+| 42    | `20260814190000_merge_acumula_identificadores.sql`           | El merge acumula identificadores en vez de descartarlos (`payload_version` 3) y el revert los saca por id                               |
+| 43    | `20260814210000_leads_que_comparten_identificador.sql`       | RPC del detector: qué leads comparten un identificador y de qué tipo                                                                    |
+
+## Identidad de un lead: columnas vs. `lead_identificadores`
+
+`leads.telefono` sigue siendo la **identidad canónica de WhatsApp** —es lo que
+busca el pipeline con `findByTelefono` y lo que tiene el UNIQUE—, pero dejó de
+ser el único lugar donde vive la identidad de una persona.
+
+`lead_identificadores` guarda todo lo demás, y admite **varios del mismo tipo**:
+el segundo teléfono que trajo una fusión, el correo de trabajo, el RUC, la
+placa, el VIN. Dos decisiones que parecen detalles y no lo son:
+
+- **Sin UNIQUE global sobre `(tipo, valor)`.** Que dos leads compartan un valor
+  es justamente la señal que busca el detector de duplicados; prohibirlo haría
+  imposible detectar lo que se quiere detectar. El UNIQUE es por
+  `(lead_id, tipo, valor)`: un lead no repite el mismo dato, dos leads sí.
+- **Los teléfonos de relleno de IG/FB (`ig:12345`) no entran.** No identifican a
+  nadie, y dos leads de Instagram sin número real matchearían entre sí por un
+  valor que solo significa "no sabemos el número". El backfill los excluye y el
+  merge también.
+
+`valor` está normalizado (sin espacios ni separadores, minúscula para correos) y
+es contra lo que se compara; `valor_original` conserva lo que la persona
+escribió y es lo que se muestra. Por eso `1790-012345-001` y `1790012345001`
+coinciden siendo la misma empresa.
 
 ## Known issues / technical debt (diferido post-pilot)
 
 ### C.1 — `leads.telefono` mezcla teléfonos + Meta IDs placeholders
+
+> **Parcialmente pagada (2026-08-14).** `lead_identificadores` ya es el lugar
+> limpio donde vive la identidad real: guarda solo teléfonos de verdad —el
+> backfill y el merge excluyen los `ig:`/`fb:`— y admite varios por lead. Lo que
+> sigue abierto es la columna en sí: `leads.telefono` continúa siendo NOT NULL
+> con placeholders adentro, porque el pipeline la usa como clave de resolución
+> de lead y sacarla es un cambio de otra escala. El fix de abajo sigue vigente.
 
 **Diseño actual:** `telefono text NOT NULL UNIQUE` carga semánticas mixtas:
 

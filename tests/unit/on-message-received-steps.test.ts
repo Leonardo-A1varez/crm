@@ -8,6 +8,7 @@ import { InMemoryMessagesRepository } from "@/server/repositories/messages.repo"
 import { InMemoryIntentsRepository } from "@/server/repositories/intents.repo";
 import { InMemoryRulesRepository } from "@/server/repositories/rules.repo";
 import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
+import { InMemoryLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
 import { DefaultIntentClassifierService } from "@/server/services/intent-classifier.service";
 import { DefaultRuleEngineService } from "@/server/services/rule-engine.service";
@@ -84,6 +85,7 @@ function makeDeps() {
     ruleExecutions: new InMemoryRuleExecutionsRepository(),
     turnClassifications: new InMemoryTurnClassificationsRepository(),
     intents,
+    identificadores: new InMemoryLeadIdentificadoresRepository(),
     configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
     emit,
   };
@@ -109,6 +111,10 @@ describe("onMessageReceivedHandler granular steps", () => {
     expect(spy.steps).toEqual([
       "dedup",
       "resolve-lead",
+      // Antes de `emit-lead-created`: ese evento dispara la detección de
+      // duplicados, que busca por identificador compartido. Al revés, el lead
+      // recién creado no coincidiría con nada.
+      "crear-identificador",
       "emit-lead-created",
       "upsert-conv",
       "resolve-session",
@@ -170,6 +176,7 @@ describe("onMessageReceivedHandler granular steps", () => {
     expect(spy.steps).toEqual([
       "dedup",
       "resolve-lead",
+      "crear-identificador",
       "emit-lead-created",
       "upsert-conv",
       "resolve-session",

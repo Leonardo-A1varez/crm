@@ -18,10 +18,13 @@ export function toActionError(
    * defaults hablan de fusionar leads porque ese es el grueso de `/leads`; en
    * una acción que reanuda la IA, ese texto sería una pista falsa.
    */
-  opciones: { permisoDenegado?: string } = {},
+  opciones: { permisoDenegado?: string; conflicto?: string; noEncontrado?: string } = {},
 ): { ok: false; error: string } {
   if (e instanceof ConflictError) {
-    return { ok: false, error: "Este par ya fue resuelto o no existe. Refrescá la página." };
+    return {
+      ok: false,
+      error: opciones.conflicto ?? "Este par ya fue resuelto o no existe. Refrescá la página.",
+    };
   }
   if (e instanceof NotFoundError) {
     // merge_candidate inexistente: ya fue resuelto (approve/reject) o el par
@@ -30,7 +33,10 @@ export function toActionError(
     if (e.resource === "merge_candidate") {
       return { ok: false, error: "Este par ya fue resuelto o no existe. Refrescá la página." };
     }
-    return { ok: false, error: "Lead no encontrado. Refrescá la página." };
+    // El default habla del lead porque es lo que falta en casi todas las
+    // acciones de esta pantalla. Una acción que puede no encontrar otra cosa
+    // —una fila de identificador ya borrada en otra pestaña— lo dice.
+    return { ok: false, error: opciones.noEncontrado ?? "Lead no encontrado. Refrescá la página." };
   }
   if (e instanceof ValidationError) {
     if (e.cause !== undefined) {

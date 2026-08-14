@@ -97,6 +97,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   const productos = new SupabaseProductsRepository(db);
   const reactivationDispatches = new SupabaseReactivationDispatchesRepository(db);
   const mergeCandidates = new SupabaseMergeCandidatesRepository(db);
+  const identificadores = new SupabaseLeadIdentificadoresRepository(db);
   const eventOutbox = new SupabaseEventOutboxRepository(db);
   const toolExecutions = new SupabaseToolExecutionsRepository(db);
   const recordatorios = new SupabaseSessionRecordatoriosRepository(db);
@@ -165,7 +166,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   const mergeDetector = new DefaultLeadMergeDetectorService(
     leads,
     mergeCandidates,
-    new SupabaseLeadIdentificadoresRepository(db),
+    identificadores,
   );
   const aiAgent = new DefaultAiAgentService(
     sessions,
@@ -214,6 +215,9 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       ruleExecutions,
       turnClassifications,
       intents,
+      // Misma instancia que usa el detector de duplicados: el lead que nace del
+      // webhook tiene que dejar su teléfono acá o el detector no lo ve.
+      identificadores,
       // Apaga el seguimiento apenas el cliente vuelve a escribir.
       recordatorios,
       cancelarAvisoRecordatorio: async (input) => {

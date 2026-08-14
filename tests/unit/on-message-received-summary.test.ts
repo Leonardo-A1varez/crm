@@ -8,6 +8,7 @@ import { InMemoryMessagesRepository } from "@/server/repositories/messages.repo"
 import { InMemoryIntentsRepository } from "@/server/repositories/intents.repo";
 import { InMemoryRulesRepository } from "@/server/repositories/rules.repo";
 import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
+import { InMemoryLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
 import { DefaultIntentClassifierService } from "@/server/services/intent-classifier.service";
 import { DefaultRuleEngineService } from "@/server/services/rule-engine.service";
@@ -74,6 +75,7 @@ function makeDeps() {
     ruleExecutions: new InMemoryRuleExecutionsRepository(),
     turnClassifications: new InMemoryTurnClassificationsRepository(),
     intents,
+    identificadores: new InMemoryLeadIdentificadoresRepository(),
     configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
     emit,
   };

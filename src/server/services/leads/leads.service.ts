@@ -1,7 +1,11 @@
 import type { Canal, CurrentStage, MotivoPerdida, Resultado } from "@/types/domain";
 import type { LeadDetail, LeadsPage, VentanaActividad } from "@/types/leads";
-import type { Lead, UUID } from "@/types/entities";
-import type { UpdateLeadProfileInput } from "@/lib/validation/leads.schema";
+import type { Lead, LeadIdentificador, UUID } from "@/types/entities";
+import type {
+  AgregarIdentificadorInput,
+  QuitarIdentificadorInput,
+  UpdateLeadProfileInput,
+} from "@/lib/validation/leads.schema";
 
 /**
  * Filtros de la pantalla `/leads`. Todos combinables y todos opcionales:
@@ -57,4 +61,24 @@ export interface LeadsService {
   updateLeadProfile(
     input: UpdateLeadProfileInput & { actorUserId: UUID },
   ): Promise<{ lead: Lead; changedFields: string[] }>;
+
+  /**
+   * Suma un identificador al lead. `valor` llega ya normalizado del schema.
+   *
+   * Queda `principal` si es el primero de su tipo: el primer teléfono que
+   * alguien carga es el que va en la ficha, y no tiene sentido pedir una
+   * decisión que todavía no tiene alternativa. `origen` queda en `manual`
+   * porque este camino es el de una persona escribiéndolo.
+   *
+   * `NotFoundError` si el lead no existe; `ConflictError` si el lead ya tiene
+   * ese mismo valor de ese mismo tipo (lo decide el índice único de la base).
+   */
+  agregarIdentificador(input: AgregarIdentificadorInput): Promise<LeadIdentificador>;
+
+  /**
+   * Saca un identificador del lead. `NotFoundError` si esa fila no existe o no
+   * es de ese lead — la comprobación de pertenencia es lo que impide borrar el
+   * identificador de otro lead pasando un id suelto.
+   */
+  quitarIdentificador(input: QuitarIdentificadorInput): Promise<void>;
 }

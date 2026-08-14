@@ -119,6 +119,7 @@ export function makeSmokeBundle(): SmokeBundle {
   const reactivationDispatches = new InMemoryReactivationDispatchesRepository();
   const recordatorios = new InMemorySessionRecordatoriosRepository();
   const mergeCandidates = new InMemoryMergeCandidatesRepository();
+  const identificadores = new InMemoryLeadIdentificadoresRepository();
   const eventOutbox = new InMemoryEventOutboxRepository();
   const toolExecutions = new InMemoryToolExecutionsRepository();
 
@@ -148,7 +149,7 @@ export function makeSmokeBundle(): SmokeBundle {
   const mergeDetector = new DefaultLeadMergeDetectorService(
     leads,
     mergeCandidates,
-    new InMemoryLeadIdentificadoresRepository(),
+    identificadores,
   );
   const aiAgent = new DefaultAiAgentService(
     sessions,
@@ -189,6 +190,7 @@ export function makeSmokeBundle(): SmokeBundle {
       ruleExecutions: new InMemoryRuleExecutionsRepository(),
       turnClassifications: new InMemoryTurnClassificationsRepository(),
       intents,
+      identificadores,
       recordatorios,
       configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
       emit,

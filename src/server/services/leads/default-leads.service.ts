@@ -3,13 +3,14 @@ import { NotFoundError } from "@/lib/errors";
 import { calcularSinResponder } from "@/lib/sin-responder";
 import { MOTIVO_PERDIDA } from "@/types/domain";
 import type { CierreSesion, LeadSessionRepository } from "@/server/repositories/lead-session.repo";
+import type { LeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MergeCandidatesRepository } from "@/server/repositories/merge-candidates.repo";
 import type { LeadMergeRepository } from "@/server/repositories/lead-merge.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { TagsRepository } from "@/server/repositories/tags.repo";
 import type { MotivoPerdida } from "@/types/domain";
-import type { Lead, LeadSession, Mensaje, UUID } from "@/types/entities";
+import type { Lead, LeadIdentificador, LeadSession, Mensaje, UUID } from "@/types/entities";
 import type {
   DuplicadoPendiente,
   EtiquetaOpcion,
@@ -19,6 +20,10 @@ import type {
   VehiculoOpcion,
 } from "@/types/leads";
 import type { LeadsListInput, LeadsService } from "./leads.service";
+import type {
+  AgregarIdentificadorInput,
+  QuitarIdentificadorInput,
+} from "@/lib/validation/leads.schema";
 import { ADMIN_ACTIONS, type AdminAuditService } from "@/server/services/admin-audit.service";
 
 // Cap defensivo (patrón fase 9): sin paginación v1, la búsqueda acota.
@@ -33,6 +38,7 @@ export interface DefaultLeadsServiceDeps {
   /** Solo para el filtro "sin responder": los hilos se leen agrupados. */
   messages: MessagesRepository;
   audit: AdminAuditService;
+  identificadores: LeadIdentificadoresRepository;
   /**
    * Historial de fusiones. Opcional: los contratos in-memory no modelan
    * `admin_actions`, y sin él la ficha simplemente no muestra esa sección.
@@ -233,13 +239,14 @@ export class DefaultLeadsService implements LeadsService {
     const lead = await this.deps.leads.findById(leadId);
     if (!lead) throw new NotFoundError(`lead no encontrado: ${leadId}`, "lead", leadId);
 
-    const [tags, sesiones, pendientes, fusiones] = await Promise.all([
+    const [tags, sesiones, pendientes, fusiones, identificadores] = await Promise.all([
       this.deps.tags.listByLead(leadId),
       this.deps.sessions.listByLeadId(leadId),
       this.deps.candidates.list({ status: "pending" }),
       // Sin repo de merge la ficha sigue andando y no muestra el historial: la
       // implementación in-memory de los contratos no modela `admin_actions`.
       this.deps.merge?.listByLeadId(leadId) ?? Promise.resolve([]),
+      this.deps.identificadores.listByLeadId(leadId),
     ]);
 
     const propios = pendientes.filter((c) => c.src_lead_id === leadId || c.dst_lead_id === leadId);
@@ -264,7 +271,42 @@ export class DefaultLeadsService implements LeadsService {
       sesionActiva: sesiones.find((s) => s.resultado === null) ?? null,
       duplicados,
       fusiones,
+      identificadores,
     };
+  }
+
+  async agregarIdentificador(input: AgregarIdentificadorInput): Promise<LeadIdentificador> {
+    const lead = await this.deps.leads.findById(input.leadId);
+    if (!lead) throw new NotFoundError(`lead no encontrado: ${input.leadId}`, "lead", input.leadId);
+
+    const actuales = await this.deps.identificadores.listByLeadId(input.leadId);
+    return this.deps.identificadores.create({
+      lead_id: input.leadId,
+      tipo: input.tipo,
+      valor: input.valor,
+      // Se guarda lo tipeado sólo cuando aporta algo: si coincide con el
+      // normalizado, una segunda copia de la misma cadena es ruido.
+      valor_original: input.valorOriginal === input.valor ? null : input.valorOriginal,
+      principal: !actuales.some((i) => i.tipo === input.tipo),
+      origen: "manual",
+    });
+  }
+
+  async quitarIdentificador(input: QuitarIdentificadorInput): Promise<void> {
+    // Se lista por lead y se busca adentro, en vez de borrar por id a secas:
+    // `delete(id)` sin comprobar pertenencia deja que un id de otro lead —o
+    // adivinado— se borre con el mismo permiso, y la RLS no lo frena porque
+    // vendedor puede borrar identificadores de cualquier lead.
+    const actuales = await this.deps.identificadores.listByLeadId(input.leadId);
+    const propio = actuales.find((i) => i.id === input.identificadorId);
+    if (!propio) {
+      throw new NotFoundError(
+        `identificador no encontrado en el lead: ${input.identificadorId}`,
+        "lead_identificador",
+        input.identificadorId,
+      );
+    }
+    await this.deps.identificadores.delete(propio.id);
   }
 
   async updateLeadProfile(

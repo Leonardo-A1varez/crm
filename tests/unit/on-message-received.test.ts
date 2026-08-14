@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { InfraError } from "@/lib/errors";
 import { InMemoryRuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
 import { InMemoryTurnClassificationsRepository } from "@/server/repositories/turn-classifications.repo";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
@@ -9,6 +10,7 @@ import { InMemoryIntentsRepository } from "@/server/repositories/intents.repo";
 import { InMemoryRulesRepository } from "@/server/repositories/rules.repo";
 import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
 import { InMemorySessionRecordatoriosRepository } from "@/server/repositories/session-recordatorios.repo";
+import { InMemoryLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
 import { DefaultIntentClassifierService } from "@/server/services/intent-classifier.service";
 import { DefaultRuleEngineService } from "@/server/services/rule-engine.service";
@@ -69,6 +71,7 @@ function makeDeps(
   turnClassifications: InMemoryTurnClassificationsRepository;
   productos: InMemoryProductsRepository;
   recordatorios: InMemorySessionRecordatoriosRepository;
+  identificadores: InMemoryLeadIdentificadoresRepository;
   cancelacionesRecordatorio: Array<{ recordatorioId: string; recordarAt: Date }>;
 } {
   const leads = new InMemoryLeadsRepository();
@@ -81,6 +84,7 @@ function makeDeps(
   const ruleExecutions = new InMemoryRuleExecutionsRepository();
   const turnClassifications = new InMemoryTurnClassificationsRepository();
   const recordatorios = new InMemorySessionRecordatoriosRepository();
+  const identificadores = new InMemoryLeadIdentificadoresRepository();
   const cancelacionesRecordatorio: Array<{ recordatorioId: string; recordarAt: Date }> = [];
 
   const intentLLM = new FakeIntentClassifierLLM();
@@ -109,6 +113,7 @@ function makeDeps(
     ruleExecutions,
     turnClassifications,
     intents,
+    identificadores,
     recordatorios,
     cancelarAvisoRecordatorio: async (input) => {
       cancelacionesRecordatorio.push(input);
@@ -133,6 +138,7 @@ function makeDeps(
     turnClassifications,
     productos,
     recordatorios,
+    identificadores,
     cancelacionesRecordatorio,
   };
 }
@@ -298,6 +304,72 @@ describe("onMessageReceivedHandler", () => {
     expect(lead!.telefono).toBe("ig:IGSID");
     expect(lead!.canal_origen).toBe("ig");
     expect(lead!.meta_user_ids.ig).toBe("IGSID");
+  });
+
+  test("un lead nuevo de WhatsApp deja su telefono en lead_identificadores", async () => {
+    // Sin esta fila el lead es invisible para el detector de duplicados, que
+    // busca por identidad compartida y no mira `leads.telefono`.
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("hola");
+
+    const out = await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+
+    const ids = await ctx.identificadores.listByLeadId(out.leadId);
+    expect(ids).toHaveLength(1);
+    expect(ids[0]).toMatchObject({
+      tipo: "telefono",
+      valor: "549110",
+      valor_original: "549110",
+      principal: true,
+      origen: "meta",
+    });
+  });
+
+  test("un lead de Instagram NO deja identificador: el telefono es de relleno", async () => {
+    // `ig:IGSID` no identifica a nadie. Si entrara, dos leads de Instagram sin
+    // número real se propondrían como duplicados entre sí por un valor que solo
+    // significa "no sabemos el número".
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("hola IG");
+
+    const out = await onMessageReceivedHandler(
+      { parsed: parsed({ canal: "ig", canal_thread_id: "IGSID", meta_user_id: "IGSID" }) },
+      ctx.deps,
+    );
+
+    expect(await ctx.identificadores.listByLeadId(out.leadId)).toEqual([]);
+  });
+
+  test("un lead que ya existia no vuelve a registrar el identificador", async () => {
+    // Se escribe al crear el lead y solo ahí: si corriera en cada entrante, el
+    // cliente que vuelve chocaría contra el UNIQUE en todos sus mensajes.
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("uno");
+    const out = await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+
+    const spy = vi.spyOn(ctx.identificadores, "create");
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("dos");
+    await onMessageReceivedHandler({ parsed: parsed({ meta_message_id: "wamid.IN-2" }) }, ctx.deps);
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(await ctx.identificadores.listByLeadId(out.leadId)).toHaveLength(1);
+  });
+
+  test("si el identificador falla, el turno se contesta igual", async () => {
+    // El lead ya está creado y el cliente está esperando: una fila que solo
+    // sirve para detectar duplicados no puede costar la respuesta.
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("respuesta");
+    vi.spyOn(ctx.identificadores, "create").mockRejectedValue(
+      new InfraError("PostgREST error [08006]", "postgrest"),
+    );
+
+    const out = await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+
+    expect(out.sent).toBe(true);
+    expect(ctx.metaClient.calls).toHaveLength(1);
+    expect(await ctx.leads.findByTelefono("549110")).not.toBeNull();
   });
 
   test("agent source=llm envia respuesta via meta client", async () => {

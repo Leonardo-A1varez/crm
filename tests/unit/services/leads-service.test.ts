@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { NotFoundError } from "@/lib/errors";
+import { ConflictError, NotFoundError } from "@/lib/errors";
+import { InMemoryLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import { InMemoryMergeCandidatesRepository } from "@/server/repositories/merge-candidates.repo";
@@ -74,6 +75,7 @@ describe("DefaultLeadsService", () => {
   let tags: InMemoryTagsRepository;
   let messages: InMemoryMessagesRepository;
   let auditRepo: InMemoryAdminAuditRepository;
+  let identificadores: InMemoryLeadIdentificadoresRepository;
   let svc: DefaultLeadsService;
 
   beforeEach(() => {
@@ -83,6 +85,7 @@ describe("DefaultLeadsService", () => {
     tags = new InMemoryTagsRepository();
     messages = new InMemoryMessagesRepository();
     auditRepo = new InMemoryAdminAuditRepository();
+    identificadores = new InMemoryLeadIdentificadoresRepository();
     svc = new DefaultLeadsService({
       leads,
       sessions,
@@ -90,6 +93,7 @@ describe("DefaultLeadsService", () => {
       tags,
       messages,
       audit: new DefaultAdminAuditService(auditRepo),
+      identificadores,
     });
   });
 
@@ -463,5 +467,150 @@ describe("DefaultLeadsService", () => {
     expect(result.changedFields).toEqual([]);
     expect(update).not.toHaveBeenCalled();
     expect(await auditRepo.list()).toEqual([]);
+  });
+
+  describe("identificadores", () => {
+    test("getLeadDetail los trae, y sólo los del lead", async () => {
+      const lead = await leads.create(baseLead());
+      const otro = await leads.create(baseLead());
+      await identificadores.create({
+        lead_id: lead.id,
+        tipo: "placa",
+        valor: "AB123CD",
+        valor_original: "AB-123-CD",
+        principal: true,
+        origen: "manual",
+      });
+      await identificadores.create({
+        lead_id: otro.id,
+        tipo: "vin",
+        valor: "1HGBH41JXMN109186",
+        valor_original: null,
+        principal: true,
+        origen: "manual",
+      });
+
+      const d = await svc.getLeadDetail(lead.id);
+      expect(d.identificadores.map((i) => i.valor)).toEqual(["AB123CD"]);
+    });
+
+    test("un lead sin identificadores devuelve la lista vacía, no falta la clave", async () => {
+      const lead = await leads.create(baseLead());
+      expect((await svc.getLeadDetail(lead.id)).identificadores).toEqual([]);
+    });
+
+    test("el primero de su tipo queda principal; el segundo no", async () => {
+      const lead = await leads.create(baseLead());
+
+      const primero = await svc.agregarIdentificador({
+        leadId: lead.id,
+        tipo: "telefono",
+        valor: "+5491155550002",
+        valorOriginal: "+54 9 11 5555-0002",
+      });
+      const segundo = await svc.agregarIdentificador({
+        leadId: lead.id,
+        tipo: "telefono",
+        valor: "+5491144441111",
+        valorOriginal: "+54 9 11 4444-1111",
+      });
+      // De otro tipo: vuelve a ser el primero de lo suyo.
+      const placa = await svc.agregarIdentificador({
+        leadId: lead.id,
+        tipo: "placa",
+        valor: "AB123CD",
+        valorOriginal: "AB123CD",
+      });
+
+      expect(primero.principal).toBe(true);
+      expect(segundo.principal).toBe(false);
+      expect(placa.principal).toBe(true);
+    });
+
+    test("lo que carga una persona queda con origen manual", async () => {
+      const lead = await leads.create(baseLead());
+      const creado = await svc.agregarIdentificador({
+        leadId: lead.id,
+        tipo: "ruc",
+        valor: "20100123456",
+        valorOriginal: "20-100.123.456",
+      });
+      expect(creado.origen).toBe("manual");
+      expect(creado.valor_original).toBe("20-100.123.456");
+    });
+
+    test("no guarda una segunda copia de lo tipeado si es igual al normalizado", async () => {
+      const lead = await leads.create(baseLead());
+      const creado = await svc.agregarIdentificador({
+        leadId: lead.id,
+        tipo: "placa",
+        valor: "AB123CD",
+        valorOriginal: "AB123CD",
+      });
+      expect(creado.valor_original).toBeNull();
+    });
+
+    test("agregar sobre un lead inexistente → NotFoundError", async () => {
+      await expect(
+        svc.agregarIdentificador({
+          leadId: crypto.randomUUID(),
+          tipo: "placa",
+          valor: "AB123CD",
+          valorOriginal: "AB123CD",
+        }),
+      ).rejects.toBeInstanceOf(NotFoundError);
+    });
+
+    test("el mismo valor del mismo tipo dos veces → ConflictError", async () => {
+      const lead = await leads.create(baseLead());
+      const input = {
+        leadId: lead.id,
+        tipo: "placa" as const,
+        valor: "AB123CD",
+        valorOriginal: "AB-123-CD",
+      };
+      await svc.agregarIdentificador(input);
+      await expect(svc.agregarIdentificador(input)).rejects.toBeInstanceOf(ConflictError);
+    });
+
+    test("quitar borra la fila del lead", async () => {
+      const lead = await leads.create(baseLead());
+      const creado = await svc.agregarIdentificador({
+        leadId: lead.id,
+        tipo: "vin",
+        valor: "1HGBH41JXMN109186",
+        valorOriginal: "1HGBH41JXMN109186",
+      });
+
+      await svc.quitarIdentificador({ leadId: lead.id, identificadorId: creado.id });
+      expect((await svc.getLeadDetail(lead.id)).identificadores).toEqual([]);
+    });
+
+    test("quitar un identificador de OTRO lead no lo borra: NotFoundError", async () => {
+      const mio = await leads.create(baseLead());
+      const ajeno = await leads.create(baseLead());
+      const suyo = await svc.agregarIdentificador({
+        leadId: ajeno.id,
+        tipo: "placa",
+        valor: "AB123CD",
+        valorOriginal: "AB123CD",
+      });
+      const borrar = vi.spyOn(identificadores, "delete");
+
+      // La RLS deja a un vendedor borrar identificadores de cualquier lead: la
+      // pertenencia la tiene que comprobar el service o un id suelto alcanza.
+      await expect(
+        svc.quitarIdentificador({ leadId: mio.id, identificadorId: suyo.id }),
+      ).rejects.toBeInstanceOf(NotFoundError);
+      expect(borrar).not.toHaveBeenCalled();
+      expect((await svc.getLeadDetail(ajeno.id)).identificadores).toHaveLength(1);
+    });
+
+    test("quitar uno que ya no existe → NotFoundError", async () => {
+      const lead = await leads.create(baseLead());
+      await expect(
+        svc.quitarIdentificador({ leadId: lead.id, identificadorId: crypto.randomUUID() }),
+      ).rejects.toBeInstanceOf(NotFoundError);
+    });
   });
 });

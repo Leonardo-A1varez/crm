@@ -41,6 +41,7 @@ describe("makeCrmInngestFunctions", () => {
     const rules = new InMemoryRulesRepository();
     const productos = new InMemoryProductsRepository();
     const mergeCandidates = new InMemoryMergeCandidatesRepository();
+    const identificadores = new InMemoryLeadIdentificadoresRepository();
     const outbox = new InMemoryEventOutboxRepository();
 
     const metaApi = new DefaultMetaApiService(conversations, messages, new FakeMetaApiClient());
@@ -56,7 +57,7 @@ describe("makeCrmInngestFunctions", () => {
     const mergeDetector = new DefaultLeadMergeDetectorService(
       leads,
       mergeCandidates,
-      new InMemoryLeadIdentificadoresRepository(),
+      identificadores,
     );
 
     const fns = makeCrmInngestFunctions({
@@ -71,6 +72,7 @@ describe("makeCrmInngestFunctions", () => {
         ruleExecutions: new InMemoryRuleExecutionsRepository(),
         turnClassifications: new InMemoryTurnClassificationsRepository(),
         intents,
+        identificadores,
         configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
         emit: async () => {},
       },

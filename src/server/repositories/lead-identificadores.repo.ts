@@ -26,21 +26,15 @@ export interface LeadIdentificadoresRepository {
 }
 
 /**
- * Normaliza para comparar: sin espacios ni separadores, y en minúscula.
+ * La normalización se mudó a `lib/identificadores.ts` y se re-exporta desde acá.
  *
- * Vive acá y no en cada llamador porque la comparación del detector se hace
- * contra `valor`, y dos formas del mismo teléfono —"+54 9 11 5555-0002" y
- * "5491155550002"— tienen que caer en la misma cadena o el duplicado no se
- * detecta. `valor_original` conserva lo que la persona escribió.
+ * Motivo: el schema Zod de la Server Action tiene que normalizar para poder
+ * decir "esto queda vacío" y "esto no es un VIN", y `lib/**` no puede importar
+ * `server/repositories/**` (boundaries). Una segunda copia en `lib/` habría
+ * dejado dos reglas capaces de derivar, que es justo lo que rompe la detección
+ * de duplicados. El re-export mantiene válida esta ruta de import.
  */
-export function normalizarIdentificador(tipo: IdentificadorTipo, crudo: string): string {
-  const limpio = crudo.trim();
-  if (tipo === "email") return limpio.toLowerCase();
-  if (tipo === "telefono") return limpio.replace(/[^0-9+]/g, "");
-  // RUC, placa y VIN: alfanuméricos. Los guiones y espacios de "AB-123-CD" o
-  // "AB 123 CD" son decoración de quien escribe, no parte del identificador.
-  return limpio.replace(/[^0-9a-zA-Z]/g, "").toUpperCase();
-}
+export { normalizarIdentificador } from "@/lib/identificadores";
 
 export class InMemoryLeadIdentificadoresRepository implements LeadIdentificadoresRepository {
   private readonly store = new Map<UUID, LeadIdentificador>();

@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { InfraError } from "@/lib/errors";
 import { InMemoryRuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
 import { InMemoryTurnClassificationsRepository } from "@/server/repositories/turn-classifications.repo";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
@@ -8,6 +9,7 @@ import { InMemoryMessagesRepository } from "@/server/repositories/messages.repo"
 import { InMemoryIntentsRepository } from "@/server/repositories/intents.repo";
 import { InMemoryRulesRepository } from "@/server/repositories/rules.repo";
 import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
+import { InMemoryLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
 import { DefaultIntentClassifierService } from "@/server/services/intent-classifier.service";
 import { DefaultRuleEngineService } from "@/server/services/rule-engine.service";
@@ -80,6 +82,7 @@ function makeDeps(logger?: Logger) {
   const intents = new InMemoryIntentsRepository();
   const rules = new InMemoryRulesRepository();
   const productos = new InMemoryProductsRepository();
+  const identificadores = new InMemoryLeadIdentificadoresRepository();
 
   const intentLLM = new FakeIntentClassifierLLM();
   const agentLLM = new FakeAgentLLM();
@@ -107,12 +110,13 @@ function makeDeps(logger?: Logger) {
     ruleExecutions: new InMemoryRuleExecutionsRepository(),
     turnClassifications: new InMemoryTurnClassificationsRepository(),
     intents,
+    identificadores,
     configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
     emit,
     logger,
   };
 
-  return { deps, emitted, metaClient, intentLLM, agentLLM, intents, rules };
+  return { deps, emitted, metaClient, intentLLM, agentLLM, intents, rules, identificadores };
 }
 
 describe("onMessageReceivedHandler logger", () => {
@@ -194,6 +198,24 @@ describe("onMessageReceivedHandler logger", () => {
 
     expect(logger.msgs()).toContain("send-skipped");
     expect(logger.msgs()).not.toContain("send-out");
+  });
+
+  test("el identificador que no se pudo crear avisa sin loguear el teléfono", async () => {
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("respuesta");
+    vi.spyOn(ctx.identificadores, "create").mockRejectedValue(
+      new InfraError("duplicate key ... (Key (valor)=(549110) already exists)", "postgrest"),
+    );
+
+    await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+
+    const aviso = logger.entries.find((e) => e.msg === "identificador-no-creado");
+    expect(aviso).toBeDefined();
+    expect(aviso!.level).toBe("warn");
+    // El `details` de un 23505 sobre esta tabla trae el valor que colisionó, o
+    // sea el teléfono: por eso el warn lleva `error_name` y no `error_message`.
+    expect(JSON.stringify(aviso!.ctx)).not.toContain("549110");
+    expect(aviso!.ctx.error_name).toBe("InfraError");
   });
 
   test("emite pipeline-error en falla y propaga", async () => {
