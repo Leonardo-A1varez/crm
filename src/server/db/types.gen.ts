@@ -95,8 +95,8 @@ export type Database = {
           max_pasos_tool: number
           modelo: string
           nota: string | null
-          plantilla_fuera_horario: string
           plantilla_escalado: string
+          plantilla_fuera_horario: string
           politica_tope: string
           rollback_de: string | null
           timeout_tool_ms: number
@@ -123,8 +123,8 @@ export type Database = {
           max_pasos_tool: number
           modelo: string
           nota?: string | null
-          plantilla_fuera_horario?: string
           plantilla_escalado?: string
+          plantilla_fuera_horario?: string
           politica_tope: string
           rollback_de?: string | null
           timeout_tool_ms?: number
@@ -151,8 +151,8 @@ export type Database = {
           max_pasos_tool?: number
           modelo?: string
           nota?: string | null
-          plantilla_fuera_horario?: string
           plantilla_escalado?: string
+          plantilla_fuera_horario?: string
           politica_tope?: string
           rollback_de?: string | null
           timeout_tool_ms?: number
@@ -274,6 +274,63 @@ export type Database = {
         }
         Relationships: []
       }
+      handoff_events: {
+        Row: {
+          action: string
+          actor_user_id: string | null
+          created_at: string
+          id: string
+          lead_session_id: string
+          previous_stage:
+            | Database["public"]["Enums"]["current_stage_enum"]
+            | null
+          reason_code: string
+          source: string
+          source_event_key: string
+        }
+        Insert: {
+          action: string
+          actor_user_id?: string | null
+          created_at?: string
+          id?: string
+          lead_session_id: string
+          previous_stage?:
+            | Database["public"]["Enums"]["current_stage_enum"]
+            | null
+          reason_code: string
+          source: string
+          source_event_key: string
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string | null
+          created_at?: string
+          id?: string
+          lead_session_id?: string
+          previous_stage?:
+            | Database["public"]["Enums"]["current_stage_enum"]
+            | null
+          reason_code?: string
+          source?: string
+          source_event_key?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "handoff_events_actor_user_id_fkey"
+            columns: ["actor_user_id"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "handoff_events_lead_session_id_fkey"
+            columns: ["lead_session_id"]
+            isOneToOne: false
+            referencedRelation: "lead_session"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       intents: {
         Row: {
           activo: boolean
@@ -303,57 +360,6 @@ export type Database = {
           nombre?: string
         }
         Relationships: []
-      }
-      handoff_events: {
-        Row: {
-          action: string
-          actor_user_id: string | null
-          created_at: string
-          id: string
-          lead_session_id: string
-          previous_stage: Database["public"]["Enums"]["current_stage_enum"] | null
-          reason_code: string
-          source: string
-          source_event_key: string
-        }
-        Insert: {
-          action: string
-          actor_user_id?: string | null
-          created_at?: string
-          id?: string
-          lead_session_id: string
-          previous_stage?: Database["public"]["Enums"]["current_stage_enum"] | null
-          reason_code: string
-          source: string
-          source_event_key: string
-        }
-        Update: {
-          action?: string
-          actor_user_id?: string | null
-          created_at?: string
-          id?: string
-          lead_session_id?: string
-          previous_stage?: Database["public"]["Enums"]["current_stage_enum"] | null
-          reason_code?: string
-          source?: string
-          source_event_key?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "handoff_events_actor_user_id_fkey"
-            columns: ["actor_user_id"]
-            isOneToOne: false
-            referencedRelation: "usuarios"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "handoff_events_lead_session_id_fkey"
-            columns: ["lead_session_id"]
-            isOneToOne: false
-            referencedRelation: "lead_session"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       lead_session: {
         Row: {
@@ -1147,8 +1153,8 @@ export type Database = {
       approve_lead_merge: {
         Args: { p_candidate_id: string; p_keep_lead_id: string }
         Returns: {
-          error_code: string | null
-          ganador_id: string | null
+          error_code: string
+          ganador_id: string
         }[]
       }
       current_rol: {
@@ -1158,7 +1164,7 @@ export type Database = {
       inbox_recent_messages: {
         Args: { p_limit?: number; p_session_ids: string[] }
         Returns: {
-          contenido: string | null
+          contenido: string
           conversacion_id: string
           created_at: string
           direction: Database["public"]["Enums"]["direction_enum"]
@@ -1166,6 +1172,18 @@ export type Database = {
           sender: Database["public"]["Enums"]["sender_enum"]
         }[]
       }
+      is_admin: { Args: never; Returns: boolean }
+      is_vendedor: { Args: never; Returns: boolean }
+      revert_lead_merge: {
+        Args: { p_merge_action_id: string }
+        Returns: {
+          error_code: string
+          perdedor_id: string
+        }[]
+      }
+      server_now: { Args: never; Returns: string }
+      show_limit: { Args: never; Returns: number }
+      show_trgm: { Args: { "": string }; Returns: string[] }
       transition_handoff: {
         Args: {
           p_action: string
@@ -1180,16 +1198,11 @@ export type Database = {
           created_at: string
           handoff_event_id: string
           lead_session_id: string
-          previous_stage: Database["public"]["Enums"]["current_stage_enum"] | null
+          previous_stage: Database["public"]["Enums"]["current_stage_enum"]
           reason_code: string
           source: string
         }[]
       }
-      is_admin: { Args: never; Returns: boolean }
-      is_vendedor: { Args: never; Returns: boolean }
-      server_now: { Args: never; Returns: string }
-      show_limit: { Args: never; Returns: number }
-      show_trgm: { Args: { "": string }; Returns: string[] }
     }
     Enums: {
       canal_enum: "wa" | "ig" | "fb"

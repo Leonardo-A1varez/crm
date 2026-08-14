@@ -119,4 +119,27 @@ export interface LeadDetail {
   sesiones: LeadSession[]; // started_at DESC (orden del repo)
   sesionActiva: LeadSession | null;
   duplicados: DuplicadoPendiente[]; // pending que involucran al lead
+  /** Fusiones que absorbieron otros leads dentro de este, de la más nueva a la más vieja. */
+  fusiones: FusionRegistrada[];
+}
+
+/**
+ * Una fusión ya hecha, tal como quedó registrada en `admin_actions`.
+ *
+ * `perdedor` se reconstruye desde el payload: ese lead ya no existe en la
+ * tabla, y este registro es lo único que queda de él.
+ */
+export interface FusionRegistrada {
+  /** El id de la fila de `admin_actions`. Es lo que se pasa para revertir. */
+  accionId: UUID;
+  fecha: Date;
+  perdedor: Lead;
+  /**
+   * `false` para las fusiones anteriores al registro reversible: su payload no
+   * dice qué conversaciones y sesiones se movieron, así que deshacerlas
+   * requeriría adivinar. La UI tiene que decir por qué, no solo deshabilitar.
+   */
+  reversible: boolean;
+  /** `true` cuando ya se deshizo: no se puede dos veces. */
+  revertida: boolean;
 }

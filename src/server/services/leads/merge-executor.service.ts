@@ -1,4 +1,4 @@
-import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
+import { ConflictError, IllegalStateError, NotFoundError, ValidationError } from "@/lib/errors";
 import { ADMIN_ACTIONS } from "@/server/services/admin-audit.service";
 import type { AdminAuditService } from "@/server/services/admin-audit.service";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
@@ -23,6 +23,14 @@ export interface MergeExecutorService {
    * (los candidates se autodestruyen por FK CASCADE al borrar el perdedor).
    */
   approveMerge(input: ApproveMergeInput): Promise<{ ganadorId: UUID }>;
+  /**
+   * Deshace una fusión ya hecha. Devuelve el lead resucitado.
+   *
+   * Solo funciona sobre fusiones registradas con el payload reversible; las
+   * anteriores no dicen qué se movió y el repo las rechaza con un mensaje que
+   * explica por qué en vez de adivinar.
+   */
+  revertMerge(input: { accionId: UUID }): Promise<{ perdedorId: UUID }>;
   /** Rechaza el par — no se vuelve a proponer (detector respeta rejected, T6). */
   rejectMerge(input: { candidateId: UUID; actorUserId: UUID | null }): Promise<void>;
   /** Candidate manual (score 1, reasons ["manual"]) — mismo flujo de review. */
@@ -165,6 +173,18 @@ export class DefaultMergeExecutorService implements MergeExecutorService {
     return { ganadorId: ganador.id };
   }
 
+  /**
+   * No lo soporta: deshacer una fusión se apoya en el payload que la RPC
+   * escribió en `admin_actions`, y esta implementación no modela esa tabla.
+   * Producción usa `TransactionalMergeExecutorService`.
+   */
+  async revertMerge(_input: { accionId: UUID }): Promise<{ perdedorId: UUID }> {
+    throw new IllegalStateError(
+      "deshacer una fusión requiere la implementación transaccional",
+      "revert_no_soportado",
+    );
+  }
+
   async rejectMerge(input: { candidateId: UUID; actorUserId: UUID | null }): Promise<void> {
     const candidate = await this.deps.candidates.findById(input.candidateId);
     if (!candidate) {
@@ -213,6 +233,10 @@ export class TransactionalMergeExecutorService implements MergeExecutorService {
       candidateId: input.candidateId,
       keepLeadId: input.keepLeadId,
     });
+  }
+
+  revertMerge(input: { accionId: UUID }): Promise<{ perdedorId: UUID }> {
+    return this.approval.revert(input.accionId);
   }
 
   rejectMerge(input: { candidateId: UUID; actorUserId: UUID | null }): Promise<void> {

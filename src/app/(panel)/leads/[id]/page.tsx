@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DuplicadosSection } from "@/components/leads/DuplicadosSection";
+import { FusionesSection } from "@/components/leads/FusionesSection";
 import { LeadFicha } from "@/components/leads/LeadFicha";
 import { MarcarDuplicadoDialog } from "@/components/leads/MarcarDuplicadoDialog";
 import { SesionesHistorial } from "@/components/leads/SesionesHistorial";
@@ -13,6 +14,7 @@ import { approveMergeAction } from "../_actions/approve-merge.action";
 import { createManualCandidateAction } from "../_actions/create-manual-candidate.action";
 import { quitarRequiereHumanoAction } from "../_actions/quitar-requiere-humano.action";
 import { rejectMergeAction } from "../_actions/reject-merge.action";
+import { revertMergeAction } from "../_actions/revert-merge.action";
 import { searchLeadsAction } from "../_actions/search-leads.action";
 import { updateLeadProfileAction } from "../_actions/update-lead-profile.action";
 import type { LeadDetail } from "@/types/leads";
@@ -83,12 +85,15 @@ export default async function LeadDetailPage({ params }: { params: Promise<{ id:
         </div>
         <SesionesHistorial sesiones={detail.sesiones} />
         {isAdmin ? (
-          <DuplicadosSection
-            leadActual={detail.lead}
-            duplicados={detail.duplicados}
-            onApprove={approveMergeAction}
-            onReject={rejectMergeAction}
-          />
+          <>
+            <DuplicadosSection
+              leadActual={detail.lead}
+              duplicados={detail.duplicados}
+              onApprove={approveMergeAction}
+              onReject={rejectMergeAction}
+            />
+            <FusionesSection fusiones={detail.fusiones} onRevert={revertMergeAction} />
+          </>
         ) : null}
       </div>
     </div>

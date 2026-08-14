@@ -5,6 +5,7 @@ import { MOTIVO_PERDIDA } from "@/types/domain";
 import type { CierreSesion, LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MergeCandidatesRepository } from "@/server/repositories/merge-candidates.repo";
+import type { LeadMergeRepository } from "@/server/repositories/lead-merge.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { TagsRepository } from "@/server/repositories/tags.repo";
 import type { MotivoPerdida } from "@/types/domain";
@@ -32,6 +33,11 @@ export interface DefaultLeadsServiceDeps {
   /** Solo para el filtro "sin responder": los hilos se leen agrupados. */
   messages: MessagesRepository;
   audit: AdminAuditService;
+  /**
+   * Historial de fusiones. Opcional: los contratos in-memory no modelan
+   * `admin_actions`, y sin él la ficha simplemente no muestra esa sección.
+   */
+  merge?: LeadMergeRepository;
 }
 
 /** "Toyota Corolla 2018". El año se omite cuando la fila no lo tiene. */
@@ -227,10 +233,13 @@ export class DefaultLeadsService implements LeadsService {
     const lead = await this.deps.leads.findById(leadId);
     if (!lead) throw new NotFoundError(`lead no encontrado: ${leadId}`, "lead", leadId);
 
-    const [tags, sesiones, pendientes] = await Promise.all([
+    const [tags, sesiones, pendientes, fusiones] = await Promise.all([
       this.deps.tags.listByLead(leadId),
       this.deps.sessions.listByLeadId(leadId),
       this.deps.candidates.list({ status: "pending" }),
+      // Sin repo de merge la ficha sigue andando y no muestra el historial: la
+      // implementación in-memory de los contratos no modela `admin_actions`.
+      this.deps.merge?.listByLeadId(leadId) ?? Promise.resolve([]),
     ]);
 
     const propios = pendientes.filter((c) => c.src_lead_id === leadId || c.dst_lead_id === leadId);
@@ -254,6 +263,7 @@ export class DefaultLeadsService implements LeadsService {
       sesiones,
       sesionActiva: sesiones.find((s) => s.resultado === null) ?? null,
       duplicados,
+      fusiones,
     };
   }
 

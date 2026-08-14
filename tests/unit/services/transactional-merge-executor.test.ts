@@ -11,9 +11,12 @@ describe("TransactionalMergeExecutorService", () => {
     const keepLeadId = crypto.randomUUID();
     const approval: LeadMergeRepository = {
       approve: vi.fn().mockResolvedValue({ ganadorId: keepLeadId }),
+      listByLeadId: vi.fn().mockResolvedValue([]),
+      revert: vi.fn(),
     };
     const delegate: MergeExecutorService = {
       approveMerge: vi.fn(),
+      revertMerge: vi.fn(),
       rejectMerge: vi.fn(),
       createManualCandidate: vi.fn(),
     };
@@ -29,9 +32,14 @@ describe("TransactionalMergeExecutorService", () => {
 
   test("las operaciones no transaccionales conservan el executor existente", async () => {
     const candidateId = crypto.randomUUID();
-    const approval: LeadMergeRepository = { approve: vi.fn() };
+    const approval: LeadMergeRepository = {
+      approve: vi.fn(),
+      listByLeadId: vi.fn().mockResolvedValue([]),
+      revert: vi.fn(),
+    };
     const delegate: MergeExecutorService = {
       approveMerge: vi.fn(),
+      revertMerge: vi.fn(),
       rejectMerge: vi.fn().mockResolvedValue(undefined),
       createManualCandidate: vi.fn(),
     };
