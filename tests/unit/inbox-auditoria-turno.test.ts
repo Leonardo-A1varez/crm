@@ -9,6 +9,7 @@ import { InMemoryProductsRepository } from "@/server/repositories/productos.repo
 import { InMemoryRuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
 import { InMemoryRulesRepository } from "@/server/repositories/rules.repo";
 import { InMemorySessionRecordatoriosRepository } from "@/server/repositories/session-recordatorios.repo";
+import { InMemoryLeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
 import { InMemoryToolExecutionsRepository } from "@/server/repositories/tool-executions.repo";
 import { InMemoryTurnClassificationsRepository } from "@/server/repositories/turn-classifications.repo";
@@ -83,6 +84,7 @@ describe("DefaultInboxService.getAuditoriaTurno", () => {
       sessions,
       convs,
       messages,
+      vehiculos: new InMemoryLeadVehiculosRepository(),
       metaApi: new DefaultMetaApiService(convs, messages, {
         sendText: async () => {
           throw new Error("sendText no debe invocarse leyendo auditoría");

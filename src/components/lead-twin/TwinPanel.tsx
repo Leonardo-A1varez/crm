@@ -1,6 +1,8 @@
 import { format } from "date-fns";
 import { ContactEmergency, DirectionsCar, Inventory2, Savings, Warning } from "@/components/icons";
 import { AgregarDato } from "@/components/lead-twin/AgregarDato";
+import { AgregarVehiculo } from "@/components/lead-twin/AgregarVehiculo";
+import { IdentidadVehiculo } from "@/components/lead-twin/IdentidadVehiculo";
 import { BorrarDatoExtra } from "@/components/lead-twin/BorrarDatoExtra";
 import { CampoEditable } from "@/components/lead-twin/CampoEditable";
 import { ChipProcedencia } from "@/components/lead-twin/ChipProcedencia";
@@ -35,8 +37,13 @@ import type {
   ReprogramarRecordatorioInput,
 } from "@/lib/validation/inbox.schema";
 import type {
+  AgregarVehiculoFormInput,
+  EditarIdentidadVehiculoInput,
+} from "@/lib/validation/leads.schema";
+import type {
   Lead,
   LeadSession,
+  LeadVehiculo,
   Mensaje,
   ProcedenciaCampo,
   Producto,
@@ -269,23 +276,44 @@ function Contacto({
   );
 }
 
-/**
- * Vehículo del lead. Es dato del lead y no de la sesión, así que no pasa por
- * `editarCampoTwin` — de ahí que no tenga lápiz todavía.
- */
-function Vehiculo({ lead }: { lead: Lead }) {
-  const modelo = [lead.vehiculo_marca, lead.vehiculo_modelo].filter(Boolean).join(" ").trim();
-  const tecnico = [lead.vehiculo_anio ? String(lead.vehiculo_anio) : null, lead.vehiculo_motor]
-    .filter(Boolean)
-    .join(" · ");
-  // Un año o un motor sueltos, sin marca ni modelo, siguen siendo el vehículo
-  // del que se habla: la sección aparece si hay cualquiera de los cuatro.
-  if (modelo === "" && tecnico === "") return null;
+/** "Toyota Hilux" y "2019 · 2.8 TDI" de un auto, para las dos líneas de la tarjeta. */
+function textoDelAuto(v: LeadVehiculo): { modelo: string; tecnico: string } {
+  return {
+    modelo: [v.marca, v.modelo].filter(Boolean).join(" ").trim(),
+    tecnico: [v.anio ? String(v.anio) : null, v.motor].filter(Boolean).join(" · "),
+  };
+}
 
+/**
+ * Los autos del lead, cada uno con su placa y su VIN.
+ *
+ * Son del auto y no de la persona: un taller tiene un RUC y tres camionetas, y
+ * el RUC no pertenece a ninguna de las tres. Por eso el documento vive en la
+ * ficha de contacto y la placa acá.
+ *
+ * Dos botones distintos y no uno: el de la tarjeta carga la identidad del auto
+ * que ya está detectado, el de la sección agrega otro auto. Son dos intenciones
+ * distintas y mezclarlas obligaría a elegir en un formulario qué se quiso hacer.
+ */
+function Vehiculos({
+  lead,
+  vehiculos,
+  onAgregar,
+  onEditarIdentidad,
+}: {
+  lead: Lead;
+  vehiculos: LeadVehiculo[];
+  onAgregar: (input: AgregarVehiculoFormInput) => Promise<ActionResult>;
+  onEditarIdentidad: (input: EditarIdentidadVehiculoInput) => Promise<ActionResult>;
+}) {
   return (
-    <Seccion>
+    // `relative` porque los dos paneles se anclan a esta caja, igual que el
+    // formulario de contacto: se abren tapando la lista en vez de empujarla.
+    <Seccion className="relative">
       <div className="flex items-center gap-1.5">
-        <span className="text-ink-faint text-[10.5px]">Vehículo</span>
+        <span className="text-ink-faint text-[10.5px]">
+          {vehiculos.length > 1 ? `Vehículos (${vehiculos.length})` : "Vehículo"}
+        </span>
         <ChipProcedencia
           Icon={Inventory2}
           className="text-ink-dim bg-surface-card border-line-input border"
@@ -293,18 +321,45 @@ function Vehiculo({ lead }: { lead: Lead }) {
         >
           De la ficha
         </ChipProcedencia>
-      </div>
-      <div className="bg-surface-elevated border-line-card flex items-center gap-2.5 rounded-[12px] border p-3">
-        <DirectionsCar size={22} className="text-ink-dim shrink-0" />
-        <span className="min-w-0">
-          <span className="text-ink-secondary block truncate text-[12.5px] font-semibold">
-            {modelo !== "" ? modelo : tecnico}
-          </span>
-          {modelo !== "" && tecnico !== "" ? (
-            <MonoMeta className="block truncate">{tecnico}</MonoMeta>
-          ) : null}
+        <span className="ml-auto">
+          <AgregarVehiculo leadId={lead.id} onAgregar={onAgregar} />
         </span>
       </div>
+
+      {vehiculos.length === 0 ? (
+        <p className="text-ink-fainter text-[11px]">
+          Sin vehículo cargado. El agente lo completa cuando el cliente lo menciona.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {vehiculos.map((v) => {
+            const { modelo, tecnico } = textoDelAuto(v);
+            const identidad = [v.placa_original ?? v.placa, v.vin_original ?? v.vin].filter(
+              Boolean,
+            );
+            return (
+              <li
+                key={v.id}
+                className="bg-surface-elevated border-line-card flex items-center gap-2.5 rounded-[12px] border p-3"
+              >
+                <DirectionsCar size={22} className="text-ink-dim shrink-0" />
+                <span className="min-w-0 flex-1">
+                  <span className="text-ink-secondary block truncate text-[12.5px] font-semibold">
+                    {modelo !== "" ? modelo : (tecnico ?? "Vehículo sin datos")}
+                  </span>
+                  {modelo !== "" && tecnico !== "" ? (
+                    <MonoMeta className="block truncate">{tecnico}</MonoMeta>
+                  ) : null}
+                  {identidad.length > 0 ? (
+                    <MonoMeta className="block truncate">{identidad.join(" · ")}</MonoMeta>
+                  ) : null}
+                </span>
+                <IdentidadVehiculo leadId={lead.id} vehiculo={v} onGuardar={onEditarIdentidad} />
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </Seccion>
   );
 }
@@ -441,6 +496,9 @@ export function TwinPanel({
   onQuitarEtiqueta,
   onCrearEtiqueta,
   onToggleHandoff,
+  vehiculos,
+  onAgregarVehiculo,
+  onEditarIdentidadVehiculo,
   onProgramarRecordatorio,
   onCancelarRecordatorio,
   onReprogramarRecordatorio,
@@ -480,6 +538,10 @@ export function TwinPanel({
    * reanudar, desde el chip de "Requiere humano".
    */
   onToggleHandoff: (input: ToggleHandoffInput) => Promise<ActionResult>;
+  /** Los autos del lead, el principal primero. */
+  vehiculos: LeadVehiculo[];
+  onAgregarVehiculo: (input: AgregarVehiculoFormInput) => Promise<ActionResult>;
+  onEditarIdentidadVehiculo: (input: EditarIdentidadVehiculoInput) => Promise<ActionResult>;
   onProgramarRecordatorio: (input: ProgramarRecordatorioInput) => Promise<ActionResult>;
   onCancelarRecordatorio: (input: CancelarRecordatorioInput) => Promise<ActionResult>;
   onReprogramarRecordatorio: (input: ReprogramarRecordatorioInput) => Promise<ActionResult>;
@@ -531,7 +593,12 @@ export function TwinPanel({
   const ficha = (
     <>
       <Contacto lead={lead} onAgregarDato={onAgregarDato} onBorrarDato={onBorrarDato} />
-      <Vehiculo lead={lead} />
+      <Vehiculos
+        lead={lead}
+        vehiculos={vehiculos}
+        onAgregar={onAgregarVehiculo}
+        onEditarIdentidad={onEditarIdentidadVehiculo}
+      />
     </>
   );
 

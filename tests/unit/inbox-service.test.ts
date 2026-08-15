@@ -8,6 +8,7 @@ import {
 } from "@/server/repositories/messages.repo";
 import { InMemoryLlmUsageRepository } from "@/server/repositories/llm-usage.repo";
 import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
+import { InMemoryLeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
 import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultInboxService } from "@/server/services/inbox/default-inbox.service";
@@ -41,6 +42,7 @@ function makeReadOnlyDeps(
     }),
     handoff: new DefaultHandoffService(sessions),
     productos,
+    vehiculos: new InMemoryLeadVehiculosRepository(),
     tags,
     llmUsage,
     ...reposAuditoria(),

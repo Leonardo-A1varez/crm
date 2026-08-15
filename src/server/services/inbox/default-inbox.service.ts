@@ -9,6 +9,7 @@ import type { EntradaTriage } from "@/lib/triage";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
 import type { IntentsRepository } from "@/server/repositories/intents.repo";
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
+import type { LeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { LlmUsageRepository } from "@/server/repositories/llm-usage.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
@@ -160,6 +161,7 @@ export interface DefaultInboxServiceDeps {
   /** Para resolver `producto_cotizado_id` al producto del catálogo del Twin. */
   productos: ProductsRepository;
   tags: TagsRepository;
+  vehiculos: LeadVehiculosRepository;
   /** Gasto del modelo por sesión: el "cuánto va costando" del panel del Twin. */
   llmUsage: LlmUsageRepository;
   // Las cuatro tablas de auditoría del turno, más las dos que le ponen nombre a
@@ -356,14 +358,16 @@ export class DefaultInboxService implements InboxService {
    * latencia (`tests/unit/inbox-consultas.test.ts` clava los dos números).
    */
   async getConversation(leadId: UUID): Promise<ConversationView> {
-    const [lead, session, convs, tags, tagsDisponibles, todasLasSesiones] = await Promise.all([
-      this.deps.leads.findById(leadId),
-      this.deps.sessions.findActiveByLeadId(leadId),
-      this.deps.convs.findByLeadId(leadId),
-      this.deps.tags.listByLead(leadId),
-      this.deps.tags.list(),
-      this.deps.sessions.listByLeadId(leadId),
-    ]);
+    const [lead, session, convs, tags, tagsDisponibles, todasLasSesiones, vehiculos] =
+      await Promise.all([
+        this.deps.leads.findById(leadId),
+        this.deps.sessions.findActiveByLeadId(leadId),
+        this.deps.convs.findByLeadId(leadId),
+        this.deps.tags.listByLead(leadId),
+        this.deps.tags.list(),
+        this.deps.sessions.listByLeadId(leadId),
+        this.deps.vehiculos.listByLeadId(leadId),
+      ]);
     if (!lead) {
       throw new NotFoundError(`lead no encontrado: ${leadId}`, "lead", leadId);
     }
@@ -422,6 +426,7 @@ export class DefaultInboxService implements InboxService {
         }),
       ),
       tagsDisponibles: [...tagsDisponibles].sort((a, b) => a.nombre.localeCompare(b.nombre, "es")),
+      vehiculos,
       sesionesPrevias,
       gastoIa,
       recordatorio,

@@ -25,6 +25,10 @@ import { renombrarLeadAction } from "../_actions/renombrar-lead.action";
 import { reprogramarRecordatorioAction } from "../_actions/reprogramar-recordatorio.action";
 import { sendMessageAction } from "../_actions/send-message.action";
 import { toggleHandoffAction } from "../_actions/toggle-handoff.action";
+import {
+  agregarVehiculoAction,
+  editarIdentidadVehiculoAction,
+} from "@/app/(panel)/leads/_actions/vehiculos.action";
 import type { ConversationView } from "@/types/inbox";
 
 export const dynamic = "force-dynamic";
@@ -127,6 +131,9 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
           onQuitarEtiqueta={quitarEtiquetaAction}
           onCrearEtiqueta={crearEtiquetaAction}
           onToggleHandoff={toggleHandoffAction}
+          vehiculos={view.vehiculos}
+          onAgregarVehiculo={agregarVehiculoAction}
+          onEditarIdentidadVehiculo={editarIdentidadVehiculoAction}
           onProgramarRecordatorio={programarRecordatorioAction}
           onCancelarRecordatorio={cancelarRecordatorioAction}
           onReprogramarRecordatorio={reprogramarRecordatorioAction}

@@ -6,6 +6,7 @@ import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
 import { InMemoryLlmUsageRepository } from "@/server/repositories/llm-usage.repo";
 import { InMemoryMessagesRepository } from "@/server/repositories/messages.repo";
 import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
+import { InMemoryLeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
 import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultInboxService } from "@/server/services/inbox/default-inbox.service";
@@ -31,6 +32,7 @@ describe("editarCampoTwin", () => {
       sessions,
       convs,
       messages,
+      vehiculos: new InMemoryLeadVehiculosRepository(),
       metaApi: new DefaultMetaApiService(convs, messages, {
         sendText: async () => {
           throw new Error("no debe enviarse nada acá");

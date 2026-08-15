@@ -2,6 +2,7 @@ import type { Canal, CurrentStage, Direction, MotivoAtencion, Urgencia } from ".
 import type {
   Lead,
   LeadSession,
+  LeadVehiculo,
   Mensaje,
   PlantillaSaliente,
   Producto,
@@ -155,6 +156,11 @@ export interface ConversationView {
    * sobre una tabla que en producción tiene decenas de filas, no miles.
    */
   tagsDisponibles: Tag[];
+  /**
+   * Los autos del lead, el principal primero. Son del vehículo y no de la
+   * persona: el documento fiscal vive en la ficha de contacto y la placa acá.
+   */
+  vehiculos: LeadVehiculo[];
   /** Sesiones anteriores del mismo lead: "4 · 3 con compra" del handoff §1.4. */
   sesionesPrevias: SesionesPrevias;
   /**

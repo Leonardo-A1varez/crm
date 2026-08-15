@@ -6,6 +6,7 @@ import { InMemoryLlmUsageRepository } from "@/server/repositories/llm-usage.repo
 import { InMemoryMessagesRepository } from "@/server/repositories/messages.repo";
 import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
 import { InMemorySessionRecordatoriosRepository } from "@/server/repositories/session-recordatorios.repo";
+import { InMemoryLeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
 import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultInboxService } from "@/server/services/inbox/default-inbox.service";
@@ -136,6 +137,7 @@ describe("Costo en consultas del Inbox", () => {
       sessions,
       convs,
       messages,
+      vehiculos: new InMemoryLeadVehiculosRepository(),
       metaApi: new DefaultMetaApiService(convs, messages, {
         sendText: async () => {
           throw new Error("sendText no debe invocarse midiendo el read path");
