@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
+import { InMemoryLeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 import { DefaultTwinExtractorService } from "@/server/services/twin-extractor.service";
 import type { LeadSession } from "@/types/entities";
 import { FakeTwinExtractorLLM } from "../mocks/llm";
@@ -30,12 +31,14 @@ async function createActiveSession(
 describe("TwinExtractorService.extract", () => {
   let sessions: InMemoryLeadSessionRepository;
   let llm: FakeTwinExtractorLLM;
+  let vehiculos: InMemoryLeadVehiculosRepository;
   let svc: DefaultTwinExtractorService;
 
   beforeEach(() => {
     sessions = new InMemoryLeadSessionRepository();
     llm = new FakeTwinExtractorLLM();
-    svc = new DefaultTwinExtractorService(sessions, llm);
+    vehiculos = new InMemoryLeadVehiculosRepository();
+    svc = new DefaultTwinExtractorService(sessions, llm, vehiculos);
   });
 
   test("sesion no existe lanza error", async () => {
@@ -172,6 +175,121 @@ describe("TwinExtractorService.extract", () => {
     llm.enqueue({ bloqueador: null });
     const r2 = await svc.extract({ sessionId: s.id, conversationTurn: ["..."] });
     expect(r2.bloqueador).toBeNull();
+  });
+
+  // El auto no es un campo de la sesión: es del lead y vive en `lead_vehiculos`.
+  // Hasta que el patch tuvo `vehiculo`, el extractor no tenía por dónde
+  // escribirlo — el agente entendía perfecto que le hablaban de un Aveo y se lo
+  // pasaba a `buscar_repuesto`, y el Twin del Inbox mostraba el lead sin ningún
+  // auto. El dato existía y se tiraba en cada turno.
+  describe("el auto del que habla el cliente", () => {
+    const LEAD = "22222222-2222-4222-8222-222222222222";
+
+    async function autosDelLead() {
+      return vehiculos.listByLeadId(LEAD);
+    }
+
+    test("el primer auto detectado se crea como principal", async () => {
+      const s = await createActiveSession(sessions, { lead_id: LEAD });
+      llm.enqueue({ vehiculo: { marca: "Chevrolet", modelo: "Aveo", anio: 2009 } });
+
+      await svc.extract({ sessionId: s.id, conversationTurn: ["busco un radiador para mi aveo"] });
+
+      const autos = await autosDelLead();
+      expect(autos).toHaveLength(1);
+      expect(autos[0]).toMatchObject({
+        marca: "Chevrolet",
+        modelo: "Aveo",
+        anio: 2009,
+        principal: true,
+      });
+    });
+
+    test("placa y VIN nunca los escribe el extractor", async () => {
+      const s = await createActiveSession(sessions, { lead_id: LEAD });
+      llm.enqueue({ vehiculo: { marca: "Mazda", modelo: "Allegro" } });
+
+      await svc.extract({ sessionId: s.id, conversationTurn: ["..."] });
+
+      // Son identificadores que dicta una persona, y son con lo que el detector
+      // compara autos entre leads: un modelo alucinando "AB123CD" fusionaría
+      // dos clientes distintos.
+      const [auto] = await autosDelLead();
+      expect(auto).toMatchObject({ placa: null, vin: null, placa_original: null });
+    });
+
+    test("no pisa un dato ya cargado", async () => {
+      const s = await createActiveSession(sessions, { lead_id: LEAD });
+      await vehiculos.create({
+        lead_id: LEAD,
+        marca: null,
+        modelo: "Aveo Family",
+        anio: null,
+        motor: null,
+        placa: null,
+        placa_original: null,
+        vin: null,
+        vin_original: null,
+        principal: true,
+      });
+      llm.enqueue({ vehiculo: { marca: "Chevrolet", modelo: "Aveo", anio: 2009 } });
+
+      await svc.extract({ sessionId: s.id, conversationTurn: ["..."] });
+
+      const [auto] = await autosDelLead();
+      // El hueco se llena; lo que escribió una persona sobrevive al turno.
+      expect(auto!.marca).toBe("Chevrolet");
+      expect(auto!.anio).toBe(2009);
+      expect(auto!.modelo).toBe("Aveo Family");
+    });
+
+    test("no crea un segundo auto", async () => {
+      const s = await createActiveSession(sessions, { lead_id: LEAD });
+      await vehiculos.create({
+        lead_id: LEAD,
+        marca: "Chevrolet",
+        modelo: "Aveo",
+        anio: 2009,
+        motor: null,
+        placa: null,
+        placa_original: null,
+        vin: null,
+        vin_original: null,
+        principal: true,
+      });
+      llm.enqueue({ vehiculo: { marca: "Mazda", modelo: "Allegro" } });
+
+      await svc.extract({ sessionId: s.id, conversationTurn: ["y para el mazda?"] });
+
+      // Decidir si es otro auto del mismo cliente o el modelo entendiendo mal es
+      // criterio de negocio: para eso está el botón de agregar vehículo.
+      const autos = await autosDelLead();
+      expect(autos).toHaveLength(1);
+      expect(autos[0]).toMatchObject({ marca: "Chevrolet", modelo: "Aveo" });
+    });
+
+    test("un vehículo sin ningún dato no crea la fila", async () => {
+      const s = await createActiveSession(sessions, { lead_id: LEAD });
+      llm.enqueue({ vehiculo: { marca: "", modelo: null } });
+
+      await svc.extract({ sessionId: s.id, conversationTurn: ["hola"] });
+
+      // Un `""` es "no sé", no un dato: crear un auto en blanco ensuciaría la
+      // ficha con una tarjeta vacía en cada lead que saluda.
+      expect(await autosDelLead()).toHaveLength(0);
+    });
+
+    test("el vehículo no se cuela en el patch de la sesión", async () => {
+      const s = await createActiveSession(sessions, { lead_id: LEAD, current_stage: "nuevo" });
+      llm.enqueue({ vehiculo: { modelo: "Aveo" }, urgencia: "alta" });
+
+      const r = await svc.extract({ sessionId: s.id, conversationTurn: ["..."] });
+
+      // `lead_session` no tiene columna `vehiculo`; si viajara en el update, el
+      // repo lo escribiría como campo suelto.
+      expect(r).not.toHaveProperty("vehiculo");
+      expect(r.urgencia).toBe("alta");
+    });
   });
 
   describe("lo que tocó una persona no se pisa", () => {

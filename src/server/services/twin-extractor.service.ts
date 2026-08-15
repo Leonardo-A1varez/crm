@@ -3,7 +3,15 @@ import type {
   LeadSessionUpdate,
   MarcasProcedencia,
 } from "@/server/repositories/lead-session.repo";
-import { LeadTwinUpdateSchema, type LeadTwinUpdate } from "@/lib/validation/ai";
+import type {
+  LeadVehiculosRepository,
+  LeadVehiculoUpdate,
+} from "@/server/repositories/lead-vehiculos.repo";
+import {
+  LeadTwinUpdateSchema,
+  type LeadTwinUpdate,
+  type VehiculoDetectado,
+} from "@/lib/validation/ai";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { CLAVE_MOTIVO_SUGERIDO } from "@/lib/ui/motivo-perdida";
 import { NoopSessionLock, type SessionLock } from "@/server/lock/session-lock";
@@ -37,6 +45,7 @@ export class DefaultTwinExtractorService implements TwinExtractorService {
   constructor(
     private readonly sessions: LeadSessionRepository,
     private readonly llm: TwinExtractorLLM,
+    private readonly vehiculos: LeadVehiculosRepository,
     private readonly lock: SessionLock = new NoopSessionLock(),
   ) {}
 
@@ -71,7 +80,9 @@ export class DefaultTwinExtractorService implements TwinExtractorService {
     }
     const patch = parseResult.data;
 
-    const { resultado, motivo_perdida, extras: patchExtras, ...mutable } = patch;
+    // `vehiculo` sale del patch antes de armar el update: el resto son columnas
+    // de `lead_session` y el auto es del lead, en otra tabla y por otro repo.
+    const { resultado, motivo_perdida, extras: patchExtras, vehiculo, ...mutable } = patch;
 
     let result = current;
     const updatePatch = descartarCorregidosAMano(
@@ -108,8 +119,75 @@ export class DefaultTwinExtractorService implements TwinExtractorService {
       );
     }
 
+    if (vehiculo) await this.guardarVehiculo(current.lead_id, vehiculo);
+
     return result;
   }
+
+  /**
+   * Deja el auto detectado en `lead_vehiculos`, sin pisar nada ya cargado.
+   *
+   * El auto no es un campo de la sesión: es del lead y vive en su propia tabla,
+   * con su propia UI. Hasta acá el extractor no tenía por dónde escribirlo, así
+   * que el agente entendía perfecto que le hablaban de un Aveo —se lo pasaba a
+   * `buscar_repuesto` para buscar el repuesto— y el Twin del Inbox mostraba el
+   * lead sin ningún auto. La información existía y se tiraba.
+   *
+   * Dos reglas, las dos conservadoras a propósito:
+   *
+   * 1. **Solo llena huecos.** Si el auto ya tiene `modelo`, el extractor no lo
+   *    cambia. Un vendedor que escribió "Aveo Family" no puede perderlo porque
+   *    el modelo entendió "Aveo" en el turno siguiente. Es la misma promesa que
+   *    `descartarCorregidosAMano` hace con los campos de la sesión; acá alcanza
+   *    con mirar el hueco porque `lead_vehiculos` no lleva procedencia.
+   * 2. **No crea un segundo auto.** Decidir si "un Aveo" es el que ya está
+   *    cargado o el otro auto del mismo cliente es criterio de negocio, no de un
+   *    extractor: para eso está el botón de agregar vehículo. El primero sí lo
+   *    crea, porque ahí no hay ambigüedad posible.
+   *
+   * Placa y VIN nunca se tocan acá: los dicta una persona y son con lo que el
+   * detector compara autos entre leads.
+   */
+  private async guardarVehiculo(leadId: UUID, detectado: VehiculoDetectado): Promise<void> {
+    const marca = limpiar(detectado.marca);
+    const modelo = limpiar(detectado.modelo);
+    const motor = limpiar(detectado.motor);
+    const anio = detectado.anio ?? null;
+    if (marca === null && modelo === null && motor === null && anio === null) return;
+
+    // `listByLeadId` devuelve el principal primero.
+    const [principal] = await this.vehiculos.listByLeadId(leadId);
+
+    if (!principal) {
+      await this.vehiculos.create({
+        lead_id: leadId,
+        marca,
+        modelo,
+        anio,
+        motor,
+        placa: null,
+        placa_original: null,
+        vin: null,
+        vin_original: null,
+        principal: true,
+      });
+      return;
+    }
+
+    const patch: LeadVehiculoUpdate = {};
+    if (principal.marca === null && marca !== null) patch.marca = marca;
+    if (principal.modelo === null && modelo !== null) patch.modelo = modelo;
+    if (principal.anio === null && anio !== null) patch.anio = anio;
+    if (principal.motor === null && motor !== null) patch.motor = motor;
+
+    if (Object.keys(patch).length > 0) await this.vehiculos.update(principal.id, patch);
+  }
+}
+
+/** Un `""` del modelo es "no sé", no un dato: no puede tapar el hueco. */
+function limpiar(valor: string | null | undefined): string | null {
+  const texto = valor?.trim();
+  return texto ? texto : null;
 }
 
 /**

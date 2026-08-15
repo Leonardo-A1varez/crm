@@ -7,6 +7,7 @@ import { InMemoryConversationsRepository } from "@/server/repositories/conversat
 import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultTwinExtractorService } from "@/server/services/twin-extractor.service";
 import { FakeTwinExtractorLLM } from "../mocks/llm";
+import { InMemoryLeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 
 describe("Repos/services throw clases DomainError", () => {
   test("lead-session.update id inexistente → NotFoundError", async () => {
@@ -137,7 +138,11 @@ describe("Repos/services throw clases DomainError", () => {
   test("twin-extractor LLM patch inválido → ValidationError", async () => {
     const sessions = new InMemoryLeadSessionRepository();
     const llm = new FakeTwinExtractorLLM();
-    const svc = new DefaultTwinExtractorService(sessions, llm);
+    const svc = new DefaultTwinExtractorService(
+      sessions,
+      llm,
+      new InMemoryLeadVehiculosRepository(),
+    );
     const s = await sessions.create({
       lead_id: crypto.randomUUID(),
       current_stage: "nuevo",
@@ -163,7 +168,11 @@ describe("Repos/services throw clases DomainError", () => {
   test("twin-extractor sesión inexistente → NotFoundError", async () => {
     const sessions = new InMemoryLeadSessionRepository();
     const llm = new FakeTwinExtractorLLM();
-    const svc = new DefaultTwinExtractorService(sessions, llm);
+    const svc = new DefaultTwinExtractorService(
+      sessions,
+      llm,
+      new InMemoryLeadVehiculosRepository(),
+    );
     await expect(svc.extract({ sessionId: "fake", conversationTurn: [] })).rejects.toBeInstanceOf(
       NotFoundError,
     );

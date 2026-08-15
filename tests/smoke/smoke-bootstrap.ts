@@ -24,6 +24,7 @@ import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultIntentClassifierService } from "@/server/services/intent-classifier.service";
 import { DefaultLeadMergeDetectorService } from "@/server/services/lead-merge-detector.service";
 import { InMemoryLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
+import { InMemoryLeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
 import { DefaultRuleEngineService } from "@/server/services/rule-engine.service";
 import { DefaultTwinExtractorService } from "@/server/services/twin-extractor.service";
@@ -120,6 +121,7 @@ export function makeSmokeBundle(): SmokeBundle {
   const recordatorios = new InMemorySessionRecordatoriosRepository();
   const mergeCandidates = new InMemoryMergeCandidatesRepository();
   const identificadores = new InMemoryLeadIdentificadoresRepository();
+  const vehiculos = new InMemoryLeadVehiculosRepository();
   const eventOutbox = new InMemoryEventOutboxRepository();
   const toolExecutions = new InMemoryToolExecutionsRepository();
 
@@ -143,7 +145,11 @@ export function makeSmokeBundle(): SmokeBundle {
   const catalog = new DefaultCatalogMatcherService(productos);
   const ruleEngine = new DefaultRuleEngineService(intents, rules);
   const intentClassifier = new DefaultIntentClassifierService(intents, llmBundle.intentClassifier);
-  const twinExtractor = new DefaultTwinExtractorService(sessions, llmBundle.twinExtractor);
+  const twinExtractor = new DefaultTwinExtractorService(
+    sessions,
+    llmBundle.twinExtractor,
+    vehiculos,
+  );
   const handoff = new DefaultHandoffService(sessions);
   const metaApi = new DefaultMetaApiService(conversations, messages, metaClient);
   const mergeDetector = new DefaultLeadMergeDetectorService(

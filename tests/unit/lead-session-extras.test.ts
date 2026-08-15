@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import { DefaultTwinExtractorService } from "@/server/services/twin-extractor.service";
 import { FakeTwinExtractorLLM } from "../mocks/llm";
+import { InMemoryLeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 
 async function seedSession(repo: InMemoryLeadSessionRepository, extras = {}) {
   return repo.create({
@@ -84,7 +85,7 @@ describe("twin-extractor extras shallow merge", () => {
   beforeEach(() => {
     repo = new InMemoryLeadSessionRepository();
     llm = new FakeTwinExtractorLLM();
-    svc = new DefaultTwinExtractorService(repo, llm);
+    svc = new DefaultTwinExtractorService(repo, llm, new InMemoryLeadVehiculosRepository());
   });
 
   test("LLM extras se mergea con existing extras", async () => {

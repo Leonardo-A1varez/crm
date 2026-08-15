@@ -3,6 +3,7 @@ import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-sessio
 import { InMemorySessionLock } from "@/server/lock/session-lock";
 import { DefaultTwinExtractorService } from "@/server/services/twin-extractor.service";
 import type { LeadTwinUpdate } from "@/lib/validation/ai";
+import { InMemoryLeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 import type {
   TwinExtractorLLM,
   TwinExtractorLLMInput,
@@ -53,7 +54,12 @@ describe("TwinExtractorService single-flight per session", () => {
     const sessions = new InMemoryLeadSessionRepository();
     const llm = new SlowTrackingLLM();
     const lock = new InMemorySessionLock();
-    const svc = new DefaultTwinExtractorService(sessions, llm, lock);
+    const svc = new DefaultTwinExtractorService(
+      sessions,
+      llm,
+      new InMemoryLeadVehiculosRepository(),
+      lock,
+    );
 
     const s = await seedSession(sessions);
     llm.enqueue({ current_stage: "identificando" });
@@ -74,7 +80,12 @@ describe("TwinExtractorService single-flight per session", () => {
     const sessions = new InMemoryLeadSessionRepository();
     const llm = new SlowTrackingLLM();
     const lock = new InMemorySessionLock();
-    const svc = new DefaultTwinExtractorService(sessions, llm, lock);
+    const svc = new DefaultTwinExtractorService(
+      sessions,
+      llm,
+      new InMemoryLeadVehiculosRepository(),
+      lock,
+    );
 
     const s1 = await seedSession(sessions);
     const s2 = await seedSession(sessions);
@@ -93,7 +104,12 @@ describe("TwinExtractorService single-flight per session", () => {
     const sessions = new InMemoryLeadSessionRepository();
     const llm = new SlowTrackingLLM();
     const lock = new InMemorySessionLock();
-    const svc = new DefaultTwinExtractorService(sessions, llm, lock);
+    const svc = new DefaultTwinExtractorService(
+      sessions,
+      llm,
+      new InMemoryLeadVehiculosRepository(),
+      lock,
+    );
 
     const s = await seedSession(sessions);
     // Primera llamada Zod parse fail → ValidationError.

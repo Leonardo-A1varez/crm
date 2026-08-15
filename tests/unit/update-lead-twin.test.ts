@@ -6,11 +6,16 @@ import {
   type UpdateLeadTwinDeps,
 } from "@/inngest/functions/update-lead-twin";
 import { FakeTwinExtractorLLM } from "../mocks/llm";
+import { InMemoryLeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 
 async function setup() {
   const sessions = new InMemoryLeadSessionRepository();
   const llm = new FakeTwinExtractorLLM();
-  const extractor = new DefaultTwinExtractorService(sessions, llm);
+  const extractor = new DefaultTwinExtractorService(
+    sessions,
+    llm,
+    new InMemoryLeadVehiculosRepository(),
+  );
   const deps: UpdateLeadTwinDeps = { twinExtractor: extractor };
   return { sessions, llm, deps };
 }

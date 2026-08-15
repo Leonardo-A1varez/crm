@@ -30,6 +30,7 @@ import {
   FakeTwinExtractorLLM,
 } from "../mocks/llm";
 import { FakeMetaApiClient } from "../mocks/meta";
+import { InMemoryLeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 
 describe("makeCrmInngestFunctions", () => {
   test("produce 12 InngestFunction con IDs esperados", () => {
@@ -52,7 +53,11 @@ describe("makeCrmInngestFunctions", () => {
     const ruleEngine = new DefaultRuleEngineService(intents, rules);
     const catalog = new DefaultCatalogMatcherService(productos);
     const aiAgent = new DefaultAiAgentService(sessions, ruleEngine, catalog, new FakeAgentLLM());
-    const twinExtractor = new DefaultTwinExtractorService(sessions, new FakeTwinExtractorLLM());
+    const twinExtractor = new DefaultTwinExtractorService(
+      sessions,
+      new FakeTwinExtractorLLM(),
+      new InMemoryLeadVehiculosRepository(),
+    );
     const handoff = new DefaultHandoffService(sessions);
     const mergeDetector = new DefaultLeadMergeDetectorService(
       leads,

@@ -25,6 +25,14 @@ const SYSTEM_PROMPT = [
   "resultado: exito|perdido o null (no cierres salvo evidencia clara).",
   "motivo_perdida (solo si resultado=perdido): precio|stock|tiempo|no_responde|otro.",
   "extras: jsonb con campos custom shallow-merged en service (preserva keys previas).",
+  // El auto no vive en la sesión sino en `lead_vehiculos`, y el service lo
+  // escribe por otro repo. Se pide acá porque el turno de conversación es el
+  // único lugar donde aparece: el cliente dice "para mi aveo" una sola vez.
+  // La regla de "solo lo que cambia" no se puede aplicar acá: el auto NO está en
+  // el snapshot que recibe el modelo —vive en otra tabla—, así que no tiene con
+  // qué comparar y ante la duda lo omite. Repetirlo no cuesta nada: el service
+  // solo llena huecos y descarta lo que ya está cargado.
+  "vehiculo: {marca, modelo, anio, motor} del auto del que habla el cliente. Este campo es la EXCEPCIÓN a la regla de arriba: incluilo SIEMPRE que la conversación permita identificar el auto, aunque ya se haya mencionado antes. Poné solo lo que el cliente dijo o lo que se deduce sin ninguna duda; omití los campos que no sepas en vez de adivinarlos. Nunca incluyas placa ni VIN: esos los carga una persona.",
   // Sin esto la IA no tiene forma de proponer un motivo sin cerrar la sesión:
   // `motivo_perdida` viaja pegado a `resultado`, y `resultado` cierra. Esta
   // clave es la propuesta que el vendedor confirma en el popover del rail.

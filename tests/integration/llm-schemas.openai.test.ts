@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
+import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
 import { InMemoryCostTracker } from "@/lib/observability/cost-tracker";
+import { StaticAgentConfigProvider } from "@/server/services/agente/config-provider";
 import { makeLlmFactory } from "@/server/services/llm/llm-factory";
 import { OPENAI_PRICING } from "@/server/services/llm/pricing";
 import type { TwinExtractorLLMInput } from "@/server/services/twin-extractor.service";
@@ -32,6 +34,12 @@ function makeBundle() {
     mode: "real",
     openaiApiKey: apiKey,
     costTracker: new InMemoryCostTracker({ pricing: OPENAI_PRICING, dailyCapUsd: 1 }),
+    // Desde G1 el agente lee su modelo y su prompt de `agente_config` en cada
+    // turno, y la factory exige el provider. Acá no se está probando la config
+    // sino la forma del schema, así que alcanza con la de fábrica —sin esto la
+    // suite entera tira ValidationError antes de llegar a OpenAI, que es como
+    // estuvo desde que G1 entró: rota y sin que nadie la corriera.
+    configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
   });
 }
 
@@ -63,6 +71,27 @@ suite("schemas LLM aceptados por OpenAI (integration)", () => {
 
     expect(result).toBeTypeOf("object");
     expect(result).not.toBeNull();
+  });
+
+  // Este sí mira el contenido, a diferencia del resto de la suite. Se justifica
+  // porque el campo es nuevo y porque el modo de falla que cubre es silencioso:
+  // un `vehiculo` que el modelo nunca devuelve no rompe nada, no loguea nada, y
+  // el Twin del lead simplemente se queda sin auto para siempre. El caso es
+  // inequívoco a propósito —"un Corolla 2015" no admite otra lectura—; si algún
+  // día falla, es señal de que el prompt dejó de pedirlo.
+  test("el vehículo del que habla el cliente vuelve en el patch", async () => {
+    const result = await makeBundle().twinExtractor.extract({
+      current: SESSION_SNAPSHOT,
+      conversationTurn: [
+        "lead: hola, necesito pastillas de freno para un Corolla 2015",
+        "agente: te cotizo, son 45 dolares el juego delantero",
+      ],
+    });
+
+    expect(result.vehiculo?.modelo?.toLowerCase()).toContain("corolla");
+    expect(result.vehiculo?.anio).toBe(2015);
+    // Placa y VIN no existen en el schema: los carga una persona.
+    expect(result.vehiculo).not.toHaveProperty("placa");
   });
 
   test("IntentClassificationSchema — generateObject no es rechazado", async () => {

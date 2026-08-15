@@ -32,6 +32,7 @@ import { SupabaseIntentsRepository } from "@/server/repositories/intents.supabas
 import { SupabaseLeadSessionRepository } from "@/server/repositories/lead-session.supabase.repo";
 import { SupabaseLeadsRepository } from "@/server/repositories/leads.supabase.repo";
 import { SupabaseLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.supabase.repo";
+import { SupabaseLeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.supabase.repo";
 import { SupabaseMergeCandidatesRepository } from "@/server/repositories/merge-candidates.supabase.repo";
 import { SupabaseMessagesRepository } from "@/server/repositories/messages.supabase.repo";
 import { SupabaseProductsRepository } from "@/server/repositories/productos.supabase.repo";
@@ -98,6 +99,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   const reactivationDispatches = new SupabaseReactivationDispatchesRepository(db);
   const mergeCandidates = new SupabaseMergeCandidatesRepository(db);
   const identificadores = new SupabaseLeadIdentificadoresRepository(db);
+  const vehiculos = new SupabaseLeadVehiculosRepository(db);
   const eventOutbox = new SupabaseEventOutboxRepository(db);
   const toolExecutions = new SupabaseToolExecutionsRepository(db);
   const recordatorios = new SupabaseSessionRecordatoriosRepository(db);
@@ -158,7 +160,11 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   const catalog = new DefaultCatalogMatcherService(productos);
   const ruleEngine = new DefaultRuleEngineService(intents, rules);
   const intentClassifier = new DefaultIntentClassifierService(intents, llmBundle.intentClassifier);
-  const twinExtractor = new DefaultTwinExtractorService(sessions, llmBundle.twinExtractor);
+  const twinExtractor = new DefaultTwinExtractorService(
+    sessions,
+    llmBundle.twinExtractor,
+    vehiculos,
+  );
   // Con el provider, el umbral de escalado sale de la config activa en vez
   // del valor de fábrica: es el mismo cache de 30s que usa el resto del turno.
   const handoff = new DefaultHandoffService(sessions, agenteConfigProvider, handoffEvents);
