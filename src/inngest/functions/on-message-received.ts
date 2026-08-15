@@ -489,10 +489,15 @@ async function registrarTelefono(
  * Mantiene `nombre_perfil` al día con lo que dice Meta.
  *
  * El dato es de la plataforma, no nuestro: si el cliente se cambia el nombre en
- * WhatsApp, el nuestro tiene que seguirlo. `leads.nombre` no se toca nunca acá
- * —ese lo escribe el vendedor y un alias de redes no lo pisa—. Sin cambio no
- * hay UPDATE: escribir en cada mensaje entrante movería `updated_at` de todos
- * los leads y desordenaría la lista, que ordena por esa columna.
+ * WhatsApp, el nuestro tiene que seguirlo. Sin cambio no hay UPDATE: escribir en
+ * cada mensaje entrante movería `updated_at` de todos los leads y desordenaría
+ * la lista, que ordena por esa columna.
+ *
+ * `leads.nombre` se toca en un solo caso: cuando está vacío. Es la misma siembra
+ * que hace `buildPlaceholderLead`, acá para los leads que ya existían sin nombre
+ * —quedan arreglados en cuanto el cliente vuelve a escribir, sin esperar a que
+ * alguien los renombre a mano—. Un `nombre` ya cargado no se pisa jamás: lo
+ * escribió el vendedor y un alias de redes no compite con eso.
  */
 async function sincronizarNombrePerfil(
   lead: Lead,
@@ -500,9 +505,19 @@ async function sincronizarNombrePerfil(
   leads: LeadsRepository,
 ): Promise<Lead> {
   const nuevo = parsed.nombre_perfil;
+  const patch: Parameters<LeadsRepository["update"]>[1] = {};
+
   // `null` es "este canal no lo manda", no "se lo borraron": no pisa lo guardado.
-  if (nuevo === null || nuevo === lead.nombre_perfil) return lead;
-  return leads.update(lead.id, { nombre_perfil: nuevo });
+  if (nuevo !== null && nuevo !== lead.nombre_perfil) patch.nombre_perfil = nuevo;
+
+  // Para sembrar sirve el que llega y, si no llega, el que ya estaba guardado:
+  // un lead anónimo con perfil viejo se arregla igual aunque este mensaje venga
+  // sin nombre.
+  const paraSembrar = (nuevo ?? lead.nombre_perfil)?.trim();
+  if (lead.nombre.trim() === "" && paraSembrar) patch.nombre = paraSembrar;
+
+  if (Object.keys(patch).length === 0) return lead;
+  return leads.update(lead.id, patch);
 }
 
 function buildPlaceholderLead(parsed: ParsedMessage): Parameters<LeadsRepository["create"]>[0] {
@@ -511,9 +526,15 @@ function buildPlaceholderLead(parsed: ParsedMessage): Parameters<LeadsRepository
   const meta_user_ids: MetaUserIds = {};
   meta_user_ids[canalKey(parsed.canal)] = parsed.meta_user_id;
   return {
-    // `nombre` sigue naciendo vacío a propósito: es el nombre que le pone la
-    // casa. El de Meta va aparte y no compite con él.
-    nombre: "",
+    // `nombre` es el nombre que le pone la casa y `nombre_perfil` el que reporta
+    // Meta: son dos cosas distintas y por eso viven en columnas separadas. Pero
+    // nacer vacío dejaba al lead como "Sin nombre" en la bandeja teniendo el de
+    // WhatsApp guardado al lado, así que el perfil SIEMBRA el hueco.
+    //
+    // Sembrar no es competir: a partir de acá `nombre` es nuestro y Meta no lo
+    // vuelve a tocar nunca —ni cuando el cliente se renombra en WhatsApp—. IG y
+    // Messenger pueden no mandar nada y ahí sí queda vacío.
+    nombre: parsed.nombre_perfil ?? "",
     nombre_perfil: parsed.nombre_perfil,
     telefono,
     email: null,

@@ -202,7 +202,11 @@ describe("onMessageReceivedHandler", () => {
     expect(all).toHaveLength(1);
   });
 
-  test("el lead nuevo guarda el nombre de perfil de Meta sin tocar nombre", async () => {
+  // Un lead con el nombre de WhatsApp guardado al lado no puede leerse "Sin
+  // nombre" en la bandeja. Pasó con el primer WhatsApp real: la ficha de Contacto
+  // mostraba "Leonardo Alvarez" —lee `nombre_perfil`— y la lista mostraba "Sin
+  // nombre" —lee `nombre`—. El mismo lead con y sin nombre según la pantalla.
+  test("el lead nuevo se llama como el perfil de WhatsApp", async () => {
     ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
     ctx.agentLLM.enqueueText("respuesta");
 
@@ -210,7 +214,21 @@ describe("onMessageReceivedHandler", () => {
 
     const lead = await ctx.leads.findByTelefono("549110");
     expect(lead!.nombre_perfil).toBe("Marcela");
-    // El nombre de la casa lo escribe el vendedor: el alias de redes no lo pisa.
+    expect(lead!.nombre).toBe("Marcela");
+  });
+
+  test("un canal que no manda nombre deja el lead sin nombre", async () => {
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("respuesta");
+
+    await onMessageReceivedHandler(
+      { parsed: parsed({ canal: "ig", canal_thread_id: "IGSID", meta_user_id: "IGSID" }) },
+      ctx.deps,
+    );
+
+    // Sembrar es llenar un hueco con lo que hay, no inventar: IG y Messenger
+    // pueden no mandar nada y ahí el vacío sigue siendo la respuesta correcta.
+    const lead = await ctx.leads.findByTelefono("ig:IGSID");
     expect(lead!.nombre).toBe("");
   });
 
@@ -239,11 +257,38 @@ describe("onMessageReceivedHandler", () => {
     expect(lead!.nombre).toBe("Juan el del Corolla");
   });
 
-  test("un canal sin nombre de perfil no borra el que ya estaba", async () => {
+  test("un lead anónimo se siembra con el perfil ya guardado aunque el mensaje no traiga nombre", async () => {
     ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
     ctx.agentLLM.enqueueText("respuesta");
     const previo = await ctx.leads.create({
       nombre: "",
+      nombre_perfil: "Juan",
+      telefono: "549110",
+      email: null,
+      direccion: null,
+      vehiculo_marca: "",
+      vehiculo_modelo: "",
+      vehiculo_anio: 0,
+      vehiculo_motor: null,
+      empresa_id: null,
+      canal_origen: "wa",
+      meta_user_ids: { wa: "549110" },
+    });
+
+    await onMessageReceivedHandler({ parsed: parsed({ nombre_perfil: null }) }, ctx.deps);
+
+    // Para llenar el hueco sirve el que llega y, si no llega, el que ya estaba:
+    // si no, un lead anónimo se quedaría anónimo teniendo el dato guardado.
+    const lead = await ctx.leads.findById(previo.id);
+    expect(lead!.nombre).toBe("Juan");
+    expect(lead!.nombre_perfil).toBe("Juan");
+  });
+
+  test("un canal sin nombre de perfil no borra el que ya estaba", async () => {
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("respuesta");
+    const previo = await ctx.leads.create({
+      nombre: "Juan el del Corolla",
       nombre_perfil: "Juan",
       telefono: "549110",
       email: null,
@@ -270,7 +315,9 @@ describe("onMessageReceivedHandler", () => {
     ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
     ctx.agentLLM.enqueueText("respuesta");
     const previo = await ctx.leads.create({
-      nombre: "",
+      // Con nombre ya puesto no queda hueco que sembrar: el turno no tiene
+      // ningún motivo para escribir en `leads`.
+      nombre: "Marcela",
       nombre_perfil: "Marcela",
       telefono: "549110",
       email: null,
