@@ -586,6 +586,35 @@ function adaptInngestStep(step: {
   };
 }
 
+/**
+ * Devuelve la `Date` que el JSON de Inngest convirtió en string.
+ *
+ * `ParsedMessage.platform_created_at` está tipado `Date`, pero el evento viaja
+ * serializado: del otro lado llega un ISO. TypeScript sigue creyendo que es una
+ * `Date`, así que `.toISOString()` compila y explota en runtime —fue
+ * exactamente lo que impidió persistir el primer WhatsApp real, con el mensaje
+ * `input.platform_created_at?.toISOString is not a function`—.
+ *
+ * Se revive acá, en la frontera, y no en el repo: así el handler y todo lo que
+ * está río abajo reciben lo que su tipo promete. Mismo criterio que
+ * `recordatorio-seguimiento`, que hace `new Date(recordarAt)` al despertar.
+ *
+ * Una fecha inválida se descarta en vez de propagarse: `platform_created_at` es
+ * el reloj de Meta y es opcional, y un `Invalid Date` en esa columna vale menos
+ * que no tener el dato.
+ */
+function revivirParsed(parsed: ParsedMessage): ParsedMessage {
+  const crudo = parsed.platform_created_at;
+  if (crudo === null || crudo === undefined) return parsed;
+  if (crudo instanceof Date) return parsed;
+
+  const fecha = new Date(crudo as unknown as string);
+  return {
+    ...parsed,
+    platform_created_at: Number.isNaN(fecha.getTime()) ? null : fecha,
+  };
+}
+
 export function makeOnMessageReceivedFn(deps: OnMessageReceivedDeps) {
   return inngest.createFunction(
     {
@@ -604,7 +633,7 @@ export function makeOnMessageReceivedFn(deps: OnMessageReceivedDeps) {
     async ({ event, step }) => {
       try {
         return await onMessageReceivedHandler(
-          { parsed: event.data.parsed },
+          { parsed: revivirParsed(event.data.parsed) },
           deps,
           adaptInngestStep(step),
         );

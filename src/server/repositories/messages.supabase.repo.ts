@@ -56,7 +56,7 @@ export class SupabaseMessagesRepository implements MessagesRepository {
         meta_message_id: input.meta_message_id,
         idempotency_key: input.idempotency_key,
         metadata: input.metadata as never,
-        platform_created_at: input.platform_created_at?.toISOString() ?? null,
+        platform_created_at: isoDePlataforma(input.platform_created_at),
       })
       .select()
       .single();
@@ -313,6 +313,24 @@ interface MensajeRow {
   estado_entrega: EstadoEntrega | null;
   estado_entrega_at: string | null;
   error_entrega: string | null;
+}
+
+/**
+ * El reloj de Meta, como ISO para Postgres.
+ *
+ * Acepta `Date` o string aunque el tipo diga `Date`: el valor cruza la frontera
+ * JSON de Inngest y del otro lado llega serializado. Un `.toISOString()` a secas
+ * compilaba y explotaba en runtime —fue lo que impidió persistir el primer
+ * WhatsApp real—. La revivificación vive en el handler; esto es la segunda
+ * barrera, en la capa que efectivamente escribe.
+ *
+ * Una fecha inválida vuelve `null`: es un dato opcional, y `null` dice "no se
+ * sabe" mientras que un `Invalid Date` rompe el insert entero.
+ */
+function isoDePlataforma(valor: Date | string | null | undefined): string | null {
+  if (valor === null || valor === undefined) return null;
+  const fecha = valor instanceof Date ? valor : new Date(valor);
+  return Number.isNaN(fecha.getTime()) ? null : fecha.toISOString();
 }
 
 function mapRow(row: MensajeRow): Mensaje {
