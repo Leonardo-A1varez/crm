@@ -1,9 +1,12 @@
 import type { Canal, CurrentStage, MotivoPerdida, Resultado } from "@/types/domain";
 import type { LeadDetail, LeadsPage, VentanaActividad } from "@/types/leads";
-import type { Lead, LeadIdentificador, UUID } from "@/types/entities";
+import type { Lead, LeadIdentificador, LeadVehiculo, UUID } from "@/types/entities";
 import type {
   AgregarIdentificadorInput,
+  AgregarVehiculoInput,
+  EditarIdentidadVehiculoInput,
   QuitarIdentificadorInput,
+  QuitarVehiculoInput,
   UpdateLeadProfileInput,
 } from "@/lib/validation/leads.schema";
 
@@ -81,4 +84,12 @@ export interface LeadsService {
    * identificador de otro lead pasando un id suelto.
    */
   quitarIdentificador(input: QuitarIdentificadorInput): Promise<void>;
+  /** Alta de un auto del lead. El primero queda como principal. */
+  agregarVehiculo(input: AgregarVehiculoInput): Promise<LeadVehiculo>;
+  /**
+   * Carga o corrige la placa y el VIN de un auto ya detectado. Cadena vacía
+   * borra el dato; no mandarlo lo deja como está.
+   */
+  editarIdentidadVehiculo(input: EditarIdentidadVehiculoInput): Promise<LeadVehiculo>;
+  quitarVehiculo(input: QuitarVehiculoInput): Promise<void>;
 }

@@ -291,6 +291,35 @@ export interface LeadIdentificador {
   created_at: Date;
 }
 
+/**
+ * Un auto del lead. Varios por lead.
+ *
+ * Placa y VIN viven acá y no en `lead_identificadores` porque son del auto, no
+ * de quien lo maneja: un taller tiene un RUC y tres camionetas, y el RUC no
+ * pertenece a ninguna de las tres.
+ *
+ * Las cuatro columnas `vehiculo_*` de `leads` siguen existiendo como espejo del
+ * principal —las leen el matcher del catálogo, las métricas, el filtro de
+ * `/leads` y el extractor— y su baja es deuda anotada, no parte de esto.
+ */
+export interface LeadVehiculo {
+  id: UUID;
+  lead_id: UUID;
+  marca: string | null;
+  modelo: string | null;
+  anio: number | null;
+  motor: string | null;
+  /** Normalizada para comparar: alfanuméricos en mayúscula. */
+  placa: string | null;
+  /** Como la escribió la persona. Es lo que se muestra. */
+  placa_original: string | null;
+  vin: string | null;
+  vin_original: string | null;
+  /** El que va en la ficha cuando el lead tiene varios. */
+  principal: boolean;
+  created_at: Date;
+}
+
 export interface Tag {
   id: UUID;
   nombre: string;

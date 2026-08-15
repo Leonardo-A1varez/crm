@@ -1,5 +1,5 @@
 import type { Canal, CurrentStage, MotivoPerdida, Resultado, TagSource } from "./domain";
-import type { Lead, LeadIdentificador, LeadSession, UUID } from "./entities";
+import type { Lead, LeadIdentificador, LeadSession, LeadVehiculo, UUID } from "./entities";
 
 /**
  * Ventanas del filtro de última actividad, medidas sobre `leads.updated_at`.
@@ -127,6 +127,12 @@ export interface LeadDetail {
    * el agrupado por tipo es decisión de la vista y vive en `lib/ui`.
    */
   identificadores: LeadIdentificador[];
+  /**
+   * Los autos del lead, el principal primero. Separados de los identificadores
+   * porque son del vehículo y no de la persona: un taller tiene un RUC y tres
+   * camionetas.
+   */
+  vehiculos: LeadVehiculo[];
 }
 
 /**

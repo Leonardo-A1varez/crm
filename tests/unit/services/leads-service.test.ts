@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { ConflictError, NotFoundError } from "@/lib/errors";
 import { InMemoryLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
+import { InMemoryLeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import { InMemoryMergeCandidatesRepository } from "@/server/repositories/merge-candidates.repo";
@@ -76,6 +77,7 @@ describe("DefaultLeadsService", () => {
   let messages: InMemoryMessagesRepository;
   let auditRepo: InMemoryAdminAuditRepository;
   let identificadores: InMemoryLeadIdentificadoresRepository;
+  let vehiculos: InMemoryLeadVehiculosRepository;
   let svc: DefaultLeadsService;
 
   beforeEach(() => {
@@ -86,6 +88,7 @@ describe("DefaultLeadsService", () => {
     messages = new InMemoryMessagesRepository();
     auditRepo = new InMemoryAdminAuditRepository();
     identificadores = new InMemoryLeadIdentificadoresRepository();
+    vehiculos = new InMemoryLeadVehiculosRepository();
     svc = new DefaultLeadsService({
       leads,
       sessions,
@@ -94,6 +97,7 @@ describe("DefaultLeadsService", () => {
       messages,
       audit: new DefaultAdminAuditService(auditRepo),
       identificadores,
+      vehiculos,
     });
   });
 

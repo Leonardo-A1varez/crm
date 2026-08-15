@@ -4,13 +4,25 @@ import { calcularSinResponder } from "@/lib/sin-responder";
 import { MOTIVO_PERDIDA } from "@/types/domain";
 import type { CierreSesion, LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { LeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
+import { normalizarDatoDeAuto } from "@/server/repositories/lead-vehiculos.repo";
+import type {
+  LeadVehiculoUpdate,
+  LeadVehiculosRepository,
+} from "@/server/repositories/lead-vehiculos.repo";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MergeCandidatesRepository } from "@/server/repositories/merge-candidates.repo";
 import type { LeadMergeRepository } from "@/server/repositories/lead-merge.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { TagsRepository } from "@/server/repositories/tags.repo";
 import type { MotivoPerdida } from "@/types/domain";
-import type { Lead, LeadIdentificador, LeadSession, Mensaje, UUID } from "@/types/entities";
+import type {
+  Lead,
+  LeadIdentificador,
+  LeadSession,
+  LeadVehiculo,
+  Mensaje,
+  UUID,
+} from "@/types/entities";
 import type {
   DuplicadoPendiente,
   EtiquetaOpcion,
@@ -22,7 +34,10 @@ import type {
 import type { LeadsListInput, LeadsService } from "./leads.service";
 import type {
   AgregarIdentificadorInput,
+  AgregarVehiculoInput,
+  EditarIdentidadVehiculoInput,
   QuitarIdentificadorInput,
+  QuitarVehiculoInput,
 } from "@/lib/validation/leads.schema";
 import { ADMIN_ACTIONS, type AdminAuditService } from "@/server/services/admin-audit.service";
 
@@ -39,6 +54,7 @@ export interface DefaultLeadsServiceDeps {
   messages: MessagesRepository;
   audit: AdminAuditService;
   identificadores: LeadIdentificadoresRepository;
+  vehiculos: LeadVehiculosRepository;
   /**
    * Historial de fusiones. Opcional: los contratos in-memory no modelan
    * `admin_actions`, y sin él la ficha simplemente no muestra esa sección.
@@ -239,7 +255,7 @@ export class DefaultLeadsService implements LeadsService {
     const lead = await this.deps.leads.findById(leadId);
     if (!lead) throw new NotFoundError(`lead no encontrado: ${leadId}`, "lead", leadId);
 
-    const [tags, sesiones, pendientes, fusiones, identificadores] = await Promise.all([
+    const [tags, sesiones, pendientes, fusiones, identificadores, vehiculos] = await Promise.all([
       this.deps.tags.listByLead(leadId),
       this.deps.sessions.listByLeadId(leadId),
       this.deps.candidates.list({ status: "pending" }),
@@ -247,6 +263,7 @@ export class DefaultLeadsService implements LeadsService {
       // implementación in-memory de los contratos no modela `admin_actions`.
       this.deps.merge?.listByLeadId(leadId) ?? Promise.resolve([]),
       this.deps.identificadores.listByLeadId(leadId),
+      this.deps.vehiculos.listByLeadId(leadId),
     ]);
 
     const propios = pendientes.filter((c) => c.src_lead_id === leadId || c.dst_lead_id === leadId);
@@ -272,6 +289,7 @@ export class DefaultLeadsService implements LeadsService {
       duplicados,
       fusiones,
       identificadores,
+      vehiculos,
     };
   }
 
@@ -307,6 +325,73 @@ export class DefaultLeadsService implements LeadsService {
       );
     }
     await this.deps.identificadores.delete(propio.id);
+  }
+
+  async agregarVehiculo(input: AgregarVehiculoInput): Promise<LeadVehiculo> {
+    const placa = normalizarDatoDeAuto("placa", input.placa);
+    const vin = normalizarDatoDeAuto("vin", input.vin);
+    const actuales = await this.deps.vehiculos.listByLeadId(input.leadId);
+
+    return this.deps.vehiculos.create({
+      lead_id: input.leadId,
+      marca: input.marca?.trim() || null,
+      modelo: input.modelo?.trim() || null,
+      anio: input.anio ?? null,
+      motor: input.motor?.trim() || null,
+      placa: placa.valor,
+      placa_original: placa.original,
+      vin: vin.valor,
+      vin_original: vin.original,
+      // El primer auto que se carga es el principal. Los siguientes no le
+      // sacan el puesto solos: cambiarlo es una decisión de quien mira la
+      // ficha, no un efecto de haber agregado otro.
+      principal: actuales.length === 0,
+    });
+  }
+
+  async editarIdentidadVehiculo(input: EditarIdentidadVehiculoInput): Promise<LeadVehiculo> {
+    const propio = await this.vehiculoDelLead(input.leadId, input.vehiculoId);
+    const patch: LeadVehiculoUpdate = {};
+
+    // `undefined` es "no lo mandaron" y cadena vacía es "borralo". Sin la
+    // distinción no habría forma de sacar una placa mal cargada.
+    if (input.placa !== undefined) {
+      const placa = normalizarDatoDeAuto("placa", input.placa);
+      patch.placa = placa.valor;
+      patch.placa_original = placa.original;
+    }
+    if (input.vin !== undefined) {
+      const vin = normalizarDatoDeAuto("vin", input.vin);
+      patch.vin = vin.valor;
+      patch.vin_original = vin.original;
+    }
+
+    return this.deps.vehiculos.update(propio.id, patch);
+  }
+
+  async quitarVehiculo(input: QuitarVehiculoInput): Promise<void> {
+    const propio = await this.vehiculoDelLead(input.leadId, input.vehiculoId);
+    await this.deps.vehiculos.delete(propio.id);
+  }
+
+  /**
+   * El auto, comprobando que sea de ese lead.
+   *
+   * Misma razón que en `quitarIdentificador`: la RLS deja a un vendedor tocar
+   * la fila de cualquier lead, así que un id adivinado editaría o borraría el
+   * auto de otra persona si no se comprobara la pertenencia acá.
+   */
+  private async vehiculoDelLead(leadId: UUID, vehiculoId: UUID): Promise<LeadVehiculo> {
+    const actuales = await this.deps.vehiculos.listByLeadId(leadId);
+    const propio = actuales.find((v) => v.id === vehiculoId);
+    if (!propio) {
+      throw new NotFoundError(
+        `vehículo no encontrado en el lead: ${vehiculoId}`,
+        "lead_vehiculo",
+        vehiculoId,
+      );
+    }
+    return propio;
   }
 
   async updateLeadProfile(
