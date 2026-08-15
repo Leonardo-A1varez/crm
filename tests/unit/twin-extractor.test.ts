@@ -3,6 +3,7 @@ import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-sessio
 import { DefaultTwinExtractorService } from "@/server/services/twin-extractor.service";
 import type { LeadSession } from "@/types/entities";
 import { FakeTwinExtractorLLM } from "../mocks/llm";
+import { CLAVE_MOTIVO_SUGERIDO } from "@/lib/ui/motivo-perdida";
 
 async function createActiveSession(
   repo: InMemoryLeadSessionRepository,
@@ -79,27 +80,38 @@ describe("TwinExtractorService.extract", () => {
     expect(result).toEqual(s);
   });
 
-  test("LLM devuelve resultado=exito invoca close y retorna sesion cerrada", async () => {
+  // Cerrar una venta es una decisión humana y tiene una sola puerta: el rail
+  // del Twin (decisión cerrada, `AGENTS.md §2`). El extractor propone.
+  //
+  // Esto no es teórico: en la primera conversación real el agente respondió "no
+  // tenemos radiadores" —por un bug del catálogo— y el LLM devolvió
+  // `resultado: perdido, motivo: stock`. El servicio cerró la sesión, la
+  // conversación desapareció del Inbox, entró a la ventana de purga de 29 días
+  // y las métricas contaron una pérdida por stock que nunca pasó.
+
+  test("un resultado=exito del LLM NO cierra la sesión", async () => {
     const s = await createActiveSession(sessions, { current_stage: "esperando_pago" });
     llm.enqueue({ resultado: "exito" });
 
     const result = await svc.extract({ sessionId: s.id, conversationTurn: ["pagado"] });
 
-    expect(result.resultado).toBe("exito");
-    expect(result.closed_at).toBeInstanceOf(Date);
+    expect(result.resultado).toBeNull();
+    expect(result.closed_at).toBeNull();
   });
 
-  test("LLM devuelve resultado=perdido con motivo cierra con motivo", async () => {
+  test("un resultado=perdido se guarda como propuesta, no como cierre", async () => {
     const s = await createActiveSession(sessions);
     llm.enqueue({ resultado: "perdido", motivo_perdida: "precio" });
 
     const result = await svc.extract({ sessionId: s.id, conversationTurn: ["caro"] });
 
-    expect(result.resultado).toBe("perdido");
-    expect(result.motivo_perdida).toBe("precio");
+    expect(result.resultado).toBeNull();
+    expect(result.motivo_perdida).toBeNull();
+    // Es lo que el popover del rail le ofrece a una persona para confirmar.
+    expect(result.extras[CLAVE_MOTIVO_SUGERIDO]).toBe("precio");
   });
 
-  test("LLM devuelve otros campos + resultado: aplica update y luego close", async () => {
+  test("el resto del patch se aplica igual aunque el resultado se descarte", async () => {
     const s = await createActiveSession(sessions);
     llm.enqueue({
       current_stage: "cerrado",
@@ -113,8 +125,20 @@ describe("TwinExtractorService.extract", () => {
     expect(result.current_stage).toBe("cerrado");
     expect(result.precio_cotizado).toBe(200);
     expect(result.cantidad).toBe(1);
-    expect(result.resultado).toBe("exito");
-    expect(result.closed_at).toBeInstanceOf(Date);
+    // La etapa puede llegar a `cerrado`; la SESIÓN sigue abierta hasta que
+    // alguien la cierre. Son dos cosas distintas.
+    expect(result.resultado).toBeNull();
+    expect(result.closed_at).toBeNull();
+  });
+
+  test("un perdido sin motivo no inventa la propuesta", async () => {
+    const s = await createActiveSession(sessions);
+    llm.enqueue({ resultado: "perdido" });
+
+    const result = await svc.extract({ sessionId: s.id, conversationTurn: ["..."] });
+
+    expect(result.resultado).toBeNull();
+    expect(result.extras[CLAVE_MOTIVO_SUGERIDO]).toBeUndefined();
   });
 
   test("LLM recibe current session + conversation turn", async () => {

@@ -5,6 +5,7 @@ import type {
 } from "@/server/repositories/lead-session.repo";
 import { LeadTwinUpdateSchema, type LeadTwinUpdate } from "@/lib/validation/ai";
 import { NotFoundError, ValidationError } from "@/lib/errors";
+import { CLAVE_MOTIVO_SUGERIDO } from "@/lib/ui/motivo-perdida";
 import { NoopSessionLock, type SessionLock } from "@/server/lock/session-lock";
 import { CAMPOS_CON_PROCEDENCIA } from "@/types/domain";
 import type { CampoConProcedencia } from "@/types/domain";
@@ -78,9 +79,25 @@ export class DefaultTwinExtractorService implements TwinExtractorService {
       current.procedencia,
     );
 
+    // El extractor NO cierra sesiones. Un "no tenemos" del agente hacía que el
+    // LLM devolviera `resultado: perdido` y el servicio cerrara la venta: la
+    // conversación desaparecía del Inbox, entraba a la ventana de purga de 29
+    // días y las métricas contaban una pérdida por stock que nunca ocurrió.
+    // Pasó en la primera conversación real, y el prompt ya le pedía lo
+    // contrario ("no cierres salvo evidencia clara").
+    //
+    // Cerrar es una decisión humana y tiene una sola puerta: el rail del Twin
+    // (decisión cerrada, `AGENTS.md §2`). Lo que el LLM creía un cierre entra
+    // como propuesta bajo `CLAVE_MOTIVO_SUGERIDO`, que es lo que el popover del
+    // rail ofrece para que alguien confirme.
+    const extrasFinales: Record<string, unknown> = { ...patchExtras };
+    if (resultado === "perdido" && motivo_perdida) {
+      extrasFinales[CLAVE_MOTIVO_SUGERIDO] = motivo_perdida;
+    }
+
     // Shallow merge extras (no replace) — preserva keys previas.
-    if (patchExtras !== undefined && Object.keys(patchExtras).length > 0) {
-      updatePatch.extras = { ...current.extras, ...patchExtras };
+    if (Object.keys(extrasFinales).length > 0) {
+      updatePatch.extras = { ...current.extras, ...extrasFinales };
     }
 
     if (Object.keys(updatePatch).length > 0) {
@@ -89,13 +106,6 @@ export class DefaultTwinExtractorService implements TwinExtractorService {
         updatePatch,
         marcasDelExtractor(updatePatch, current, mensajeOrigenId),
       );
-    }
-
-    if (resultado !== undefined && resultado !== null) {
-      result = await this.sessions.close(sessionId, {
-        resultado,
-        motivo_perdida: motivo_perdida ?? null,
-      });
     }
 
     return result;
