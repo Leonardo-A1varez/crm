@@ -472,6 +472,36 @@ Lista cerrada. No re-abrir sin pedido explícito.
 - Sub-pasos triviales atómicamente relacionados (deps install).
 - Usuario dice explícitamente "haz toda la fase X" o "no preguntes en cada paso".
 
+### 5.1 Desarrollo pantalla por pantalla (decisión 2026-08-16)
+
+**Se trabaja una pantalla a la vez, de punta a punta, y no se salta a otra hasta cerrarla.** Cada sesión tiene una sola pantalla como tema. Si aparece algo de otra pantalla, se anota y se deja — no se arregla de paso.
+
+Motivo: las sesiones anteriores mezclaban repos, workflows, docs y tres pantallas a la vez. Todo avanzaba y nada quedaba terminado, y al retomar había que reconstruir de memoria en qué estado había quedado cada cosa.
+
+**El ciclo:**
+
+1. El dueño nombra la pantalla y qué quiere de ella.
+2. Se trabaja solo en eso, con el paso a paso de §5.
+3. **Cuando el dueño dice que la pantalla está terminada**, el agente prepara el cierre **en la respuesta siguiente**, sin que haya que pedirlo:
+   - todo commiteado, árbol limpio;
+   - `npm run typecheck`, `npm run lint`, `npm run test` corridos y **reportados con el número real**;
+   - `npm run test:integration` si se tocaron repos o SQL;
+   - lo que quedó **sin verificar** dicho en voz alta, sobre todo si no hubo revisión visual.
+4. `/context` para arrancar la próxima pantalla con contexto limpio.
+
+**Estado de las pantallas** (actualizar al cerrar cada una):
+
+| Pantalla     | Estado                                                                                                                      |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| Inbox        | 🟢 cerrada 2026-08-16 — última entrega: filtro de Seguimiento con contador y orden por fecha                                |
+| Leads        | 🟢 cerrada — identidad, vehículos, fusión/deshacer, etiquetas en modal                                                      |
+| Agente       | 🟢 cerrada — config del agente, reglas IF/THEN y reglas de etiquetado                                                       |
+| **Métricas** | 🔵 **la que sigue**                                                                                                         |
+| Productos    | ⚪ pendiente — filtrado del catálogo y parámetros de cuánta info se procesa. Bloqueada por el documento de macheo del dueño |
+| Ajustes      | ⚪ sigue siendo `PantallaPendiente`                                                                                         |
+
+**Sobre los datos de prueba:** se van borrando a medida que dejan de hacer falta. Al 2026-08-16 `crm-dev` tiene **un solo lead, el real** (Leonardo Alvarez, 20 mensajes de WhatsApp) más la etiqueta `Pide factura` con su intent y su regla, que se conservan porque son la única demostración funcionando del etiquetado automático.
+
 ### Cuando falla un sub-paso
 
 - No avanzar.
