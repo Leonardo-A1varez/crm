@@ -1,3 +1,4 @@
+import { NotFoundError } from "@/lib/errors";
 import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { isUuid } from "@/server/db/uuid";
@@ -50,13 +51,22 @@ export class SupabaseLeadVehiculosRepository implements LeadVehiculosRepository 
   }
 
   async update(id: UUID, patch: LeadVehiculoUpdate): Promise<LeadVehiculo> {
+    if (!isUuid(id)) throw new NotFoundError(`vehículo no encontrado: ${id}`, "lead_vehiculo", id);
+    // `maybeSingle` y no `single`: con cero filas, `single` devuelve PGRST116 y
+    // `mapPostgrestError` lo convierte en `InfraError`, que es **retriable**.
+    // Editar un vehículo que ya no existe haría reintentar una operación
+    // condenada en vez de decir "eso ya no está". La impl in-memory siempre
+    // lanzó `NotFoundError`; el contract test destapó la divergencia.
     const { data, error } = await this.db
       .from("lead_vehiculos")
       .update(patch)
       .eq("id", id)
       .select()
-      .single();
+      .maybeSingle();
     if (error) throw mapPostgrestError(error, { resource: "lead_vehiculos" });
+    if (data === null) {
+      throw new NotFoundError(`vehículo no encontrado: ${id}`, "lead_vehiculo", id);
+    }
     return mapRow(data as VehiculoRow);
   }
 
