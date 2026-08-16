@@ -122,6 +122,26 @@ export class SupabaseTagsRepository implements TagsRepository {
     );
     if (upsertErr) throw mapPostgrestError(upsertErr, { resource: "lead_tag" });
 
+    // Revivir una descartada es potestad de una persona: una regla que la
+    // devolviera haría inútil sacarla a mano —volvería en el próximo mensaje
+    // del cliente—. El UPDATE va condicionado a `quitada_at not null` para no
+    // pisar `assigned_at` de una fila que ya estaba puesta.
+    if (source === "manual") {
+      const { error: revivirErr } = await this.db
+        .from("lead_tags")
+        .update({
+          source,
+          assigned_by: assignedBy,
+          assigned_at: new Date().toISOString(),
+          quitada_at: null,
+          quitada_por: null,
+        })
+        .eq("lead_id", leadId)
+        .eq("tag_id", tagId)
+        .not("quitada_at", "is", null);
+      if (revivirErr) throw mapPostgrestError(revivirErr, { resource: "lead_tag" });
+    }
+
     const { data, error } = await this.db
       .from("lead_tags")
       .select()
@@ -132,13 +152,17 @@ export class SupabaseTagsRepository implements TagsRepository {
     return mapLeadTagRow(data);
   }
 
-  async removeFromLead(leadId: UUID, tagId: UUID): Promise<void> {
+  async removeFromLead(leadId: UUID, tagId: UUID, quitadaPor: UUID | null = null): Promise<void> {
     if (!isUuid(leadId) || !isUuid(tagId)) return;
+    // Marca, no borra: la fila es la prueba de que una persona la sacó y es lo
+    // que impide que una regla la vuelva a colgar. `is null` mantiene la
+    // idempotencia sin pisar la fecha del primer descarte.
     const { error } = await this.db
       .from("lead_tags")
-      .delete()
+      .update({ quitada_at: new Date().toISOString(), quitada_por: quitadaPor })
       .eq("lead_id", leadId)
-      .eq("tag_id", tagId);
+      .eq("tag_id", tagId)
+      .is("quitada_at", null);
     if (error) throw mapPostgrestError(error, { resource: "lead_tag" });
   }
 
@@ -147,7 +171,10 @@ export class SupabaseTagsRepository implements TagsRepository {
     const { data, error } = await this.db
       .from("lead_tags")
       .select("source, assigned_by, assigned_at, tags(id, nombre, color, descripcion)")
-      .eq("lead_id", leadId);
+      .eq("lead_id", leadId)
+      // Las descartadas siguen en la tabla para que ninguna regla las devuelva,
+      // pero no están puestas: no se muestran.
+      .is("quitada_at", null);
     if (error) throw mapPostgrestError(error, { resource: "lead_tag" });
 
     const out: AssignedTag[] = [];
@@ -169,7 +196,11 @@ export class SupabaseTagsRepository implements TagsRepository {
 
   async listLeadIdsByTag(tagId: UUID): Promise<UUID[]> {
     if (!isUuid(tagId)) return [];
-    const { data, error } = await this.db.from("lead_tags").select("lead_id").eq("tag_id", tagId);
+    const { data, error } = await this.db
+      .from("lead_tags")
+      .select("lead_id")
+      .eq("tag_id", tagId)
+      .is("quitada_at", null);
     if (error) throw mapPostgrestError(error, { resource: "lead_tag" });
     return (data ?? []).map((r) => r.lead_id);
   }
@@ -179,7 +210,7 @@ export class SupabaseTagsRepository implements TagsRepository {
     // dependen de `db-aggregates-enabled`, que este proyecto no habilita. Trae
     // una sola columna del pivot: a escala de piloto (~5K leads/mes) es una
     // consulta barata, y es lo que evita el N+1 por etiqueta.
-    const { data, error } = await this.db.from("lead_tags").select("tag_id");
+    const { data, error } = await this.db.from("lead_tags").select("tag_id").is("quitada_at", null);
     if (error) throw mapPostgrestError(error, { resource: "lead_tag" });
 
     const out = new Map<UUID, number>();
@@ -213,6 +244,8 @@ interface LeadTagRow {
   source: TagSource;
   assigned_by: string | null;
   assigned_at: string;
+  quitada_at: string | null;
+  quitada_por: string | null;
 }
 
 function mapLeadTagRow(row: LeadTagRow): LeadTag {
@@ -222,5 +255,7 @@ function mapLeadTagRow(row: LeadTagRow): LeadTag {
     source: row.source,
     assigned_by: row.assigned_by,
     assigned_at: new Date(row.assigned_at),
+    quitada_at: row.quitada_at === null ? null : new Date(row.quitada_at),
+    quitada_por: row.quitada_por,
   };
 }

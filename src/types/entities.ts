@@ -333,6 +333,14 @@ export interface LeadTag {
   source: TagSource;
   assigned_by: UUID | null;
   assigned_at: Date;
+  /**
+   * Cuándo la sacó una persona. **Con valor, la etiqueta NO está puesta.**
+   *
+   * La fila no se borra para que una regla no vuelva a colgarla apenas el
+   * cliente repita la palabra que la disparó. Toda lectura filtra por `null`.
+   */
+  quitada_at: Date | null;
+  quitada_por: UUID | null;
 }
 
 export interface Usuario {

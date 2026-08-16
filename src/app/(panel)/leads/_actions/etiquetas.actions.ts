@@ -16,7 +16,7 @@ import { getTagsAdminServiceForRequest } from "@/server/bootstrap/tags-bootstrap
 import type { ActionResult } from "@/types/inbox";
 import type { BorrarTagResult } from "@/types/tags";
 
-const logger = getLogger({ scope: "tags-actions" });
+const logger = getLogger({ scope: "etiquetas-actions" });
 
 /**
  * Gate de rol en el server. RLS lo vuelve a enforcear en la DB (vendedor tiene
@@ -32,6 +32,16 @@ async function soloAdmin(): Promise<void> {
 
 function fallo(e: unknown, accion: string): { ok: false; error: string } {
   if (e instanceof ConflictError) {
+    // `reglas_etiqueta.tag_id` es ON DELETE RESTRICT a propósito: con cascade,
+    // borrar la etiqueta se llevaría puesta la regla que la asigna sin decir
+    // nada. El mensaje tiene que nombrar el motivo real o el usuario ve un
+    // "ya existe" que no tiene sentido al borrar.
+    if (e.conflictType === "foreign_key_violation") {
+      return {
+        ok: false,
+        error: "Una regla automática usa esta etiqueta. Sacala de la regla y volvé a intentar.",
+      };
+    }
     return { ok: false, error: "Ya existe una etiqueta con ese nombre." };
   }
   if (e instanceof NotFoundError) {
@@ -75,7 +85,7 @@ export async function crearTagAction(raw: unknown): Promise<ActionResult> {
     return fallo(e, "crear-tag");
   }
 
-  revalidatePath("/tags");
+  revalidatePath("/leads");
   return { ok: true };
 }
 
@@ -93,7 +103,7 @@ export async function editarTagAction(raw: unknown): Promise<ActionResult> {
     return fallo(e, "editar-tag");
   }
 
-  revalidatePath("/tags");
+  revalidatePath("/leads");
   return { ok: true };
 }
 
@@ -111,8 +121,8 @@ export async function borrarTagAction(raw: unknown): Promise<BorrarTagResult> {
     return fallo(e, "borrar-tag");
   }
 
-  // Las otras pantallas donde la etiqueta desaparece (`/leads`,
-  // `/inbox/[leadId]`) son `force-dynamic`: vuelven a leer de la DB solas.
-  revalidatePath("/tags");
+  // `/inbox/[leadId]`, la otra pantalla donde la etiqueta desaparece, es
+  // `force-dynamic`: vuelve a leer de la DB sola.
+  revalidatePath("/leads");
   return { ok: true, ...resultado };
 }

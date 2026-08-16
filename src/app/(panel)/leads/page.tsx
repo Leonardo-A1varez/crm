@@ -1,4 +1,5 @@
 import { DuplicadosBanner } from "@/components/leads/DuplicadosBanner";
+import { EtiquetasDialog } from "@/components/leads/EtiquetasDialog";
 import { FiltrosLeads } from "@/components/leads/FiltrosLeads";
 import { LeadsTable } from "@/components/leads/LeadsTable";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -6,6 +7,8 @@ import { SearchField } from "@/components/shared/SearchField";
 import { contarFiltrosActivos, PARAM, parseFiltrosLeads } from "@/lib/ui/filtros-leads";
 import { getCurrentRol } from "@/server/auth/guards";
 import { getLeadsServiceForRequest } from "@/server/bootstrap/leads-bootstrap";
+import { getTagsAdminServiceForRequest } from "@/server/bootstrap/tags-bootstrap";
+import { borrarTagAction, crearTagAction, editarTagAction } from "./_actions/etiquetas.actions";
 import type { ValorParam } from "@/lib/ui/filtros-leads";
 import type { LeadListItem } from "@/types/leads";
 
@@ -73,7 +76,15 @@ export default async function LeadsPage({
   const filtros = parseFiltrosLeads(params);
 
   const svc = await getLeadsServiceForRequest();
-  const [rol, page] = await Promise.all([getCurrentRol(), svc.listLeads(filtros)]);
+  // El catálogo de etiquetas con su uso lo pide el modal de administración. Va
+  // en el mismo `Promise.all` que el resto: en serie sumaría un viaje a la DB
+  // en cada render de la lista.
+  const tagsSvc = await getTagsAdminServiceForRequest();
+  const [rol, page, etiquetas] = await Promise.all([
+    getCurrentRol(),
+    svc.listLeads(filtros),
+    tagsSvc.listar(),
+  ]);
 
   const hayChips = contarFiltrosActivos(filtros) > 0;
   // La búsqueda recorta tanto como un chip: para el subtítulo cuenta igual.
@@ -87,14 +98,23 @@ export default async function LeadsPage({
         title="Leads"
         subtitle={subtitulo(page.items, hayRecorte)}
         actions={
-          <SearchField
-            action="/leads"
-            defaultValue={filtros.q}
-            placeholder="Nombre, perfil, teléfono, vehículo o código…"
-            label="Buscar leads"
-            className="w-[250px]"
-            conservar={filtrosEnLaUrl(params)}
-          />
+          <div className="flex items-center gap-2">
+            <SearchField
+              action="/leads"
+              defaultValue={filtros.q}
+              placeholder="Nombre, perfil, teléfono, vehículo o código…"
+              label="Buscar leads"
+              className="w-[250px]"
+              conservar={filtrosEnLaUrl(params)}
+            />
+            <EtiquetasDialog
+              etiquetas={etiquetas}
+              isAdmin={rol === "admin"}
+              onCrear={crearTagAction}
+              onEditar={editarTagAction}
+              onBorrar={borrarTagAction}
+            />
+          </div>
         }
       />
       <FiltrosLeads etiquetas={page.etiquetas} vehiculos={page.vehiculos} motivos={page.motivos} />

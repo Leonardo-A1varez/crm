@@ -8,7 +8,6 @@ import {
   Group,
   InboxIcon,
   Inventory2,
-  Sell,
   SettingsIcon,
   SettingsSuggest,
   SmartToy,
@@ -34,7 +33,6 @@ const ITEMS: readonly NavItem[] = [
   { href: "/leads", label: "Leads", Icon: Group },
   { href: "/productos", label: "Productos", Icon: Inventory2 },
   { href: "/agente", label: "OpenAI settings", Icon: SmartToy },
-  { href: "/tags", label: "Tags", Icon: Sell },
   { href: "/metricas", label: "Métricas", Icon: BarChartIcon },
   { href: "/ajustes", label: "Ajustes", Icon: SettingsIcon },
 ];

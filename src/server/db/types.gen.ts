@@ -512,6 +512,8 @@ export type Database = {
           assigned_at: string
           assigned_by: string | null
           lead_id: string
+          quitada_at: string | null
+          quitada_por: string | null
           source: Database["public"]["Enums"]["tag_source_enum"]
           tag_id: string
         }
@@ -519,6 +521,8 @@ export type Database = {
           assigned_at?: string
           assigned_by?: string | null
           lead_id: string
+          quitada_at?: string | null
+          quitada_por?: string | null
           source?: Database["public"]["Enums"]["tag_source_enum"]
           tag_id: string
         }
@@ -526,6 +530,8 @@ export type Database = {
           assigned_at?: string
           assigned_by?: string | null
           lead_id?: string
+          quitada_at?: string | null
+          quitada_por?: string | null
           source?: Database["public"]["Enums"]["tag_source_enum"]
           tag_id?: string
         }
@@ -542,6 +548,13 @@ export type Database = {
             columns: ["lead_id"]
             isOneToOne: false
             referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_tags_quitada_por_fkey"
+            columns: ["quitada_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
             referencedColumns: ["id"]
           },
           {
@@ -871,6 +884,7 @@ export type Database = {
       productos: {
         Row: {
           activo: boolean
+          busqueda: string | null
           categoria: string | null
           codigo_interno: string
           compatibilidad: Json
@@ -886,6 +900,7 @@ export type Database = {
         }
         Insert: {
           activo?: boolean
+          busqueda?: string | null
           categoria?: string | null
           codigo_interno: string
           compatibilidad?: Json
@@ -901,6 +916,7 @@ export type Database = {
         }
         Update: {
           activo?: boolean
+          busqueda?: string | null
           categoria?: string | null
           codigo_interno?: string
           compatibilidad?: Json
@@ -991,6 +1007,48 @@ export type Database = {
             columns: ["intent_id"]
             isOneToOne: false
             referencedRelation: "intents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reglas_etiqueta: {
+        Row: {
+          activa: boolean
+          condiciones_extra: Json | null
+          created_at: string
+          id: string
+          intent_id: string
+          tag_id: string
+        }
+        Insert: {
+          activa?: boolean
+          condiciones_extra?: Json | null
+          created_at?: string
+          id?: string
+          intent_id: string
+          tag_id: string
+        }
+        Update: {
+          activa?: boolean
+          condiciones_extra?: Json | null
+          created_at?: string
+          id?: string
+          intent_id?: string
+          tag_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reglas_etiqueta_intent_id_fkey"
+            columns: ["intent_id"]
+            isOneToOne: false
+            referencedRelation: "intents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reglas_etiqueta_tag_id_fkey"
+            columns: ["tag_id"]
+            isOneToOne: false
+            referencedRelation: "tags"
             referencedColumns: ["id"]
           },
         ]
@@ -1251,6 +1309,25 @@ export type Database = {
           ganador_id: string
         }[]
       }
+      buscar_productos: {
+        Args: {
+          p_anio?: number
+          p_marca?: string
+          p_modelo?: string
+          p_q: string
+          p_tope?: number
+        }
+        Returns: {
+          categoria: string
+          codigo_interno: string
+          descripcion: string
+          id: string
+          nombre: string
+          precio: number
+          puntaje: number
+          stock: number
+        }[]
+      }
       current_rol: {
         Args: never
         Returns: Database["public"]["Enums"]["rol_usuario_enum"]
@@ -1275,6 +1352,7 @@ export type Database = {
           tipos: string[]
         }[]
       }
+      plegar_texto: { Args: { t: string }; Returns: string }
       revert_lead_merge: {
         Args: { p_merge_action_id: string }
         Returns: {

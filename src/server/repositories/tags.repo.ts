@@ -27,14 +27,31 @@ export interface TagsRepository {
    */
   delete(id: UUID): Promise<void>;
 
-  // LeadTag operaciones. assignToLead es idempotente: no sobrescribe source/assigned_by/assigned_at si ya existe.
+  /**
+   * Cuelga la etiqueta. Idempotente: no sobrescribe `source`/`assigned_by`/
+   * `assigned_at` de una fila que ya existe.
+   *
+   * Lo que hace ante una fila **descartada** (`quitada_at` con valor) depende
+   * de quién asigna, y es lo que sostiene la promesa de que sacar una etiqueta
+   * a mano sirva de algo:
+   *
+   * - `workflow` — no hace nada. Una regla no puede devolver lo que una
+   *   persona sacó, o el vendedor la sacaría en cada mensaje del cliente.
+   * - `manual` — la revive (limpia `quitada_at`/`quitada_por`). Una persona la
+   *   está poniendo a propósito y eso manda sobre su propia decisión previa.
+   */
   assignToLead(
     leadId: UUID,
     tagId: UUID,
     source: TagSource,
     assignedBy?: UUID | null,
   ): Promise<LeadTag>;
-  removeFromLead(leadId: UUID, tagId: UUID): Promise<void>;
+  /**
+   * Saca la etiqueta del lead. **Marca la fila, no la borra**: así queda
+   * registrado que fue una decisión humana y ninguna regla la vuelve a colgar.
+   * Idempotente: sacar una que no está no es error.
+   */
+  removeFromLead(leadId: UUID, tagId: UUID, quitadaPor?: UUID | null): Promise<void>;
   listByLead(leadId: UUID): Promise<AssignedTag[]>;
   listLeadIdsByTag(tagId: UUID): Promise<UUID[]>;
   /**
@@ -101,26 +118,44 @@ export class InMemoryTagsRepository implements TagsRepository {
   ): Promise<LeadTag> {
     const key = leadTagKey(leadId, tagId);
     const existing = this.leadTags.get(key);
-    if (existing) return { ...existing };
+    if (existing) {
+      // Una regla no revive lo que una persona sacó; una persona sí.
+      if (existing.quitada_at === null || source === "workflow") return { ...existing };
+      const revivida: LeadTag = {
+        ...existing,
+        source,
+        assigned_by: assignedBy,
+        assigned_at: new Date(),
+        quitada_at: null,
+        quitada_por: null,
+      };
+      this.leadTags.set(key, revivida);
+      return { ...revivida };
+    }
     const lt: LeadTag = {
       lead_id: leadId,
       tag_id: tagId,
       source,
       assigned_by: assignedBy,
       assigned_at: new Date(),
+      quitada_at: null,
+      quitada_por: null,
     };
     this.leadTags.set(key, lt);
     return { ...lt };
   }
 
-  async removeFromLead(leadId: UUID, tagId: UUID): Promise<void> {
-    this.leadTags.delete(leadTagKey(leadId, tagId));
+  async removeFromLead(leadId: UUID, tagId: UUID, quitadaPor: UUID | null = null): Promise<void> {
+    const key = leadTagKey(leadId, tagId);
+    const existing = this.leadTags.get(key);
+    if (!existing || existing.quitada_at !== null) return;
+    this.leadTags.set(key, { ...existing, quitada_at: new Date(), quitada_por: quitadaPor });
   }
 
   async listByLead(leadId: UUID): Promise<AssignedTag[]> {
     const out: AssignedTag[] = [];
     for (const lt of this.leadTags.values()) {
-      if (lt.lead_id !== leadId) continue;
+      if (lt.lead_id !== leadId || lt.quitada_at !== null) continue;
       const tag = this.tags.get(lt.tag_id);
       if (!tag) continue; // FK roto — silenciosamente skip (Supabase ON DELETE CASCADE limpia esto).
       out.push({
@@ -136,7 +171,7 @@ export class InMemoryTagsRepository implements TagsRepository {
   async listLeadIdsByTag(tagId: UUID): Promise<UUID[]> {
     const out: UUID[] = [];
     for (const lt of this.leadTags.values()) {
-      if (lt.tag_id === tagId) out.push(lt.lead_id);
+      if (lt.tag_id === tagId && lt.quitada_at === null) out.push(lt.lead_id);
     }
     return out;
   }
@@ -144,6 +179,7 @@ export class InMemoryTagsRepository implements TagsRepository {
   async countLeadsByTag(): Promise<Map<UUID, number>> {
     const out = new Map<UUID, number>();
     for (const lt of this.leadTags.values()) {
+      if (lt.quitada_at !== null) continue;
       out.set(lt.tag_id, (out.get(lt.tag_id) ?? 0) + 1);
     }
     return out;

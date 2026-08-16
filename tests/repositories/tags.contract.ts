@@ -165,7 +165,7 @@ export function runTagsContract(
       expect(assigned).toHaveLength(1);
     });
 
-    test("removeFromLead elimina LeadTag", async () => {
+    test("removeFromLead saca la etiqueta del lead", async () => {
       const t = await repo.create(baseTag());
       await repo.assignToLead(fixtures.leadIds.L1, t.id, "manual");
       await repo.removeFromLead(fixtures.leadIds.L1, t.id);
@@ -176,6 +176,55 @@ export function runTagsContract(
       await expect(
         repo.removeFromLead(fixtures.leadIds.L1, fixtures.unknownTagId),
       ).resolves.toBeUndefined();
+    });
+
+    // Sacar una etiqueta a mano tiene que servir de algo. La fila no se borra:
+    // queda marcada, y esa marca es lo que impide que la regla que la colgó la
+    // devuelva apenas el cliente repita la palabra que la disparó. Sin esto el
+    // vendedor la sacaría en cada mensaje y sentiría que la app le pelea.
+    describe("una etiqueta sacada a mano no vuelve sola", () => {
+      test("un workflow NO revive la que sacó una persona", async () => {
+        const t = await repo.create(baseTag());
+        await repo.assignToLead(fixtures.leadIds.L1, t.id, "workflow");
+        await repo.removeFromLead(fixtures.leadIds.L1, t.id, fixtures.userIds.A);
+
+        await repo.assignToLead(fixtures.leadIds.L1, t.id, "workflow");
+
+        expect(await repo.listByLead(fixtures.leadIds.L1)).toEqual([]);
+      });
+
+      test("una persona SÍ puede volver a ponerla", async () => {
+        const t = await repo.create(baseTag());
+        await repo.assignToLead(fixtures.leadIds.L1, t.id, "workflow");
+        await repo.removeFromLead(fixtures.leadIds.L1, t.id, fixtures.userIds.A);
+
+        await repo.assignToLead(fixtures.leadIds.L1, t.id, "manual", fixtures.userIds.B);
+
+        const puestas = await repo.listByLead(fixtures.leadIds.L1);
+        expect(puestas).toHaveLength(1);
+        expect(puestas[0]?.source).toBe("manual");
+        expect(puestas[0]?.assigned_by).toBe(fixtures.userIds.B);
+      });
+
+      test("la descartada no cuenta como uso ni aparece entre los leads del tag", async () => {
+        const t = await repo.create(baseTag());
+        await repo.assignToLead(fixtures.leadIds.L1, t.id, "manual");
+        await repo.removeFromLead(fixtures.leadIds.L1, t.id);
+
+        // Si contara, el modal mostraría "1 lead" y al hacer clic no habría
+        // ninguno: el contador y la lista tienen que decir lo mismo.
+        expect(await repo.listLeadIdsByTag(t.id)).toEqual([]);
+        expect((await repo.countLeadsByTag()).get(t.id) ?? 0).toBe(0);
+      });
+
+      test("volver a sacarla no mueve la fecha del primer descarte", async () => {
+        const t = await repo.create(baseTag());
+        await repo.assignToLead(fixtures.leadIds.L1, t.id, "manual");
+        await repo.removeFromLead(fixtures.leadIds.L1, t.id, fixtures.userIds.A);
+        await repo.removeFromLead(fixtures.leadIds.L1, t.id, fixtures.userIds.B);
+
+        expect(await repo.listByLead(fixtures.leadIds.L1)).toEqual([]);
+      });
     });
 
     test("listByLead devuelve AssignedTag con join (Tag + metadata)", async () => {
