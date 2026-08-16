@@ -1,311 +1,239 @@
-# Meta Platform Limits — WhatsApp + Instagram + Facebook Messenger
+# Meta Platform — ventanas, pricing, permisos y límites
 
-> Caps + windows + restrictions por canal Meta. Re-audit cadence: trimestral (Meta cambia políticas frecuente). Última verificación: 2026-05-13.
+> Última verificación: **2026-08-13**. Este documento es operativo; el inventario de producto está en [`research/meta-api-capabilities-2026-08.md`](./research/meta-api-capabilities-2026-08.md) y cada afirmación tiene fuente en el [ledger](./research/meta-api-source-ledger-2026-08.md).
+>
+> Los valores cambian por versión, mercado, cuenta y rollout. Antes de producción se confirma el contrato oficial y la disponibilidad del activo concreto.
 
-> **Source primario:** [developers.facebook.com/docs](https://developers.facebook.com/docs). Confirmar siempre antes de production deploy.
+## Estado local
 
----
+| Canal     | Activo configurado/verificado | Entrada actual                                                     | Salida actual                                       |
+| --------- | ----------------------------- | ------------------------------------------------------------------ | --------------------------------------------------- |
+| WhatsApp  | Sí; sandbox real probado      | text, image, audio, video, document, location; media no descargada | Solo text; un template de smoke se probó por script |
+| Instagram | No                            | Solo eventos con `message.mid`; se persiste como text              | `sendText` existe, pero faltan activos/credenciales |
+| Messenger | No                            | Solo eventos con `message.mid`; se persiste como text              | `sendText` existe, pero faltan activos/credenciales |
 
-## 1. WhatsApp Cloud API
+La configuración cae en `META_GRAPH_API_VERSION=v21.0`. El 2026-08-13 una lectura segura del phone number aceptó un request `v25.0` y respondió con header `facebook-api-version: v26.0`. Esto prueba esa lectura y ese activo; **no prueba compatibilidad de mensajes, webhooks ni management endpoints**. No cambiar el pin sin contract tests.
 
-### Rate limits throughput (oficial Meta)
+## WhatsApp Business Platform
 
-| Tier              | Msg/seg por phone_number_id | Requisito                                                            |
-| ----------------- | --------------------------- | -------------------------------------------------------------------- |
-| Standard          | 80                          | Default todos los números nuevos.                                    |
-| High              | 1,000                       | Approval Meta + 90d con 99.9% delivery + criterios calidad mensajes. |
-| Cloud API Premium | Bursts >1,000               | Contact Meta sales + Enterprise tier + NDA.                          |
+### Pricing vigente
 
-### Messaging tiers (msgs únicos a clientes nuevos / 24h)
+Meta cobra por **cada mensaje entregado**, según:
 
-| Tier   | Conversaciones business-initiated / 24h | Trigger upgrade                                                      |
-| ------ | --------------------------------------- | -------------------------------------------------------------------- |
-| Tier 1 | 1,000                                   | Default nuevo número.                                                |
-| Tier 2 | 10,000                                  | Send 1K conversations únicas en 7 días + quality "high".             |
-| Tier 3 | 100,000                                 | Send 10K conversations únicas en 7 días + quality "high".            |
-| Tier 4 | Unlimited                               | Send 100K conversations únicas en 7 días + quality "high" sostenido. |
+- mercado del destinatario;
+- categoría: `marketing`, `utility`, `authentication` o `service`;
+- volumen, cuando aplica un tier de volumen.
 
-### Quality rating
+Reglas verificadas en [pricing oficial](https://whatsappbusiness.com/products/platform-pricing/):
 
-| Estado  | Comportamiento                                                        |
-| ------- | --------------------------------------------------------------------- |
-| Green   | OK. Throughput full.                                                  |
-| Yellow  | Warning. Quality issues. Recomienda revisar block rate / report rate. |
-| Red     | Throttled. Throughput limitado. Si persiste 7 días → tier downgrade.  |
-| Flagged | Account flagged. Posibles violations política. Manual review Meta.    |
+- Se cobra cuando el mensaje se entrega, no al intentar enviarlo.
+- Los mensajes `service` enviados dentro de la customer service window no tienen cargo.
+- Meta declara gratuitas las respuestas `utility` a usuarios en las condiciones publicadas.
+- Un mensaje del cliente desde Click-to-WhatsApp o CTA de una Facebook Page abre **72 horas** durante las cuales Meta declara gratuitos todos los mensajes.
+- Las tarifas exactas se consultan en la rate card por mercado/categoría. No hardcodearlas en el CRM ni en este documento.
 
-**Triggers downgrade quality:**
+El modelo anterior de “conversation-based pricing”, las “1.000 conversaciones gratis/mes” y el término HSM fueron retirados de esta documentación porque no describen el contrato vigente.
 
-- Block rate alto (>2-3% lo que llega).
-- Report rate alto.
-- Mensajes spam-like (no relevant a usuario, sin opt-in).
-- Templates rejected repetidamente.
+### Ventana de servicio
 
-### 24-hour window
+- Un mensaje del usuario abre o reinicia una ventana de **24 horas**.
+- Dentro de ella se pueden enviar mensajes de servicio libres conforme a la política.
+- Fuera de ella, el envío iniciado por negocio requiere un **message template aprobado** y elegible.
+- La categoría final y el precio los determina Meta. El nombre local de un template no garantiza su categoría.
 
-- Lead puede recibir mensajes **libres** dentro **24h tras último mensaje del lead a la empresa**.
-- Fuera de 24h window: solo **HSM templates aprobados** (Highly Structured Messages).
-- Conversación tracking: empieza cuando lead inicia o cuando business envía HSM aprobado.
+El servicio debe decidir antes de enviar:
 
-### HSM templates
+1. canal y activo;
+2. timestamp válido del último entrante;
+3. origen de entrada gratuita, si existe;
+4. ventana aplicable;
+5. tipo permitido: free-form, interactive o template;
+6. consentimiento/opt-out;
+7. estado de calidad/policy/template.
 
-- **Approval flow**: submit en Meta Business Manager → review 24-48h → approved/rejected.
-- **Categorías**: Marketing, Utility, Authentication. Pricing distinto por categoría.
-- **Variables**: `{{1}}, {{2}}, ...` placeholders.
-- **Restrictions**: no promotional content en Utility, no URLs no-verified, etc.
-- **Localization**: per template per idioma.
+### Mensajes y media
 
-### Pricing modelo conversation-based (2024-2025)
+La colección oficial incluye:
 
-| Categoría               | Brasil | México | Argentina | Chile  | Colombia |
-| ----------------------- | ------ | ------ | --------- | ------ | -------- |
-| User-initiated          | $0.005 | $0.005 | $0.005    | $0.005 | $0.005   |
-| Business Utility        | $0.020 | $0.030 | $0.030    | $0.030 | $0.020   |
-| Business Marketing      | $0.072 | $0.045 | $0.045    | $0.045 | $0.040   |
-| Business Authentication | $0.030 | $0.020 | $0.020    | $0.020 | $0.015   |
+- text, preview URLs y replies;
+- image, audio, video, document y sticker por ID o URL;
+- reactions;
+- templates e interactivos;
+- read receipt y typing indicator;
+- status webhooks por message ID.
 
-Source: [Meta WhatsApp Business Pricing](https://developers.facebook.com/docs/whatsapp/pricing). Actualizar quarterly.
+Las URLs/handles de media de Meta pueden ser efímeros. El diseño correcto es descargar con autorización, validar y mover a Supabase Storage privado. Nunca exponer el token en una URL ni almacenar una URL temporal como fuente permanente.
 
-### Free tier window
+### Flows
 
-- **1,000 service conversations gratis/mes per WhatsApp Business Account** (WABA).
-- Customer service-initiated (user envía primero, business responde dentro 24h) suelen ser libres.
+WhatsApp Flows permite crear, administrar, publicar y enviar interacciones estructuradas. La colección oficial incluye categorías como:
 
-### CTWA (Click-to-WhatsApp Ads) — free entry points
+- `LEAD_GENERATION`;
+- `CONTACT_US`;
+- `CUSTOMER_SUPPORT`;
+- `SURVEY`;
+- `APPOINTMENT_BOOKING`.
 
-- Mensajes iniciados desde CTWA Ads = **gratis** + **72h window** (no 24h).
-- Bot opcional para automatizar reply.
+Un Flow puede capturar datos de solicitud sin catálogo. Debe versionarse, validarse server-side y tratar toda respuesta como input no confiable. Dispositivos/versiones no compatibles pueden no recibir el Flow; se necesita fallback.
 
-### Media restrictions
+### Calidad y operación
 
-| Tipo     | Max size                                 |
-| -------- | ---------------------------------------- |
-| Image    | 5 MB (jpeg/png)                          |
-| Audio    | 16 MB (aac/mp4/amr/mpeg/ogg)             |
-| Video    | 16 MB (mp4/3gpp)                         |
-| Document | 100 MB (pdf/doc/xls/ppt/txt)             |
-| Sticker  | 100 KB (static) / 500 KB (animated webp) |
+Meta documenta webhooks para:
 
-### Phone number caps
+- `phone_number_name_update`;
+- `phone_number_quality_update`;
+- `account_update`;
+- `account_review_update`;
+- `message_template_status_update`.
 
-- 1 phone_number_id puede registrar **máximo 1 WhatsApp Business Account**.
-- 1 WABA puede tener **máximo 25 phone numbers**.
-- Multi-number setup requiere load balancing custom.
+Los estados incluyen upgrades/downgrades/flagging de calidad, cambios de cuenta y aprobación/rechazo/flagging/disable de templates. La integración debe alertar; no esperar a que los envíos fallen.
 
-### Implicaciones para CRM pilot tier (peak 50 msg/sec)
+Analytics de WABA permite consultar al menos enviados/entregados por rango, granularidad, teléfono y país. Debe reconciliarse con métricas propias, no reemplazarlas.
 
-- **1 phone_number_id Standard tier = 80 msg/sec cap.** Cubre pilot tier holgado.
-- **Quality "Green" obligatorio.** Monitor block/report rate + abort si Yellow.
-- **24h window enforcement crítico.** Si vendedor responde >24h tras último msg lead → fallará silently. Service debe pre-check window y forzar HSM template si fuera.
+### Activos y permisos
 
----
+Mínimo para messaging:
 
-## 2. Instagram Direct Messages API (Graph API)
+- Meta Business Portfolio;
+- WABA;
+- business phone number / phone number ID;
+- app Meta;
+- token con `whatsapp_business_messaging`.
 
-### Acceso
+Management y onboarding pueden requerir:
 
-- Requiere **Instagram Business Account** (no Personal).
-- Linked a **Facebook Page**.
-- Permissions: `instagram_manage_messages`, `instagram_basic`, `pages_messaging`.
+- `whatsapp_business_management`;
+- `business_management`;
+- system user/token;
+- App Review y Advanced Access para activos de terceros/Embedded Signup.
 
-### 24-hour messaging window
+Separar tokens de messaging, management y marketing.
 
-- Mismo que WhatsApp: 24h ventana libre tras último msg del usuario.
-- Fuera de 24h: solo **message tags** específicos (limitados).
+### Capacidad y rate limiting
 
-### Message tags (Instagram DM)
+No se fija aquí un throughput universal. Meta expone calidad, throughput/capacidad y headers de uso que dependen de activo y producto. El cliente debe:
 
-| Tag                      | Uso permitido                                      |
-| ------------------------ | -------------------------------------------------- |
-| `HUMAN_AGENT`            | Manual human reply dentro 7d tras último user msg. |
-| `ACCOUNT_UPDATE`         | Notificación cambios account/order user.           |
-| `POST_PURCHASE_UPDATE`   | Notificación post-purchase orden user.             |
-| `CONFIRMED_EVENT_UPDATE` | Recordatorio event confirmado user.                |
+- aplicar backoff con jitter a `429` y fallos transitorios;
+- registrar request/trace IDs sin PII;
+- observar headers de uso;
+- limitar concurrencia por activo;
+- no reintentar errores permanentes de auth/policy/schema;
+- preservar la reserva idempotente antes de llamar a Meta.
 
-**NO existe equivalente Marketing tag IG DM.** Promo/broadcast OFF window = prohibido.
+### Capacidades restringidas
 
-### Rate limits
+| Capacidad                  | Estado de planificación                                                     |
+| -------------------------- | --------------------------------------------------------------------------- |
+| Calling/voice/video        | Rollout por cuenta/región/partner. Verificar antes de diseñar.              |
+| Payments                   | Las colecciones oficiales visibles son SG/IN. Fuera del scope Latam actual. |
+| Groups                     | No se verificó una Cloud API general productiva. No prometer.               |
+| Coexistence App + Platform | Anunciada/extendida en mercados concretos; validar por país/activo.         |
 
-- Mensajes/seg: limite no público explícito Meta, pero **infiere ~250 msg/min per IG Business Account** según docs comunidad.
-- API calls Graph API: 200/hour per user token (default).
+## Instagram
 
-### Restrictions
+### Modelos de acceso
 
-- **No bulk messaging.** Mass DM = ban.
-- **No template approval system.** Texto libre dentro window OK.
-- **Media:** image/video/audio OK. Stickers/voice notes limited.
-- **Stories reply context:** msgs auto-include story reference.
+**Instagram Login:**
 
-### Implicaciones para CRM
+- no necesita Facebook Page vinculada;
+- scopes actuales: `instagram_business_basic`, `instagram_business_manage_messages`, `instagram_business_manage_comments`, `instagram_business_content_publish`;
+- no accede a ads ni tagging.
 
-- IG users no exponen teléfono. Reconocimiento via `meta_user_ids` jsonb (handled by CRM).
-- Merge manual cross-channel necesario.
-- 24h window stricter (sin HSM alternative).
+**Facebook Login:**
 
----
+- requiere cuenta profesional vinculada a Page;
+- usa permisos Instagram clásicos y permisos de Pages;
+- es necesario para algunas superficies conectadas con Pages/ads.
 
-## 3. Facebook Messenger API
+Advanced Access aplica cuando la app sirve cuentas profesionales ajenas.
 
-### Acceso
+### Inicio y ventanas
 
-- Requiere **Facebook Page**.
-- Permissions: `pages_messaging`, `pages_messaging_subscriptions`, `pages_show_list`.
+- La conversación normal empieza cuando la persona escribe a la cuenta profesional.
+- Quick replies, ice breakers, postbacks y referrals tienen eventos propios.
+- Private Replies permite un primer mensaje privado por comentario dentro de siete días; en Live solo durante la emisión. Los seguimientos dependen de respuesta del usuario y reglas posteriores.
+- `HUMAN_AGENT` y otras excepciones no son una licencia para marketing. Deben validarse por caso y versión.
 
-### 24-hour + 1 messaging window
+### Capacidades relevantes
 
-- 24h libre tras último msg user.
-- **+1 mensaje fuera de window** permitido con `MESSAGE_TAG` válido.
+- text, photo/GIF, audio, video, sticker y assets;
+- reactions/unreactions, replies, deletes y echoes;
+- quick replies: hasta 13; títulos textuales de hasta 20 caracteres según la documentación consultada;
+- hasta cuatro ice breakers;
+- persistent menu y welcome message flows;
+- comments, Live comments y private replies;
+- story/reel/share/mention/ad referral context;
+- Conversations API;
+- publicación de posts/reels/stories con restricciones;
+- account/media insights.
 
-### Message tags (Messenger)
+Limitaciones de insights cambian por métrica. Ejemplos oficiales: algunas métricas no están disponibles con menos de 100 seguidores; ciertos datos de usuario se conservan hasta 90 días; un dataset vacío no equivale a cero.
 
-Más opciones que Instagram:
+## Messenger y Facebook Pages
 
-| Tag                              | Uso                                 |
-| -------------------------------- | ----------------------------------- |
-| `CONFIRMED_EVENT_UPDATE`         | Recordatorio evento confirmado.     |
-| `POST_PURCHASE_UPDATE`           | Update post-compra (shipping, etc). |
-| `ACCOUNT_UPDATE`                 | Cambios cuenta usuario.             |
-| `HUMAN_AGENT`                    | Manual human reply dentro 7d.       |
-| `NEWS_SUBSCRIPTION` (deprecated) | News content. Deprecated 2020.      |
+Messenger Platform ofrece:
 
-### Subscription messaging (deprecated)
+- text/media, templates, buttons y quick replies;
+- `mark_seen`, `typing_on` y `typing_off`;
+- delivery/read/echo/edit/reaction webhooks;
+- postbacks, referrals, Get Started y persistent menu;
+- Handover Protocol y `standby`;
+- policy enforcement y template status.
 
-Antes existía broadcast. Deprecated 2020. **No broadcast Messenger** actual.
+El webhook de Messenger debe responder `200` en **cinco segundos o menos** según la documentación oficial consultada. El trabajo pesado debe salir a Inngest/outbox.
 
-### One-Time Notifications (OTN)
+Las Utility Messages aparecen con disponibilidad regional limitada en la documentación actual; no son una estrategia de reapertura para Latam hasta verificar país/cuenta.
 
-- User puede opt-in a recibir **1 notification** fuera de window.
-- Token válido **1 año** o single-use.
-- Útil para "te avisamos cuando llegue stock".
+## Marketing API
 
-### Rate limits
+Superficies verificadas:
 
-- ~600 msgs/min per Page (no oficial pero observado).
-- Webhook deliveries: retries Meta hasta 24h si endpoint down.
+- CRUD de campaigns, ad sets, ads y creatives;
+- Ads Insights: spend, reach, clicks, actions y valores, según campos/permisos;
+- Custom/Lookalike Audiences;
+- Offline Conversions/custom conversions;
+- relaciones con cuentas Instagram y Business assets.
 
-### Media
+Requisitos representativos:
 
-| Tipo  | Max size |
-| ----- | -------- |
-| Image | 25 MB    |
-| Audio | 25 MB    |
-| Video | 25 MB    |
-| File  | 25 MB    |
+- ad account y Business Portfolio;
+- app Meta;
+- user o system user token;
+- `ads_read` para lectura o `ads_management` para mutaciones, además de permisos específicos;
+- App Review/Advanced Access según uso y activos.
 
-### Implicaciones para CRM
+Política de producto: primero atribución read-only; después conversiones; CRUD de campañas al final y con RBAC, approval, audit log y límites de gasto. Nunca permitir que el agente conversacional cambie presupuesto/audiencia directamente.
 
-- Messenger menos relevante Latam (uso baja vs WA + IG). Mantener canal pero priorizar WA + IG.
-- Tags message útiles para reactivación. OTN viable para "te avisamos cuando llegue stock".
+## Seguridad y compliance
 
----
+- Webhook: HMAC sobre raw body antes de JSON parse.
+- ACK rápido; procesamiento idempotente y durable.
+- PII redaction en logs y traces.
+- Tokens en secretos, mínimo privilegio y rotación.
+- Consentimiento y opt-out por canal y finalidad.
+- Audiencias/conversiones requieren base legal separada del servicio conversacional.
+- Retención limitada del raw payload y media privada.
+- Alertas por token, permisos, calidad, policy y templates.
+- Derechos de acceso/borrado/exportación según regulación Latam aplicable.
 
-## 4. Cross-platform unified considerations
+## Checklist antes de activar un canal o capability
 
-### Identidad cross-channel
+1. Fuente oficial y versión verificadas en el ledger.
+2. Activo, país y disponibilidad confirmados.
+3. Permisos mínimos y App Review identificados.
+4. Policy/window engine con motivo de rechazo visible.
+5. Fixtures/webhook contracts y replay tests.
+6. Idempotencia de entrada y salida.
+7. PII/media/retención aprobadas.
+8. Rate limit, retry y circuit breaker definidos.
+9. Health/alerts/runbook disponibles.
+10. Smoke controlado autorizado por el dueño; nunca mensajes reales implícitos.
 
-| Canal     | ID disponible                 | Teléfono accesible | Reconocimiento mismo lead |
-| --------- | ----------------------------- | ------------------ | ------------------------- |
-| WhatsApp  | `wa_id` (= teléfono)          | Sí                 | Trivial (telefono UNIQUE) |
-| Instagram | `ig-id` (Page-scoped ID PSID) | No                 | Merge manual / heurística |
-| Messenger | `psid` (Page-scoped ID)       | No                 | Merge manual / heurística |
+## Fuentes rápidas
 
-**Solución CRM:** `leads.meta_user_ids` jsonb mapa `{canal → id}`. Merge candidates table (R12) heurística cross-channel.
-
-### Webhook signature verification
-
-Todas plataformas Meta usan **HMAC-SHA256**:
-
-```typescript
-const signature = req.headers["x-hub-signature-256"]; // sha256=...
-const expected = "sha256=" + crypto.createHmac("sha256", appSecret).update(rawBody).digest("hex");
-const ok = crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-```
-
-**Critical:** `timingSafeEqual` no string compare. Replay attack window: validar `timestamp` payload dentro 5min.
-
-### Common error codes
-
-| Code   | Meaning                                                | Acción CRM                                     |
-| ------ | ------------------------------------------------------ | ---------------------------------------------- |
-| 131000 | WhatsApp generic error                                 | Retry con backoff.                             |
-| 131005 | Re-engagement message (out of 24h, no HSM)             | Forzar template HSM. Mark `requires_template`. |
-| 131008 | Required parameter missing                             | Validation error pre-send.                     |
-| 131009 | Parameter value invalid                                | Validation error pre-send.                     |
-| 131016 | Service unavailable                                    | Retry exponencial.                             |
-| 131021 | Recipient incapable receiving (blocked / not opted-in) | Mark lead `blocked`. Stop sending.             |
-| 131026 | Receiver incapable                                     | Mark lead `unreachable`.                       |
-| 131031 | Account is locked                                      | Alert admin. Pause sending.                    |
-| 131047 | Re-engagement message (60d limit Marketing template)   | Use Utility template fallback.                 |
-| 131056 | (Business Account) restricted                          | Manual Meta review needed.                     |
-| 132000 | Template name does not exist                           | Re-sync templates Meta.                        |
-| 132001 | Template language not exist                            | Add language version Meta Business Manager.    |
-| 132005 | Translated content same as original                    | Submit translation correctly.                  |
-| 132007 | Template format character policy violated              | Sanitize content.                              |
-| 132012 | Param format mismatch                                  | Schema mismatch HSM vars.                      |
-| 132015 | Template paused                                        | Wait / switch template.                        |
-| 132016 | Template disabled                                      | Use alternative.                               |
-| 132068 | Flow blocked / disabled                                | Manual review Meta.                            |
-
----
-
-## 5. Compliance + opt-in
-
-### WhatsApp Business Policy
-
-- **Explicit opt-in mandatory** antes de business-initiated.
-- Opt-in via website/checkout/Facebook page/QR code/etc.
-- Audit trail opt-in obligatorio (log timestamp + source).
-
-### CTWA conversation entry
-
-- Click-to-WhatsApp Ads inicia conversación = implícit opt-in within 72h window.
-
-### Spam reporting consequences
-
-- Block rate alto → quality drop.
-- Quality red sostenido → tier downgrade → throughput cap → eventual ban WABA.
-
----
-
-## 6. Implications para arquitectura CRM
-
-### Service `meta-api.service.ts`
-
-Pre-send checks obligatorios:
-
-1. **Lead opt-in flag check.** Si lead no opted-in → reject.
-2. **24h window check.** Si fuera window + sin template HSM → reject o forzar template.
-3. **Quality check.** Si WABA quality "Red" → pause sending non-critical.
-4. **Tier check.** Si tier 1 + conversaciones únicas día > 1K → throttle.
-5. **Error code mapping.** Map Meta error codes → DomainError taxonomy.
-
-### Lead `opted_in_at` column (post-Slice 1)
-
-Agregar `leads.opted_in_at timestamptz nullable` + `opt_in_source text`. Sin opt-in = no enviable.
-
-### Reactivation cron (`reactivation-predictor.cron`)
-
-Solo template HSM aprobado. Pre-check window. Skip si no template aprobado para idioma + canal.
-
-### Cost tracking (`docs/cost-budget.md`)
-
-Conversation-based pricing actualizar quarterly por país. Track per template category.
-
----
-
-## 7. Re-audit cadence
-
-- **Quarterly:** Verificar caps + pricing + tier requirements actualizado en docs Meta.
-- **Pre-major-release CRM:** Re-confirmar error codes + permissions vigentes.
-- **Tras incident producción:** Re-verificar limit relevante al incident.
-
----
-
-## Referencias
-
-- [WhatsApp Cloud API Docs](https://developers.facebook.com/docs/whatsapp/cloud-api/overview)
-- [WhatsApp Business Pricing](https://developers.facebook.com/docs/whatsapp/pricing)
-- [Messenger Platform Docs](https://developers.facebook.com/docs/messenger-platform/)
-- [Instagram Messaging API Docs](https://developers.facebook.com/docs/messenger-platform/instagram/overview)
-- [Meta Business Policy](https://www.whatsapp.com/legal/business-policy/)
-- [WABA Quality Rating](https://developers.facebook.com/docs/whatsapp/api/quality-ratings)
+- [Meta Official API Network](https://www.postman.com/meta/)
+- [WhatsApp Business Platform](https://www.postman.com/meta/whatsapp-business-platform/overview)
+- [WhatsApp pricing](https://whatsappbusiness.com/products/platform-pricing/)
+- [Instagram API](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api)
+- [Messenger Platform](https://www.postman.com/meta/messenger-platform-api/documentation/iyp204x/messenger-platform-api)
+- [Facebook Marketing API](https://www.postman.com/meta/facebook-marketing-api/overview)

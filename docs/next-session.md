@@ -1,7 +1,7 @@
 # Cómo retomar la sesión
 
-> Última actualización: **2026-08-13**. El checkpoint QA y el cierre de brechas de auditoría están implementados en la rama `fix/cierre-brechas-auditoria`.
-> **Falta QA visual, smoke autenticado de `inbox_recent_messages`/`transition_handoff`, medición SQL y una base aislada de integración; no declarar rendimiento ni el lanzamiento completos.**
+> Última actualización: **2026-08-13**. El checkpoint QA y el cierre de brechas están en `master`. La investigación actual de Meta API quedó documentada y todavía no autoriza implementación.
+> **Siguiente decisión: elegir 1–3 capacidades del reporte Meta. También faltan QA visual, smoke autenticado de `inbox_recent_messages`/`transition_handoff`, medición SQL y una base aislada de integración; no declarar rendimiento ni el lanzamiento completos.**
 > Users dev: `admin-dev@crm.local` / `dev-admin-2026!` · `vendedor-dev@crm.local` / `dev-vendedor-2026!`.
 
 > Las migraciones aditivas autorizadas están aplicadas sin reset ni truncate. `test:integration` sigue congelado y `build` no se ejecutó.
@@ -16,15 +16,40 @@
 
 ## Estado real al cierre
 
-| Qué              | Cuánto                                                           |
-| ---------------- | ---------------------------------------------------------------- |
-| Rama             | `fix/cierre-brechas-auditoria`; integrar a `master` al cerrar CI |
-| Código pendiente | documentación final, CI, commits, merge y push                   |
-| Tests unitarios  | **1617 pasan en 136 archivos**; CI final del cierre              |
-| Coverage         | **87.3 / 79.39 / 82.8 / 88.25** — umbral 80/75/80/80, pasa       |
-| Integration      | **congelados, no verdes** — ver bloqueante 1                     |
-| Migraciones      | **38 aplicadas a `crm-dev`**, la última `20260813172558`         |
-| Revisión visual  | **ninguna pantalla** se miró con ojos humanos — ver bloqueante 2 |
+| Qué                | Cuánto                                                                      |
+| ------------------ | --------------------------------------------------------------------------- |
+| Rama               | `master`; al iniciar esta investigación estaba alineada con `origin/master` |
+| Investigación Meta | Reporte, ledger y docs operativas actualizados; sin código ni activos Meta  |
+| Tests unitarios    | **1617 pasan en 136 archivos** en el último cierre; no se rerun por docs    |
+| Coverage           | **87.3 / 79.39 / 82.8 / 88.25** — último corte, no recalculado              |
+| Integration        | **congelados, no verdes** — ver bloqueante 1                                |
+| Migraciones        | **38 aplicadas a `crm-dev`**, la última `20260813172558`                    |
+| Revisión visual    | **ninguna pantalla** se miró con ojos humanos — ver bloqueante 2            |
+
+### Investigación Meta API completada
+
+Leer primero:
+
+1. [`research/meta-api-capabilities-2026-08.md`](./research/meta-api-capabilities-2026-08.md) — reporte negocio+técnico, brechas, matriz ROI y roadmap.
+2. [`research/meta-api-source-ledger-2026-08.md`](./research/meta-api-source-ledger-2026-08.md) — fuente, fecha, versión/región y confianza por afirmación.
+3. [`meta-platform-limits.md`](./meta-platform-limits.md) — contrato operativo de ventanas, pricing, permisos y límites.
+4. [`meta-webhook-payloads.md`](./meta-webhook-payloads.md) — soporte real del parser/cliente y contrato futuro propuesto.
+
+Hallazgos que condicionan lo siguiente:
+
+- WhatsApp es el único canal configurado. Instagram y Messenger son soporte arquitectónico no validado.
+- El cliente de salida solo sabe enviar texto; WA media entrante se tipa pero no se descarga; IG/FB descartan attachments, replies, reactions, postbacks y referrals.
+- `v21.0` está obsoleto como baseline sin una suite contractual. Una lectura segura aceptó `v25.0` y respondió con header `v26.0`, pero no se cambia el pin por inferencia.
+- Pricing WhatsApp vigente es por mensaje entregado, no por conversación. La documentación vieja fue retirada.
+- Mayor ROI sin catálogo: health/versionado, media+reply context WA, read/typing, interactivos/Flows y luego Instagram comments/referrals.
+
+Punto de decisión obligatorio antes de código: elegir 1–3 capacidades. Recomendación del reporte:
+
+1. M0 compatibilidad, capability registry y health Meta.
+2. WhatsApp media + replies + read/typing.
+3. WhatsApp Flow para vehículo, año, motor, pieza, ciudad, urgencia y adjuntos, sin catálogo.
+
+No se enviaron mensajes, no se cambiaron campañas/activos/tokens y no se tocaron schema ni código.
 
 **Qué se hizo.** Además del checkpoint QA, el cierre de brechas corrigió la ventana de doble envío, tipó fallos Graph, instaló una guarda anti-TRUNCATE, fijó `server_now`, eliminó el cierre duplicado y convirtió la aprobación de merges en una RPC Postgres transaccional.
 
@@ -257,13 +282,15 @@ NO corras npm run build con el dev server vivo (corrompe .next/).
 
 Lo más valioso por hacer, en orden:
 
-1. Verificar `inbox_recent_messages` y `transition_handoff` con la sesión
+1. Leer `docs/research/meta-api-capabilities-2026-08.md` y elegir 1–3
+   capacidades. No implementar antes de esa decisión.
+2. Para las capacidades elegidas, verificar activo/país/permisos y redactar un
+   plan técnico separado con estructura de archivos, contratos y tests.
+3. Verificar `inbox_recent_messages` y `transition_handoff` con la sesión
    autenticada del admin. No enviar mensajes reales por Meta.
-2. Regenerar tipos Supabase y revisar el diff antes de conservarlo.
-3. Ejecutar EXPLAIN (ANALYZE, BUFFERS) sobre datos disponibles, sin extrapolar.
-4. Revisar visualmente /leads, detalle/edición, /metricas, /agente, /tags,
+4. Ejecutar EXPLAIN (ANALYZE, BUFFERS) sobre datos disponibles, sin extrapolar.
+5. Revisar visualmente /leads, detalle/edición, /metricas, /agente, /tags,
    /inbox, detalle, handoff y reprogramación en 1440x900, 1024x768 y login móvil.
-5. Ubicar el desglose de razones de revisión administrativa en Métricas.
 6. Crear un proyecto Supabase aparte para tests cuando yo lo autorice/cree.
 
 Antes de escribir código, decime qué vas a hacer, qué no, y esperá que

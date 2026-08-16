@@ -1,311 +1,250 @@
-# Meta webhook payloads + outbound shapes
+# Meta webhooks y contratos de mensajes
 
-Referencia compacta para Slice 1 7.6 (client) + 7.9 (webhook route). Golden samples reales para tests + integration smoke. Fuente: Graph API docs `v21.0+`.
+> Última reconciliación: **2026-08-13**. Describe lo que el CRM procesa hoy y lo que Meta puede enviar según fuentes oficiales. No es una promesa de soporte futuro.
 
-> **Scope:** WhatsApp Business Cloud API + Instagram Messenger + Facebook Messenger. Text-only por ahora. Templates + media son backlog v2.
+## Endpoint actual
 
----
+`GET|POST /api/webhooks/meta`
 
-## 1. Inbound webhook payloads
+### Orden de seguridad del POST
 
-Webhook único `/api/webhooks/meta` recibe los 3 canales. Distinguir vía `payload.object`:
+1. Leer body crudo.
+2. Verificar `X-Hub-Signature-256` con app secret.
+3. Rechazar `401` antes de parsear o tocar dependencias.
+4. Rate limit del origen autenticado.
+5. Parsear JSON.
+6. Normalizar mensajes/status conocidos.
+7. Emitir eventos Inngest.
+8. Responder rápido.
 
-| `object`                    | Canal        |
-| --------------------------- | ------------ |
-| `whatsapp_business_account` | WA           |
-| `instagram`                 | IG           |
-| `page`                      | FB Messenger |
+El contrato actual cumple HMAC-first. La documentación oficial de Messenger pide responder `200` en cinco segundos o menos; toda descarga de media, búsqueda de perfil o lógica de negocio debe ocurrir fuera del request.
 
-Parser canónico: `src/lib/meta/parse-webhook.ts` → `ParsedMessage[]`.
+## Objetos de entrada
 
-### 1.1 WA inbound text
+| `object`                    | Canal     | Estado local                                                   |
+| --------------------------- | --------- | -------------------------------------------------------------- |
+| `whatsapp_business_account` | WhatsApp  | Mensajes + status conocidos                                    |
+| `instagram`                 | Instagram | Solo `entry[].messaging[].message` con `mid`; se reduce a text |
+| `page`                      | Messenger | Solo `entry[].messaging[].message` con `mid`; se reduce a text |
 
-```json
-{
-  "object": "whatsapp_business_account",
-  "entry": [
-    {
-      "id": "<WHATSAPP_BUSINESS_ACCOUNT_ID>",
-      "changes": [
-        {
-          "field": "messages",
-          "value": {
-            "messaging_product": "whatsapp",
-            "metadata": {
-              "display_phone_number": "+15551234567",
-              "phone_number_id": "<PHONE_NUMBER_ID>"
-            },
-            "contacts": [{ "profile": { "name": "Juan Perez" }, "wa_id": "5491155550000" }],
-            "messages": [
-              {
-                "from": "5491155550000",
-                "id": "wamid.HBgN...",
-                "timestamp": "1700000000",
-                "type": "text",
-                "text": { "body": "Hola, tienen pastillas para Corolla 2015?" }
-              }
-            ]
-          }
-        }
-      ]
-    }
-  ]
+Objetos/eventos desconocidos producen cero mensajes y se confirman con `200`; no deben reintentarse indefinidamente. Antes de ampliar subscriptions se deben agregar fixtures y observabilidad de eventos ignorados sin guardar PII.
+
+## Contrato normalizado actual
+
+```ts
+interface ParsedMessage {
+  canal: "wa" | "ig" | "fb";
+  canal_thread_id: string;
+  meta_user_id: string;
+  meta_message_id: string;
+  tipo: "text" | "image" | "audio" | "video" | "doc" | "location" | "template";
+  contenido: string | null;
+  media_url: string | null;
+  nombre_perfil: string | null;
+  platform_created_at?: Date | null;
+  raw: Record<string, unknown>;
 }
 ```
 
-**Parsed:** `{ canal: "wa", canal_thread_id: "5491155550000", meta_user_id: "5491155550000", meta_message_id: "wamid.HBgN...", tipo: "text", contenido: "Hola...", media_url: null }`.
+Problema: `raw` permite inspección inmediata, pero el modelo canónico no representa reply, reaction, interactive, postback, referral, comment, policy o account event. No se debe expandir con flags opcionales; el próximo contrato debe ser una unión discriminada.
 
-### 1.2 WA inbound image (con caption)
+## WhatsApp actual
 
-```json
-{
-  "object": "whatsapp_business_account",
-  "entry": [
-    {
-      "id": "...",
-      "changes": [
-        {
-          "field": "messages",
-          "value": {
-            "messages": [
-              {
-                "from": "5491155550000",
-                "id": "wamid.HBgI...",
-                "type": "image",
-                "image": {
-                  "id": "<MEDIA_ID>",
-                  "mime_type": "image/jpeg",
-                  "sha256": "...",
-                  "caption": "Esta es la pieza que necesito"
-                }
-              }
-            ]
-          }
-        }
-      ]
-    }
-  ]
-}
+### Mensajes reconocidos
+
+| Meta `messages[].type` | Tipo local | Contenido persistido | Media funcional         |
+| ---------------------- | ---------- | -------------------- | ----------------------- |
+| `text`                 | `text`     | `text.body`          | n/a                     |
+| `image`                | `image`    | caption              | No                      |
+| `audio`                | `audio`    | `null`               | No                      |
+| `video`                | `video`    | caption              | No                      |
+| `document`             | `doc`      | caption              | No                      |
+| `location`             | `location` | `null`               | No hay lat/lng canónico |
+
+Se cruza `contacts[].wa_id` con `messages[].from` para obtener `profile.name`. El timestamp Meta viene en segundos Unix; inválido o ausente queda `null` para métricas de entrada.
+
+### Tipos que Meta soporta y hoy se ignoran
+
+- sticker;
+- contacts;
+- reaction;
+- interactive/button/list replies;
+- order y otros objetos comerciales —catálogo queda fuera de alcance—;
+- system/identity/unsupported;
+- reply context (`context.id`, etc.).
+
+Ignorarlos silenciosamente causa pérdida de intención. Antes de suscribir/usar cada tipo se crea un fixture y se define si genera mensaje, interacción o evento operativo.
+
+### Media
+
+Los webhooks entregan IDs/metadata, no una URL privada permanente lista para UI. Pipeline futuro:
+
+1. Evento durable con media ID y canal.
+2. Obtener URL/metadata autorizada desde Meta.
+3. Descargar con límites de bytes/tiempo.
+4. Verificar MIME real, extensión, hash y malware cuando aplique.
+5. Guardar en Supabase Storage privado.
+6. Persistir referencia interna y metadata mínima.
+7. Servir con signed URL corta.
+
+No loggear nombre de archivo, caption, teléfono ni URL firmada.
+
+### Estados de entrega
+
+`parseMetaStatuses` acepta:
+
+| Meta        | Local       |
+| ----------- | ----------- |
+| `sent`      | `enviado`   |
+| `delivered` | `entregado` |
+| `read`      | `leido`     |
+| `failed`    | `fallido`   |
+
+El timestamp se toma del evento. En el código actual, si el timestamp de status es inválido se usa la hora de recepción para no dejar el estado detenido; esta excepción no debe reutilizarse para métricas de primera respuesta.
+
+### Eventos operativos no procesados
+
+La documentación oficial expone, entre otros:
+
+- `phone_number_name_update`;
+- `phone_number_quality_update`;
+- `account_update`;
+- `account_review_update`;
+- `message_template_status_update`.
+
+Estos eventos deben ir a un contrato `MetaOperationalEvent`, no fingirse como mensajes de conversación.
+
+## Instagram actual
+
+El parser actual exige:
+
+- `entry[].messaging[].sender.id`;
+- `message.mid`;
+- `message.text` opcional.
+
+Todo se persiste con `tipo: "text"`, `media_url: null` y `nombre_perfil: null`.
+
+### Información oficial que hoy se pierde
+
+- attachment: audio, file, image, video, share, reel/story context y story mention;
+- quick reply payload;
+- postback/ice breaker/persistent menu;
+- reactions y deleted/echo/unsupported;
+- `reply_to`;
+- `messaging_referral`, incluidos ads/links;
+- read/seen;
+- comments, Live comments, mentions;
+- private-reply origin;
+- handover/standby.
+
+La Conversations API puede servir para reconciliar conversaciones y mensajes, pero no reemplaza webhooks. Requests inactivas durante 30 días pueden no aparecer según la documentación actual.
+
+## Messenger actual
+
+Usa el mismo parser estrecho de Instagram: sender + message.mid + text.
+
+### Información oficial que hoy se pierde
+
+- attachments/media;
+- delivery/read/echo/edit/reaction;
+- postbacks, Get Started y menu;
+- referrals desde `m.me` o ads;
+- Handover Protocol/standby;
+- policy enforcement;
+- utility template status;
+- feedback y cart/order events.
+
+Los receipts de Messenger/Instagram pueden ser marcas de agua del hilo sin message ID. El código actual no los asigna a una fila para evitar inventar correspondencia. La solución futura debe guardar un cursor/read watermark por conversación o definir una reconciliación explícita.
+
+## Salida actual
+
+`GraphApiMetaClient.sendText` soporta:
+
+- WA: `POST /{phone-number-id}/messages`, `type=text`, sin preview URL.
+- IG/FB: `POST /{page-or-account-id}/messages`, `recipient.id` + `message.text`.
+
+No soporta media, reply, reaction, interactive, template general, read ni typing. IG/FB fallan rápido si faltan sus variables opcionales.
+
+El mapping de errores es hoy por HTTP:
+
+- `429` → `RateLimitError`;
+- `400`, `401`, `403` → `ValidationError`;
+- red, `5xx` y otros → `InfraError`.
+
+Esto es insuficiente para policy/window/template/permission: varios errores `400` necesitan códigos de dominio distintos y decisiones de retry/UX diferentes. No hardcodear una lista vieja de códigos sin fixtures de la versión soportada.
+
+## Contrato futuro recomendado
+
+```ts
+type MetaInboundEvent =
+  | MetaMessageEvent
+  | MetaMessageStatusEvent
+  | MetaReactionEvent
+  | MetaPostbackEvent
+  | MetaReferralEvent
+  | MetaCommentEvent
+  | MetaPolicyEvent
+  | MetaAccountEvent
+  | MetaTemplateStatusEvent;
+
+type MetaOutboundCommand =
+  | SendText
+  | SendMedia
+  | SendReply
+  | SendReaction
+  | SendInteractive
+  | SendTemplate
+  | MarkRead
+  | SetTyping;
 ```
 
-**Parsed:** `tipo: "image"`, `contenido: "Esta es la pieza..."` (caption), `media_url: null` (require segunda llamada Graph API `/{MEDIA_ID}` para resolver — diferido).
+Invariantes:
 
-### 1.3 IG inbound text
+- `eventId`/idempotency key explícito por evento.
+- `platformCreatedAt` nullable; nunca sustituir con recepción para analytics.
+- `raw` con retención corta y acceso restringido, o hash/referencia cuando sea suficiente.
+- referral/touchpoint append-only y separado del estado mutable del lead.
+- evento desconocido observable con tipo/hash, sin body ni PII en logs.
+- salida reservada en DB antes de llamar a Meta.
+- policy engine decide elegibilidad antes del adapter del canal.
 
-```json
-{
-  "object": "instagram",
-  "entry": [
-    {
-      "id": "<IG_BUSINESS_ACCOUNT_ID>",
-      "time": 1700000000,
-      "messaging": [
-        {
-          "sender": { "id": "<IG_USER_PSID>" },
-          "recipient": { "id": "<IG_BUSINESS_ACCOUNT_ID>" },
-          "timestamp": 1700000000,
-          "message": {
-            "mid": "mid.AAAA...",
-            "text": "tienen filtro aceite Hilux"
-          }
-        }
-      ]
-    }
-  ]
-}
-```
+## Fixtures mínimos antes de ampliar soporte
 
-**Parsed:** `{ canal: "ig", canal_thread_id: "<IG_USER_PSID>", meta_user_id: "<IG_USER_PSID>", meta_message_id: "mid.AAAA...", tipo: "text", contenido: "tienen filtro aceite Hilux" }`.
+### WhatsApp
 
-### 1.4 FB Messenger inbound text
+- text, media por cada tipo, reply context, reaction, interactive reply, location, contacts y unknown;
+- sent/delivered/read/failed, error permanente y timestamp inválido;
+- quality/name/account/template status;
+- replay exacto y batch con múltiples messages/statuses.
 
-```json
-{
-  "object": "page",
-  "entry": [
-    {
-      "id": "<FB_PAGE_ID>",
-      "time": 1700000000,
-      "messaging": [
-        {
-          "sender": { "id": "<FB_USER_PSID>" },
-          "recipient": { "id": "<FB_PAGE_ID>" },
-          "timestamp": 1700000000,
-          "message": {
-            "mid": "m_AAAA...",
-            "text": "buenos dias, precio bujias"
-          }
-        }
-      ]
-    }
-  ]
-}
-```
+### Instagram
 
-**Parsed:** `{ canal: "fb", canal_thread_id: "<FB_USER_PSID>", meta_user_id: "<FB_USER_PSID>", meta_message_id: "m_AAAA...", tipo: "text", contenido: "buenos dias, precio bujias" }`.
+- text, cada attachment, quick reply, reaction, delete, echo, reply, story/reel/share;
+- comment → private reply, ad referral, seen, postback e ice breaker;
+- payload sin `mid` que no debe convertirse en mensaje vacío.
 
----
+### Messenger
 
-## 2. Webhook signature verify
+- text/media, delivery/read watermark, echo/edit/reaction;
+- postback/referral, handover/standby, policy enforcement y unknown.
 
-Toda request entrante = HMAC SHA-256 con `META_APP_SECRET` sobre `rawBody`. Header `X-Hub-Signature-256: sha256=<hex>`.
+## Checklist de revisión de webhook
 
-Util: `src/lib/meta/verify-signature.ts` → `verifyMetaSignature(rawBody, header, appSecret) => boolean`. Timing-safe via `crypto.timingSafeEqual`. Reject 401 si false.
+- Firma HMAC antes de parse.
+- ACK ≤ 5 s.
+- Idempotencia por event/message ID.
+- Orden por timestamp de plataforma sin asumir entrega ordenada.
+- Batch parcial: un evento inválido no descarta otros válidos.
+- No PII en logs/errors/traces.
+- No descargas remotas dentro del request.
+- Tipo desconocido visible en métricas, no en logs crudos.
+- Fixtures tomados de documentación oficial de la versión soportada.
+- Subscription y permiso anotados en el capability registry.
 
-> **Webhook route (7.9):** consumir `rawBody` (no `req.json()`) antes de validar — `JSON.parse` cambia bytes y rompe HMAC.
+## Fuentes
 
----
-
-## 3. Webhook GET verify challenge
-
-Meta valida el endpoint vía GET handshake:
-
-```
-GET /api/webhooks/meta?hub.mode=subscribe&hub.verify_token=<token>&hub.challenge=<nonce>
-```
-
-Si `hub.mode === "subscribe"` && `hub.verify_token === env.META_VERIFY_TOKEN` → responder `200 <nonce>` plain text. Else `403`.
-
----
-
-## 4. Outbound send shapes
-
-Client: `src/server/services/meta/graph-api-client.ts` (`GraphApiMetaClient`).
-
-### 4.1 WA send text
-
-```http
-POST https://graph.facebook.com/v21.0/<PHONE_NUMBER_ID>/messages
-Authorization: Bearer <META_WHATSAPP_ACCESS_TOKEN>
-Content-Type: application/json
-```
-
-```json
-{
-  "messaging_product": "whatsapp",
-  "recipient_type": "individual",
-  "to": "+5491155550000",
-  "type": "text",
-  "text": { "body": "Hola Juan, tenemos stock", "preview_url": false }
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "messaging_product": "whatsapp",
-  "contacts": [{ "input": "+5491155550000", "wa_id": "5491155550000" }],
-  "messages": [{ "id": "wamid.HBg...", "message_status": "accepted" }]
-}
-```
-
-Extract `meta_message_id = messages[0].id`.
-
-### 4.2 IG send text (Messenger Platform)
-
-```http
-POST https://graph.facebook.com/v21.0/<IG_BUSINESS_ACCOUNT_ID>/messages
-Authorization: Bearer <META_IG_ACCESS_TOKEN>
-Content-Type: application/json
-```
-
-```json
-{
-  "recipient": { "id": "<IG_USER_PSID>" },
-  "message": { "text": "Hola, tenemos esa pieza" }
-}
-```
-
-**Response 200:**
-
-```json
-{
-  "recipient_id": "<IG_USER_PSID>",
-  "message_id": "mid.AAA..."
-}
-```
-
-Extract `meta_message_id = message_id`.
-
-> **24h messaging window:** IG/FB requieren que el lead haya escrito en las últimas 24h. Fuera de window → `400 code 10`. Workaround: tags `MESSAGE_TAG` (HUMAN_AGENT/etc) — NO implementado pilot.
-
-### 4.3 FB Messenger send text
-
-```http
-POST https://graph.facebook.com/v21.0/<FB_PAGE_ID>/messages
-Authorization: Bearer <META_FB_PAGE_ACCESS_TOKEN>
-Content-Type: application/json
-```
-
-```json
-{
-  "recipient": { "id": "<FB_USER_PSID>" },
-  "message": { "text": "Hola, precio bujías $X" }
-}
-```
-
-**Response 200:** idem IG (`recipient_id`, `message_id`).
-
----
-
-## 5. Error envelope Graph API
-
-Todos los errores siguen este shape:
-
-```json
-{
-  "error": {
-    "message": "Recipient phone number not in allowed list",
-    "type": "OAuthException",
-    "code": 131030,
-    "error_subcode": 131044,
-    "fbtrace_id": "ABcd1234..."
-  }
-}
-```
-
-Mapping → DomainError en `GraphApiMetaClient.throwMappedGraphError`:
-
-| Status    | DomainError       | conflictType        | Retryable                    |
-| --------- | ----------------- | ------------------- | ---------------------------- |
-| 429       | `ConflictError`   | `meta_rate_limited` | ✅ (Inngest retry)           |
-| 401 / 403 | `ValidationError` | n/a                 | ❌ (token rota — humano)     |
-| 400       | `ValidationError` | n/a                 | ❌ (caller bug o 24h window) |
-| 5xx       | generic `Error`   | n/a                 | ✅ (Inngest retry)           |
-
-`fbtrace_id` + `code` + `status` se preservan en `context` para debugging.
-
----
-
-## 6. Codes comunes (referencia)
-
-| Code   | Significado                             | Acción                     |
-| ------ | --------------------------------------- | -------------------------- |
-| 131030 | WA: número no en allowed list (sandbox) | Allowlist en App Dashboard |
-| 131047 | WA: 24h window cerrada                  | Usar template aprobado     |
-| 131051 | WA: tipo mensaje no soportado           | Revisar `type`             |
-| 190    | Token expirado / invalid                | Refresh token              |
-| 10     | IG/FB: outside 24h window               | MESSAGE_TAG o esperar lead |
-| 4      | IG/FB: rate-limit aplicación            | Backoff + retry            |
-| 80007  | WA: rate-limit business                 | Backoff + retry            |
-
----
-
-## 7. Limits cross-platform
-
-Detalle granular → `docs/meta-platform-limits.md`. Resumen:
-
-| Canal | Rate limit                                                                  | Notas                    |
-| ----- | --------------------------------------------------------------------------- | ------------------------ |
-| WA    | 80 msg/sec por phone_number_id (tier MEDIUM); 1000 / 24h por user-initiated | Tier upgrade vía calidad |
-| IG    | 200 calls/hour por user; 4800 / 24h por page                                | Webhook lag posible      |
-| FB    | 200 calls/hour por user; 4800 / 24h por page                                | 24h window strict        |
-
----
-
-## 8. Testing fixtures
-
-`tests/unit/meta/graph-api-client.test.ts` usa golden mocks fetch (Response objects con JSON estos shapes). Integration `tests/integration/` (7.10) usa Meta sandbox real con allowlist.
-
-Nunca commitear payloads con `phone_number_id` real, `access_token`, o user data productiva. Sample payloads documentation = números/IDs ficticios.
+- [WhatsApp Messages](https://www.postman.com/meta/whatsapp-business-platform/folder/o48mro7/messages)
+- [WhatsApp operational webhooks](https://www.postman.com/meta/whatsapp-business-platform/request/j09tht8/components)
+- [Instagram API](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api)
+- [Instagram Conversations API](https://www.postman.com/meta/instagram/folder/23987686-6a91368f-1fa8-4614-9ed6-7d1e08c21e62)
+- [Messenger Webhooks](https://www.postman.com/meta/messenger-platform-api/folder/22794852-b5d97624-14d8-4e67-a2e4-529add49ca58)

@@ -4,6 +4,19 @@
 
 ---
 
+## Investigación Meta API — 2026-08-13
+
+- Inventario negocio+técnico de WhatsApp Business Platform, Instagram API, Messenger/Pages, Marketing API, Business Management y capacidades emergentes, sin catálogo.
+- Creado `docs/research/meta-api-capabilities-2026-08.md` con diagnóstico, permisos, disponibilidad, riesgos, matriz ROI, build-vs-buy frente a Meta Business Agent y roadmap M0–M4.
+- Creado un ledger fechado de fuentes oficiales con versión/región/confianza; anuncios de rollout quedaron separados de contratos productivos.
+- `meta-platform-limits.md` dejó atrás pricing por conversación, HSM, free tier viejo y límites comunitarios: documenta pricing por mensaje entregado, ventanas y permisos actuales.
+- `meta-webhook-payloads.md` quedó reconciliado con el parser/cliente real y enumera contexto/media/eventos que hoy se descartan.
+- Hallazgo central: solo WhatsApp está configurado; salida es text-only, media WA no se descarga e Instagram/Messenger pierden adjuntos, replies, reactions, postbacks y referrals.
+- Prioridad recomendada: M0 versionado/health, WhatsApp media+replies+read/typing y un Flow de solicitud sin catálogo; implementar solo después de que el dueño elija capacidades.
+- No se modificó código, schema, configuración, campañas, activos/tokens ni se enviaron mensajes. Tests no rerun por tratarse exclusivamente de documentación.
+
+---
+
 ## Cierre de brechas de auditoría — 2026-08-13
 
 - `sendOutbound` cambió de “Meta → INSERT” a “reserva DB → Meta → confirmación”. Los desenlaces desconocidos quedan visibles y no se reenvían; los 429 liberan la reserva.
