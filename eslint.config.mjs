@@ -183,6 +183,11 @@ const eslintConfig = defineConfig([
     "coverage/**",
     "next-env.d.ts",
     ".superpowers/**",
+    // Scratch del CLI de Supabase al levantar el stack local: trae el runtime
+    // de edge functions ya empaquetado en una sola línea, que dispara ~150
+    // errores de estilo sobre código que no es nuestro. `.gitignore` ya lo
+    // excluye del repo; esto lo saca del lint.
+    "supabase/.temp/**",
   ]),
 ]);
 
