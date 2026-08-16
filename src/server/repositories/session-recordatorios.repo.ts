@@ -31,6 +31,19 @@ export interface SessionRecordatoriosRepository {
   listPorAvisar(now: Date): Promise<SessionRecordatorio[]>;
 
   /**
+   * Los recordatorios vivos de esas sesiones, del más próximo al más lejano.
+   *
+   * Distinto de `listPorAvisar`: ese trae solo los que ya vencieron —lo que el
+   * triage necesita— y este trae también los futuros, que es lo que muestra el
+   * filtro de Seguimiento de la bandeja. Un seguimiento para mañana todavía no
+   * reclama atención pero sí tiene que poder listarse.
+   *
+   * Acotado a las sesiones que la bandeja ya está listando: sin el recorte, la
+   * consulta crecería con el histórico entero de la instalación.
+   */
+  listVivosBySessionIds(sessionIds: UUID[]): Promise<SessionRecordatorio[]>;
+
+  /**
    * `pendiente` → `avisado`. Devuelve `null` si la fila no existe o ya no
    * estaba pendiente (cancelada, o un replay del workflow): es la guarda que
    * hace idempotente al despertar del `sleepUntil`.
@@ -117,6 +130,9 @@ export class NoopSessionRecordatoriosRepository implements SessionRecordatoriosR
   async listPorAvisar(_now: Date): Promise<SessionRecordatorio[]> {
     return [];
   }
+  async listVivosBySessionIds(_sessionIds: UUID[]): Promise<SessionRecordatorio[]> {
+    return [];
+  }
   async marcarAvisado(
     _id: UUID,
     _opts?: { at?: Date; esperadoRecordarAt?: Date },
@@ -190,6 +206,18 @@ export class InMemorySessionRecordatoriosRepository implements SessionRecordator
         (r) =>
           r.estado === "avisado" ||
           (r.estado === "pendiente" && r.recordar_at.getTime() <= now.getTime()),
+      )
+      .sort((a, b) => a.recordar_at.getTime() - b.recordar_at.getTime())
+      .map((r) => ({ ...r }));
+  }
+
+  async listVivosBySessionIds(sessionIds: UUID[]): Promise<SessionRecordatorio[]> {
+    if (sessionIds.length === 0) return [];
+    const buscadas = new Set(sessionIds);
+    return Array.from(this.store.values())
+      .filter(
+        (r) =>
+          buscadas.has(r.lead_session_id) && (r.estado === "pendiente" || r.estado === "avisado"),
       )
       .sort((a, b) => a.recordar_at.getTime() - b.recordar_at.getTime())
       .map((r) => ({ ...r }));

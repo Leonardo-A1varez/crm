@@ -182,6 +182,11 @@ export interface DefaultInboxServiceDeps {
   now?: () => Date;
 }
 
+/** El recordatorio como lo consume la bandeja, o `null` si no hay ninguno vivo. */
+function recordatorioDe(r: SessionRecordatorio | undefined): InboxItem["recordatorio"] {
+  return r ? { at: r.recordar_at, nota: r.nota } : null;
+}
+
 /** Turno sin ancla: el saliente no se puede atar a ningún mensaje entrante. */
 const SIN_ANCLA: AuditoriaTurno = { estado: "sin_registro", motivo: "sin_ancla" };
 
@@ -266,14 +271,17 @@ export class DefaultInboxService implements InboxService {
     if (activeSessions.length === 0) return [];
 
     const leadIds = Array.from(new Set(activeSessions.map((s) => s.lead_id)));
-    const [leadsFilas, convsFilas, mensajes] = await Promise.all([
+    const sessionIds = activeSessions.map((s) => s.id);
+    // Los vivos van en la misma ola que el resto: el filtro de Seguimiento
+    // necesita también los futuros, que `recordatoriosVencidos` no trae porque
+    // el triage solo mira los que ya vencieron.
+    const [leadsFilas, convsFilas, mensajes, vivos] = await Promise.all([
       this.deps.leads.listByIds(leadIds),
       this.deps.convs.listByLeadIds(leadIds),
-      this.deps.messages.listRecentBySessionIds(
-        activeSessions.map((s) => s.id),
-        TRIAGE_MESSAGES_LIMIT,
-      ),
+      this.deps.messages.listRecentBySessionIds(sessionIds, TRIAGE_MESSAGES_LIMIT),
+      this.deps.recordatorios.listVivosBySessionIds(sessionIds),
     ]);
+    const vivoPorSesion = new Map(vivos.map((r) => [r.lead_session_id, r]));
 
     const leadPorId = new Map<UUID, Lead>(leadsFilas.map((l) => [l.id, l]));
     const convsPorLead = agrupar(convsFilas, (c) => c.lead_id);
@@ -332,6 +340,7 @@ export class DefaultInboxService implements InboxService {
         esperandoDesde,
         urgencia: session.urgencia,
         motivo,
+        recordatorio: recordatorioDe(vivoPorSesion.get(session.id)),
       });
     }
 

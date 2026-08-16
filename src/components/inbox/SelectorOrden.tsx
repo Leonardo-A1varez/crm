@@ -3,7 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-export const ORDEN = ["triage", "recientes"] as const;
+export const ORDEN = ["triage", "recientes", "seguimiento"] as const;
 export type Orden = (typeof ORDEN)[number];
 
 /**
@@ -12,20 +12,28 @@ export type Orden = (typeof ORDEN)[number];
  * filtro de canal.
  */
 export function parseOrden(raw: string | null): Orden {
-  return raw === "recientes" ? "recientes" : "triage";
+  if (raw === "recientes") return "recientes";
+  if (raw === "seguimiento") return "seguimiento";
+  return "triage";
 }
 
 const LABEL: Record<Orden, string> = {
   triage: "Triage",
   recientes: "Recientes",
+  seguimiento: "Seguimiento",
 };
 
 /**
- * Segmentado Triage / Recientes. Mismo mecanismo que `FiltrosCanal`: el estado
- * vive en la URL y `PanelLista` la relee en cliente, porque los layouts de Next
- * no reciben `searchParams` y la lista ya está cargada.
+ * Segmentado Triage / Recientes / Seguimiento. El estado vive en la URL y
+ * `PanelLista` la relee en cliente, porque los layouts de Next no reciben
+ * `searchParams` y la lista ya está cargada.
+ *
+ * El contador de Seguimiento se muestra **esté o no activo el chip**: es el
+ * aviso de cuántos leads tienen algo agendado, y esconderlo detrás de un click
+ * lo volvería inútil. Cuando no hay ninguno no se dibuja, para no poner un cero
+ * que compite por atención con los otros dos chips.
  */
-export function SelectorOrden() {
+export function SelectorOrden({ conSeguimiento }: { conSeguimiento: number }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -50,18 +58,34 @@ export function SelectorOrden() {
     >
       {ORDEN.map((orden) => {
         const isActive = orden === activo;
+        const badge = orden === "seguimiento" && conSeguimiento > 0 ? conSeguimiento : null;
         return (
           <button
             key={orden}
             type="button"
             aria-pressed={isActive}
+            aria-label={
+              badge === null
+                ? undefined
+                : `${LABEL[orden]}, ${badge} lead${badge === 1 ? "" : "s"} con seguimiento`
+            }
             onClick={() => seleccionar(orden)}
             className={cn(
-              "flex-1 rounded-[7px] py-[3px] text-[11.5px] transition-colors",
+              "flex flex-1 items-center justify-center gap-1 rounded-[7px] py-[3px] text-[11.5px] transition-colors",
               isActive ? "bg-brand text-brand-ink font-semibold" : "text-ink-dim bg-transparent",
             )}
           >
             {LABEL[orden]}
+            {badge === null ? null : (
+              <span
+                className={cn(
+                  "min-w-[15px] rounded-full px-[4px] text-center font-mono text-[9.5px] leading-[14px] font-semibold",
+                  isActive ? "bg-brand-ink/15 text-brand-ink" : "bg-brand/15 text-brand",
+                )}
+              >
+                {badge}
+              </span>
+            )}
           </button>
         );
       })}

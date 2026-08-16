@@ -216,9 +216,15 @@ describe("Costo en consultas del Inbox", () => {
     // `leads.findById`, un `convs.findByLeadId`, un `messages.listBySessionId`
     // y un `messages.listByConversacion` por conversación.
     //
-    // AHORA: 5 consultas en 2 olas, ninguna dentro de un loop. Lo importante no
-    // es el 5: es que subir ESCENA_LEADS a 200 lo deja igual en 5.
-    expect(total).toBe(5);
+    // AHORA: 6 consultas en 2 olas, ninguna dentro de un loop. Lo importante no
+    // es el 6: es que subir ESCENA_LEADS a 200 lo deja igual en 6.
+    //
+    // La sexta la sumó el filtro de Seguimiento: `listVivosBySessionIds` para
+    // saber qué conversaciones tienen algo agendado. Va en la segunda ola,
+    // junto a leads/convs/mensajes, y recibe los ids de una vez — no crece con
+    // N. `listPorAvisar` no alcanzaba: trae solo los vencidos y el filtro
+    // también muestra los futuros.
+    expect(total).toBe(6);
     expect(olas).toBe(2);
 
     // Nada que se llame una vez por fila. Si alguna de estas aparece, se metió

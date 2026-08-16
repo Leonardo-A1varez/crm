@@ -79,6 +79,20 @@ export class SupabaseSessionRecordatoriosRepository implements SessionRecordator
     return (data ?? []).map(mapRow);
   }
 
+  async listVivosBySessionIds(sessionIds: UUID[]): Promise<SessionRecordatorio[]> {
+    // Sin el corte, PostgREST arma un `in ()` vacío que no filtra nada y la
+    // bandeja se traería los recordatorios de toda la instalación.
+    if (sessionIds.length === 0) return [];
+    const { data, error } = await this.db
+      .from(TABLA)
+      .select()
+      .in("lead_session_id", sessionIds)
+      .in("estado", [...VIVOS])
+      .order("recordar_at", { ascending: true });
+    if (error) throw mapPostgrestError(error, { resource: RECURSO });
+    return (data ?? []).map(mapRow);
+  }
+
   async marcarAvisado(
     id: UUID,
     opts: { at?: Date; esperadoRecordarAt?: Date } = {},

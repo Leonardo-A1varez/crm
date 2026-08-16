@@ -69,6 +69,20 @@ export function PanelLista({
       ? [...filtrados].sort((a, b) => b.ultimaActividad.getTime() - a.ultimaActividad.getTime())
       : [];
 
+  // El contador se calcula sobre `items` y no sobre `filtrados`: es el aviso de
+  // cuánto trabajo agendado hay en total, y no tendría que cambiar porque
+  // alguien esté mirando solo WhatsApp.
+  const conSeguimiento = items.filter((item) => item.recordatorio !== null).length;
+
+  // Ascendente: el más próximo primero. Los vencidos quedan arriba de todo por
+  // ser los más viejos, que es exactamente donde tienen que estar.
+  const seguimientos =
+    orden === "seguimiento"
+      ? filtrados
+          .filter((item) => item.recordatorio !== null)
+          .sort((a, b) => a.recordatorio!.at.getTime() - b.recordatorio!.at.getTime())
+      : [];
+
   return (
     <div className="bg-surface-panel border-line-layout flex w-[322px] shrink-0 flex-col border-r">
       <div className="border-line-layout border-b px-3.5 py-3.5">
@@ -96,7 +110,7 @@ export function PanelLista({
         </div>
       </div>
 
-      <SelectorOrden />
+      <SelectorOrden conSeguimiento={conSeguimiento} />
       <FiltrosCanal />
 
       <div className="min-h-0 flex-1 overflow-y-auto pb-2">
@@ -112,6 +126,25 @@ export function PanelLista({
             }
             icon={<InboxIcon className="h-10 w-10" />}
           />
+        ) : orden === "seguimiento" ? (
+          seguimientos.length === 0 ? (
+            <EmptyState
+              title="Sin seguimientos agendados"
+              description="Cuando le pongas fecha a un seguimiento desde el panel del lead, la conversación aparece acá hasta que la resuelvas o el cliente vuelva a escribir."
+              icon={<InboxIcon className="h-10 w-10" />}
+            />
+          ) : (
+            <ul
+              aria-label="Conversaciones con seguimiento"
+              className="flex flex-col gap-1 px-2 pt-2"
+            >
+              {seguimientos.map((item) => (
+                <li key={item.leadId}>
+                  <InboxListItem item={item} conMotivo={false} conSeguimiento />
+                </li>
+              ))}
+            </ul>
+          )
         ) : orden === "recientes" ? (
           <ul aria-label="Inbox de conversaciones" className="flex flex-col gap-1 px-2 pt-2">
             {recientes.map((item) => (

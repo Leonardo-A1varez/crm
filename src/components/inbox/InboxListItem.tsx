@@ -9,6 +9,7 @@ import { InitialsAvatar } from "@/components/shared/InitialsAvatar";
 import { MonoMeta } from "@/components/shared/MonoMeta";
 import { StageBadge } from "@/components/shared/StageBadge";
 import { esperaLegible } from "@/lib/triage";
+import { seguimientoLegible } from "@/lib/ui/seguimiento";
 import { nombreVisible, sinNombre } from "@/lib/ui/lead";
 import { cn } from "@/lib/utils";
 import type { MotivoTriage } from "@/types/domain";
@@ -142,13 +143,21 @@ function FilaCompleta({
   item,
   activa,
   conMotivo,
+  conSeguimiento = false,
 }: {
   item: InboxItem;
   activa: boolean;
   conMotivo: boolean;
+  conSeguimiento?: boolean;
 }) {
   const motivo = conMotivo ? item.motivo : null;
   const chip = motivo ? CHIP_MOTIVO[motivo.tipo] : null;
+  // Solo en el modo Seguimiento: en triage y en Recientes la fila ya tiene
+  // etapa, canales, urgencia y hora, y una quinta señal la vuelve ilegible.
+  const seguimiento =
+    conSeguimiento && item.recordatorio
+      ? seguimientoLegible(item.recordatorio.at, new Date())
+      : null;
 
   return (
     <Link
@@ -196,7 +205,17 @@ function FilaCompleta({
               glifo="h-[13px] w-[13px]"
               permiteEtiqueta
             />
-            <MonoMeta className="shrink-0">{formatRelative(item.ultimaActividad)}</MonoMeta>
+            {seguimiento ? (
+              // El `title` va en el envoltorio porque `MonoMeta` no lo acepta:
+              // la nota del seguimiento no entra en la fila y en el hover sí.
+              <span className="shrink-0" title={item.recordatorio?.nota || undefined}>
+                <MonoMeta className={seguimiento.vencido ? "text-warn" : "text-ink-dim"}>
+                  {seguimiento.texto}
+                </MonoMeta>
+              </span>
+            ) : (
+              <MonoMeta className="shrink-0">{formatRelative(item.ultimaActividad)}</MonoMeta>
+            )}
           </div>
         </div>
 
@@ -252,10 +271,13 @@ export function InboxListItem({
   item,
   variante = "completa",
   conMotivo = true,
+  conSeguimiento = false,
 }: {
   item: InboxItem;
   variante?: "completa" | "compacta";
   conMotivo?: boolean;
+  /** Reemplaza la hora de última actividad por la fecha del seguimiento. */
+  conSeguimiento?: boolean;
 }) {
   const pathname = usePathname();
   const activa = pathname === `/inbox/${item.leadId}`;
@@ -263,6 +285,11 @@ export function InboxListItem({
   return variante === "compacta" ? (
     <FilaCompacta item={item} activa={activa} />
   ) : (
-    <FilaCompleta item={item} activa={activa} conMotivo={conMotivo} />
+    <FilaCompleta
+      item={item}
+      activa={activa}
+      conMotivo={conMotivo}
+      conSeguimiento={conSeguimiento}
+    />
   );
 }

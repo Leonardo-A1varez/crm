@@ -40,6 +40,17 @@ export interface InboxItem {
   urgencia: Urgencia;
   /** Por qué requiere atención; `null` = la IA la está manejando sola. */
   motivo: MotivoAtencion | null;
+  /**
+   * El seguimiento agendado que sigue vivo, o `null` si no hay ninguno.
+   *
+   * Vivo es `pendiente` o `avisado`: uno que ya disparó su aviso sigue siendo
+   * trabajo sin hacer. Solo desaparece al cancelarse, sea a mano o porque el
+   * cliente volvió a escribir.
+   *
+   * Puede estar **vencido** —`at` en el pasado— y eso no es un error: es el
+   * caso más urgente, y por eso el filtro de Seguimiento ordena ascendente.
+   */
+  recordatorio: { at: Date; nota: string } | null;
 }
 
 /**
