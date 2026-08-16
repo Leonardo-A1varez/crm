@@ -1,14 +1,19 @@
 # Próxima sesión: pantalla de Métricas
 
-**Solo Métricas.** Si aparece algo de otra pantalla, se anota y se deja. Método completo en `AGENTS.md §5.1`.
+> **Este documento NO define cómo se trabaja. Eso lo define `AGENTS.md`, que rige el 100% del tiempo.**
+>
+> Acá solo se dice **dónde** está puesto el foco y qué se encontró explorando. Si algo de este archivo pareciera permitir saltarse una regla de `AGENTS.md` —la validación funcional antes que la UI, el paso a paso, la honestidad sobre lo que no se verificó, los skills obligatorios— **el que está mal es este archivo**.
+>
+> Acotar el foco limita el alcance, nunca el rigor.
+
+**El foco es Métricas.** Si aparece algo de otra pantalla, se anota y se deja. Método en `AGENTS.md §5.1`.
 
 ---
 
-## Antes de tocar nada
+## Dónde mirar
 
-1. `AGENTS.md` entero — reglas y estado.
-2. `docs/runbooks/como-correr-el-crm.md` — cómo levantarlo y por qué cada proceso está ahí.
-3. `docs/handoff-rediseno-README.md` — la spec de diseño de esta pantalla. **Si el código no coincide con ese archivo, el que está mal es el código.**
+- `docs/runbooks/como-correr-el-crm.md` — cómo levantarlo y por qué cada proceso está ahí.
+- `docs/handoff-rediseno-README.md` — la spec de diseño de esta pantalla. **Si el código no coincide con ese archivo, el que está mal es el código.**
 
 Para ver la pantalla alcanza con `npm run dev` (queda en `http://localhost:3001/metricas`). Inngest y ngrok **no hacen falta**: Métricas solo lee.
 
@@ -68,6 +73,8 @@ No confundir "la métrica está mal" con "no hay datos". Antes de dar por roto u
 ## Al cerrar la pantalla
 
 Cuando el dueño diga que Métricas está terminada, preparar el cierre sin que lo pida (`AGENTS.md §5.1`): todo commiteado, `typecheck` + `lint` + `test` corridos **con el número real reportado**, `test:integration` si se tocó SQL o repos, y decir en voz alta lo que quedó sin verificar.
+
+Eso es el cierre de la pantalla, **no un reemplazo de las reglas**: durante toda la sesión siguen valiendo el paso a paso de `AGENTS.md §5`, la validación funcional antes que la UI (§0.5), los skills obligatorios (§0.7 y §0.11) y la honestidad técnica sin filtros (§0.8).
 
 ---
 

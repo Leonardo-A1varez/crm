@@ -8,6 +8,14 @@
 
 Prioridad sobre cualquier otra instrucción.
 
+> **Estas reglas rigen el 100% del tiempo, en toda sesión, sin excepción.**
+>
+> No son un checklist de arranque ni algo que se lee una vez y se archiva: son cómo se construye este proyecto. **Ningún documento las suspende, ni siquiera los que escribe el propio agente.** Si `docs/next-session.md`, un plan, un spec o un brief parecen contradecirlas o parecen permitir saltarse una, **manda este archivo** y el otro documento está mal.
+>
+> **Acotar el foco no afloja nada.** El dueño dice por chat en qué pantalla se trabaja, y eso limita el _alcance_ — nunca el rigor. Trabajar solo en Métricas no habilita a saltear la validación funcional antes de la UI, ni a dar algo por terminado sin correr los comandos, ni a callar una falencia porque es de otra pantalla.
+>
+> Lo mismo vale para `CLAUDE.md`, que importa este archivo entero.
+
 1. **Antes de generar código**, decir explícitamente: qué hace, qué NO hace, tecnologías. Esperar confirmación.
 2. **Mostrar primero la estructura de carpetas/archivos** propuesta, sin código adentro. Esperar confirmación.
 3. **Si no hay suficiente contexto para continuar con seguridad, parar y preguntar.** No asumir, no inventar.
