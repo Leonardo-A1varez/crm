@@ -7,13 +7,20 @@
  * - 23502 not_null_violation       → ValidationError
  * - 23514 check_violation          → ValidationError
  * - 42501 insufficient_privilege   → PermissionDeniedError
+ * - P0002 no_data_found            → NotFoundError
  *
  * Codes PostgREST custom:
  * - PGRST116 no rows (single())    → caller decide (null vs NotFoundError)
  * - PGRST301 JWT expired           → PermissionDeniedError
  */
 
-import { ConflictError, InfraError, PermissionDeniedError, ValidationError } from "@/lib/errors";
+import {
+  ConflictError,
+  InfraError,
+  NotFoundError,
+  PermissionDeniedError,
+  ValidationError,
+} from "@/lib/errors";
 
 export interface PostgrestErrorLike {
   code?: string;
@@ -48,6 +55,14 @@ export function mapPostgrestError(
       return new ValidationError(msg, { code, resource: context.resource }, err);
     case "23514":
       return new ValidationError(msg, { code, resource: context.resource }, err);
+    // Lo levantan las funciones PL/pgSQL con `RAISE ... USING ERRCODE` cuando
+    // la fila que iban a tocar no está, y `SELECT INTO STRICT` sin resultados.
+    // Sin este caso caían al fallback `InfraError`, que es **retriable**: un
+    // workflow reintentaba hasta agotarse buscando algo que no existe.
+    case "P0002":
+      // `id` va vacío: el error viene de Postgres y no trae cuál era la fila.
+      // El mensaje del RPC sí nombra qué no encontró.
+      return new NotFoundError(msg, context.resource ?? "desconocido", "", err);
     case "42501":
     case "PGRST301":
       return new PermissionDeniedError(msg, err);

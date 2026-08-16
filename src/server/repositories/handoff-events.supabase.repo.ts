@@ -26,7 +26,22 @@ export class SupabaseHandoffEventsRepository implements HandoffEventsRepository 
     });
     if (error) throw mapPostgrestError(error, { resource: "handoff_events" });
     const row = data?.[0];
-    if (!row) throw new InfraError("transition_handoff no devolvió evento", "postgrest");
+    // Cero filas tiene dos causas y una sola de ellas se reintenta: si la
+    // sesión no existe, reintentar no la va a hacer aparecer. Antes todo caía
+    // en `InfraError` —que es retriable— así que escalar una sesión borrada
+    // hacía reintentar a Inngest hasta agotar los intentos. La impl in-memory
+    // siempre lanzó `NotFoundError`; el contract test destapó la divergencia.
+    if (!row) {
+      const existe = await this.sessions.findById(input.sessionId);
+      if (!existe) {
+        throw new NotFoundError(
+          `sesión no encontrada: ${input.sessionId}`,
+          "lead_session",
+          input.sessionId,
+        );
+      }
+      throw new InfraError("transition_handoff no devolvió evento", "postgrest");
+    }
     const session = await this.sessions.findById(input.sessionId);
     if (!session) {
       throw new NotFoundError(
