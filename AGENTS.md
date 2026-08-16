@@ -506,6 +506,7 @@ Lista cerrada. No re-abrir sin pedido explícito.
 1. Lee `README.md` (product overview).
 2. Lee este `AGENTS.md` completo (reglas + estado).
 3. **Lee `docs/next-session.md` para resume instructions step-by-step + acción pendiente usuario.**
+   - **Para levantar el proyecto y entender por qué cada proceso está ahí: `docs/runbooks/como-correr-el-crm.md`.** Explica qué llamada sale y cuál entra —que es lo único que decide si hace falta ngrok—, las variables obligatorias, las dos bases (la de la nube y la local de Docker que solo usan los tests), cómo disparar el pipeline sin mandar un WhatsApp real, y la tabla de síntomas.
 4. `docs/changelog.md` para histórico detallado si necesitas contexto fases pasadas.
 5. **`docs/handoff-rediseno-README.md` es la spec de las 4 pantallas del rediseño** (Bandeja, Leads, Métricas, Agente IA): tokens, tipografía, medidas y comportamiento con valores exactos. Si una pantalla no coincide con ese archivo, el que está mal es el código. Entró al repo tarde y por eso hubo que auditar contra él lo ya construido.
 6. `docs/architecture.md`, `docs/data-model.md`, `docs/idempotency.md`, `docs/failure-modes.md`, `docs/cost-budget.md`, `docs/workflows.md`, `docs/security-threat-model.md`, `docs/database-tuning.md`, `docs/slo.md`, `docs/backup-strategy.md`, `docs/business-plan.md`, `docs/meta-platform-limits.md`, `docs/data-retention.md` para diseño + business + ops.
