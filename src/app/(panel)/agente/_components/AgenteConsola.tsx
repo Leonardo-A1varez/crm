@@ -17,6 +17,7 @@ import type { TabAgente } from "./tabs";
 import type {
   IntentConReglas,
   ReglaConIntent,
+  ReglaEtiquetaConNombres,
 } from "@/server/services/reglas/reglas-admin.service";
 import type { AgenteConfig, AgenteConfigValores } from "@/types/agente";
 
@@ -60,6 +61,8 @@ export function AgenteConsola({
   esAdmin,
   intents,
   reglas,
+  reglasEtiqueta,
+  etiquetas,
   tabInicial,
 }: {
   configActiva: AgenteConfig;
@@ -69,6 +72,9 @@ export function AgenteConsola({
   esAdmin: boolean;
   intents: IntentConReglas[];
   reglas: ReglaConIntent[];
+  reglasEtiqueta: ReglaEtiquetaConNombres[];
+  /** Catálogo para el selector del alta. Solo id y nombre: no se pinta acá. */
+  etiquetas: { id: string; nombre: string }[];
   tabInicial: TabAgente;
 }) {
   const router = useRouter();
@@ -137,7 +143,13 @@ export function AgenteConsola({
 
       <div className="pt-5">
         {tab === "reglas" ? (
-          <TabReglas intents={intents} reglas={reglas} esAdmin={esAdmin} />
+          <TabReglas
+            intents={intents}
+            reglas={reglas}
+            reglasEtiqueta={reglasEtiqueta}
+            etiquetas={etiquetas}
+            esAdmin={esAdmin}
+          />
         ) : null}
 
         {tab === "escalado" ? (

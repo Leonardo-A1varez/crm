@@ -3,20 +3,26 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { NuevaRegla } from "@/components/reglas/NuevaRegla";
+import { NuevaReglaEtiqueta } from "@/components/reglas/NuevaReglaEtiqueta";
 import { NuevoIntent } from "@/components/reglas/NuevoIntent";
 import {
+  borrarReglaEtiquetaAction,
   crearIntentAction,
   crearReglaAction,
+  crearReglaEtiquetaAction,
   setIntentActivoAction,
   setReglaActivaAction,
+  setReglaEtiquetaActivaAction,
 } from "../../intents-reglas/_actions/reglas.actions";
 import { DetalleRegla } from "./DetalleRegla";
 import { IntentsPendientes } from "./IntentsPendientes";
 import { TablaReglas } from "./TablaReglas";
+import { TablaReglasEtiqueta } from "./TablaReglasEtiqueta";
 import { TarjetaConsola } from "./TarjetaConsola";
 import type {
   IntentConReglas,
   ReglaConIntent,
+  ReglaEtiquetaConNombres,
 } from "@/server/services/reglas/reglas-admin.service";
 import type { RespuestaTipo } from "@/types/domain";
 import type { UUID } from "@/types/entities";
@@ -25,10 +31,14 @@ import type { ActionResult } from "@/types/inbox";
 export function TabReglas({
   intents,
   reglas,
+  reglasEtiqueta,
+  etiquetas,
   esAdmin,
 }: {
   intents: IntentConReglas[];
   reglas: ReglaConIntent[];
+  reglasEtiqueta: ReglaEtiquetaConNombres[];
+  etiquetas: { id: string; nombre: string }[];
   esAdmin: boolean;
 }) {
   const router = useRouter();
@@ -91,6 +101,32 @@ export function TabReglas({
             <code className="font-mono">rule_executions</code>, pero nadie los cuenta por ventana de
             tiempo; y el ahorro exige el costo del turno que la regla evitó, que no se registra por
             intent.
+          </p>
+        </TarjetaConsola>
+
+        <TarjetaConsola
+          titulo="Reglas que etiquetan"
+          subtitulo="marcan al lead y NO contestan — la conversación sigue con el agente"
+          acciones={
+            esAdmin ? (
+              <NuevaReglaEtiqueta
+                intents={activos}
+                etiquetas={etiquetas}
+                onCrear={crearReglaEtiquetaAction}
+              />
+            ) : undefined
+          }
+        >
+          <TablaReglasEtiqueta
+            filas={reglasEtiqueta}
+            esAdmin={esAdmin}
+            onToggle={setReglaEtiquetaActivaAction}
+            onBorrar={borrarReglaEtiquetaAction}
+          />
+          <p className="text-ink-ghost mt-3 text-[10.5px]">
+            A diferencia de las de arriba, acá aplican <strong>todas</strong> las que coincidan: un
+            mismo mensaje puede dejar dos etiquetas. Si un vendedor saca una a mano, la regla no se
+            la vuelve a colgar.
           </p>
         </TarjetaConsola>
 

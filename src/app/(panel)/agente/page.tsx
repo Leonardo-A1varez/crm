@@ -6,6 +6,7 @@ import {
   getAgentePreviewSessionsServiceForRequest,
 } from "@/server/bootstrap/agente-bootstrap";
 import { getReglasAdminServiceForRequest } from "@/server/bootstrap/reglas-bootstrap";
+import { getTagsAdminServiceForRequest } from "@/server/bootstrap/tags-bootstrap";
 import { AgenteConsola } from "./_components/AgenteConsola";
 import { PanelEstadoAgente } from "./_components/PanelEstadoAgente";
 import { esTabAgente } from "./_components/tabs";
@@ -23,20 +24,25 @@ export default async function AgentePage({
   // de la nav, así que es la que tiene que estar arriba al entrar.
   const tabInicial = esTabAgente(pedida) ? pedida : "reglas";
 
-  const [rol, agenteSvc, previewSessionsSvc, reglasSvc] = await Promise.all([
+  const [rol, agenteSvc, previewSessionsSvc, reglasSvc, tagsSvc] = await Promise.all([
     getCurrentRol(),
     getAgenteConfigServiceForRequest(),
     getAgentePreviewSessionsServiceForRequest(),
     getReglasAdminServiceForRequest(),
+    getTagsAdminServiceForRequest(),
   ]);
 
-  const [configActiva, historial, previewSessions, intents, reglas] = await Promise.all([
-    agenteSvc.activa(),
-    agenteSvc.historial(),
-    previewSessionsSvc.list(),
-    reglasSvc.listarIntents(),
-    reglasSvc.listarReglas(),
-  ]);
+  const [configActiva, historial, previewSessions, intents, reglas, reglasEtiqueta, etiquetas] =
+    await Promise.all([
+      agenteSvc.activa(),
+      agenteSvc.historial(),
+      previewSessionsSvc.list(),
+      reglasSvc.listarIntents(),
+      reglasSvc.listarReglas(),
+      reglasSvc.listarReglasEtiqueta(),
+      // Solo para el selector del alta: el catálogo se administra desde Leads.
+      tagsSvc.listar(),
+    ]);
 
   // Se resuelve en el server: `estaAbierto` depende de la timezone configurada
   // y calcularlo en el cliente daría un estado distinto en el primer render.
@@ -71,6 +77,8 @@ export default async function AgentePage({
             esAdmin={rol === "admin"}
             intents={intents}
             reglas={reglas}
+            reglasEtiqueta={reglasEtiqueta}
+            etiquetas={etiquetas.map((t) => ({ id: t.id, nombre: t.nombre }))}
             tabInicial={tabInicial}
           />
         ) : (

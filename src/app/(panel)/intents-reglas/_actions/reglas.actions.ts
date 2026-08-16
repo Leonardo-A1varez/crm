@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { DomainError, PermissionDeniedError } from "@/lib/errors";
+import { ConflictError, DomainError, PermissionDeniedError } from "@/lib/errors";
 import { RESPUESTA_TIPO } from "@/types/domain";
 import { getCurrentRol } from "@/server/auth/guards";
 import { getReglasAdminServiceForRequest } from "@/server/bootstrap/reglas-bootstrap";
@@ -31,6 +31,10 @@ const CrearReglaSchema = z.object({
 });
 
 const ToggleSchema = z.object({ id: UUIDSchema, valor: z.boolean() });
+
+const CrearReglaEtiquetaSchema = z.object({ intentId: UUIDSchema, tagId: UUIDSchema });
+
+const BorrarSchema = z.object({ id: UUIDSchema });
 
 /**
  * Las cuatro acciones revalidan `/agente` y no `/intents-reglas/*`: intents y
@@ -113,6 +117,58 @@ export async function setReglaActivaAction(raw: unknown): Promise<ActionResult> 
     await svc.setReglaActiva(parsed.data.id, parsed.data.valor);
   } catch (e) {
     return fallo(e, "No se pudo cambiar la regla.");
+  }
+  revalidatePath("/agente");
+  return { ok: true };
+}
+
+/**
+ * Las tres de etiquetado comparten el gate y la revalidación de arriba. Viven
+ * acá y no en `_actions` de `/agente` para que toda la administración de
+ * reglas —las que contestan y las que etiquetan— entre por la misma puerta.
+ */
+
+export async function crearReglaEtiquetaAction(raw: unknown): Promise<ActionResult> {
+  const parsed = CrearReglaEtiquetaSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Elegí un intent y una etiqueta." };
+  try {
+    await soloAdmin();
+    const svc = await getReglasAdminServiceForRequest();
+    await svc.crearReglaEtiqueta(parsed.data);
+  } catch (e) {
+    // `reglas_etiqueta_par_unico`: el mismo par colgaría la etiqueta dos veces.
+    if (e instanceof ConflictError) {
+      return { ok: false, error: "Ese intent ya cuelga esa etiqueta." };
+    }
+    return fallo(e, "No se pudo crear la regla de etiquetado.");
+  }
+  revalidatePath("/agente");
+  return { ok: true };
+}
+
+export async function setReglaEtiquetaActivaAction(raw: unknown): Promise<ActionResult> {
+  const parsed = ToggleSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Dato inválido." };
+  try {
+    await soloAdmin();
+    const svc = await getReglasAdminServiceForRequest();
+    await svc.setReglaEtiquetaActiva(parsed.data.id, parsed.data.valor);
+  } catch (e) {
+    return fallo(e, "No se pudo cambiar la regla de etiquetado.");
+  }
+  revalidatePath("/agente");
+  return { ok: true };
+}
+
+export async function borrarReglaEtiquetaAction(raw: unknown): Promise<ActionResult> {
+  const parsed = BorrarSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Dato inválido." };
+  try {
+    await soloAdmin();
+    const svc = await getReglasAdminServiceForRequest();
+    await svc.borrarReglaEtiqueta(parsed.data.id);
+  } catch (e) {
+    return fallo(e, "No se pudo borrar la regla de etiquetado.");
   }
   revalidatePath("/agente");
   return { ok: true };

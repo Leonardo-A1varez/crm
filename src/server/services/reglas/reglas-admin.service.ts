@@ -1,8 +1,10 @@
 import { ValidationError } from "@/lib/errors";
 import type { IntentsRepository } from "@/server/repositories/intents.repo";
+import type { ReglasEtiquetaRepository } from "@/server/repositories/reglas-etiqueta.repo";
 import type { RulesRepository } from "@/server/repositories/rules.repo";
+import type { TagsRepository } from "@/server/repositories/tags.repo";
 import type { RespuestaTipo } from "@/types/domain";
-import type { Intent, Regla, UUID } from "@/types/entities";
+import type { Intent, Regla, ReglaEtiqueta, UUID } from "@/types/entities";
 
 export interface IntentConReglas {
   intent: Intent;
@@ -21,6 +23,25 @@ export interface CrearIntentInput {
   ejemplos: string[];
 }
 
+/**
+ * Una regla de etiquetado con los nombres resueltos.
+ *
+ * La tabla guarda ids; la pantalla necesita mostrar "pide_factura → Pide
+ * factura" y el color del chip. Resolverlo acá evita que la UI pida los
+ * catálogos por su cuenta.
+ */
+export interface ReglaEtiquetaConNombres {
+  regla: ReglaEtiqueta;
+  intentNombre: string;
+  tagNombre: string;
+  tagColor: string;
+}
+
+export interface CrearReglaEtiquetaInput {
+  intentId: UUID;
+  tagId: UUID;
+}
+
 export interface CrearReglaInput {
   intentId: UUID;
   respuestaTipo: RespuestaTipo;
@@ -35,10 +56,21 @@ export interface ReglasAdminService {
   setIntentActivo(id: UUID, activo: boolean): Promise<Intent>;
   crearRegla(input: CrearReglaInput): Promise<Regla>;
   setReglaActiva(id: UUID, activa: boolean): Promise<Regla>;
+  listarReglasEtiqueta(): Promise<ReglaEtiquetaConNombres[]>;
+  crearReglaEtiqueta(input: CrearReglaEtiquetaInput): Promise<ReglaEtiqueta>;
+  setReglaEtiquetaActiva(id: UUID, activa: boolean): Promise<ReglaEtiqueta>;
+  borrarReglaEtiqueta(id: UUID): Promise<void>;
 }
 
 export class DefaultReglasAdminService implements ReglasAdminService {
-  constructor(private readonly deps: { intents: IntentsRepository; rules: RulesRepository }) {}
+  constructor(
+    private readonly deps: {
+      intents: IntentsRepository;
+      rules: RulesRepository;
+      reglasEtiqueta: ReglasEtiquetaRepository;
+      tags: TagsRepository;
+    },
+  ) {}
 
   async listarIntents(): Promise<IntentConReglas[]> {
     const [intents, reglas] = await Promise.all([this.deps.intents.list(), this.deps.rules.list()]);
@@ -107,5 +139,50 @@ export class DefaultReglasAdminService implements ReglasAdminService {
 
   async setReglaActiva(id: UUID, activa: boolean): Promise<Regla> {
     return this.deps.rules.update(id, { activa });
+  }
+
+  async listarReglasEtiqueta(): Promise<ReglaEtiquetaConNombres[]> {
+    const [reglas, intents, tags] = await Promise.all([
+      this.deps.reglasEtiqueta.list(),
+      this.deps.intents.list(),
+      this.deps.tags.list(),
+    ]);
+    const intentPorId = new Map(intents.map((i) => [i.id, i.nombre]));
+    const tagPorId = new Map(tags.map((t) => [t.id, t]));
+
+    return reglas
+      .map((regla) => {
+        const tag = tagPorId.get(regla.tag_id);
+        return {
+          regla,
+          intentNombre: intentPorId.get(regla.intent_id) ?? "(intent borrado)",
+          // La FK es RESTRICT, así que una etiqueta usada no se puede borrar y
+          // este fallback no debería verse nunca. Está por si alguien la saca
+          // por SQL: mejor una fila rara que una pantalla rota.
+          tagNombre: tag?.nombre ?? "(etiqueta borrada)",
+          tagColor: tag?.color ?? "#888888",
+        };
+      })
+      .sort(
+        (a, b) =>
+          a.intentNombre.localeCompare(b.intentNombre) || a.tagNombre.localeCompare(b.tagNombre),
+      );
+  }
+
+  async crearReglaEtiqueta(input: CrearReglaEtiquetaInput): Promise<ReglaEtiqueta> {
+    return this.deps.reglasEtiqueta.create({
+      intent_id: input.intentId,
+      tag_id: input.tagId,
+      condiciones_extra: null,
+      activa: true,
+    });
+  }
+
+  async setReglaEtiquetaActiva(id: UUID, activa: boolean): Promise<ReglaEtiqueta> {
+    return this.deps.reglasEtiqueta.update(id, { activa });
+  }
+
+  async borrarReglaEtiqueta(id: UUID): Promise<void> {
+    return this.deps.reglasEtiqueta.delete(id);
   }
 }
