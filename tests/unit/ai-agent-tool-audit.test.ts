@@ -11,6 +11,7 @@ import { AllEnabledFeatureFlags } from "@/lib/feature-flags";
 import { FakeAgentLLM } from "../mocks/llm";
 import type { IntentClassification } from "@/lib/validation/ai";
 import type { LeadSession } from "@/types/entities";
+import { InMemoryReglasEtiquetaRepository } from "@/server/repositories/reglas-etiqueta.repo";
 
 function cls(n: string | null): IntentClassification {
   return { intent_nombre: n, confidence: n ? 0.9 : 0 };
@@ -53,7 +54,7 @@ describe("ai-agent tool execution audit", () => {
     llm = new FakeAgentLLM();
     svc = new DefaultAiAgentService(
       sessions,
-      new DefaultRuleEngineService(intents, rules),
+      new DefaultRuleEngineService(intents, rules, new InMemoryReglasEtiquetaRepository()),
       new DefaultCatalogMatcherService(productos),
       llm,
       new AllEnabledFeatureFlags(),
@@ -141,7 +142,7 @@ describe("ai-agent tool execution audit", () => {
     };
     const failingSvc = new DefaultAiAgentService(
       sessions,
-      new DefaultRuleEngineService(intents, rules),
+      new DefaultRuleEngineService(intents, rules, new InMemoryReglasEtiquetaRepository()),
       failingCatalog as unknown as DefaultCatalogMatcherService,
       llm,
       new AllEnabledFeatureFlags(),
@@ -202,7 +203,7 @@ describe("ai-agent tool execution audit", () => {
     };
     const failingSvc = new DefaultAiAgentService(
       sessions,
-      new DefaultRuleEngineService(intents, rules),
+      new DefaultRuleEngineService(intents, rules, new InMemoryReglasEtiquetaRepository()),
       failingCatalog as unknown as DefaultCatalogMatcherService,
       llm,
       new AllEnabledFeatureFlags(),

@@ -60,6 +60,8 @@ import type {
 import { makeEmitForOnMessageReceived, makeInngestEmitForOutbox } from "@/inngest/callbacks/emit";
 import { makePurgeSession } from "@/inngest/callbacks/purge-session";
 import { makeSendReactivation } from "@/inngest/callbacks/send-reactivation";
+import { InMemoryReglasEtiquetaRepository } from "@/server/repositories/reglas-etiqueta.repo";
+import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
 
 export interface SmokeBundle {
   deps: CrmInngestDeps;
@@ -143,7 +145,11 @@ export function makeSmokeBundle(): SmokeBundle {
 
   // ===== Services Default impls (DI repos + LLMs) =====
   const catalog = new DefaultCatalogMatcherService(productos);
-  const ruleEngine = new DefaultRuleEngineService(intents, rules);
+  const ruleEngine = new DefaultRuleEngineService(
+    intents,
+    rules,
+    new InMemoryReglasEtiquetaRepository(),
+  );
   const intentClassifier = new DefaultIntentClassifierService(intents, llmBundle.intentClassifier);
   const twinExtractor = new DefaultTwinExtractorService(
     sessions,
@@ -195,6 +201,8 @@ export function makeSmokeBundle(): SmokeBundle {
       aiAgent,
       ruleExecutions: new InMemoryRuleExecutionsRepository(),
       turnClassifications: new InMemoryTurnClassificationsRepository(),
+      ruleEngine,
+      tags: new InMemoryTagsRepository(),
       intents,
       identificadores,
       recordatorios,

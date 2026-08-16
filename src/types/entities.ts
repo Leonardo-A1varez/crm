@@ -234,6 +234,23 @@ export interface Intent {
   activo: boolean;
 }
 
+/**
+ * Qué etiqueta colgar ante qué intent. **No contesta**: el turno sigue.
+ *
+ * Vive aparte de `Regla` porque las dos tienen reglas de selección opuestas: de
+ * las que contestan gana una sola —la de mayor prioridad— y corta el LLM; de
+ * estas aplican todas las que matcheen y no cortan nada. Por eso acá no hay
+ * `prioridad`: no habría a qué compararla.
+ */
+export interface ReglaEtiqueta {
+  id: UUID;
+  intent_id: UUID;
+  tag_id: UUID;
+  condiciones_extra: Record<string, unknown> | null;
+  activa: boolean;
+  created_at: Date;
+}
+
 export interface Regla {
   id: UUID;
   intent_id: UUID;

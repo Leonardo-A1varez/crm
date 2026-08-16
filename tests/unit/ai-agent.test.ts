@@ -9,6 +9,7 @@ import { DefaultAiAgentService } from "@/server/services/ai-agent.service";
 import type { LeadSession, Intent } from "@/types/entities";
 import type { IntentClassification } from "@/lib/validation/ai";
 import { FakeAgentLLM } from "../mocks/llm";
+import { InMemoryReglasEtiquetaRepository } from "@/server/repositories/reglas-etiqueta.repo";
 
 async function seedSession(
   repo: InMemoryLeadSessionRepository,
@@ -65,7 +66,7 @@ describe("AiAgentService.respond", () => {
     llm = new FakeAgentLLM();
     svc = new DefaultAiAgentService(
       sessions,
-      new DefaultRuleEngineService(intents, rules),
+      new DefaultRuleEngineService(intents, rules, new InMemoryReglasEtiquetaRepository()),
       new DefaultCatalogMatcherService(productos),
       llm,
     );
@@ -281,7 +282,7 @@ describe("AiAgentService.respond — escalado §4.2", () => {
   function armar(): DefaultAiAgentService {
     return new DefaultAiAgentService(
       sessions,
-      new DefaultRuleEngineService(intents, rules),
+      new DefaultRuleEngineService(intents, rules, new InMemoryReglasEtiquetaRepository()),
       new DefaultCatalogMatcherService(productos),
       llm,
     );

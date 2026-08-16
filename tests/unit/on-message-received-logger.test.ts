@@ -26,6 +26,8 @@ import type { Logger, LogContext } from "@/lib/observability/logger";
 import type { ParsedMessage } from "@/lib/meta/parse-webhook";
 import { FakeAgentLLM, FakeIntentClassifierLLM } from "../mocks/llm";
 import { FakeMetaApiClient } from "../mocks/meta";
+import { InMemoryReglasEtiquetaRepository } from "@/server/repositories/reglas-etiqueta.repo";
+import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
 
 type LogEntry = { level: string; msg: string; ctx: LogContext };
 
@@ -90,7 +92,11 @@ function makeDeps(logger?: Logger) {
 
   const metaApi = new DefaultMetaApiService(conversations, messages, metaClient);
   const intentClassifier = new DefaultIntentClassifierService(intents, intentLLM);
-  const ruleEngine = new DefaultRuleEngineService(intents, rules);
+  const ruleEngine = new DefaultRuleEngineService(
+    intents,
+    rules,
+    new InMemoryReglasEtiquetaRepository(),
+  );
   const catalog = new DefaultCatalogMatcherService(productos);
   const aiAgent = new DefaultAiAgentService(sessions, ruleEngine, catalog, agentLLM);
 
@@ -109,6 +115,8 @@ function makeDeps(logger?: Logger) {
     aiAgent,
     ruleExecutions: new InMemoryRuleExecutionsRepository(),
     turnClassifications: new InMemoryTurnClassificationsRepository(),
+    ruleEngine,
+    tags: new InMemoryTagsRepository(),
     intents,
     identificadores,
     configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),

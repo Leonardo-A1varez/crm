@@ -1,4 +1,5 @@
 import type { IntentsRepository } from "@/server/repositories/intents.repo";
+import type { ReglasEtiquetaRepository } from "@/server/repositories/reglas-etiqueta.repo";
 import type { RulesRepository } from "@/server/repositories/rules.repo";
 import type { RespuestaTipo } from "@/types/domain";
 import type { UUID } from "@/types/entities";
@@ -17,12 +18,22 @@ export interface RuleMatchResult {
 
 export interface RuleEngineService {
   match(input: RuleMatchInput): Promise<RuleMatchResult | null>;
+  /**
+   * Las etiquetas que corresponden a este turno. Puede ser ninguna.
+   *
+   * A diferencia de `match`, devuelve **todas** las reglas que matchean y no la
+   * primera: no compiten por el único lugar de la respuesta, así que un mismo
+   * mensaje puede dejar dos etiquetas. Y no corta nada — el turno sigue su
+   * curso, conteste una regla enlatada o conteste el LLM.
+   */
+  etiquetasPara(input: RuleMatchInput): Promise<UUID[]>;
 }
 
 export class DefaultRuleEngineService implements RuleEngineService {
   constructor(
     private readonly intents: IntentsRepository,
     private readonly rules: RulesRepository,
+    private readonly reglasEtiqueta: ReglasEtiquetaRepository,
   ) {}
 
   async match(input: RuleMatchInput): Promise<RuleMatchResult | null> {
@@ -43,6 +54,21 @@ export class DefaultRuleEngineService implements RuleEngineService {
       }
     }
     return null;
+  }
+
+  async etiquetasPara(input: RuleMatchInput): Promise<UUID[]> {
+    if (input.intent_nombre === null) return [];
+
+    const intent = await this.intents.findByNombre(input.intent_nombre);
+    if (!intent || !intent.activo) return [];
+
+    const candidatas = await this.reglasEtiqueta.listActiveByIntent(intent.id);
+    const out: UUID[] = [];
+    for (const r of candidatas) {
+      // Sin `break`: todas las que cumplan aportan su etiqueta.
+      if (matchesCondiciones(r.condiciones_extra, input.context)) out.push(r.tag_id);
+    }
+    return out;
   }
 }
 

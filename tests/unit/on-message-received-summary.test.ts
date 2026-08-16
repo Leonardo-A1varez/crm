@@ -24,6 +24,8 @@ import {
 import type { ParsedMessage } from "@/lib/meta/parse-webhook";
 import { FakeAgentLLM, FakeIntentClassifierLLM } from "../mocks/llm";
 import { FakeMetaApiClient } from "../mocks/meta";
+import { InMemoryReglasEtiquetaRepository } from "@/server/repositories/reglas-etiqueta.repo";
+import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
 
 function parsed(overrides: Partial<ParsedMessage> = {}): ParsedMessage {
   return {
@@ -55,7 +57,11 @@ function makeDeps() {
 
   const metaApi = new DefaultMetaApiService(conversations, messages, metaClient);
   const intentClassifier = new DefaultIntentClassifierService(intents, intentLLM);
-  const ruleEngine = new DefaultRuleEngineService(intents, rules);
+  const ruleEngine = new DefaultRuleEngineService(
+    intents,
+    rules,
+    new InMemoryReglasEtiquetaRepository(),
+  );
   const catalog = new DefaultCatalogMatcherService(productos);
   const aiAgent = new DefaultAiAgentService(sessions, ruleEngine, catalog, agentLLM);
 
@@ -74,6 +80,8 @@ function makeDeps() {
     aiAgent,
     ruleExecutions: new InMemoryRuleExecutionsRepository(),
     turnClassifications: new InMemoryTurnClassificationsRepository(),
+    ruleEngine,
+    tags: new InMemoryTagsRepository(),
     intents,
     identificadores: new InMemoryLeadIdentificadoresRepository(),
     configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),

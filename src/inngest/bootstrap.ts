@@ -33,6 +33,8 @@ import { SupabaseLeadSessionRepository } from "@/server/repositories/lead-sessio
 import { SupabaseLeadsRepository } from "@/server/repositories/leads.supabase.repo";
 import { SupabaseLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.supabase.repo";
 import { SupabaseLeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.supabase.repo";
+import { SupabaseReglasEtiquetaRepository } from "@/server/repositories/reglas-etiqueta.supabase.repo";
+import { SupabaseTagsRepository } from "@/server/repositories/tags.supabase.repo";
 import { SupabaseMergeCandidatesRepository } from "@/server/repositories/merge-candidates.supabase.repo";
 import { SupabaseMessagesRepository } from "@/server/repositories/messages.supabase.repo";
 import { SupabaseProductsRepository } from "@/server/repositories/productos.supabase.repo";
@@ -100,6 +102,8 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   const mergeCandidates = new SupabaseMergeCandidatesRepository(db);
   const identificadores = new SupabaseLeadIdentificadoresRepository(db);
   const vehiculos = new SupabaseLeadVehiculosRepository(db);
+  const reglasEtiqueta = new SupabaseReglasEtiquetaRepository(db);
+  const tags = new SupabaseTagsRepository(db);
   const eventOutbox = new SupabaseEventOutboxRepository(db);
   const toolExecutions = new SupabaseToolExecutionsRepository(db);
   const recordatorios = new SupabaseSessionRecordatoriosRepository(db);
@@ -158,7 +162,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
 
   // ===== Services Default impls (DI repos + LLMs) =====
   const catalog = new DefaultCatalogMatcherService(productos);
-  const ruleEngine = new DefaultRuleEngineService(intents, rules);
+  const ruleEngine = new DefaultRuleEngineService(intents, rules, reglasEtiqueta);
   const intentClassifier = new DefaultIntentClassifierService(intents, llmBundle.intentClassifier);
   const twinExtractor = new DefaultTwinExtractorService(
     sessions,
@@ -220,6 +224,10 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       configProvider: agenteConfigProvider,
       ruleExecutions,
       turnClassifications,
+      // Mismo motor que elige la respuesta enlatada: acá se le pide el otro
+      // método, el que dice qué etiquetas corresponden al turno.
+      ruleEngine,
+      tags,
       intents,
       // Misma instancia que usa el detector de duplicados: el lead que nace del
       // webhook tiene que dejar su teléfono acá o el detector no lo ve.

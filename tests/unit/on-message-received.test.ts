@@ -30,6 +30,8 @@ import type { ParsedMessage } from "@/lib/meta/parse-webhook";
 import { DIAS_SEMANA, type Horario } from "@/types/agente";
 import { FakeAgentLLM, FakeIntentClassifierLLM } from "../mocks/llm";
 import { FakeMetaApiClient } from "../mocks/meta";
+import { InMemoryReglasEtiquetaRepository } from "@/server/repositories/reglas-etiqueta.repo";
+import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
 
 /** Horario sin ningun rango en ningun dia: `estaAbierto` da false siempre. */
 function horarioCerradoSiempre(): Horario {
@@ -93,7 +95,12 @@ function makeDeps(
 
   const metaApi = new DefaultMetaApiService(conversations, messages, metaClient);
   const intentClassifier = new DefaultIntentClassifierService(intents, intentLLM);
-  const ruleEngine = new DefaultRuleEngineService(intents, rules);
+  const tags = new InMemoryTagsRepository();
+  const ruleEngine = new DefaultRuleEngineService(
+    intents,
+    rules,
+    new InMemoryReglasEtiquetaRepository(),
+  );
   const catalog = new DefaultCatalogMatcherService(productos);
   const aiAgent = new DefaultAiAgentService(sessions, ruleEngine, catalog, agentLLM);
 
@@ -112,6 +119,8 @@ function makeDeps(
     aiAgent,
     ruleExecutions,
     turnClassifications,
+    ruleEngine,
+    tags,
     intents,
     identificadores,
     recordatorios,

@@ -22,11 +22,13 @@ import {
   NoopSessionRecordatoriosRepository,
   type SessionRecordatoriosRepository,
 } from "@/server/repositories/session-recordatorios.repo";
+import type { TagsRepository } from "@/server/repositories/tags.repo";
 import type { TurnClassificationsRepository } from "@/server/repositories/turn-classifications.repo";
 import type { AgentConfigProvider } from "@/server/services/agente/config-provider";
 import type { AiAgentService } from "@/server/services/ai-agent.service";
 import type { IntentClassifierService } from "@/server/services/intent-classifier.service";
 import type { MetaApiService } from "@/server/services/meta-api.service";
+import type { RuleEngineService } from "@/server/services/rule-engine.service";
 import type { HandoffService } from "@/server/services/handoff.service";
 import type { Canal } from "@/types/domain";
 import type { Lead, LeadSession, MetaUserIds, UUID } from "@/types/entities";
@@ -56,6 +58,17 @@ export interface OnMessageReceivedDeps {
   handoff?: HandoffService;
   ruleExecutions: RuleExecutionsRepository;
   turnClassifications: TurnClassificationsRepository;
+  /**
+   * Qué etiquetas manda colgar el intent de este turno. Es el mismo motor que
+   * elige la respuesta enlatada, con su otro método.
+   */
+  ruleEngine: RuleEngineService;
+  /**
+   * Dónde se cuelgan esas etiquetas. Obligatoria a propósito, igual que
+   * `identificadores`: con un default no-op, un caller que la olvide deja el
+   * etiquetado automático muerto sin que falle nada.
+   */
+  tags: TagsRepository;
   /** Solo para resolver el intent clasificado a su id al auditar el turno. */
   intents: IntentsRepository;
   /**
@@ -265,6 +278,20 @@ export async function onMessageReceivedHandler(
       confidence: classification.confidence,
     });
 
+    // Step propio y no adentro de `respond`: etiquetar no es parte de generar
+    // una respuesta, y separarlo garantiza que ocurra igual conteste una regla
+    // enlatada —que devuelve temprano— o conteste el LLM. Justo los turnos que
+    // alguien se tomó el trabajo de automatizar son los que más señal tienen.
+    await step.run("etiquetar-por-reglas", () =>
+      etiquetarPorReglas(
+        lead.id,
+        classification.intent_nombre,
+        { current_stage: session.current_stage, urgencia: session.urgencia },
+        deps,
+        logger,
+      ),
+    );
+
     const conversationTurn = await step.run("build-turn", () =>
       buildConversationTurn(
         conv.id,
@@ -443,6 +470,43 @@ async function resolveLead(
 
   const created = await leads.create(buildPlaceholderLead(parsed));
   return { lead: created, created: true };
+}
+
+/**
+ * Cuelga las etiquetas que las reglas mandan para este turno.
+ *
+ * `assignToLead` con `source: "workflow"` es idempotente y además no revive una
+ * etiqueta que una persona sacó a mano: la fila descartada sigue en la tabla
+ * justamente para eso. Así el reintento de Inngest es inofensivo y el vendedor
+ * no ve volver lo que acaba de quitar.
+ *
+ * Un fallo no tumba el turno: el mensaje del cliente tiene que contestarse
+ * igual y la etiqueta es una anotación. Se traga adentro del step para que
+ * Inngest no reintente el turno entero —y con él la llamada al LLM— por una
+ * fila de `lead_tags`; el próximo mensaje del cliente vuelve a intentarlo.
+ */
+async function etiquetarPorReglas(
+  leadId: UUID,
+  intentNombre: string | null,
+  contexto: Record<string, unknown>,
+  deps: OnMessageReceivedDeps,
+  logger: Logger,
+): Promise<void> {
+  try {
+    const tagIds = await deps.ruleEngine.etiquetasPara({
+      intent_nombre: intentNombre,
+      context: contexto,
+    });
+    for (const tagId of tagIds) {
+      await deps.tags.assignToLead(leadId, tagId, "workflow");
+    }
+    if (tagIds.length > 0) logger.info("etiquetas-por-regla", { cantidad: tagIds.length });
+  } catch (e) {
+    logger.warn("etiquetado-por-regla-fallo", {
+      lead_id: leadId,
+      error_name: (e as Error).name,
+    });
+  }
 }
 
 /**

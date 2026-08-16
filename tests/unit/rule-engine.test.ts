@@ -3,6 +3,7 @@ import { InMemoryIntentsRepository } from "@/server/repositories/intents.repo";
 import { InMemoryRulesRepository } from "@/server/repositories/rules.repo";
 import { DefaultRuleEngineService } from "@/server/services/rule-engine.service";
 import type { Intent, Regla } from "@/types/entities";
+import { InMemoryReglasEtiquetaRepository } from "@/server/repositories/reglas-etiqueta.repo";
 
 async function seedIntent(
   intents: InMemoryIntentsRepository,
@@ -34,12 +35,14 @@ async function seedRegla(
 describe("RuleEngineService.match", () => {
   let intents: InMemoryIntentsRepository;
   let rules: InMemoryRulesRepository;
+  let reglasEtiqueta: InMemoryReglasEtiquetaRepository;
   let svc: DefaultRuleEngineService;
 
   beforeEach(() => {
     intents = new InMemoryIntentsRepository();
     rules = new InMemoryRulesRepository();
-    svc = new DefaultRuleEngineService(intents, rules);
+    reglasEtiqueta = new InMemoryReglasEtiquetaRepository();
+    svc = new DefaultRuleEngineService(intents, rules, reglasEtiqueta);
   });
 
   test("intent_nombre null retorna null", async () => {
@@ -201,6 +204,79 @@ describe("RuleEngineService.match", () => {
       intent_id: i.id,
       respuesta_tipo: "handoff",
       respuesta_contenido: "Pasando a humano",
+    });
+  });
+
+  // A diferencia de las reglas que contestan —donde gana una sola, la de mayor
+  // prioridad, y el LLM ni se llama— estas no compiten por ningun lugar: el turno
+  // sigue igual y el lead puede quedar con varias etiquetas del mismo mensaje.
+  describe("RuleEngineService.etiquetasPara", () => {
+    const TAG_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const TAG_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+    test("sin intent no hay etiquetas", async () => {
+      expect(await svc.etiquetasPara({ intent_nombre: null, context: {} })).toEqual([]);
+    });
+
+    test("aplican TODAS las que matchean, no la primera", async () => {
+      const intent = await seedIntent(intents, { nombre: "consulta_precio" });
+      await reglasEtiqueta.create({
+        intent_id: intent.id,
+        tag_id: TAG_A,
+        condiciones_extra: null,
+        activa: true,
+      });
+      await reglasEtiqueta.create({
+        intent_id: intent.id,
+        tag_id: TAG_B,
+        condiciones_extra: null,
+        activa: true,
+      });
+
+      const tags = await svc.etiquetasPara({ intent_nombre: intent.nombre, context: {} });
+
+      expect(tags).toEqual([TAG_A, TAG_B]);
+    });
+
+    test("una regla desactivada no etiqueta", async () => {
+      const intent = await seedIntent(intents, { nombre: "consulta_precio" });
+      await reglasEtiqueta.create({
+        intent_id: intent.id,
+        tag_id: TAG_A,
+        condiciones_extra: null,
+        activa: false,
+      });
+
+      expect(await svc.etiquetasPara({ intent_nombre: intent.nombre, context: {} })).toEqual([]);
+    });
+
+    test("las condiciones extra se evaluan igual que en match", async () => {
+      const intent = await seedIntent(intents, { nombre: "consulta_precio" });
+      await reglasEtiqueta.create({
+        intent_id: intent.id,
+        tag_id: TAG_A,
+        condiciones_extra: { urgencia: "alta" },
+        activa: true,
+      });
+
+      expect(
+        await svc.etiquetasPara({ intent_nombre: intent.nombre, context: { urgencia: "media" } }),
+      ).toEqual([]);
+      expect(
+        await svc.etiquetasPara({ intent_nombre: intent.nombre, context: { urgencia: "alta" } }),
+      ).toEqual([TAG_A]);
+    });
+
+    test("un intent inactivo no etiqueta", async () => {
+      const intent = await seedIntent(intents, { nombre: "consulta_precio", activo: false });
+      await reglasEtiqueta.create({
+        intent_id: intent.id,
+        tag_id: TAG_A,
+        condiciones_extra: null,
+        activa: true,
+      });
+
+      expect(await svc.etiquetasPara({ intent_nombre: intent.nombre, context: {} })).toEqual([]);
     });
   });
 });

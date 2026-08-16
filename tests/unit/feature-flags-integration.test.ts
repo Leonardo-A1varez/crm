@@ -14,6 +14,7 @@ import { FakeAgentLLM } from "../mocks/llm";
 import type { IntentClassification } from "@/lib/validation/ai";
 import type { MotivoPerdida, Resultado } from "@/types/domain";
 import type { LeadSession } from "@/types/entities";
+import { InMemoryReglasEtiquetaRepository } from "@/server/repositories/reglas-etiqueta.repo";
 
 function cls(n: string | null): IntentClassification {
   return { intent_nombre: n, confidence: n ? 0.9 : 0 };
@@ -49,7 +50,7 @@ describe("ai-agent feature flag", () => {
 
     const svc = new DefaultAiAgentService(
       sessions,
-      new DefaultRuleEngineService(intents, rules),
+      new DefaultRuleEngineService(intents, rules, new InMemoryReglasEtiquetaRepository()),
       new DefaultCatalogMatcherService(productos),
       llm,
       flags,
@@ -78,7 +79,7 @@ describe("ai-agent feature flag", () => {
 
     const svc = new DefaultAiAgentService(
       sessions,
-      new DefaultRuleEngineService(intents, rules),
+      new DefaultRuleEngineService(intents, rules, new InMemoryReglasEtiquetaRepository()),
       new DefaultCatalogMatcherService(productos),
       llm,
       flags,
