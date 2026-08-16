@@ -24,7 +24,7 @@ Una etiqueta que alguien tiene que acordarse de poner a mano contradice la tesis
 **No entra:**
 
 - Fusionar o renombrar etiquetas en masa. Se difiere hasta que la cantidad de etiquetas lo haga doler.
-- Mostrar en el modal qué reglas usan cada etiqueta. En su lugar, borrar una etiqueta en uso **falla con un mensaje claro** (ver §3.1).
+- Mostrar en el modal qué reglas usan cada etiqueta. En su lugar, borrar una etiqueta en uso **falla con un mensaje claro** (ver §4.2).
 - Etiquetas que cambien el comportamiento del sistema (pausar la IA, excluir de reactivación, priorizar en triage). Se difiere.
 - Etiquetado desde el extractor de conversación (taller vs particular, pide factura, regatea). Se difiere.
 
