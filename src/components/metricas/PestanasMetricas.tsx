@@ -22,11 +22,23 @@ const PESTANAS: { tab: TabMetricas; label: string; icono: LucideIcon; aclaracion
 
 /**
  * Los tres cortes del handoff §3. Son links y no estado de cliente para que la
- * vista sea compartible y sobreviva a un refresh, igual que el selector de días.
- * La ventana viaja en el href: cambiar de pestaña no debe resetearla.
+ * vista sea compartible y sobreviva a un refresh, igual que el selector de
+ * rango. La ventana (y la campaña, si hay una elegida) viaja en el href:
+ * cambiar de pestaña no debe resetearlas.
  */
-export function PestanasMetricas({ activa, dias }: { activa: TabMetricas; dias: number }) {
+export function PestanasMetricas({
+  activa,
+  desde,
+  hasta,
+  campania,
+}: {
+  activa: TabMetricas;
+  desde: string;
+  hasta: string;
+  campania: string | null;
+}) {
   const aclaracion = PESTANAS.find((p) => p.tab === activa)?.aclaracion;
+  const base = `/metricas?desde=${desde}&hasta=${hasta}${campania ? `&campania=${campania}` : ""}`;
 
   return (
     <div className="border-line-layout bg-surface-panel flex shrink-0 items-center justify-between gap-4 border-b px-5">
@@ -36,7 +48,7 @@ export function PestanasMetricas({ activa, dias }: { activa: TabMetricas; dias: 
           return (
             <Link
               key={tab}
-              href={`/metricas?dias=${dias}&tab=${tab}`}
+              href={`${base}&tab=${tab}`}
               aria-current={esActiva ? "page" : undefined}
               className={cn(
                 "flex items-center gap-1.5 border-b-2 px-2.5 py-2.5 text-[12.5px] font-semibold transition-colors",
