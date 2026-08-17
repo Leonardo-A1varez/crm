@@ -22,9 +22,13 @@ const DIA_MS = 24 * 60 * 60 * 1000;
  * límite exclusivo +1 día que al resto de las fuentes (rango libre,
  * campaña): por eso acá tiene que viajar como día de calendario, igual
  * que las otras, y no como instante exacto.
+ *
+ * `hoy` llega como prop desde el server y no sale de un `new Date()` local:
+ * el mismo `rangoDeAtajo` decide qué píldora se pinta activa, y con dos relojes
+ * (el del server que armó `desde`/`hasta` y el del navegador) el HTML del
+ * server y el primer render del cliente pueden diferir cruzando la medianoche.
  */
-function rangoDeAtajo(dias: number): { desde: string; hasta: string } {
-  const hoy = aInputDate(new Date());
+function rangoDeAtajo(dias: number, hoy: string): { desde: string; hasta: string } {
   const hastaDate = new Date(`${hoy}T00:00:00.000Z`);
   const desdeDate = new Date(hastaDate.getTime() - (dias - 1) * DIA_MS);
   return { desde: aInputDate(desdeDate), hasta: hoy };
@@ -34,6 +38,7 @@ export function SelectorRango({
   tab,
   desde,
   hasta,
+  hoy,
   campaniaId,
   campanias,
   onCrearCampania,
@@ -43,6 +48,8 @@ export function SelectorRango({
   tab: string;
   desde: string;
   hasta: string;
+  /** Hoy como día de calendario (`YYYY-MM-DD`), resuelto en el server. */
+  hoy: string;
   campaniaId: string | null;
   campanias: Campania[];
   onCrearCampania: (values: CampaniaFormValues) => Promise<ActionResult>;
@@ -63,7 +70,7 @@ export function SelectorRango({
   };
 
   const atajoActivo = ATAJOS.find((n) => {
-    const r = rangoDeAtajo(n);
+    const r = rangoDeAtajo(n, hoy);
     return r.desde === desde && r.hasta === hasta && campaniaId === null;
   });
 
@@ -74,7 +81,7 @@ export function SelectorRango({
           <button
             key={n}
             type="button"
-            onClick={() => irA({ ...rangoDeAtajo(n), tab, campania: null })}
+            onClick={() => irA({ ...rangoDeAtajo(n, hoy), tab, campania: null })}
             className={cn(
               "rounded-[20px] border px-2.5 py-[4.5px] text-[11.5px] font-medium transition-colors",
               atajoActivo === n
@@ -87,9 +94,14 @@ export function SelectorRango({
         ))}
       </div>
 
+      {/* `max`/`min` cruzados: sin ellos se elige un `desde` posterior al
+          `hasta` en dos clicks, la ventana queda negativa y el tablero se pone
+          en cero sin decir que la entrada era inválida. El guard del server
+          cubre el link pegado a mano; esto evita llegar hasta ahí. */}
       <input
         type="date"
         value={desde}
+        max={hasta}
         onChange={(e) => irA({ desde: e.target.value, tab, campania: null })}
         className="border-line-card bg-surface-card text-ink-dim rounded-[8px] border px-2 py-1 text-[11.5px]"
         aria-label="Desde"
@@ -98,6 +110,7 @@ export function SelectorRango({
       <input
         type="date"
         value={hasta}
+        min={desde}
         onChange={(e) => irA({ hasta: e.target.value, tab, campania: null })}
         className="border-line-card bg-surface-card text-ink-dim rounded-[8px] border px-2 py-1 text-[11.5px]"
         aria-label="Hasta"

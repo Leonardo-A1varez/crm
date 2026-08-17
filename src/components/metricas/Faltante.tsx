@@ -53,22 +53,3 @@ export function KpiFaltante({ label, falta }: { label: string; falta: string }) 
     </Marco>
   );
 }
-
-/** Del tamaño de una sección, para los bloques grandes del handoff. */
-export function BloqueFaltante({
-  label,
-  descripcion,
-  falta,
-}: {
-  label: string;
-  descripcion: string;
-  falta: string;
-}) {
-  return (
-    <Marco>
-      <Encabezado label={label} />
-      <p className="text-ink-dim mt-2 text-[11.5px] leading-relaxed">{descripcion}</p>
-      <Falta>{falta}</Falta>
-    </Marco>
-  );
-}

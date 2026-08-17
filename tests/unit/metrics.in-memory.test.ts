@@ -6,6 +6,9 @@ const AYER = new Date(Date.now() - 24 * 60 * 60 * 1000);
 const fixtures: MetricsContractFixtures = {
   antesDeTodo: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
   despuesDeTodo: new Date(Date.now() + 24 * 60 * 60 * 1000),
+  // Literalmente el `started_at` de `sess-1`, no una fecha parecida: el test de
+  // exclusividad necesita que la fila caiga EXACTO sobre el borde.
+  justoEnUnaFila: AYER,
 };
 
 runMetricsContract(
@@ -34,14 +37,6 @@ runMetricsContract(
         },
       ],
       leads: [{ created_at: AYER }],
-      campanias: [
-        {
-          id: "c1",
-          nombre: "Lanzamiento verano",
-          desde: new Date("2026-01-01"),
-          hasta: new Date("2026-01-31"),
-        },
-      ],
     }),
   fixtures,
 );

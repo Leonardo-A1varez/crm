@@ -24,8 +24,7 @@ const COLORES_RAZON = [
 ] as const;
 
 /**
- * La tabla del handoff §3.3, con las columnas que hoy tienen dato. "Ticket
- * promedio" no está: `precio_cotizado` es lo cotizado y no lo facturado.
+ * La tabla del handoff §3.3, con las columnas que hoy tienen dato.
  *
  * Las sesiones que tomó alguien sin usuario registrado viajan aparte y se
  * declaran al pie en vez de repartirse: son las anteriores a que el envío del
@@ -37,7 +36,7 @@ function TablaVendedores({ vendedores }: { vendedores: Metricas["vendedores"] })
   const nota =
     sinAtribuir > 0
       ? `${formatearEntero(sinAtribuir)} ${sinAtribuir === 1 ? "sesión tomada" : "sesiones tomadas"} sin usuario registrado: son anteriores a que el envío del panel guardara quién escribió. No se reparten entre las filas.`
-      : "«Toma» es la mediana de lo que el cliente esperó hasta la primera respuesta de esa persona. «Ticket promedio» no está: lo que la sesión guarda es lo cotizado, no lo facturado.";
+      : "«Toma» es la mediana de lo que el cliente esperó hasta la primera respuesta de esa persona.";
 
   return (
     <Seccion
@@ -111,7 +110,7 @@ export function PanelVendedores({ m }: { m: Metricas }) {
         {m.ventas.montoTotalUsd === null ? (
           <KpiFaltante
             label="Ticket promedio"
-            falta="ninguna de las ventas tomadas por humano tiene precio_cotizado registrado."
+            falta="ninguna venta del período tiene precio_cotizado registrado."
           />
         ) : (
           <TarjetaKpi

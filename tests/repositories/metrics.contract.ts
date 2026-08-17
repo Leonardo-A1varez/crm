@@ -17,6 +17,14 @@ export interface MetricsContractFixtures {
   antesDeTodo: Date;
   /** Una fecha posterior a todo lo sembrado. */
   despuesDeTodo: Date;
+  /**
+   * El `started_at` EXACTO de una sesión sembrada — no una fecha cualquiera del
+   * medio. Es lo único con lo que se puede distinguir `< hasta` de `<= hasta`:
+   * las ventanas de ancho cero (`desde === hasta`) que usa el resto del contrato
+   * salen vacías con las dos comparaciones, así que un `.lt()` que alguien
+   * cambie por `.lte()` las seguiría pasando todas.
+   */
+  justoEnUnaFila: Date;
 }
 
 export type MetricsContractFixturesArg = MetricsContractFixtures | (() => MetricsContractFixtures);
@@ -72,6 +80,30 @@ export function runMetricsContract(
       });
     }
 
+    /**
+     * `hasta` es EXCLUSIVO: la fila que cae justo en ese instante queda afuera.
+     *
+     * Solo sobre `listSesionesDesde` y no sobre los 8 cortes: el único
+     * timestamp que los harnesses pueden garantizar exacto es el de la sesión
+     * sembrada (en Supabase lo fecha la base con su `DEFAULT` y hay que leerlo
+     * de vuelta). Los 8 métodos comparten literalmente la misma forma —`.gte()`
+     * + `.lt()` sobre una columna de fecha—, así que pinchar uno pincha el
+     * patrón; el resto del contrato ya cubre que cada cual aplique sus dos
+     * cotas. Las dos aserciones van juntas a propósito: sin la segunda el test
+     * pasaría también con un fixture que no cae sobre ninguna fila.
+     */
+    test("listSesionesDesde excluye la fila que cae justo en hasta", async () => {
+      const enElBorde = (filas: { started_at: Date }[]) =>
+        filas.some((f) => f.started_at.getTime() === fixtures.justoEnUnaFila.getTime());
+
+      expect(
+        enElBorde(await repo.listSesionesDesde(fixtures.antesDeTodo, fixtures.despuesDeTodo)),
+      ).toBe(true);
+      expect(
+        enElBorde(await repo.listSesionesDesde(fixtures.antesDeTodo, fixtures.justoEnUnaFila)),
+      ).toBe(false);
+    });
+
     test("listSesionesDesde devuelve lo sembrado cuando el corte es anterior", async () => {
       const filas = await repo.listSesionesDesde(fixtures.antesDeTodo, fixtures.despuesDeTodo);
 
@@ -96,7 +128,6 @@ export function runMetricsContract(
       await expect(repo.listIntentsActivos()).resolves.toBeInstanceOf(Array);
       await expect(repo.listReglasActivas()).resolves.toBeInstanceOf(Array);
       await expect(repo.listUsuarios()).resolves.toBeInstanceOf(Array);
-      await expect(repo.listCampanias()).resolves.toBeInstanceOf(Array);
     });
   });
 }

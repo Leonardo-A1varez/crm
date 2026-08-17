@@ -1,8 +1,8 @@
+import { BuscarRepuestoInputSchema } from "@/lib/validation/ai";
 import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import type { Canal, CurrentStage, Sender } from "@/types/domain";
 import type {
-  FilaCampaniaMetrica,
   FilaIntentMetrica,
   FilaLeadMetrica,
   FilaLlmUsageMetrica,
@@ -16,6 +16,14 @@ import type {
   FilaHandoffMetrica,
   MetricsRepository,
 } from "./metrics.repo";
+
+function leerArgsBuscarRepuesto(
+  args: unknown,
+): { query?: string; marca?: string; modelo?: string } | null {
+  const parsed = BuscarRepuestoInputSchema.safeParse(args);
+  if (!parsed.success) return null;
+  return { query: parsed.data.query, marca: parsed.data.marca, modelo: parsed.data.modelo };
+}
 
 /**
  * Supabase impl de MetricsRepository. Selecciona solo las columnas que se
@@ -114,6 +122,14 @@ export class SupabaseMetricsRepository implements MetricsRepository {
     }));
   }
 
+  /**
+   * `args` es `jsonb`: lo escribió el LLM y nadie garantiza su forma. Un cast a
+   * ciegas hacía que un `marca: 42` guardado en cualquier fila vieja explotara
+   * más tarde en `.trim()` dentro del service y se llevara puesta la pantalla
+   * entera de Métricas con un 500. Se valida con el mismo schema con el que se
+   * declara la tool, y lo que no pasa viaja como `null` — una fila con la
+   * demanda irreconocible no vale un tablero caído.
+   */
   async listToolExecutionsDesde(desde: Date, hasta: Date): Promise<FilaToolExecutionMetrica[]> {
     const { data, error } = await this.db
       .from("tool_executions")
@@ -125,10 +141,7 @@ export class SupabaseMetricsRepository implements MetricsRepository {
       tool_name: r.tool_name,
       created_at: new Date(r.created_at),
       error: r.error,
-      args:
-        r.tool_name === "buscar_repuesto" && r.args && typeof r.args === "object"
-          ? (r.args as { query?: string; marca?: string; modelo?: string })
-          : null,
+      args: r.tool_name === "buscar_repuesto" ? leerArgsBuscarRepuesto(r.args) : null,
     }));
   }
 
@@ -197,20 +210,6 @@ export class SupabaseMetricsRepository implements MetricsRepository {
       action: row.action as "pause" | "resume",
       reason_code: row.reason_code,
       created_at: new Date(row.created_at),
-    }));
-  }
-
-  async listCampanias(): Promise<FilaCampaniaMetrica[]> {
-    const { data, error } = await this.db
-      .from("campanias")
-      .select("id, nombre, desde, hasta")
-      .order("desde", { ascending: false });
-    if (error) throw mapPostgrestError(error, { resource: "campanias" });
-    return (data ?? []).map((r) => ({
-      id: r.id,
-      nombre: r.nombre,
-      desde: new Date(r.desde),
-      hasta: new Date(r.hasta),
     }));
   }
 }

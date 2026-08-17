@@ -109,14 +109,6 @@ export interface FilaLlmUsageMetrica {
   created_at: Date;
 }
 
-/** Campaña de marketing, solo lo que Métricas necesita para el filtro por fecha. */
-export interface FilaCampaniaMetrica {
-  id: string;
-  nombre: string;
-  desde: Date;
-  hasta: Date;
-}
-
 /**
  * Lectura para métricas. Devuelve filas flacas y agrega en el service, no en
  * SQL: a la escala de un CRM single-org son miles de filas, y tener el corte en
@@ -140,8 +132,6 @@ export interface MetricsRepository {
   listReglasActivas(): Promise<FilaReglaActivaMetrica[]>;
   /** Todos, no solo los activos: un vendedor dado de baja atendió sesiones que siguen contando. */
   listUsuarios(): Promise<FilaUsuarioMetrica[]>;
-  /** Sin ventana: catálogo de campañas para el selector, no un evento del período. */
-  listCampanias(): Promise<FilaCampaniaMetrica[]>;
 }
 
 /** Filas con las que se arma un `InMemoryMetricsRepository`. Todas opcionales. */
@@ -157,7 +147,6 @@ export interface MetricsFixture {
   usuarios?: FilaUsuarioMetrica[];
   gastos?: FilaLlmUsageMetrica[];
   handoffs?: FilaHandoffMetrica[];
-  campanias?: FilaCampaniaMetrica[];
 }
 
 export class InMemoryMetricsRepository implements MetricsRepository {
@@ -172,7 +161,6 @@ export class InMemoryMetricsRepository implements MetricsRepository {
   private readonly usuarios: FilaUsuarioMetrica[];
   private readonly gastos: FilaLlmUsageMetrica[];
   private readonly handoffs: FilaHandoffMetrica[];
-  private readonly campanias: FilaCampaniaMetrica[];
 
   // Un objeto y no 9 parámetros posicionales: con nueve listas del mismo tipo
   // base, equivocarse de posición compila y falla en silencio.
@@ -188,7 +176,6 @@ export class InMemoryMetricsRepository implements MetricsRepository {
     this.usuarios = fixture.usuarios ?? [];
     this.gastos = fixture.gastos ?? [];
     this.handoffs = fixture.handoffs ?? [];
-    this.campanias = fixture.campanias ?? [];
   }
 
   async listSesionesDesde(desde: Date, hasta: Date): Promise<FilaSesionMetrica[]> {
@@ -254,9 +241,5 @@ export class InMemoryMetricsRepository implements MetricsRepository {
 
   async listUsuarios(): Promise<FilaUsuarioMetrica[]> {
     return this.usuarios;
-  }
-
-  async listCampanias(): Promise<FilaCampaniaMetrica[]> {
-    return this.campanias;
   }
 }

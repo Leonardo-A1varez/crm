@@ -170,12 +170,21 @@ export function PanelTotal({ m }: { m: Metricas }) {
 
         <Seccion
           titulo="Repuestos más preguntados"
-          extra="por marca"
-          nota="De las llamadas del agente a buscar_repuesto — no depende de tener catálogo cargado, es demanda pura."
+          extra="demanda"
+          nota="De las llamadas del agente a buscar_repuesto — no depende de tener catálogo cargado, es demanda pura. Los términos son texto libre y pueden fragmentar variantes de la misma pieza; se muestran los 15 más pedidos."
         >
+          <p className="text-ink-ghost mb-2 text-[10.5px]">Por marca</p>
           <TopLista
             vacio="El agente no buscó ninguna marca en el período."
             filas={m.repuestosMasPreguntados.porMarca.map((r) => ({
+              label: r.motivo,
+              valor: r.cantidad,
+            }))}
+          />
+          <p className="text-ink-ghost mt-3.5 mb-2 text-[10.5px]">Por término buscado</p>
+          <TopLista
+            vacio="El agente no buscó ningún término en el período."
+            filas={m.repuestosMasPreguntados.porTermino.map((r) => ({
               label: r.motivo,
               valor: r.cantidad,
             }))}
