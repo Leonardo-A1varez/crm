@@ -695,16 +695,15 @@ describe("DefaultMetricsService.obtener", () => {
     });
 
     test("«hoy» corta por día UTC, el mismo día que usa el contador diario", async () => {
-      // `hasta` de la ventana se estira hasta el día siguiente para que el
-      // registro de las 23:59:59 no quede afuera por la cota superior real del
-      // repo — eso es un corte de ventana distinto del corte de "hoy", que
-      // sigue dependiendo solo de `ahora` (12:00Z), pasado aparte.
-      const hastaVentana = new Date("2026-08-11T00:00:00.000Z");
+      // `hoyUsd` sale de la consulta dedicada [inicio de hoy UTC, ahora), no
+      // de la ventana navegada [desde, hasta) — por eso `hastaVentana` puede
+      // quedar corto sin afectar el corte de "hoy".
+      const hastaVentana = new Date("2026-08-10T12:00:00.000Z");
       const m = await svc({
         gastos: [
           // Mismo día UTC que AHORA (12:00Z), a las dos puntas.
           uso({ costo_usd: 0.05, created_at: new Date("2026-08-10T00:00:00.000Z") }),
-          uso({ costo_usd: 0.07, created_at: new Date("2026-08-10T23:59:59.000Z") }),
+          uso({ costo_usd: 0.07, created_at: new Date("2026-08-10T10:00:00.000Z") }),
           // Ayer: entra en el total de la ventana, no en el de hoy.
           uso({ costo_usd: 1, created_at: new Date("2026-08-09T23:59:59.000Z") }),
         ],
@@ -712,6 +711,20 @@ describe("DefaultMetricsService.obtener", () => {
 
       expect(m.gasto.hoyUsd).toBeCloseTo(0.12, 10);
       expect(m.gasto.totalUsd).toBeCloseTo(1.12, 10);
+    });
+
+    test("hoyUsd sigue reflejando el gasto de hoy aunque `hasta` sea un rango histórico", async () => {
+      // Regresión: acotar `gastos` a [desde, hasta) no puede vaciar `hoyUsd`
+      // cuando el caller navega a un período pasado (rango histórico, campaña)
+      // — `hoyUsd` es un indicador en tiempo real, no parte de ese período.
+      const desdeHistorico = new Date("2026-07-01T00:00:00.000Z");
+      const hastaHistorico = new Date("2026-07-31T00:00:00.000Z");
+      const m = await svc({
+        gastos: [uso({ costo_usd: 0.09, created_at: new Date("2026-08-10T10:00:00.000Z") })],
+      }).obtener(desdeHistorico, hastaHistorico, AHORA);
+
+      expect(m.gasto.hoyUsd).toBeCloseTo(0.09, 10);
+      expect(m.gasto.totalUsd).toBe(0);
     });
 
     test("lo anterior a la ventana no entra", async () => {

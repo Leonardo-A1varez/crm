@@ -39,6 +39,11 @@ const DESVIOS: CurrentStage[] = CURRENT_STAGE.filter(
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 
+/** Medianoche UTC del día de `ahora`, para acotar la consulta dedicada de gasto de hoy. */
+function inicioDeHoyUtc(ahora: Date): Date {
+  return new Date(ahora.toISOString().slice(0, 10) + "T00:00:00.000Z");
+}
+
 /** Éxito sobre lo ya resuelto: las sesiones abiertas todavía no votaron. */
 function tasaCierreDe(sesiones: FilaSesionMetrica[]): number {
   let exito = 0;
@@ -74,6 +79,7 @@ export class DefaultMetricsService implements MetricsService {
       usuarios,
       gastos,
       handoffs,
+      gastosHoy,
     ] = await Promise.all([
       this.deps.metrics.listSesionesDesde(desdeAnterior, hasta),
       this.deps.metrics.listMensajesDesde(desde, hasta),
@@ -86,6 +92,9 @@ export class DefaultMetricsService implements MetricsService {
       this.deps.metrics.listUsuarios(),
       this.deps.metrics.listLlmUsageDesde(desde, hasta),
       this.deps.metrics.listHandoffsDesde(desde, hasta),
+      // Independiente de [desde, hasta): `hoyUsd` es un indicador en tiempo
+      // real, no parte del período que se está navegando.
+      this.deps.metrics.listLlmUsageDesde(inicioDeHoyUtc(ahora), ahora),
     ]);
 
     const corte = desde.getTime();
@@ -305,7 +314,7 @@ export class DefaultMetricsService implements MetricsService {
         llm: autoria.ia - turnosRegla,
         escalado: autoria.humano,
       },
-      gasto: resumirGasto(gastos, ahora, leadsNuevos, turnosRegla),
+      gasto: resumirGasto(gastos, gastosHoy, leadsNuevos, turnosRegla),
       herramientas,
       intentsSinRegla,
       ventas,
@@ -319,9 +328,12 @@ export class DefaultMetricsService implements MetricsService {
 /**
  * Reduce las filas de `llm_usage` a lo que muestran los §3.1 y §3.2.
  *
- * El corte de "hoy" usa el día UTC, el mismo que usa el contador diario del
- * `CostTracker`: si acá se usara la hora local del server, el número de la
- * pantalla y el que decide el kill switch discreparían durante horas.
+ * `hoyUsd` sale de `gastosHoy`, una consulta aparte acotada a
+ * `[inicio de hoy UTC, ahora)` — el mismo día UTC que usa el contador diario
+ * del `CostTracker`. Es un indicador en tiempo real, no un dato del período
+ * `[desde, hasta)` que se está navegando: si `gastos` (la ventana navegada)
+ * decidiera "hoy", un `hasta` histórico (rango pasado, campaña) dejaría
+ * `hoyUsd` en 0 aunque sí se haya gastado hoy.
  *
  * `ahorroReglasUsd` es una estimación, y su base está elegida a conciencia: un
  * turno que contestó una regla es exactamente un turno que, sin esa regla,
@@ -332,15 +344,13 @@ export class DefaultMetricsService implements MetricsService {
  */
 function resumirGasto(
   gastos: FilaLlmUsageMetrica[],
-  ahora: Date,
+  gastosHoy: FilaLlmUsageMetrica[],
   leadsNuevos: number,
   turnosRegla: number,
 ): GastoIa {
-  const hoy = ahora.toISOString().slice(0, 10);
   const porWorkflow = new Map<string, ConteoWorkflow>();
 
   let totalUsd = 0;
-  let hoyUsd = 0;
   let tokensEntrada = 0;
   let tokensSalida = 0;
   let usdAgente = 0;
@@ -350,7 +360,6 @@ function resumirGasto(
     totalUsd += g.costo_usd;
     tokensEntrada += g.input_tokens;
     tokensSalida += g.output_tokens;
-    if (g.created_at.toISOString().slice(0, 10) === hoy) hoyUsd += g.costo_usd;
     if (g.workflow === WORKFLOW_LLM.agente) {
       usdAgente += g.costo_usd;
       turnosAgente++;
@@ -361,6 +370,7 @@ function resumirGasto(
     porWorkflow.set(g.workflow, fila);
   }
 
+  const hoyUsd = gastosHoy.reduce((acc, g) => acc + g.costo_usd, 0);
   const promedioTurnoUsd = turnosAgente > 0 ? usdAgente / turnosAgente : null;
 
   return {
