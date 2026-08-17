@@ -3,8 +3,9 @@ import { EmbudoEtapas } from "@/components/metricas/EmbudoEtapas";
 import { KpiFaltante } from "@/components/metricas/Faltante";
 import { Seccion } from "@/components/metricas/Seccion";
 import { TarjetaKpi } from "@/components/metricas/TarjetaKpi";
+import { TopLista } from "@/components/metricas/TopLista";
 import { VolumenCanal } from "@/components/metricas/VolumenCanal";
-import { ContactEmergency, Savings, TaskAlt } from "@/components/icons";
+import { ContactEmergency, ReceiptLong, Savings, TaskAlt } from "@/components/icons";
 import { MonoMeta } from "@/components/shared/MonoMeta";
 import {
   cantidad,
@@ -50,6 +51,25 @@ export function PanelTotal({ m }: { m: Metricas }) {
             label="Costo IA / lead"
             valor={formatearUsd(m.gasto.porLeadUsd)}
             subtitulo={`${formatearUsd(m.gasto.totalUsd)} en modelo sobre ${formatearEntero(m.leadsNuevos.valor)} leads nuevos`}
+            icono={Savings}
+          />
+        )}
+        <TarjetaKpi
+          label="Ventas realizadas"
+          valor={formatearEntero(m.ventas.conteo)}
+          subtitulo="sesiones cerradas con éxito en el período"
+          icono={ReceiptLong}
+        />
+        {m.ventas.montoTotalUsd === null ? (
+          <KpiFaltante
+            label="Ticket promedio"
+            falta="ninguna de las ventas del período tiene precio_cotizado registrado."
+          />
+        ) : (
+          <TarjetaKpi
+            label="Ticket promedio"
+            valor={formatearUsd(m.ventas.ticketPromedioUsd ?? 0)}
+            subtitulo={`${formatearUsd(m.ventas.montoTotalUsd)} sobre ${formatearEntero(m.ventas.conPrecio)} de ${formatearEntero(m.ventas.conteo)} ventas con precio`}
             icono={Savings}
           />
         )}
@@ -131,6 +151,37 @@ export function PanelTotal({ m }: { m: Metricas }) {
           <p className="text-ink-faint text-[11.5px]">Ninguna sesión perdida en el período.</p>
         )}
       </Seccion>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Seccion
+          titulo="Códigos más vendidos"
+          extra={cantidad(m.codigosMasVendidos.length, "código")}
+          nota="lead_session guarda 1 producto por sesión: si una conversación negoció varios repuestos, solo el último queda registrado. «Apariciones» es la métrica primaria; «unidades» solo suma las ventas que registraron cantidad."
+        >
+          <TopLista
+            vacio="Ninguna venta con código de producto en el período."
+            filas={m.codigosMasVendidos.map((c) => ({
+              label: c.codigoInterno,
+              meta: c.unidadesConDato > 0 ? `${formatearEntero(c.unidades)} unid.` : undefined,
+              valor: c.apariciones,
+            }))}
+          />
+        </Seccion>
+
+        <Seccion
+          titulo="Repuestos más preguntados"
+          extra="por marca"
+          nota="De las llamadas del agente a buscar_repuesto — no depende de tener catálogo cargado, es demanda pura."
+        >
+          <TopLista
+            vacio="El agente no buscó ninguna marca en el período."
+            filas={m.repuestosMasPreguntados.porMarca.map((r) => ({
+              label: r.motivo,
+              valor: r.cantidad,
+            }))}
+          />
+        </Seccion>
+      </div>
     </div>
   );
 }
