@@ -13,10 +13,21 @@ function aInputDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+const DIA_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * "N días" es N días de calendario completos, hoy incluido — no N×24h
+ * contadas desde el instante actual. `hasta` es siempre el día de hoy;
+ * `desde` es hoy menos (N-1) días. page.tsx le aplica a `hasta` el mismo
+ * límite exclusivo +1 día que al resto de las fuentes (rango libre,
+ * campaña): por eso acá tiene que viajar como día de calendario, igual
+ * que las otras, y no como instante exacto.
+ */
 function rangoDeAtajo(dias: number): { desde: string; hasta: string } {
-  const hasta = new Date();
-  const desde = new Date(hasta.getTime() - dias * 24 * 60 * 60 * 1000);
-  return { desde: aInputDate(desde), hasta: aInputDate(hasta) };
+  const hoy = aInputDate(new Date());
+  const hastaDate = new Date(`${hoy}T00:00:00.000Z`);
+  const desdeDate = new Date(hastaDate.getTime() - (dias - 1) * DIA_MS);
+  return { desde: aInputDate(desdeDate), hasta: hoy };
 }
 
 export function SelectorRango({

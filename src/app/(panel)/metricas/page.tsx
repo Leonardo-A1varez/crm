@@ -21,10 +21,23 @@ function leerTab(valor: string | string[] | undefined): TabMetricas {
     : TAB_POR_DEFECTO;
 }
 
-function leerFecha(valor: string | string[] | undefined, porDefecto: Date): Date {
-  if (typeof valor !== "string") return porDefecto;
+/**
+ * `esCalendario` distingue "el param vino y se parseó" de "se usó el
+ * default": el default (`hastaPorDefecto = new Date()`) ya es un instante
+ * exacto y NO necesita `finDeDiaExclusivo`; un `?hasta=xyz` malformado tiene
+ * que caer en el mismo caso — sin la señal, ambos se ven idénticos a
+ * `typeof valor === "string"` y un param roto termina recibiendo el +1 día
+ * que no le corresponde.
+ */
+function leerFecha(
+  valor: string | string[] | undefined,
+  porDefecto: Date,
+): { fecha: Date; esCalendario: boolean } {
+  if (typeof valor !== "string") return { fecha: porDefecto, esCalendario: false };
   const parsed = new Date(`${valor}T00:00:00.000Z`);
-  return Number.isNaN(parsed.getTime()) ? porDefecto : parsed;
+  return Number.isNaN(parsed.getTime())
+    ? { fecha: porDefecto, esCalendario: false }
+    : { fecha: parsed, esCalendario: true };
 }
 
 /**
@@ -54,8 +67,8 @@ export default async function MetricasPage({
   const tab = leerTab(params.tab);
   const hastaPorDefecto = new Date();
   const desdePorDefecto = new Date(hastaPorDefecto.getTime() - 30 * DIA_MS);
-  const desde = leerFecha(params.desde, desdePorDefecto);
-  const hastaCalendario = leerFecha(params.hasta, hastaPorDefecto);
+  const desdeLeida = leerFecha(params.desde, desdePorDefecto);
+  const hastaLeida = leerFecha(params.hasta, hastaPorDefecto);
   const campaniaId = typeof params.campania === "string" ? params.campania : null;
 
   const [svc, campaniasSvc] = await Promise.all([
@@ -67,20 +80,24 @@ export default async function MetricasPage({
     ? (campanias.find((c) => c.id === campaniaId) ?? null)
     : null;
 
-  // Cota exclusiva real para `obtener()`. Sin `hasta` en la URL (primera visita
-  // a /metricas, sin querystring) `hastaPorDefecto` YA es el instante actual —
-  // no hay día de calendario que corregir. Con campaña elegida o fecha libre
-  // tecleada en el input, el valor es un día de calendario y necesita
-  // `finDeDiaExclusivo` para no perder el último día pedido.
-  const hastaExclusiva = campaniaSeleccionada
-    ? finDeDiaExclusivo(campaniaSeleccionada.hasta)
-    : typeof params.hasta === "string"
-      ? finDeDiaExclusivo(hastaCalendario)
-      : hastaPorDefecto;
+  // Una campaña elegida manda sobre lo que haya en la URL para desde Y hasta
+  // (no solo hasta): si sus fechas se editaron después de armar el link, la
+  // consulta usa las vigentes, no las que quedaron pisadas en el querystring.
+  const desdeEfectiva = campaniaSeleccionada?.desde ?? desdeLeida.fecha;
+  const hastaCalendario = campaniaSeleccionada?.hasta ?? hastaLeida.fecha;
 
-  const m = await svc.obtener(desde, hastaExclusiva);
+  // Cota exclusiva real para `obtener()`, aplicada UNA sola vez sin importar
+  // si `hastaCalendario` vino de un atajo, del input de rango libre o de una
+  // campaña: los tres viajan como el mismo día de calendario y no hay forma
+  // (ni falta hacerla) de distinguirlos acá. Solo se salta cuando no hubo
+  // día de calendario real que corregir — el default sin querystring, que ya
+  // es el instante actual.
+  const esDiaCalendario = campaniaSeleccionada !== null || hastaLeida.esCalendario;
+  const hastaExclusiva = esDiaCalendario ? finDeDiaExclusivo(hastaCalendario) : hastaPorDefecto;
 
-  const desdeStr = desde.toISOString().slice(0, 10);
+  const m = await svc.obtener(desdeEfectiva, hastaExclusiva);
+
+  const desdeStr = desdeEfectiva.toISOString().slice(0, 10);
   const hastaStr = hastaCalendario.toISOString().slice(0, 10);
 
   return (
