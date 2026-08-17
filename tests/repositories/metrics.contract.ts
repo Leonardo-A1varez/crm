@@ -37,38 +37,58 @@ export function runMetricsContract(
     // Cada método por separado y no en un bucle: si uno se rompe, el nombre del
     // test tiene que decir cuál.
     const cortes = [
-      ["listSesionesDesde", (r: MetricsRepository, d: Date) => r.listSesionesDesde(d)],
-      ["listMensajesDesde", (r: MetricsRepository, d: Date) => r.listMensajesDesde(d)],
-      ["listLeadsDesde", (r: MetricsRepository, d: Date) => r.listLeadsDesde(d)],
-      ["listRuleExecutionsDesde", (r: MetricsRepository, d: Date) => r.listRuleExecutionsDesde(d)],
+      ["listSesionesDesde", (r: MetricsRepository, d: Date, h: Date) => r.listSesionesDesde(d, h)],
+      ["listMensajesDesde", (r: MetricsRepository, d: Date, h: Date) => r.listMensajesDesde(d, h)],
+      ["listLeadsDesde", (r: MetricsRepository, d: Date, h: Date) => r.listLeadsDesde(d, h)],
+      [
+        "listRuleExecutionsDesde",
+        (r: MetricsRepository, d: Date, h: Date) => r.listRuleExecutionsDesde(d, h),
+      ],
       [
         "listTurnClassificationsDesde",
-        (r: MetricsRepository, d: Date) => r.listTurnClassificationsDesde(d),
+        (r: MetricsRepository, d: Date, h: Date) => r.listTurnClassificationsDesde(d, h),
       ],
-      ["listToolExecutionsDesde", (r: MetricsRepository, d: Date) => r.listToolExecutionsDesde(d)],
-      ["listLlmUsageDesde", (r: MetricsRepository, d: Date) => r.listLlmUsageDesde(d)],
-      ["listHandoffsDesde", (r: MetricsRepository, d: Date) => r.listHandoffsDesde(d)],
+      [
+        "listToolExecutionsDesde",
+        (r: MetricsRepository, d: Date, h: Date) => r.listToolExecutionsDesde(d, h),
+      ],
+      ["listLlmUsageDesde", (r: MetricsRepository, d: Date, h: Date) => r.listLlmUsageDesde(d, h)],
+      ["listHandoffsDesde", (r: MetricsRepository, d: Date, h: Date) => r.listHandoffsDesde(d, h)],
     ] as const;
 
     for (const [nombre, llamar] of cortes) {
       test(`${nombre} no devuelve nada de después del corte`, async () => {
-        expect(await llamar(repo, fixtures.despuesDeTodo)).toEqual([]);
+        expect(await llamar(repo, fixtures.despuesDeTodo, fixtures.despuesDeTodo)).toEqual([]);
+      });
+    }
+
+    // `desde = antesDeTodo` por sí solo incluiría todo lo sembrado; con
+    // `hasta = antesDeTodo` también, la cota superior tiene que vaciarlo. Si
+    // `hasta` no se aplicara (el bug que este task cierra), esto devolvería
+    // filas y el test fallaría — no es una tautología.
+    for (const [nombre, llamar] of cortes) {
+      test(`${nombre} no devuelve nada cuando hasta es anterior a lo sembrado`, async () => {
+        expect(await llamar(repo, fixtures.antesDeTodo, fixtures.antesDeTodo)).toEqual([]);
       });
     }
 
     test("listSesionesDesde devuelve lo sembrado cuando el corte es anterior", async () => {
-      const filas = await repo.listSesionesDesde(fixtures.antesDeTodo);
+      const filas = await repo.listSesionesDesde(fixtures.antesDeTodo, fixtures.despuesDeTodo);
 
       expect(filas.length).toBeGreaterThan(0);
       expect(filas[0]?.started_at).toBeInstanceOf(Date);
     });
 
     test("listLeadsDesde devuelve lo sembrado cuando el corte es anterior", async () => {
-      expect((await repo.listLeadsDesde(fixtures.antesDeTodo)).length).toBeGreaterThan(0);
+      expect(
+        (await repo.listLeadsDesde(fixtures.antesDeTodo, fixtures.despuesDeTodo)).length,
+      ).toBeGreaterThan(0);
     });
 
     test("listMensajesDesde devuelve lo sembrado cuando el corte es anterior", async () => {
-      expect((await repo.listMensajesDesde(fixtures.antesDeTodo)).length).toBeGreaterThan(0);
+      expect(
+        (await repo.listMensajesDesde(fixtures.antesDeTodo, fixtures.despuesDeTodo)).length,
+      ).toBeGreaterThan(0);
     });
 
     // Los catálogos no se cortan por fecha: son el estado actual, no un flujo.

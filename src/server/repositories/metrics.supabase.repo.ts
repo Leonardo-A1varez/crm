@@ -32,13 +32,14 @@ export class SupabaseMetricsRepository implements MetricsRepository {
    * `precio_cotizado` es `numeric` en Postgres — mismo riesgo de serialización
    * como string que `costo_usd` (ver `listLlmUsageDesde`); se normaliza igual.
    */
-  async listSesionesDesde(desde: Date): Promise<FilaSesionMetrica[]> {
+  async listSesionesDesde(desde: Date, hasta: Date): Promise<FilaSesionMetrica[]> {
     const { data, error } = await this.db
       .from("lead_session")
       .select(
         "id, current_stage, resultado, motivo_perdida, started_at, precio_cotizado, codigo_interno, closed_at, cantidad",
       )
-      .gte("started_at", desde.toISOString());
+      .gte("started_at", desde.toISOString())
+      .lt("started_at", hasta.toISOString());
     if (error) throw mapPostgrestError(error, { resource: "lead_session" });
     return (data ?? []).map((r) => ({
       id: r.id,
@@ -58,13 +59,14 @@ export class SupabaseMetricsRepository implements MetricsRepository {
    * El canal no vive en `mensajes` sino en la conversación que lo contiene, así
    * que se embebe con `!inner`: es un join, no una segunda vuelta a la base.
    */
-  async listMensajesDesde(desde: Date): Promise<FilaMensajeMetrica[]> {
+  async listMensajesDesde(desde: Date, hasta: Date): Promise<FilaMensajeMetrica[]> {
     const { data, error } = await this.db
       .from("mensajes")
       .select(
         "sender, created_at, platform_created_at, lead_session_id, sender_user_id, conversaciones!inner(canal)",
       )
-      .gte("created_at", desde.toISOString());
+      .gte("created_at", desde.toISOString())
+      .lt("created_at", hasta.toISOString());
     if (error) throw mapPostgrestError(error, { resource: "mensajes" });
     return (data ?? []).map((r) => ({
       sender: r.sender as Sender,
@@ -76,29 +78,35 @@ export class SupabaseMetricsRepository implements MetricsRepository {
     }));
   }
 
-  async listLeadsDesde(desde: Date): Promise<FilaLeadMetrica[]> {
+  async listLeadsDesde(desde: Date, hasta: Date): Promise<FilaLeadMetrica[]> {
     const { data, error } = await this.db
       .from("leads")
       .select("created_at")
-      .gte("created_at", desde.toISOString());
+      .gte("created_at", desde.toISOString())
+      .lt("created_at", hasta.toISOString());
     if (error) throw mapPostgrestError(error, { resource: "leads" });
     return (data ?? []).map((r) => ({ created_at: new Date(r.created_at) }));
   }
 
-  async listRuleExecutionsDesde(desde: Date): Promise<FilaRuleExecutionMetrica[]> {
+  async listRuleExecutionsDesde(desde: Date, hasta: Date): Promise<FilaRuleExecutionMetrica[]> {
     const { data, error } = await this.db
       .from("rule_executions")
       .select("created_at")
-      .gte("created_at", desde.toISOString());
+      .gte("created_at", desde.toISOString())
+      .lt("created_at", hasta.toISOString());
     if (error) throw mapPostgrestError(error, { resource: "rule_executions" });
     return (data ?? []).map((r) => ({ created_at: new Date(r.created_at) }));
   }
 
-  async listTurnClassificationsDesde(desde: Date): Promise<FilaTurnClassificationMetrica[]> {
+  async listTurnClassificationsDesde(
+    desde: Date,
+    hasta: Date,
+  ): Promise<FilaTurnClassificationMetrica[]> {
     const { data, error } = await this.db
       .from("turn_classifications")
       .select("intent_id, created_at")
-      .gte("created_at", desde.toISOString());
+      .gte("created_at", desde.toISOString())
+      .lt("created_at", hasta.toISOString());
     if (error) throw mapPostgrestError(error, { resource: "turn_classifications" });
     return (data ?? []).map((r) => ({
       intent_id: r.intent_id,
@@ -106,11 +114,12 @@ export class SupabaseMetricsRepository implements MetricsRepository {
     }));
   }
 
-  async listToolExecutionsDesde(desde: Date): Promise<FilaToolExecutionMetrica[]> {
+  async listToolExecutionsDesde(desde: Date, hasta: Date): Promise<FilaToolExecutionMetrica[]> {
     const { data, error } = await this.db
       .from("tool_executions")
       .select("tool_name, created_at, error, args")
-      .gte("created_at", desde.toISOString());
+      .gte("created_at", desde.toISOString())
+      .lt("created_at", hasta.toISOString());
     if (error) throw mapPostgrestError(error, { resource: "tool_executions" });
     return (data ?? []).map((r) => ({
       tool_name: r.tool_name,
@@ -127,13 +136,14 @@ export class SupabaseMetricsRepository implements MetricsRepository {
    * `costo_usd` es `numeric`: PostgREST lo puede serializar como string y sumar
    * strings daría una concatenación silenciosa. Se normaliza acá.
    */
-  async listLlmUsageDesde(desde: Date): Promise<FilaLlmUsageMetrica[]> {
+  async listLlmUsageDesde(desde: Date, hasta: Date): Promise<FilaLlmUsageMetrica[]> {
     const { data, error } = await this.db
       .from("llm_usage")
       .select(
         "lead_session_id, modelo, input_tokens, output_tokens, costo_usd, workflow, created_at",
       )
-      .gte("created_at", desde.toISOString());
+      .gte("created_at", desde.toISOString())
+      .lt("created_at", hasta.toISOString());
     if (error) throw mapPostgrestError(error, { resource: "llm_usage" });
     return (data ?? []).map((r) => ({
       lead_session_id: r.lead_session_id,
@@ -175,11 +185,12 @@ export class SupabaseMetricsRepository implements MetricsRepository {
     return (data ?? []).map((r) => ({ id: r.id, nombre: r.nombre }));
   }
 
-  async listHandoffsDesde(desde: Date): Promise<FilaHandoffMetrica[]> {
+  async listHandoffsDesde(desde: Date, hasta: Date): Promise<FilaHandoffMetrica[]> {
     const { data, error } = await this.db
       .from("handoff_events")
       .select("lead_session_id, action, reason_code, created_at")
-      .gte("created_at", desde.toISOString());
+      .gte("created_at", desde.toISOString())
+      .lt("created_at", hasta.toISOString());
     if (error) throw mapPostgrestError(error, { resource: "handoff_events" });
     return (data ?? []).map((row) => ({
       lead_session_id: row.lead_session_id,

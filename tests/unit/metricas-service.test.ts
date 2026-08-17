@@ -695,6 +695,11 @@ describe("DefaultMetricsService.obtener", () => {
     });
 
     test("«hoy» corta por día UTC, el mismo día que usa el contador diario", async () => {
+      // `hasta` de la ventana se estira hasta el día siguiente para que el
+      // registro de las 23:59:59 no quede afuera por la cota superior real del
+      // repo — eso es un corte de ventana distinto del corte de "hoy", que
+      // sigue dependiendo solo de `ahora` (12:00Z), pasado aparte.
+      const hastaVentana = new Date("2026-08-11T00:00:00.000Z");
       const m = await svc({
         gastos: [
           // Mismo día UTC que AHORA (12:00Z), a las dos puntas.
@@ -703,7 +708,7 @@ describe("DefaultMetricsService.obtener", () => {
           // Ayer: entra en el total de la ventana, no en el de hoy.
           uso({ costo_usd: 1, created_at: new Date("2026-08-09T23:59:59.000Z") }),
         ],
-      }).obtener(haceDias(30), AHORA, AHORA);
+      }).obtener(haceDias(30), hastaVentana, AHORA);
 
       expect(m.gasto.hoyUsd).toBeCloseTo(0.12, 10);
       expect(m.gasto.totalUsd).toBeCloseTo(1.12, 10);

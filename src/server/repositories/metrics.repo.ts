@@ -124,14 +124,14 @@ export interface FilaCampaniaMetrica {
  * que cambia es esta implementación y no el service.
  */
 export interface MetricsRepository {
-  listSesionesDesde(desde: Date): Promise<FilaSesionMetrica[]>;
-  listMensajesDesde(desde: Date): Promise<FilaMensajeMetrica[]>;
-  listLeadsDesde(desde: Date): Promise<FilaLeadMetrica[]>;
-  listRuleExecutionsDesde(desde: Date): Promise<FilaRuleExecutionMetrica[]>;
-  listTurnClassificationsDesde(desde: Date): Promise<FilaTurnClassificationMetrica[]>;
-  listToolExecutionsDesde(desde: Date): Promise<FilaToolExecutionMetrica[]>;
-  listLlmUsageDesde(desde: Date): Promise<FilaLlmUsageMetrica[]>;
-  listHandoffsDesde(desde: Date): Promise<FilaHandoffMetrica[]>;
+  listSesionesDesde(desde: Date, hasta: Date): Promise<FilaSesionMetrica[]>;
+  listMensajesDesde(desde: Date, hasta: Date): Promise<FilaMensajeMetrica[]>;
+  listLeadsDesde(desde: Date, hasta: Date): Promise<FilaLeadMetrica[]>;
+  listRuleExecutionsDesde(desde: Date, hasta: Date): Promise<FilaRuleExecutionMetrica[]>;
+  listTurnClassificationsDesde(desde: Date, hasta: Date): Promise<FilaTurnClassificationMetrica[]>;
+  listToolExecutionsDesde(desde: Date, hasta: Date): Promise<FilaToolExecutionMetrica[]>;
+  listLlmUsageDesde(desde: Date, hasta: Date): Promise<FilaLlmUsageMetrica[]>;
+  listHandoffsDesde(desde: Date, hasta: Date): Promise<FilaHandoffMetrica[]>;
   /**
    * Sin ventana: intents y reglas son configuración, no eventos. Cuáles tienen
    * regla es una foto del estado de hoy y no algo que haya pasado en el período.
@@ -191,36 +191,57 @@ export class InMemoryMetricsRepository implements MetricsRepository {
     this.campanias = fixture.campanias ?? [];
   }
 
-  async listSesionesDesde(desde: Date): Promise<FilaSesionMetrica[]> {
-    return this.sesiones.filter((s) => s.started_at.getTime() >= desde.getTime());
+  async listSesionesDesde(desde: Date, hasta: Date): Promise<FilaSesionMetrica[]> {
+    return this.sesiones.filter(
+      (s) => s.started_at.getTime() >= desde.getTime() && s.started_at.getTime() < hasta.getTime(),
+    );
   }
 
-  async listMensajesDesde(desde: Date): Promise<FilaMensajeMetrica[]> {
-    return this.mensajes.filter((m) => m.created_at.getTime() >= desde.getTime());
+  async listMensajesDesde(desde: Date, hasta: Date): Promise<FilaMensajeMetrica[]> {
+    return this.mensajes.filter(
+      (m) => m.created_at.getTime() >= desde.getTime() && m.created_at.getTime() < hasta.getTime(),
+    );
   }
 
-  async listLeadsDesde(desde: Date): Promise<FilaLeadMetrica[]> {
-    return this.leads.filter((l) => l.created_at.getTime() >= desde.getTime());
+  async listLeadsDesde(desde: Date, hasta: Date): Promise<FilaLeadMetrica[]> {
+    return this.leads.filter(
+      (l) => l.created_at.getTime() >= desde.getTime() && l.created_at.getTime() < hasta.getTime(),
+    );
   }
 
-  async listRuleExecutionsDesde(desde: Date): Promise<FilaRuleExecutionMetrica[]> {
-    return this.reglas.filter((r) => r.created_at.getTime() >= desde.getTime());
+  async listRuleExecutionsDesde(desde: Date, hasta: Date): Promise<FilaRuleExecutionMetrica[]> {
+    return this.reglas.filter(
+      (r) => r.created_at.getTime() >= desde.getTime() && r.created_at.getTime() < hasta.getTime(),
+    );
   }
 
-  async listTurnClassificationsDesde(desde: Date): Promise<FilaTurnClassificationMetrica[]> {
-    return this.clasificaciones.filter((c) => c.created_at.getTime() >= desde.getTime());
+  async listTurnClassificationsDesde(
+    desde: Date,
+    hasta: Date,
+  ): Promise<FilaTurnClassificationMetrica[]> {
+    return this.clasificaciones.filter(
+      (c) => c.created_at.getTime() >= desde.getTime() && c.created_at.getTime() < hasta.getTime(),
+    );
   }
 
-  async listToolExecutionsDesde(desde: Date): Promise<FilaToolExecutionMetrica[]> {
-    return this.tools.filter((t) => t.created_at.getTime() >= desde.getTime());
+  async listToolExecutionsDesde(desde: Date, hasta: Date): Promise<FilaToolExecutionMetrica[]> {
+    return this.tools.filter(
+      (t) => t.created_at.getTime() >= desde.getTime() && t.created_at.getTime() < hasta.getTime(),
+    );
   }
 
-  async listLlmUsageDesde(desde: Date): Promise<FilaLlmUsageMetrica[]> {
-    return this.gastos.filter((g) => g.created_at.getTime() >= desde.getTime());
+  async listLlmUsageDesde(desde: Date, hasta: Date): Promise<FilaLlmUsageMetrica[]> {
+    return this.gastos.filter(
+      (g) => g.created_at.getTime() >= desde.getTime() && g.created_at.getTime() < hasta.getTime(),
+    );
   }
 
-  async listHandoffsDesde(desde: Date): Promise<FilaHandoffMetrica[]> {
-    return this.handoffs.filter((event) => event.created_at.getTime() >= desde.getTime());
+  async listHandoffsDesde(desde: Date, hasta: Date): Promise<FilaHandoffMetrica[]> {
+    return this.handoffs.filter(
+      (event) =>
+        event.created_at.getTime() >= desde.getTime() &&
+        event.created_at.getTime() < hasta.getTime(),
+    );
   }
 
   async listIntentsActivos(): Promise<FilaIntentMetrica[]> {

@@ -75,17 +75,17 @@ export class DefaultMetricsService implements MetricsService {
       gastos,
       handoffs,
     ] = await Promise.all([
-      this.deps.metrics.listSesionesDesde(desdeAnterior),
-      this.deps.metrics.listMensajesDesde(desde),
-      this.deps.metrics.listLeadsDesde(desdeAnterior),
-      this.deps.metrics.listRuleExecutionsDesde(desde),
-      this.deps.metrics.listToolExecutionsDesde(desde),
+      this.deps.metrics.listSesionesDesde(desdeAnterior, hasta),
+      this.deps.metrics.listMensajesDesde(desde, hasta),
+      this.deps.metrics.listLeadsDesde(desdeAnterior, hasta),
+      this.deps.metrics.listRuleExecutionsDesde(desde, hasta),
+      this.deps.metrics.listToolExecutionsDesde(desde, hasta),
       this.deps.metrics.listIntentsActivos(),
       this.deps.metrics.listReglasActivas(),
-      this.deps.metrics.listTurnClassificationsDesde(desde),
+      this.deps.metrics.listTurnClassificationsDesde(desde, hasta),
       this.deps.metrics.listUsuarios(),
-      this.deps.metrics.listLlmUsageDesde(desde),
-      this.deps.metrics.listHandoffsDesde(desde),
+      this.deps.metrics.listLlmUsageDesde(desde, hasta),
+      this.deps.metrics.listHandoffsDesde(desde, hasta),
     ]);
 
     const corte = desde.getTime();

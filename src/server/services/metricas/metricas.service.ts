@@ -2,12 +2,11 @@ import type { Metricas } from "@/types/metricas";
 
 export interface MetricsService {
   /**
-   * Métricas del rango que arranca en `desde`. El repositorio solo filtra por
-   * cota inferior (`>= desde`); `hasta` no se aplica como cota superior sobre
-   * los datos devueltos, solo se usa para calcular el tamaño de la ventana
-   * (`ventana = hasta - desde`, con la que se deriva el rango anterior para el
-   * delta). El filtrado real por `hasta` queda pendiente hasta que exista un caller
-   * que necesite pasar algo distinto de "ahora".
+   * Métricas del rango `[desde, hasta)`: `desde` inclusive, `hasta` exclusivo.
+   * El repositorio aplica las dos cotas en cada `listXDesde` — no es solo el
+   * tamaño de la ventana lo que se deriva de `hasta`, también qué filas entran.
+   * Contrato real, no aspiracional: `tests/repositories/metrics.contract.ts`
+   * prueba ambos extremos contra las impls in-memory y Supabase.
    *
    * `ahora` es la hora real usada para el corte de "hoy" del gasto de IA —
    * tiene que coincidir con el día UTC que usa el `CostTracker` para el kill
