@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, test } from "vitest";
-import type { MetricsRepository } from "@/server/repositories/metrics.repo";
+import { beforeEach, describe, expect, it, test } from "vitest";
+import { InMemoryMetricsRepository } from "@/server/repositories/metrics.repo";
+import type { MetricsFixture, MetricsRepository } from "@/server/repositories/metrics.repo";
 
 /**
  * Contrato del read-model de métricas.
@@ -79,3 +80,26 @@ export function runMetricsContract(
     });
   });
 }
+
+// listCampanias no participa de runMetricsContract: no tiene corte por fecha
+// y este archivo no comparte fixtures con InMemory/Supabase (ver comentario de
+// clase arriba), así que se verifica en In-Memory de forma directa.
+const makeRepo = (fixture: MetricsFixture) => new InMemoryMetricsRepository(fixture);
+
+describe("listCampanias", () => {
+  it("devuelve las campañas del fixture", async () => {
+    const repo = makeRepo({
+      campanias: [
+        {
+          id: "c1",
+          nombre: "Lanzamiento verano",
+          desde: new Date("2026-01-01"),
+          hasta: new Date("2026-01-31"),
+        },
+      ],
+    });
+    const campanias = await repo.listCampanias();
+    expect(campanias).toHaveLength(1);
+    expect(campanias[0]?.nombre).toBe("Lanzamiento verano");
+  });
+});

@@ -2,6 +2,7 @@ import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import type { Canal, CurrentStage, Sender } from "@/types/domain";
 import type {
+  FilaCampaniaMetrica,
   FilaIntentMetrica,
   FilaLeadMetrica,
   FilaLlmUsageMetrica,
@@ -27,10 +28,16 @@ import type {
 export class SupabaseMetricsRepository implements MetricsRepository {
   constructor(private readonly db: AppClient) {}
 
+  /**
+   * `precio_cotizado` es `numeric` en Postgres — mismo riesgo de serialización
+   * como string que `costo_usd` (ver `listLlmUsageDesde`); se normaliza igual.
+   */
   async listSesionesDesde(desde: Date): Promise<FilaSesionMetrica[]> {
     const { data, error } = await this.db
       .from("lead_session")
-      .select("id, current_stage, resultado, motivo_perdida, started_at")
+      .select(
+        "id, current_stage, resultado, motivo_perdida, started_at, precio_cotizado, codigo_interno, closed_at, cantidad",
+      )
       .gte("started_at", desde.toISOString());
     if (error) throw mapPostgrestError(error, { resource: "lead_session" });
     return (data ?? []).map((r) => ({
@@ -39,6 +46,11 @@ export class SupabaseMetricsRepository implements MetricsRepository {
       resultado: r.resultado as "exito" | "perdido" | null,
       motivo_perdida: r.motivo_perdida,
       started_at: new Date(r.started_at),
+      precio_cotizado:
+        typeof r.precio_cotizado === "string" ? Number(r.precio_cotizado) : r.precio_cotizado,
+      codigo_interno: r.codigo_interno,
+      closed_at: r.closed_at ? new Date(r.closed_at) : null,
+      cantidad: r.cantidad,
     }));
   }
 
@@ -97,13 +109,17 @@ export class SupabaseMetricsRepository implements MetricsRepository {
   async listToolExecutionsDesde(desde: Date): Promise<FilaToolExecutionMetrica[]> {
     const { data, error } = await this.db
       .from("tool_executions")
-      .select("tool_name, created_at, error")
+      .select("tool_name, created_at, error, args")
       .gte("created_at", desde.toISOString());
     if (error) throw mapPostgrestError(error, { resource: "tool_executions" });
     return (data ?? []).map((r) => ({
       tool_name: r.tool_name,
       created_at: new Date(r.created_at),
       error: r.error,
+      args:
+        r.tool_name === "buscar_repuesto" && r.args && typeof r.args === "object"
+          ? (r.args as { query?: string; marca?: string; modelo?: string })
+          : null,
     }));
   }
 
@@ -170,6 +186,20 @@ export class SupabaseMetricsRepository implements MetricsRepository {
       action: row.action as "pause" | "resume",
       reason_code: row.reason_code,
       created_at: new Date(row.created_at),
+    }));
+  }
+
+  async listCampanias(): Promise<FilaCampaniaMetrica[]> {
+    const { data, error } = await this.db
+      .from("campanias")
+      .select("id, nombre, desde, hasta")
+      .order("desde", { ascending: false });
+    if (error) throw mapPostgrestError(error, { resource: "campanias" });
+    return (data ?? []).map((r) => ({
+      id: r.id,
+      nombre: r.nombre,
+      desde: new Date(r.desde),
+      hasta: new Date(r.hasta),
     }));
   }
 }

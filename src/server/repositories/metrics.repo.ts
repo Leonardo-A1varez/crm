@@ -8,6 +8,12 @@ export interface FilaSesionMetrica {
   resultado: "exito" | "perdido" | null;
   motivo_perdida: string | null;
   started_at: Date;
+  /** Monto TOTAL de la cotización, no unitario. null si no se cotizó nada. */
+  precio_cotizado: number | null;
+  codigo_interno: string | null;
+  /** null mientras la sesión sigue abierta. */
+  closed_at: Date | null;
+  cantidad: number | null;
 }
 
 /** Mensaje reducido a lo que las métricas necesitan contar. */
@@ -52,6 +58,8 @@ export interface FilaToolExecutionMetrica {
   tool_name: string;
   created_at: Date;
   error: string | null;
+  /** Solo se usa para tool_name === 'buscar_repuesto'; null en el resto. */
+  args: { query?: string; marca?: string; modelo?: string } | null;
 }
 
 /** Intent activo. `auto_detectado` marca los que propuso el detector batch. */
@@ -101,6 +109,14 @@ export interface FilaLlmUsageMetrica {
   created_at: Date;
 }
 
+/** Campaña de marketing, solo lo que Métricas necesita para el filtro por fecha. */
+export interface FilaCampaniaMetrica {
+  id: string;
+  nombre: string;
+  desde: Date;
+  hasta: Date;
+}
+
 /**
  * Lectura para métricas. Devuelve filas flacas y agrega en el service, no en
  * SQL: a la escala de un CRM single-org son miles de filas, y tener el corte en
@@ -124,6 +140,8 @@ export interface MetricsRepository {
   listReglasActivas(): Promise<FilaReglaActivaMetrica[]>;
   /** Todos, no solo los activos: un vendedor dado de baja atendió sesiones que siguen contando. */
   listUsuarios(): Promise<FilaUsuarioMetrica[]>;
+  /** Sin ventana: catálogo de campañas para el selector, no un evento del período. */
+  listCampanias(): Promise<FilaCampaniaMetrica[]>;
 }
 
 /** Filas con las que se arma un `InMemoryMetricsRepository`. Todas opcionales. */
@@ -139,6 +157,7 @@ export interface MetricsFixture {
   usuarios?: FilaUsuarioMetrica[];
   gastos?: FilaLlmUsageMetrica[];
   handoffs?: FilaHandoffMetrica[];
+  campanias?: FilaCampaniaMetrica[];
 }
 
 export class InMemoryMetricsRepository implements MetricsRepository {
@@ -153,6 +172,7 @@ export class InMemoryMetricsRepository implements MetricsRepository {
   private readonly usuarios: FilaUsuarioMetrica[];
   private readonly gastos: FilaLlmUsageMetrica[];
   private readonly handoffs: FilaHandoffMetrica[];
+  private readonly campanias: FilaCampaniaMetrica[];
 
   // Un objeto y no 9 parámetros posicionales: con nueve listas del mismo tipo
   // base, equivocarse de posición compila y falla en silencio.
@@ -168,6 +188,7 @@ export class InMemoryMetricsRepository implements MetricsRepository {
     this.usuarios = fixture.usuarios ?? [];
     this.gastos = fixture.gastos ?? [];
     this.handoffs = fixture.handoffs ?? [];
+    this.campanias = fixture.campanias ?? [];
   }
 
   async listSesionesDesde(desde: Date): Promise<FilaSesionMetrica[]> {
@@ -212,5 +233,9 @@ export class InMemoryMetricsRepository implements MetricsRepository {
 
   async listUsuarios(): Promise<FilaUsuarioMetrica[]> {
     return this.usuarios;
+  }
+
+  async listCampanias(): Promise<FilaCampaniaMetrica[]> {
+    return this.campanias;
   }
 }

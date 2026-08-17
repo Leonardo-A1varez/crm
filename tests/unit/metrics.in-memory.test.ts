@@ -18,6 +18,10 @@ runMetricsContract(
           resultado: null,
           motivo_perdida: null,
           started_at: AYER,
+          precio_cotizado: null,
+          codigo_interno: null,
+          closed_at: null,
+          cantidad: null,
         },
       ],
       mensajes: [

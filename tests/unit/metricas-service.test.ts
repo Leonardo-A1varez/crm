@@ -41,6 +41,10 @@ function sesion(over: Partial<FilaSesionMetrica> = {}): FilaSesionMetrica {
     resultado: null,
     motivo_perdida: null,
     started_at: haceDias(1),
+    precio_cotizado: null,
+    codigo_interno: null,
+    closed_at: null,
+    cantidad: null,
     ...over,
   };
 }
@@ -786,10 +790,10 @@ describe("DefaultMetricsService.obtener", () => {
     test("agrupa por nombre, separa las fallidas y ordena por llamadas", async () => {
       const m = await svc({
         tools: [
-          { tool_name: "buscar_repuesto", created_at: haceDias(1), error: null },
-          { tool_name: "buscar_repuesto", created_at: haceDias(1), error: null },
-          { tool_name: "buscar_repuesto", created_at: haceDias(2), error: "timeout" },
-          { tool_name: "cotizar", created_at: haceDias(1), error: null },
+          { tool_name: "buscar_repuesto", created_at: haceDias(1), error: null, args: null },
+          { tool_name: "buscar_repuesto", created_at: haceDias(1), error: null, args: null },
+          { tool_name: "buscar_repuesto", created_at: haceDias(2), error: "timeout", args: null },
+          { tool_name: "cotizar", created_at: haceDias(1), error: null, args: null },
         ],
       }).obtener(30, AHORA);
 
@@ -802,8 +806,8 @@ describe("DefaultMetricsService.obtener", () => {
     test("las llamadas fuera de la ventana no cuentan", async () => {
       const m = await svc({
         tools: [
-          { tool_name: "buscar_repuesto", created_at: haceDias(1), error: null },
-          { tool_name: "buscar_repuesto", created_at: haceDias(90), error: null },
+          { tool_name: "buscar_repuesto", created_at: haceDias(1), error: null, args: null },
+          { tool_name: "buscar_repuesto", created_at: haceDias(90), error: null, args: null },
         ],
       }).obtener(30, AHORA);
 
