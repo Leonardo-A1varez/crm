@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useTransition, useState } from "react";
 import { toast } from "sonner";
 import { CampaniaFormDialog } from "@/components/metricas/CampaniaFormDialog";
 import { Button } from "@/components/ui/button";
@@ -30,18 +31,6 @@ export function GestionCampanias({
   onEditar: (input: CampaniaFormValues & { id: string }) => Promise<ActionResult>;
   onBorrar: (input: { id: string }) => Promise<ActionResult>;
 }) {
-  const router = useRouter();
-
-  const borrar = async (id: string) => {
-    const result = await onBorrar({ id });
-    if (!result.ok) {
-      toast.error(result.error);
-      return;
-    }
-    toast.success("Campaña borrada");
-    router.refresh();
-  };
-
   return (
     <Dialog>
       <DialogTrigger render={<Button variant="outline" size="sm" />}>Campañas</DialogTrigger>
@@ -61,32 +50,81 @@ export function GestionCampanias({
           ) : (
             <ul className="flex flex-col gap-2">
               {campanias.map((c) => (
-                <li key={c.id} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="min-w-0 flex-1 truncate">
-                    {c.nombre}{" "}
-                    <span className="text-muted-foreground text-xs">
-                      {fmt(c.desde)} – {fmt(c.hasta)}
-                    </span>
-                  </span>
-                  <div className="flex shrink-0 gap-1">
-                    <CampaniaFormDialog
-                      title="Editar campaña"
-                      description="Cambiar nombre o ventana de fechas."
-                      triggerLabel="Editar"
-                      triggerVariant="outline"
-                      initial={c}
-                      onSubmit={(v) => onEditar({ ...v, id: c.id })}
-                    />
-                    <Button variant="destructive" size="sm" onClick={() => borrar(c.id)}>
-                      Borrar
-                    </Button>
-                  </div>
-                </li>
+                <FilaCampania key={c.id} campania={c} onEditar={onEditar} onBorrar={onBorrar} />
               ))}
             </ul>
           )}
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function FilaCampania({
+  campania,
+  onEditar,
+  onBorrar,
+}: {
+  campania: Campania;
+  onEditar: (input: CampaniaFormValues & { id: string }) => Promise<ActionResult>;
+  onBorrar: (input: { id: string }) => Promise<ActionResult>;
+}) {
+  const router = useRouter();
+  const [confirmando, setConfirmando] = useState(false);
+  const [pendiente, iniciar] = useTransition();
+
+  function borrar(): void {
+    iniciar(async () => {
+      const result = await onBorrar({ id: campania.id });
+      if (!result.ok) {
+        toast.error(result.error);
+        setConfirmando(false);
+        return;
+      }
+      toast.success("Campaña borrada");
+      router.refresh();
+    });
+  }
+
+  return (
+    <li className="flex items-center justify-between gap-2 text-sm">
+      <span className="min-w-0 flex-1 truncate">
+        {campania.nombre}{" "}
+        <span className="text-muted-foreground text-xs">
+          {fmt(campania.desde)} – {fmt(campania.hasta)}
+        </span>
+      </span>
+      <div className="flex shrink-0 gap-1">
+        {confirmando ? (
+          <>
+            <Button size="sm" variant="destructive" onClick={borrar} disabled={pendiente}>
+              {pendiente ? "Borrando…" : "Borrar"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setConfirmando(false)}
+              disabled={pendiente}
+            >
+              No
+            </Button>
+          </>
+        ) : (
+          <>
+            <CampaniaFormDialog
+              title="Editar campaña"
+              description="Cambiar nombre o ventana de fechas."
+              triggerLabel="Editar"
+              triggerVariant="outline"
+              initial={campania}
+              onSubmit={(v) => onEditar({ ...v, id: campania.id })}
+            />
+            <Button size="sm" variant="destructive" onClick={() => setConfirmando(true)}>
+              Borrar
+            </Button>
+          </>
+        )}
+      </div>
+    </li>
   );
 }
