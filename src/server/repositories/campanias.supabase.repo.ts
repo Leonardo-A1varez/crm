@@ -1,3 +1,4 @@
+import { NotFoundError } from "@/lib/errors";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import type { AppClient } from "@/server/db/client";
 import type { Campania, UUID } from "@/types/entities";
@@ -40,8 +41,11 @@ export class SupabaseCampaniasRepository implements CampaniasRepository {
       })
       .eq("id", id)
       .select("id, nombre, desde, hasta, created_at")
-      .single();
+      .maybeSingle();
     if (error) throw mapPostgrestError(error, { resource: "campanias" });
+    if (data === null) {
+      throw new NotFoundError(`campania no encontrada: ${id}`, "campania", id);
+    }
     return mapRow(data);
   }
 
