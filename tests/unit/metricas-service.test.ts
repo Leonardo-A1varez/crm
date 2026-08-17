@@ -698,7 +698,7 @@ describe("DefaultMetricsService.obtener", () => {
           // Ayer: entra en el total de la ventana, no en el de hoy.
           uso({ costo_usd: 1, created_at: new Date("2026-08-09T23:59:59.000Z") }),
         ],
-      }).obtener(haceDias(30), AHORA);
+      }).obtener(haceDias(30), AHORA, AHORA);
 
       expect(m.gasto.hoyUsd).toBeCloseTo(0.12, 10);
       expect(m.gasto.totalUsd).toBeCloseTo(1.12, 10);
@@ -998,6 +998,36 @@ describe("DefaultMetricsService.obtener", () => {
         unidadesConDato: 1,
       });
       expect(m.codigosMasVendidos[1]?.codigoInterno).toBe("COD2");
+      // montoTotalUsd es sum(precio_cotizado) = 100 + 80 + 20 = 200. Si se
+      // multiplicara por `cantidad` (3 en s2), daría 360.
+      expect(m.ventas.montoTotalUsd).toBe(200);
+    });
+  });
+
+  describe("repuestosMasPreguntados", () => {
+    test("agrupa por marca sin distinguir mayúsculas ni espacios, ignora otras tools y args nulos", async () => {
+      const m = await svc({
+        tools: [
+          {
+            tool_name: "buscar_repuesto",
+            created_at: haceDias(1),
+            error: null,
+            args: { marca: "Toyota" },
+          },
+          {
+            tool_name: "buscar_repuesto",
+            created_at: haceDias(1),
+            error: null,
+            args: { marca: " toyota " },
+          },
+          // Otra tool: no aporta a la demanda de catálogo.
+          { tool_name: "cotizar", created_at: haceDias(1), error: null, args: null },
+          // buscar_repuesto sin args: no debe romper ni contar.
+          { tool_name: "buscar_repuesto", created_at: haceDias(1), error: null, args: null },
+        ],
+      }).obtener(haceDias(30), AHORA);
+
+      expect(m.repuestosMasPreguntados.porMarca).toEqual([{ motivo: "toyota", cantidad: 2 }]);
     });
   });
 

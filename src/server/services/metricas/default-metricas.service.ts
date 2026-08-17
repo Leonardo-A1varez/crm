@@ -54,7 +54,7 @@ function tasaCierreDe(sesiones: FilaSesionMetrica[]): number {
 export class DefaultMetricsService implements MetricsService {
   constructor(private readonly deps: { metrics: MetricsRepository }) {}
 
-  async obtener(desde: Date, hasta: Date): Promise<Metricas> {
+  async obtener(desde: Date, hasta: Date, ahora: Date = new Date()): Promise<Metricas> {
     const ventana = hasta.getTime() - desde.getTime();
     // La ventana anterior se pide solo para sesiones y leads, que son tablas
     // chicas. Mensajes es el corte más caro de la pantalla y duplicarlo para
@@ -305,7 +305,7 @@ export class DefaultMetricsService implements MetricsService {
         llm: autoria.ia - turnosRegla,
         escalado: autoria.humano,
       },
-      gasto: resumirGasto(gastos, hasta, leadsNuevos, turnosRegla),
+      gasto: resumirGasto(gastos, ahora, leadsNuevos, turnosRegla),
       herramientas,
       intentsSinRegla,
       ventas,
@@ -332,11 +332,11 @@ export class DefaultMetricsService implements MetricsService {
  */
 function resumirGasto(
   gastos: FilaLlmUsageMetrica[],
-  hasta: Date,
+  ahora: Date,
   leadsNuevos: number,
   turnosRegla: number,
 ): GastoIa {
-  const hoy = hasta.toISOString().slice(0, 10);
+  const hoy = ahora.toISOString().slice(0, 10);
   const porWorkflow = new Map<string, ConteoWorkflow>();
 
   let totalUsd = 0;
