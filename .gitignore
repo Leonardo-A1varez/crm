@@ -80,3 +80,6 @@ logs/
 .eslintcache
 .cache/
 .parcel-cache/
+
+# git worktrees (subagent-driven-development)
+.worktrees/
