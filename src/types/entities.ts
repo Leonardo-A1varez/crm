@@ -344,6 +344,14 @@ export interface Tag {
   descripcion: string | null;
 }
 
+export interface Campania {
+  id: UUID;
+  nombre: string;
+  desde: Date;
+  hasta: Date;
+  created_at: Date;
+}
+
 export interface LeadTag {
   lead_id: UUID;
   tag_id: UUID;
