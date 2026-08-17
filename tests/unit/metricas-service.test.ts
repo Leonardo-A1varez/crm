@@ -557,7 +557,12 @@ describe("DefaultMetricsService.obtener", () => {
         usuarios: [usuario()],
       }).obtener(haceDias(30), AHORA);
 
-      expect(m.vendedores).toEqual({ filas: [], sinAtribuir: 0, tomaEnSegundos: null });
+      expect(m.vendedores).toEqual({
+        filas: [],
+        sinAtribuir: 0,
+        tomaEnSegundos: null,
+        muestras: 0,
+      });
     });
 
     test("la mediana no la corre una espera larga suelta", async () => {

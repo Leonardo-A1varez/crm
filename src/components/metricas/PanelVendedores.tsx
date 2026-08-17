@@ -1,17 +1,27 @@
 import { BarraReparto } from "@/components/metricas/BarraReparto";
-import { BloqueFaltante, KpiFaltante } from "@/components/metricas/Faltante";
+import { KpiFaltante } from "@/components/metricas/Faltante";
 import { Seccion } from "@/components/metricas/Seccion";
 import { TarjetaKpi } from "@/components/metricas/TarjetaKpi";
-import { Group, Schedule, TaskAlt } from "@/components/icons";
+import { DoneAll, Group, Schedule, TaskAlt } from "@/components/icons";
 import {
   cantidad,
   formatearEntero,
   formatearEspera,
   formatearPorcentaje,
+  formatearUsd,
   porcentajeDe,
 } from "@/lib/ui/metricas";
 import { stageColor } from "@/lib/ui/stage";
 import type { Metricas } from "@/types/metricas";
+
+const COLORES_RAZON = [
+  "var(--color-brand)",
+  "var(--color-info)",
+  "var(--color-danger)",
+  "var(--color-ok)",
+  "#E879F9",
+  "#FB923C",
+] as const;
 
 /**
  * La tabla del handoff §3.3, con las columnas que hoy tienen dato. "Ticket
@@ -85,7 +95,7 @@ export function PanelVendedores({ m }: { m: Metricas }) {
 
   return (
     <div className="flex flex-col gap-4 p-5">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <TarjetaKpi
           label="Conversaciones tomadas"
           valor={formatearEntero(m.tomadasPorHumano)}
@@ -98,21 +108,40 @@ export function PanelVendedores({ m }: { m: Metricas }) {
           subtitulo={`${formatearEntero(m.cierres.vendedor)} cerradas de ${formatearEntero(m.tomadasPorHumano)} tomadas`}
           icono={TaskAlt}
         />
-        <KpiFaltante
-          label="Ticket promedio"
-          falta="un monto por sesión cerrada. lead_session.precio_cotizado es lo que se cotizó, no lo que se facturó, y no hay tabla de venta ni de orden."
-        />
+        {m.ventas.montoTotalUsd === null ? (
+          <KpiFaltante
+            label="Ticket promedio"
+            falta="ninguna de las ventas tomadas por humano tiene precio_cotizado registrado."
+          />
+        ) : (
+          <TarjetaKpi
+            label="Ticket promedio"
+            valor={formatearUsd(m.ventas.ticketPromedioUsd ?? 0)}
+            subtitulo={`sobre ${formatearEntero(m.ventas.conPrecio)} ventas con precio (todas las fuentes)`}
+            icono={TaskAlt}
+          />
+        )}
         {/* Mediana y no promedio: una sesión que quedó abierta de un viernes a
             un lunes corre el promedio de todos y no dice nada del equipo. */}
         <TarjetaKpi
           label="Tiempo hasta tomar"
           valor={formatearEspera(m.vendedores.tomaEnSegundos)}
           subtitulo={
-            m.tiempoPrimeraRespuesta.personas.muestras === 0
+            m.vendedores.muestras === 0
               ? "Sin datos medibles"
-              : `${formatearEntero(m.tiempoPrimeraRespuesta.personas.muestras)} muestras con timestamp de Meta`
+              : `${formatearEntero(m.vendedores.muestras)} muestras con timestamp de Meta`
           }
           icono={Schedule}
+        />
+        <TarjetaKpi
+          label="Tiempo en cerrar"
+          valor={formatearEspera(m.tiempoCierre.medianaSegundos)}
+          subtitulo={
+            m.tiempoCierre.muestras === 0
+              ? "Sin sesiones resueltas"
+              : `mediana sobre ${formatearEntero(m.tiempoCierre.muestras)} sesiones resueltas`
+          }
+          icono={DoneAll}
         />
       </div>
 
@@ -147,11 +176,23 @@ export function PanelVendedores({ m }: { m: Metricas }) {
           />
         </Seccion>
 
-        <BloqueFaltante
-          label="Por qué se escaló a humano"
-          descripcion="El desglose del handoff por motivo: pidió humano, intent desconocido, pausa manual, bloqueador sin resolver."
-          falta="registrar el motivo del handoff. La sesión termina en requiere_humano sin guardar qué lo disparó, así que los cuatro motivos no se pueden separar: hoy solo se sabe el total."
-        />
+        <Seccion
+          titulo="Por qué se escaló a humano"
+          extra={cantidad(
+            m.razonesEscalado.reduce((acc, r) => acc + r.cantidad, 0),
+            "escalado",
+          )}
+          nota="Cada pausa registrada en handoff_events, con su motivo."
+        >
+          <BarraReparto
+            vacio="Ninguna conversación se escaló a humano en el período."
+            partes={m.razonesEscalado.map((r, i) => ({
+              label: r.motivo,
+              cantidad: r.cantidad,
+              color: COLORES_RAZON[i % COLORES_RAZON.length] ?? COLORES_RAZON[0],
+            }))}
+          />
+        </Seccion>
       </div>
     </div>
   );

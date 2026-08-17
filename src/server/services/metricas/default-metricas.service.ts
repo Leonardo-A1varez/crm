@@ -565,5 +565,10 @@ function repartirPorVendedor(
         b.tomadas - a.tomadas || b.cerradas - a.cerradas || a.nombre.localeCompare(b.nombre),
     );
 
-  return { filas, sinAtribuir, tomaEnSegundos: medianaSegundos(esperasGlobales) };
+  return {
+    filas,
+    sinAtribuir,
+    tomaEnSegundos: medianaSegundos(esperasGlobales),
+    muestras: esperasGlobales.length,
+  };
 }

@@ -215,6 +215,8 @@ export interface Metricas {
      * persona, en segundos. `null` cuando no hay ninguna sesión medible.
      */
     tomaEnSegundos: number | null;
+    /** Cuántas esperas entraron en la mediana global — mismo denominador que `tomaEnSegundos`. */
+    muestras: number;
   };
   /** Sesiones cerradas con éxito, atribuidas según haya escrito un humano. */
   cierres: {
