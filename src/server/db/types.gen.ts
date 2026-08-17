@@ -179,6 +179,30 @@ export type Database = {
           },
         ]
       }
+      campanias: {
+        Row: {
+          created_at: string
+          desde: string
+          hasta: string
+          id: string
+          nombre: string
+        }
+        Insert: {
+          created_at?: string
+          desde: string
+          hasta: string
+          id?: string
+          nombre: string
+        }
+        Update: {
+          created_at?: string
+          desde?: string
+          hasta?: string
+          id?: string
+          nombre?: string
+        }
+        Relationships: []
+      }
       conversaciones: {
         Row: {
           canal: Database["public"]["Enums"]["canal_enum"]
@@ -621,6 +645,7 @@ export type Database = {
       }
       leads: {
         Row: {
+          campania_id: string | null
           canal_origen: Database["public"]["Enums"]["canal_enum"]
           created_at: string
           datos_extra: Json
@@ -639,6 +664,7 @@ export type Database = {
           vehiculo_motor: string | null
         }
         Insert: {
+          campania_id?: string | null
           canal_origen: Database["public"]["Enums"]["canal_enum"]
           created_at?: string
           datos_extra?: Json
@@ -657,6 +683,7 @@ export type Database = {
           vehiculo_motor?: string | null
         }
         Update: {
+          campania_id?: string | null
           canal_origen?: Database["public"]["Enums"]["canal_enum"]
           created_at?: string
           datos_extra?: Json
@@ -675,6 +702,13 @@ export type Database = {
           vehiculo_motor?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "leads_campania_id_fkey"
+            columns: ["campania_id"]
+            isOneToOne: false
+            referencedRelation: "campanias"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "leads_empresa_id_fkey"
             columns: ["empresa_id"]
