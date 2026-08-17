@@ -130,6 +130,31 @@ export interface Comparado {
 export const TABS_METRICAS = ["total", "agente", "vendedores"] as const;
 export type TabMetricas = (typeof TABS_METRICAS)[number];
 
+/** Ventas realizadas del período: resultado = 'exito' en lead_session. */
+export interface Ventas {
+  /** Todas las resultado=exito, tengan o no precio_cotizado registrado. */
+  conteo: number;
+  /** De esas, cuántas tienen precio_cotizado no nulo — denominador real de monto/ticket. */
+  conPrecio: number;
+  /** sum(precio_cotizado), monto TOTAL (no unitario). null si conPrecio = 0. */
+  montoTotalUsd: number | null;
+  /** montoTotalUsd / conPrecio. null si conPrecio = 0. */
+  ticketPromedioUsd: number | null;
+}
+
+/**
+ * Un código de producto entre las ventas del período. `lead_session` es 1
+ * producto por sesión (sin carrito): "apariciones" es la métrica primaria y
+ * siempre disponible; "unidades" depende de que `cantidad` se haya registrado.
+ */
+export interface ConteoCodigo {
+  codigoInterno: string;
+  apariciones: number;
+  unidades: number;
+  /** Denominador de `unidades` — cuántas de las `apariciones` tienen `cantidad` registrada. */
+  unidadesConDato: number;
+}
+
 /**
  * Forma derivada, no entity: la produce `MetricsService.obtener` y la consume la
  * pantalla. Solo trae lo que hoy se puede contar de verdad; las métricas del
@@ -211,4 +236,15 @@ export interface Metricas {
   herramientas: ConteoHerramienta[];
   /** Intents que hoy resuelve el LLM por no tener regla activa, del más nuevo al más viejo. */
   intentsSinRegla: IntentSinRegla[];
+  ventas: Ventas;
+  /** De más a menos apariciones entre las ventas del período. */
+  codigosMasVendidos: ConteoCodigo[];
+  repuestosMasPreguntados: {
+    /** args.marca de buscar_repuesto — dato categórico limpio. */
+    porMarca: ConteoMotivo[];
+    /** args.query normalizado (trim + lowercase) — texto libre, puede fragmentar variantes de la misma pieza. */
+    porTermino: ConteoMotivo[];
+  };
+  /** Mediana de closed_at - started_at sobre CUALQUIER sesión resuelta (exito o perdido) con closed_at registrado. */
+  tiempoCierre: TiempoRespuestaMedible;
 }

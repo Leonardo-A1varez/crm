@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 const VENTANAS = [7, 30, 90] as const;
 const VENTANA_POR_DEFECTO = 30;
 const TAB_POR_DEFECTO: TabMetricas = "total";
+const DIA_MS = 24 * 60 * 60 * 1000;
 
 function leerTab(valor: string | string[] | undefined): TabMetricas {
   return typeof valor === "string" && (TABS_METRICAS as readonly string[]).includes(valor)
@@ -31,7 +32,9 @@ export default async function MetricasPage({
   const tab = leerTab(params.tab);
 
   const svc = await getMetricsServiceForRequest();
-  const m = await svc.obtener(dias);
+  const hasta = new Date();
+  const desde = new Date(hasta.getTime() - dias * DIA_MS);
+  const m = await svc.obtener(desde, hasta);
 
   return (
     <div className="bg-surface-root flex h-full flex-col overflow-hidden">

@@ -68,7 +68,7 @@ function usuario(over: Partial<FilaUsuarioMetrica> = {}): FilaUsuarioMetrica {
 
 describe("DefaultMetricsService.obtener", () => {
   test("sin datos devuelve las 6 etapas del embudo en cero", async () => {
-    const m = await svc().obtener(30, AHORA);
+    const m = await svc().obtener(haceDias(30), AHORA);
 
     expect(m.totalSesiones).toBe(0);
     expect(m.embudo).toHaveLength(6);
@@ -79,7 +79,7 @@ describe("DefaultMetricsService.obtener", () => {
   test("la ventana recorta: lo anterior a `desde` no se cuenta", async () => {
     const m = await svc({
       sesiones: [sesion({ started_at: haceDias(5) }), sesion({ started_at: haceDias(40) })],
-    }).obtener(30, AHORA);
+    }).obtener(haceDias(30), AHORA);
 
     expect(m.totalSesiones).toBe(1);
     expect(m.desde).toEqual(haceDias(30));
@@ -92,7 +92,7 @@ describe("DefaultMetricsService.obtener", () => {
         sesion({ current_stage: "requiere_humano" }),
         sesion({ current_stage: "perdido" }),
       ],
-    }).obtener(30, AHORA);
+    }).obtener(haceDias(30), AHORA);
 
     expect(m.embudo.find((e) => e.stage === "cotizado")?.cantidad).toBe(1);
     expect(m.embudo.map((e) => e.stage)).not.toContain("perdido");
@@ -108,7 +108,7 @@ describe("DefaultMetricsService.obtener", () => {
         sesion(),
         sesion(),
       ],
-    }).obtener(30, AHORA);
+    }).obtener(haceDias(30), AHORA);
 
     expect(m.resultado).toMatchObject({ exito: 1, perdido: 1, abiertas: 2 });
   });
@@ -116,7 +116,7 @@ describe("DefaultMetricsService.obtener", () => {
   test("una perdida sin motivo no se inventa como 'otro'", async () => {
     const m = await svc({
       sesiones: [sesion({ resultado: "perdido", motivo_perdida: null })],
-    }).obtener(30, AHORA);
+    }).obtener(haceDias(30), AHORA);
 
     expect(m.resultado.porMotivo).toEqual([{ motivo: "Sin motivo registrado", cantidad: 1 }]);
   });
@@ -128,7 +128,7 @@ describe("DefaultMetricsService.obtener", () => {
         sesion({ resultado: "perdido", motivo_perdida: "precio" }),
         sesion({ resultado: "perdido", motivo_perdida: "precio" }),
       ],
-    }).obtener(30, AHORA);
+    }).obtener(haceDias(30), AHORA);
 
     expect(m.resultado.porMotivo).toEqual([
       { motivo: "Precio", cantidad: 2 },
@@ -145,7 +145,7 @@ describe("DefaultMetricsService.obtener", () => {
         mensaje({ sender: "humano", created_at: haceDias(3) }),
         mensaje({ sender: "ia", created_at: haceDias(45) }),
       ],
-    }).obtener(30, AHORA);
+    }).obtener(haceDias(30), AHORA);
 
     expect(m.autoria).toEqual({ lead: 1, ia: 2, humano: 1, sistema: 0 });
   });
@@ -159,14 +159,14 @@ describe("DefaultMetricsService.obtener", () => {
           { created_at: haceDias(35) },
           { created_at: haceDias(70) },
         ],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       // Ventana: [-30, 0] → 2 leads. Anterior: [-60, -30] → 1 (el de 70 días queda afuera).
       expect(m.leadsNuevos).toEqual({ valor: 2, anterior: 1 });
     });
 
     test("sin leads devuelve cero y no NaN", async () => {
-      const m = await svc().obtener(30, AHORA);
+      const m = await svc().obtener(haceDias(30), AHORA);
       expect(m.leadsNuevos).toEqual({ valor: 0, anterior: 0 });
     });
   });
@@ -181,13 +181,13 @@ describe("DefaultMetricsService.obtener", () => {
           sesion(),
           sesion(),
         ],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.tasaCierre.valor).toBe(33.3);
     });
 
     test("sin sesiones resueltas es 0, no NaN", async () => {
-      const m = await svc({ sesiones: [sesion(), sesion()] }).obtener(30, AHORA);
+      const m = await svc({ sesiones: [sesion(), sesion()] }).obtener(haceDias(30), AHORA);
       expect(m.tasaCierre.valor).toBe(0);
     });
 
@@ -201,7 +201,7 @@ describe("DefaultMetricsService.obtener", () => {
           sesion({ resultado: "perdido", started_at: haceDias(45) }),
           sesion({ resultado: "perdido", started_at: haceDias(50) }),
         ],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.tasaCierre).toEqual({ valor: 50, anterior: 50 });
     });
@@ -216,7 +216,7 @@ describe("DefaultMetricsService.obtener", () => {
           mensaje({ canal: "wa" }),
           mensaje({ canal: "wa" }),
         ],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       // Orden wa/ig/fb aunque fb haya llegado primero; ig no aparece por estar en cero.
       expect(m.porCanal).toEqual([
@@ -228,7 +228,7 @@ describe("DefaultMetricsService.obtener", () => {
     test("los mensajes fuera de la ventana no suman al canal", async () => {
       const m = await svc({
         mensajes: [mensaje({ canal: "ig" }), mensaje({ canal: "ig", created_at: haceDias(60) })],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.porCanal).toEqual([{ canal: "ig", cantidad: 1 }]);
     });
@@ -242,7 +242,7 @@ describe("DefaultMetricsService.obtener", () => {
           mensaje({ sender: "humano", lead_session_id: "a" }),
           mensaje({ lead_session_id: "b" }),
         ],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.agente).toEqual({ sinIntervencionHumana: 1, resueltasPorIa: 0, escaladas: 1 });
     });
@@ -250,7 +250,7 @@ describe("DefaultMetricsService.obtener", () => {
     test("pedir humano ya cuenta como escalada aunque nadie haya contestado", async () => {
       const m = await svc({
         sesiones: [sesion({ id: "a", current_stage: "requiere_humano" })],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.agente).toEqual({ sinIntervencionHumana: 1, resueltasPorIa: 0, escaladas: 1 });
     });
@@ -259,7 +259,7 @@ describe("DefaultMetricsService.obtener", () => {
       const m = await svc({
         sesiones: [sesion({ id: "a", current_stage: "requiere_humano" })],
         mensajes: [mensaje({ sender: "humano", lead_session_id: "a" })],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.agente).toEqual({ sinIntervencionHumana: 0, resueltasPorIa: 0, escaladas: 1 });
     });
@@ -273,7 +273,7 @@ describe("DefaultMetricsService.obtener", () => {
           sesion({ id: "d" }),
         ],
         mensajes: [mensaje({ sender: "humano", lead_session_id: "c" })],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.agente).toEqual({ sinIntervencionHumana: 3, resueltasPorIa: 0, escaladas: 2 });
     });
@@ -281,7 +281,7 @@ describe("DefaultMetricsService.obtener", () => {
     test("una perdida y una abierta no pueden aparecer como 2/2 resueltas por IA", async () => {
       const m = await svc({
         sesiones: [sesion({ id: "cerrada", resultado: "perdido" }), sesion({ id: "abierta" })],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
       expect(m.agente.sinIntervencionHumana).toBe(2);
       expect(m.agente.resueltasPorIa).toBe(1);
     });
@@ -306,7 +306,7 @@ describe("DefaultMetricsService.obtener", () => {
             platform_created_at: null,
           }),
         ],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.tiempoPrimeraRespuesta.ia).toEqual({ medianaSegundos: 90, muestras: 1 });
     });
@@ -329,7 +329,7 @@ describe("DefaultMetricsService.obtener", () => {
           }),
           mensaje({ lead_session_id: "b", sender: "humano", created_at: base }),
         ],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
       expect(m.tiempoPrimeraRespuesta.ia.muestras).toBe(0);
       expect(m.tiempoPrimeraRespuesta.personas.muestras).toBe(0);
     });
@@ -350,7 +350,7 @@ describe("DefaultMetricsService.obtener", () => {
             created_at: haceDias(1),
           },
         ],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
       expect(m.razonesEscalado).toEqual([
         { motivo: "Límite de descuento", cantidad: 1 },
         { motivo: "Sin motivo registrado", cantidad: 1 },
@@ -370,7 +370,7 @@ describe("DefaultMetricsService.obtener", () => {
           mensaje({ sender: "humano", lead_session_id: "b" }),
           mensaje({ sender: "humano", lead_session_id: "c" }),
         ],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       // `c` se perdió: no es un cierre y no entra en la atribución.
       expect(m.cierres).toEqual({ ia: 1, vendedor: 1 });
@@ -379,7 +379,7 @@ describe("DefaultMetricsService.obtener", () => {
     test("una sesión parada en requiere_humano que nadie atendió la cerró la IA", async () => {
       const m = await svc({
         sesiones: [sesion({ id: "a", resultado: "exito", current_stage: "requiere_humano" })],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.cierres).toEqual({ ia: 1, vendedor: 0 });
     });
@@ -392,7 +392,7 @@ describe("DefaultMetricsService.obtener", () => {
           sesion({ resultado: "perdido" }),
           sesion(),
         ],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.cierres.ia + m.cierres.vendedor).toBe(m.resultado.exito);
     });
@@ -407,7 +407,7 @@ describe("DefaultMetricsService.obtener", () => {
           mensaje({ sender: "humano", lead_session_id: "a" }),
           mensaje({ sender: "humano", lead_session_id: "b" }),
         ],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.tomadasPorHumano).toBe(2);
     });
@@ -416,7 +416,7 @@ describe("DefaultMetricsService.obtener", () => {
       const m = await svc({
         sesiones: [sesion({ id: "nueva" }), sesion({ id: "vieja", started_at: haceDias(40) })],
         mensajes: [mensaje({ sender: "humano", lead_session_id: "vieja" })],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.tomadasPorHumano).toBe(0);
     });
@@ -424,7 +424,7 @@ describe("DefaultMetricsService.obtener", () => {
     test("pedir humano sin que nadie escriba no cuenta como tomada", async () => {
       const m = await svc({
         sesiones: [sesion({ id: "a", current_stage: "requiere_humano" })],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.tomadasPorHumano).toBe(0);
       expect(m.agente.escaladas).toBe(1);
@@ -456,7 +456,7 @@ describe("DefaultMetricsService.obtener", () => {
           }),
         ],
         usuarios: [usuario({ id: "u1", nombre: "Ana" }), usuario({ id: "u2", nombre: "Beto" })],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.vendedores.filas).toHaveLength(1);
       expect(m.vendedores.filas[0]?.nombre).toBe("Ana");
@@ -477,7 +477,7 @@ describe("DefaultMetricsService.obtener", () => {
           }),
         ],
         usuarios: [usuario()],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.vendedores.filas[0]?.tomaEnSegundos).toBe(180);
       expect(m.vendedores.tomaEnSegundos).toBe(180);
@@ -495,7 +495,7 @@ describe("DefaultMetricsService.obtener", () => {
           }),
         ],
         usuarios: [usuario()],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.vendedores.filas[0]?.tomadas).toBe(1);
       expect(m.vendedores.filas[0]?.tomaEnSegundos).toBeNull();
@@ -513,7 +513,7 @@ describe("DefaultMetricsService.obtener", () => {
           mensaje({ lead_session_id: id, sender: "humano", sender_user_id: "u1" }),
         ),
         usuarios: [usuario()],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.vendedores.filas[0]?.tomadas).toBe(3);
       expect(m.vendedores.filas[0]?.cerradas).toBe(1);
@@ -528,7 +528,7 @@ describe("DefaultMetricsService.obtener", () => {
           mensaje({ lead_session_id: "b", sender: "humano", sender_user_id: "u1" }),
         ],
         usuarios: [usuario()],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.vendedores.sinAtribuir).toBe(1);
       expect(m.vendedores.filas).toHaveLength(1);
@@ -544,7 +544,7 @@ describe("DefaultMetricsService.obtener", () => {
           mensaje({ lead_session_id: "c", sender: "humano", sender_user_id: null }),
         ],
         usuarios: [usuario({ id: "u1" }), usuario({ id: "u2", nombre: "Beto" })],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       const enFilas = m.vendedores.filas.reduce((acc, f) => acc + f.tomadas, 0);
       expect(enFilas + m.vendedores.sinAtribuir).toBe(m.tomadasPorHumano);
@@ -555,7 +555,7 @@ describe("DefaultMetricsService.obtener", () => {
         sesiones: [sesion({ id: "a" })],
         mensajes: [mensaje({ lead_session_id: "a", sender: "ia" })],
         usuarios: [usuario()],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.vendedores).toEqual({ filas: [], sinAtribuir: 0, tomaEnSegundos: null });
     });
@@ -588,7 +588,7 @@ describe("DefaultMetricsService.obtener", () => {
           }),
         ],
         usuarios: [usuario()],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       // Mediana de 60 / 120 / 36000 = 120. Un promedio daría 12060.
       expect(m.vendedores.filas[0]?.tomaEnSegundos).toBe(120);
@@ -606,7 +606,7 @@ describe("DefaultMetricsService.obtener", () => {
           mensaje({ sender: "lead" }),
         ],
         reglas: [{ created_at: haceDias(1) }],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.turnos).toEqual({ regla: 1, llm: 2, escalado: 1 });
     });
@@ -614,7 +614,7 @@ describe("DefaultMetricsService.obtener", () => {
     test("sin reglas ejecutadas todo lo de la IA es LLM", async () => {
       const m = await svc({
         mensajes: [mensaje({ sender: "ia" }), mensaje({ sender: "ia" })],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.turnos).toEqual({ regla: 0, llm: 2, escalado: 0 });
     });
@@ -629,7 +629,7 @@ describe("DefaultMetricsService.obtener", () => {
           { created_at: haceDias(2) },
           { created_at: haceDias(3) },
         ],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.turnos).toEqual({ regla: 1, llm: 0, escalado: 0 });
     });
@@ -638,7 +638,7 @@ describe("DefaultMetricsService.obtener", () => {
       const m = await svc({
         mensajes: [mensaje({ sender: "ia" }), mensaje({ sender: "ia" })],
         reglas: [{ created_at: haceDias(1) }, { created_at: haceDias(60) }],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.turnos).toEqual({ regla: 1, llm: 1, escalado: 0 });
     });
@@ -660,7 +660,7 @@ describe("DefaultMetricsService.obtener", () => {
     }
 
     test("sin llamadas registradas todo queda en cero y lo que se divide, en null", async () => {
-      const m = await svc().obtener(30, AHORA);
+      const m = await svc().obtener(haceDias(30), AHORA);
 
       expect(m.gasto).toEqual({
         totalUsd: 0,
@@ -681,7 +681,7 @@ describe("DefaultMetricsService.obtener", () => {
           uso({ costo_usd: 0.01, input_tokens: 1000, output_tokens: 200 }),
           uso({ costo_usd: 0.02, input_tokens: 500, output_tokens: 100 }),
         ],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.gasto.totalUsd).toBeCloseTo(0.03, 10);
       expect(m.gasto.tokensEntrada).toBe(1500);
@@ -698,7 +698,7 @@ describe("DefaultMetricsService.obtener", () => {
           // Ayer: entra en el total de la ventana, no en el de hoy.
           uso({ costo_usd: 1, created_at: new Date("2026-08-09T23:59:59.000Z") }),
         ],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.gasto.hoyUsd).toBeCloseTo(0.12, 10);
       expect(m.gasto.totalUsd).toBeCloseTo(1.12, 10);
@@ -707,7 +707,7 @@ describe("DefaultMetricsService.obtener", () => {
     test("lo anterior a la ventana no entra", async () => {
       const m = await svc({
         gastos: [uso({ created_at: haceDias(5) }), uso({ created_at: haceDias(40) })],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.gasto.llamadas).toBe(1);
     });
@@ -720,7 +720,7 @@ describe("DefaultMetricsService.obtener", () => {
           uso({ workflow: WORKFLOW_LLM.agente, costo_usd: 0.03 }),
           uso({ workflow: WORKFLOW_LLM.extractorTwin, costo_usd: 0.004 }),
         ],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.gasto.porWorkflow.map((w) => w.workflow)).toEqual([
         WORKFLOW_LLM.agente,
@@ -738,13 +738,13 @@ describe("DefaultMetricsService.obtener", () => {
       const m = await svc({
         leads: [{ created_at: haceDias(2) }, { created_at: haceDias(3) }],
         gastos: [uso({ costo_usd: 0.05 }), uso({ costo_usd: 0.05 })],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.gasto.porLeadUsd).toBeCloseTo(0.05, 10);
     });
 
     test("sin leads en la ventana el costo por lead es null y no un infinito", async () => {
-      const m = await svc({ gastos: [uso({ costo_usd: 0.05 })] }).obtener(30, AHORA);
+      const m = await svc({ gastos: [uso({ costo_usd: 0.05 })] }).obtener(haceDias(30), AHORA);
 
       expect(m.gasto.porLeadUsd).toBeNull();
     });
@@ -758,7 +758,7 @@ describe("DefaultMetricsService.obtener", () => {
           uso({ workflow: WORKFLOW_LLM.clasificador, costo_usd: 9 }),
           uso({ workflow: WORKFLOW_LLM.agentePreview, costo_usd: 9 }),
         ],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.gasto.promedioTurnoUsd).toBeCloseTo(0.03, 10);
     });
@@ -768,7 +768,7 @@ describe("DefaultMetricsService.obtener", () => {
         mensajes: [mensaje({ sender: "ia" }), mensaje({ sender: "ia" })],
         reglas: [{ created_at: haceDias(1) }, { created_at: haceDias(2) }],
         gastos: [uso({ costo_usd: 0.02 }), uso({ costo_usd: 0.04 })],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       // 2 turnos de regla × $0,03 de promedio.
       expect(m.gasto.ahorroReglasUsd).toBeCloseTo(0.06, 10);
@@ -779,7 +779,7 @@ describe("DefaultMetricsService.obtener", () => {
         mensajes: [mensaje({ sender: "ia" })],
         reglas: [{ created_at: haceDias(1) }],
         gastos: [uso({ workflow: WORKFLOW_LLM.clasificador, costo_usd: 0.001 })],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.gasto.promedioTurnoUsd).toBeNull();
       expect(m.gasto.ahorroReglasUsd).toBeNull();
@@ -795,7 +795,7 @@ describe("DefaultMetricsService.obtener", () => {
           { tool_name: "buscar_repuesto", created_at: haceDias(2), error: "timeout", args: null },
           { tool_name: "cotizar", created_at: haceDias(1), error: null, args: null },
         ],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.herramientas).toEqual([
         { nombre: "buscar_repuesto", llamadas: 3, fallidas: 1 },
@@ -809,13 +809,13 @@ describe("DefaultMetricsService.obtener", () => {
           { tool_name: "buscar_repuesto", created_at: haceDias(1), error: null, args: null },
           { tool_name: "buscar_repuesto", created_at: haceDias(90), error: null, args: null },
         ],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.herramientas).toEqual([{ nombre: "buscar_repuesto", llamadas: 1, fallidas: 0 }]);
     });
 
     test("sin llamadas la lista viene vacía, no con ceros inventados", async () => {
-      const m = await svc().obtener(30, AHORA);
+      const m = await svc().obtener(haceDias(30), AHORA);
       expect(m.herramientas).toEqual([]);
     });
   });
@@ -828,7 +828,7 @@ describe("DefaultMetricsService.obtener", () => {
           intent({ id: "suelto", nombre: "consulta_garantia" }),
         ],
         reglasActivas: [{ intent_id: "cubierto" }],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.intentsSinRegla.map((i) => i.nombre)).toEqual(["consulta_garantia"]);
     });
@@ -836,7 +836,7 @@ describe("DefaultMetricsService.obtener", () => {
     test("una regla inactiva no cuenta como cobertura", async () => {
       // El repo solo devuelve reglas activas, así que un intent cuya única
       // regla está apagada llega sin cobertura y tiene que aparecer en la lista.
-      const m = await svc({ intents: [intent({ id: "suelto" })] }).obtener(30, AHORA);
+      const m = await svc({ intents: [intent({ id: "suelto" })] }).obtener(haceDias(30), AHORA);
 
       expect(m.intentsSinRegla).toHaveLength(1);
     });
@@ -848,7 +848,7 @@ describe("DefaultMetricsService.obtener", () => {
           intent({ id: "b", nombre: "nuevo", created_at: haceDias(1) }),
           intent({ id: "c", nombre: "medio", created_at: haceDias(10) }),
         ],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.intentsSinRegla.map((i) => i.nombre)).toEqual(["nuevo", "medio", "viejo"]);
     });
@@ -856,7 +856,7 @@ describe("DefaultMetricsService.obtener", () => {
     test("un intent detectado fuera de la ventana igual aparece: es configuración, no un evento", async () => {
       const m = await svc({
         intents: [intent({ id: "a", created_at: haceDias(400) })],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.intentsSinRegla).toHaveLength(1);
     });
@@ -864,7 +864,7 @@ describe("DefaultMetricsService.obtener", () => {
     test("expone el origen del intent para poder distinguir los auto-detectados", async () => {
       const m = await svc({
         intents: [intent({ id: "a", auto_detectado: true, created_at: haceDias(2) })],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.intentsSinRegla[0]).toMatchObject({
         nombre: "consulta_precio",
@@ -877,9 +877,165 @@ describe("DefaultMetricsService.obtener", () => {
       const m = await svc({
         intents: [intent({ id: "a" })],
         reglasActivas: [{ intent_id: "a" }],
-      }).obtener(30, AHORA);
+      }).obtener(haceDias(30), AHORA);
 
       expect(m.intentsSinRegla).toEqual([]);
+    });
+  });
+
+  describe("ventas", () => {
+    test("cuenta exito con y sin precio, y promedia solo sobre las que tienen precio", async () => {
+      const ahora = new Date("2026-08-17T12:00:00Z");
+      const desde = new Date("2026-07-18T12:00:00Z");
+      const repo = new InMemoryMetricsRepository({
+        sesiones: [
+          {
+            id: "s1",
+            current_stage: "cerrado",
+            resultado: "exito",
+            motivo_perdida: null,
+            started_at: desde,
+            precio_cotizado: 100,
+            codigo_interno: "COD1",
+            closed_at: ahora,
+            cantidad: null,
+          },
+          {
+            id: "s2",
+            current_stage: "cerrado",
+            resultado: "exito",
+            motivo_perdida: null,
+            started_at: desde,
+            precio_cotizado: null,
+            codigo_interno: null,
+            closed_at: ahora,
+            cantidad: null,
+          },
+          {
+            id: "s3",
+            current_stage: "cerrado",
+            resultado: "perdido",
+            motivo_perdida: "precio",
+            started_at: desde,
+            precio_cotizado: 50,
+            codigo_interno: "COD2",
+            closed_at: ahora,
+            cantidad: null,
+          },
+        ],
+      });
+      const service = new DefaultMetricsService({ metrics: repo });
+      const m = await service.obtener(desde, ahora);
+      expect(m.ventas).toEqual({
+        conteo: 2,
+        conPrecio: 1,
+        montoTotalUsd: 100,
+        ticketPromedioUsd: 100,
+      });
+    });
+
+    test("con cero ventas, montoTotalUsd y ticketPromedioUsd son null", async () => {
+      const ahora = new Date("2026-08-17T12:00:00Z");
+      const desde = new Date("2026-07-18T12:00:00Z");
+      const service = new DefaultMetricsService({ metrics: new InMemoryMetricsRepository() });
+      const m = await service.obtener(desde, ahora);
+      expect(m.ventas).toEqual({
+        conteo: 0,
+        conPrecio: 0,
+        montoTotalUsd: null,
+        ticketPromedioUsd: null,
+      });
+    });
+  });
+
+  describe("codigosMasVendidos", () => {
+    test("agrupa por codigo_interno entre las ventas, ordenado por apariciones", async () => {
+      const ahora = new Date("2026-08-17T12:00:00Z");
+      const desde = new Date("2026-07-18T12:00:00Z");
+      const repo = new InMemoryMetricsRepository({
+        sesiones: [
+          {
+            id: "s1",
+            current_stage: "cerrado",
+            resultado: "exito",
+            motivo_perdida: null,
+            started_at: desde,
+            precio_cotizado: 100,
+            codigo_interno: "COD1",
+            closed_at: ahora,
+            cantidad: null,
+          },
+          {
+            id: "s2",
+            current_stage: "cerrado",
+            resultado: "exito",
+            motivo_perdida: null,
+            started_at: desde,
+            precio_cotizado: 80,
+            codigo_interno: "COD1",
+            closed_at: ahora,
+            cantidad: 3,
+          },
+          {
+            id: "s3",
+            current_stage: "cerrado",
+            resultado: "exito",
+            motivo_perdida: null,
+            started_at: desde,
+            precio_cotizado: 20,
+            codigo_interno: "COD2",
+            closed_at: ahora,
+            cantidad: null,
+          },
+        ],
+      });
+      const service = new DefaultMetricsService({ metrics: repo });
+      const m = await service.obtener(desde, ahora);
+      expect(m.codigosMasVendidos[0]).toEqual({
+        codigoInterno: "COD1",
+        apariciones: 2,
+        unidades: 3,
+        unidadesConDato: 1,
+      });
+      expect(m.codigosMasVendidos[1]?.codigoInterno).toBe("COD2");
+    });
+  });
+
+  describe("tiempoCierre", () => {
+    test("mediana sobre sesiones resueltas con closed_at, exito y perdido", async () => {
+      const ahora = new Date("2026-08-17T12:00:00Z");
+      const desde = new Date("2026-07-18T12:00:00Z");
+      const inicio = desde;
+      const repo = new InMemoryMetricsRepository({
+        sesiones: [
+          {
+            id: "s1",
+            current_stage: "cerrado",
+            resultado: "exito",
+            motivo_perdida: null,
+            started_at: inicio,
+            precio_cotizado: null,
+            codigo_interno: null,
+            closed_at: new Date(inicio.getTime() + 60_000),
+            cantidad: null,
+          },
+          {
+            id: "s2",
+            current_stage: "cerrado",
+            resultado: "perdido",
+            motivo_perdida: "precio",
+            started_at: inicio,
+            precio_cotizado: null,
+            codigo_interno: null,
+            closed_at: new Date(inicio.getTime() + 120_000),
+            cantidad: null,
+          },
+        ],
+      });
+      const service = new DefaultMetricsService({ metrics: repo });
+      const m = await service.obtener(desde, ahora);
+      expect(m.tiempoCierre.muestras).toBe(2);
+      expect(m.tiempoCierre.medianaSegundos).toBe(90);
     });
   });
 });

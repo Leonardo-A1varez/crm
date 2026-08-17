@@ -1,6 +1,6 @@
 import type { Metricas } from "@/types/metricas";
 
 export interface MetricsService {
-  /** Métricas de los últimos `dias` días, calculadas contra `ahora`. */
-  obtener(dias: number, ahora?: Date): Promise<Metricas>;
+  /** Métricas del rango [desde, hasta). El delta contra el período anterior compara con el rango de igual duración inmediatamente previo a `desde`. */
+  obtener(desde: Date, hasta: Date): Promise<Metricas>;
 }

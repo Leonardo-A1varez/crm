@@ -12,6 +12,7 @@ import { CANAL, CURRENT_STAGE, SENDER, WORKFLOW_LLM } from "@/types/domain";
 import type { Canal, CurrentStage, Sender } from "@/types/domain";
 import type {
   ConteoCanal,
+  ConteoCodigo,
   ConteoHerramienta,
   ConteoMotivo,
   ConteoWorkflow,
@@ -19,6 +20,7 @@ import type {
   GastoIa,
   IntentSinRegla,
   Metricas,
+  Ventas,
 } from "@/types/metricas";
 import type { MetricsService } from "./metricas.service";
 
@@ -52,9 +54,8 @@ function tasaCierreDe(sesiones: FilaSesionMetrica[]): number {
 export class DefaultMetricsService implements MetricsService {
   constructor(private readonly deps: { metrics: MetricsRepository }) {}
 
-  async obtener(dias: number, ahora: Date = new Date()): Promise<Metricas> {
-    const ventana = dias * DIA_MS;
-    const desde = new Date(ahora.getTime() - ventana);
+  async obtener(desde: Date, hasta: Date): Promise<Metricas> {
+    const ventana = hasta.getTime() - desde.getTime();
     // La ventana anterior se pide solo para sesiones y leads, que son tablas
     // chicas. Mensajes es el corte más caro de la pantalla y duplicarlo para
     // poder dibujar un delta más no lo justifica: por eso las métricas que
@@ -88,22 +89,51 @@ export class DefaultMetricsService implements MetricsService {
     ]);
 
     const corte = desde.getTime();
+    const dias = Math.round(ventana / DIA_MS);
     const sesiones = sesionesAmbas.filter((s) => s.started_at.getTime() >= corte);
     const sesionesAnteriores = sesionesAmbas.filter((s) => s.started_at.getTime() < corte);
     const leadsNuevos = leadsAmbos.filter((l) => l.created_at.getTime() >= corte).length;
     const leadsAnteriores = leadsAmbos.length - leadsNuevos;
 
     const porEtapa = new Map<CurrentStage, number>();
-    for (const s of sesiones) {
-      porEtapa.set(s.current_stage, (porEtapa.get(s.current_stage) ?? 0) + 1);
-    }
-
     const motivos = new Map<string, number>();
+    const codigosMap = new Map<
+      string,
+      { apariciones: number; unidades: number; unidadesConDato: number }
+    >();
+    const tiemposCierre: number[] = [];
     let exito = 0;
     let perdido = 0;
+    let ventasConPrecio = 0;
+    let ventasMontoTotal = 0;
+
     for (const s of sesiones) {
-      if (s.resultado === "exito") exito++;
-      else if (s.resultado === "perdido") {
+      porEtapa.set(s.current_stage, (porEtapa.get(s.current_stage) ?? 0) + 1);
+
+      if (s.closed_at !== null && s.resultado !== null) {
+        tiemposCierre.push((s.closed_at.getTime() - s.started_at.getTime()) / 1000);
+      }
+
+      if (s.resultado === "exito") {
+        exito++;
+        if (s.precio_cotizado !== null) {
+          ventasConPrecio++;
+          ventasMontoTotal += s.precio_cotizado;
+        }
+        if (s.codigo_interno !== null) {
+          const fila = codigosMap.get(s.codigo_interno) ?? {
+            apariciones: 0,
+            unidades: 0,
+            unidadesConDato: 0,
+          };
+          fila.apariciones++;
+          if (s.cantidad !== null) {
+            fila.unidades += s.cantidad;
+            fila.unidadesConDato++;
+          }
+          codigosMap.set(s.codigo_interno, fila);
+        }
+      } else if (s.resultado === "perdido") {
         perdido++;
         // El motivo puede venir null incluso en una sesión perdida: se cierra
         // sin motivo desde la UI y contarlo como "otro" mentiría sobre el dato.
@@ -111,6 +141,24 @@ export class DefaultMetricsService implements MetricsService {
         motivos.set(clave, (motivos.get(clave) ?? 0) + 1);
       }
     }
+
+    const ventas: Ventas = {
+      conteo: exito,
+      conPrecio: ventasConPrecio,
+      montoTotalUsd: ventasConPrecio > 0 ? ventasMontoTotal : null,
+      ticketPromedioUsd: ventasConPrecio > 0 ? ventasMontoTotal / ventasConPrecio : null,
+    };
+
+    const codigosMasVendidos: ConteoCodigo[] = [...codigosMap.entries()]
+      .map(([codigoInterno, v]) => ({ codigoInterno, ...v }))
+      .sort(
+        (a, b) => b.apariciones - a.apariciones || a.codigoInterno.localeCompare(b.codigoInterno),
+      );
+
+    const tiempoCierre = {
+      medianaSegundos: medianaSegundos(tiemposCierre),
+      muestras: tiemposCierre.length,
+    };
 
     const porMotivo: ConteoMotivo[] = [...motivos.entries()]
       .map(([motivo, cantidad]) => ({
@@ -171,6 +219,7 @@ export class DefaultMetricsService implements MetricsService {
     // mensaje entrante y su saliente puede haber caído fuera de la ventana.
     const turnosRegla = Math.min(reglas.length, autoria.ia);
     const herramientas: ConteoHerramienta[] = agruparHerramientas(tools);
+    const repuestosMasPreguntados = medirDemandaCatalogo(tools);
 
     // Turnos que el LLM resolvió con cada intent. Los de `intent_id: null` son
     // los que no reconoció ninguno: no pertenecen a ninguna fila de la lista.
@@ -256,9 +305,13 @@ export class DefaultMetricsService implements MetricsService {
         llm: autoria.ia - turnosRegla,
         escalado: autoria.humano,
       },
-      gasto: resumirGasto(gastos, ahora, leadsNuevos, turnosRegla),
+      gasto: resumirGasto(gastos, hasta, leadsNuevos, turnosRegla),
       herramientas,
       intentsSinRegla,
+      ventas,
+      codigosMasVendidos,
+      repuestosMasPreguntados,
+      tiempoCierre,
     };
   }
 }
@@ -279,11 +332,11 @@ export class DefaultMetricsService implements MetricsService {
  */
 function resumirGasto(
   gastos: FilaLlmUsageMetrica[],
-  ahora: Date,
+  hasta: Date,
   leadsNuevos: number,
   turnosRegla: number,
 ): GastoIa {
-  const hoy = ahora.toISOString().slice(0, 10);
+  const hoy = hasta.toISOString().slice(0, 10);
   const porWorkflow = new Map<string, ConteoWorkflow>();
 
   let totalUsd = 0;
@@ -337,6 +390,38 @@ function agruparHerramientas(tools: FilaToolExecutionMetrica[]): ConteoHerramien
   return [...acc.values()].sort(
     (a, b) => b.llamadas - a.llamadas || a.nombre.localeCompare(b.nombre),
   );
+}
+
+/**
+ * Demanda de catálogo desde `buscar_repuesto`, sin depender de que haya
+ * productos cargados. `porTermino` es texto libre y se capea a 15 para que una
+ * cola larga de variantes de la misma pieza no ahogue la lista; `porMarca` es
+ * categórico y acotado (un puñado de marcas de auto), no necesita cap.
+ */
+function medirDemandaCatalogo(
+  tools: FilaToolExecutionMetrica[],
+): Metricas["repuestosMasPreguntados"] {
+  const marcas = new Map<string, number>();
+  const terminos = new Map<string, number>();
+  for (const t of tools) {
+    if (t.tool_name !== "buscar_repuesto" || !t.args) continue;
+    if (t.args.marca) {
+      const clave = t.args.marca.trim().toLowerCase();
+      if (clave) marcas.set(clave, (marcas.get(clave) ?? 0) + 1);
+    }
+    if (t.args.query) {
+      const clave = t.args.query.trim().toLowerCase();
+      if (clave) terminos.set(clave, (terminos.get(clave) ?? 0) + 1);
+    }
+  }
+  const aConteo = (mapa: Map<string, number>) =>
+    [...mapa.entries()]
+      .map(([motivo, cantidad]) => ({ motivo, cantidad }))
+      .sort((a, b) => b.cantidad - a.cantidad || a.motivo.localeCompare(b.motivo));
+  return {
+    porMarca: aConteo(marcas),
+    porTermino: aConteo(terminos).slice(0, 15),
+  };
 }
 
 /** Acumulador mutable de una fila mientras se recorren las sesiones. */
