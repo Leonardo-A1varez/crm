@@ -34,6 +34,14 @@ runMetricsContract(
         },
       ],
       leads: [{ created_at: AYER }],
+      campanias: [
+        {
+          id: "c1",
+          nombre: "Lanzamiento verano",
+          desde: new Date("2026-01-01"),
+          hasta: new Date("2026-01-31"),
+        },
+      ],
     }),
   fixtures,
 );
