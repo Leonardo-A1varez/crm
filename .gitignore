@@ -81,5 +81,8 @@ logs/
 .cache/
 .parcel-cache/
 
+# superpowers scratch (sdd ledgers, brainstorm sessions)
+.superpowers/
+
 # git worktrees (subagent-driven-development)
 .worktrees/
