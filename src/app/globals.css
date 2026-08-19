@@ -160,19 +160,20 @@
   --info: #2563a8;
   --special: #a21caf;
 
-  /* Colores de las etapas del embudo. Mismo problema que `ok/warn/...`: los
-     del oscuro están calibrados contra un fondo casi negro, así que en claro
-     se oscurecen manteniendo el matiz. Los cuatro que se superponen con un rol
-     semántico ya definido arriba reusan el valor de ese rol a propósito, para
-     que la paleta no tenga dos grises de significado distinto para el mismo
-     matiz. */
+  /* Colores de las etapas del embudo. Los valores aclaran sobre superficie plana
+     pero no alcanzan 4.5:1 cuando se componen sobre un tinte 13% de sí mismos
+     (como sucede con el badge). Los ocho aquí se oscurecen manteniendo el matiz;
+     los cuatro primeros + requiere_humano ya alcanzan sobre sus propios tintes.
+     Los otros cuatro se oscurecen: negociando, esperando_pago, cerrado, perdido.
+     Divergen de los semánticos (ok/warn/caution/danger) porque sientan sobre
+     superficies distintas: los semánticos sobre plano, estos sobre tinte propio. */
   --stage-nuevo: #0369a1;
   --stage-identificando: #4f46e5;
   --stage-cotizado: #7c3aed;
-  --stage-negociando: #a16207;
-  --stage-esperando-pago: #c2540f;
-  --stage-cerrado: #0f8f61;
-  --stage-perdido: #dc2626;
+  --stage-negociando: #854d0e;
+  --stage-esperando-pago: #9a3412;
+  --stage-cerrado: #047857;
+  --stage-perdido: #b91c1c;
   --stage-requiere-humano: #a21caf;
 
   /* Gris del rail congelado del Twin: más claro que `line-card` a propósito,
