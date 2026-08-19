@@ -12,63 +12,64 @@
   --font-heading: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
 
   /* Rediseño "sala de control" — tokens que shadcn no tiene.
-     Hex literal, no oklch: el handoff define valores exactos y la fidelidad
-     solo es auditable si el token dice lo mismo que el documento. */
-  --color-surface-root: #08090b;
-  --color-surface-panel: #0a0b0e;
-  --color-surface-chat: #0d0e12;
-  --color-surface-card: #0f1116;
-  --color-surface-elevated: #101218;
-  --color-surface-input: #14161b;
-  --color-surface-hover: #15181e;
-  --color-surface-avatar: #1a1d24;
-  --color-surface-bubble-in: #191c22;
-  --color-surface-bubble-vend: #e8eaee;
+     Indirección `var()` y no hex literal: un valor literal acá es estático y
+     ninguna clase puede cambiarlo, así que el tema claro sería imposible. Los
+     hex viven en `:root` (claro) y `.dark` (oscuro), igual que los de shadcn. */
+  --color-surface-root: var(--surface-root);
+  --color-surface-panel: var(--surface-panel);
+  --color-surface-chat: var(--surface-chat);
+  --color-surface-card: var(--surface-card);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-input: var(--surface-input);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-avatar: var(--surface-avatar);
+  --color-surface-bubble-in: var(--surface-bubble-in);
+  --color-surface-bubble-vend: var(--surface-bubble-vend);
 
-  --color-line-layout: #17191f;
-  --color-line-card: #1c1f26;
-  --color-line-input: #21242c;
-  --color-line-control: #23262d;
+  --color-line-layout: var(--line-layout);
+  --color-line-card: var(--line-card);
+  --color-line-input: var(--line-input);
+  --color-line-control: var(--line-control);
   /* Separador entre filas de una tabla o lista. Coincide en valor con
      `surface-input`, pero se declara aparte porque es una línea y no una
      superficie: usar el de superficie hacía que el rol no se leyera. */
-  --color-line-row: #14161b;
+  --color-line-row: var(--line-row);
   /* Separador `·` de las líneas de meta: más apagado que cualquier `ink-*`
      porque no es texto, es puntuación entre datos. */
-  --color-line-dot: #2c3038;
+  --color-line-dot: var(--line-dot);
 
-  --color-ink-primary: #ecedef;
-  --color-ink-body: #e4e6ea;
-  --color-ink-secondary: #c8ccd3;
-  --color-ink-muted: #a9aeb7;
-  --color-ink-dim: #8b909a;
-  --color-ink-faint: #7c838e;
-  --color-ink-fainter: #6e7580;
-  --color-ink-ghost: #5f6672;
+  --color-ink-primary: var(--ink-primary);
+  --color-ink-body: var(--ink-body);
+  --color-ink-secondary: var(--ink-secondary);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-dim: var(--ink-dim);
+  --color-ink-faint: var(--ink-faint);
+  --color-ink-fainter: var(--ink-fainter);
+  --color-ink-ghost: var(--ink-ghost);
 
-  --color-brand: #ffaf3a;
-  --color-brand-hover: #ffc46b;
-  --color-brand-deep: #f08a1d;
-  --color-brand-ink: #231602;
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-deep: var(--brand-deep);
+  --color-brand-ink: var(--brand-ink);
   /* Blanco cálido de la respuesta en el bloque ENTONCES de una regla: es texto
-     sobre fondo ámbar, y los `ink-*` están calibrados contra fondo oscuro. */
-  --color-ink-warm: #f2ede4;
+     sobre fondo de marca, y los `ink-*` están calibrados contra el fondo. */
+  --color-ink-warm: var(--ink-warm);
   /* Primer stop del gradiente de las tarjetas destacadas; el segundo es
      `surface-card`. No es una superficie plana, por eso no entra en esa escala. */
-  --color-surface-glow: #151116;
-  /* Fondo cálido oscuro de los bloques de aviso (ventana cerrada, cotización).
-     Es el par oscuro de `ink-warm`, no una variante de `surface-*`. */
-  --color-surface-warm: #141116;
+  --color-surface-glow: var(--surface-glow);
+  /* Fondo de los bloques de aviso (ventana cerrada, cotización). Es el par de
+     `ink-warm`, no una variante de `surface-*`. */
+  --color-surface-warm: var(--surface-warm);
   /* Texto sobre el bloque de bloqueador: cálido y atenuado a la vez, cosa que
      ni `ink-warm` ni la escala `ink-*` cubren. */
-  --color-ink-warm-dim: #e4d9cb;
+  --color-ink-warm-dim: var(--ink-warm-dim);
 
-  --color-ok: #34d399;
-  --color-warn: #fb923c;
-  --color-caution: #fbbf24;
-  --color-danger: #f87171;
-  --color-info: #7fb3f5;
-  --color-special: #e879f9;
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-caution: var(--caution);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --color-special: var(--special);
 
   --animate-pulse-dot: pulse-dot 2s ease-in-out infinite;
   --animate-rise-in: rise-in 0.3s ease-out;
@@ -112,49 +113,140 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* Paleta clara. Los `ok/warn/...` no son los mismos tintes que en oscuro:
+     los del oscuro están calibrados contra un fondo casi negro y sobre blanco
+     no llegan a 4.5:1, así que acá se oscurecen manteniendo el matiz. */
+  --surface-root: #f6f7f8;
+  --surface-panel: #ffffff;
+  --surface-chat: #f9fafb;
+  --surface-card: #ffffff;
+  --surface-elevated: #ffffff;
+  --surface-input: #f1f2f4;
+  --surface-hover: #eceef1;
+  --surface-avatar: #e4e6ea;
+  --surface-bubble-in: #eef0f2;
+  --surface-bubble-vend: #20242c;
+
+  --line-layout: #e6e8eb;
+  --line-card: #dfe2e6;
+  --line-input: #d5d9df;
+  --line-control: #cdd2d9;
+  --line-row: #eceef1;
+  --line-dot: #b8bec7;
+
+  --ink-primary: #14161b;
+  --ink-body: #1c1f26;
+  --ink-secondary: #383d47;
+  --ink-muted: #565c68;
+  --ink-dim: #6b7280;
+  --ink-faint: #757b87;
+  --ink-fainter: #8b909a;
+  --ink-ghost: #9aa0ab;
+
+  /* La marca no se invierte: mismo rojo en los dos temas. */
+  --brand: #d61f1f;
+  --brand-hover: #ff5c5c;
+  --brand-deep: #b71414;
+  --brand-ink: #fff5f4;
+  --ink-warm: #f2ede4;
+  --surface-glow: #fff0ee;
+  --surface-warm: #fdf1f0;
+  --ink-warm-dim: #6b2a26;
+
+  --ok: #0f8f61;
+  --warn: #c2540f;
+  --caution: #a16207;
+  --danger: #dc2626;
+  --info: #2563a8;
+  --special: #a21caf;
+
+  /* shadcn genéricos, alineados a los tokens de arriba. */
+  --background: #f6f7f8;
+  --foreground: #14161b;
+  --card: #ffffff;
+  --card-foreground: #14161b;
+  --popover: #ffffff;
+  --popover-foreground: #14161b;
+  --primary: #d61f1f;
+  --primary-foreground: #fff5f4;
+  --secondary: #f1f2f4;
+  --secondary-foreground: #14161b;
+  --muted: #eceef1;
+  --muted-foreground: #6b7280;
+  --accent: #eceef1;
+  --accent-foreground: #14161b;
+  --destructive: #dc2626;
+  --border: #dfe2e6;
+  --input: #d5d9df;
+  --ring: #d61f1f;
+  --chart-1: #d61f1f;
+  --chart-2: #2563a8;
+  --chart-3: #0f8f61;
+  --chart-4: #a21caf;
+  --chart-5: #c2540f;
+  --radius: 0.5625rem;
+  --sidebar: #f6f7f8;
+  --sidebar-foreground: #14161b;
+  --sidebar-primary: #d61f1f;
+  --sidebar-primary-foreground: #fff5f4;
+  --sidebar-accent: #eceef1;
+  --sidebar-accent-foreground: #14161b;
+  --sidebar-border: #e6e8eb;
+  --sidebar-ring: #d61f1f;
 }
 
 .dark {
+  --surface-root: #08090b;
+  --surface-panel: #0a0b0e;
+  --surface-chat: #0d0e12;
+  --surface-card: #0f1116;
+  --surface-elevated: #101218;
+  --surface-input: #14161b;
+  --surface-hover: #15181e;
+  --surface-avatar: #1a1d24;
+  --surface-bubble-in: #191c22;
+  --surface-bubble-vend: #e8eaee;
+
+  --line-layout: #17191f;
+  --line-card: #1c1f26;
+  --line-input: #21242c;
+  --line-control: #23262d;
+  --line-row: #14161b;
+  --line-dot: #2c3038;
+
+  --ink-primary: #ecedef;
+  --ink-body: #e4e6ea;
+  --ink-secondary: #c8ccd3;
+  --ink-muted: #a9aeb7;
+  --ink-dim: #8b909a;
+  --ink-faint: #7c838e;
+  --ink-fainter: #6e7580;
+  --ink-ghost: #5f6672;
+
+  --brand: #d61f1f;
+  --brand-hover: #ff5c5c;
+  --brand-deep: #b71414;
+  --brand-ink: #fff5f4;
+  --ink-warm: #f2ede4;
+  --surface-glow: #151116;
+  --surface-warm: #141116;
+  --ink-warm-dim: #e4d9cb;
+
+  --ok: #34d399;
+  --warn: #fb923c;
+  --caution: #fbbf24;
+  --danger: #f87171;
+  --info: #7fb3f5;
+  --special: #e879f9;
+
   --background: #08090b;
   --foreground: #ecedef;
   --card: #0f1116;
   --card-foreground: #ecedef;
   --popover: #0f1116;
   --popover-foreground: #ecedef;
-  --primary: #ffaf3a;
-  --primary-foreground: #231602;
+  --primary: #d61f1f;
+  --primary-foreground: #fff5f4;
   --secondary: #14161b;
   --secondary-foreground: #ecedef;
   --muted: #101218;
@@ -164,8 +256,8 @@
   --destructive: #f87171;
   --border: #1c1f26;
   --input: #21242c;
-  --ring: #ffaf3a;
-  --chart-1: #ffaf3a;
+  --ring: #d61f1f;
+  --chart-1: #d61f1f;
   --chart-2: #7fb3f5;
   --chart-3: #34d399;
   --chart-4: #e879f9;
@@ -173,12 +265,12 @@
   --radius: 0.5625rem;
   --sidebar: #08090b;
   --sidebar-foreground: #ecedef;
-  --sidebar-primary: #ffaf3a;
-  --sidebar-primary-foreground: #231602;
+  --sidebar-primary: #d61f1f;
+  --sidebar-primary-foreground: #fff5f4;
   --sidebar-accent: #15181e;
   --sidebar-accent-foreground: #ecedef;
   --sidebar-border: #17191f;
-  --sidebar-ring: #ffaf3a;
+  --sidebar-ring: #d61f1f;
 }
 
 @layer base {
@@ -237,7 +329,7 @@
     border-radius: 20px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #343841;
+    background: var(--color-line-dot);
     border: 2px solid transparent;
     background-clip: content-box;
   }
