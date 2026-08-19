@@ -539,14 +539,14 @@ git commit -m "feat(tema): boton para alternar claro y oscuro en el sidebar"
 - [ ] **Step 1: Levantar el dev server**
 
 ```bash
-npm run dev
+npx next dev -p 3005
 ```
 
-Queda en `http://localhost:3001`. **No correr `npm run build` con el dev server levantado** — corrompe `.next/` (AGENTS.md, lección 4).
+Queda en `http://localhost:3005`. **Puerto 3005 y no el 3001 de `npm run dev`**: el dueño tiene el 3000 y el 3001 ocupados con sus propios procesos, y levantar otro server encima se los pisa. **No correr `npm run build` con el dev server levantado** — corrompe `.next/` (AGENTS.md, lección 4).
 
 - [ ] **Step 2: Confirmar que arranca en oscuro y que el toggle funciona**
 
-Navegar a `http://localhost:3001/metricas`. El panel tiene que verse oscuro (igual que antes de este trabajo, salvo que todo lo que era ámbar ahora es rojo). Clickear el botón sol del pie del sidebar: la pantalla pasa a clara. Clickear de nuevo: vuelve a oscura. Recargar la página con el tema claro activo: tiene que seguir claro y **sin parpadeo** de oscuro al cargar.
+Navegar a `http://localhost:3005/metricas`. El panel tiene que verse oscuro (igual que antes de este trabajo, salvo que todo lo que era ámbar ahora es rojo). Clickear el botón sol del pie del sidebar: la pantalla pasa a clara. Clickear de nuevo: vuelve a oscura. Recargar la página con el tema claro activo: tiene que seguir claro y **sin parpadeo** de oscuro al cargar.
 
 - [ ] **Step 3: Recorrer las pantallas en los dos temas**
 
