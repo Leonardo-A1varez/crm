@@ -160,8 +160,15 @@
   --ink-warm-dim: #6b2a26;
 
   --ok: #0f8f61;
-  --warn: #c2540f;
-  --caution: #a16207;
+  /* `warn` y `caution` se quedan en la familia cálida porque el significado lo
+     pide, pero son los dos tonos más apagados de la paleta clara y no hay
+     margen: el amarillo y el naranja no tienen forma oscura — oscurecerlos da
+     marrón, no un naranja intenso. Estos son los más vivos que llegan a 4.5:1
+     como texto plano (5.02 y 5.18 sobre blanco). Si algún día hacen falta más
+     vivos, la salida no es otro hex sino cambiar cómo se dibuja el badge:
+     relleno sólido con texto claro en vez de texto de color sobre un tinte. */
+  --warn: #c2410c;
+  --caution: #b45309;
   --danger: #dc2626;
   --info: #2563a8;
   --special: #a21caf;
@@ -171,17 +178,27 @@
      propio color de la etapa, no sobre superficie plana — ese tinte ya aclara
      el fondo hacia el mismo tono del texto, así que hace falta más oscuro que
      lo que un texto plano necesitaría para llegar a 4.5:1. Por eso divergen de
-     los semánticos (`ok/warn/caution/danger`), que sientan sobre superficie
-     plana y no tienen ese problema. De las ocho, cuatro necesitaron oscurecerse
-     más allá de su semántico equivalente para pasar 4.5:1 sobre su propio 13%:
-     `negociando`, `esperando-pago`, `cerrado`, `perdido`. Las otras cuatro
-     (`nuevo`, `identificando`, `cotizado`, `requiere-humano`) alcanzan con el
-     mismo criterio de oscurecimiento que el resto de la paleta clara. */
+     los semánticos, que sientan sobre superficie plana y no tienen ese problema.
+
+     `negociando` y `esperando-pago` NO son la versión oscura de su color en
+     tema oscuro (ámbar y naranja): cambian de tono a propósito. Oscurecer un
+     amarillo o un naranja lo suficiente para que se lea sobre su propio tinte
+     da marrón — no existe un ámbar oscuro que siga pareciendo ámbar. Se
+     mueven a carmín y púrpura, que sí conservan intensidad al oscurecerse.
+
+     Los tres números que gobiernan esta paleta, reproducibles con
+     `node scripts/verificar-paleta-clara.mjs`:
+       contraste sobre su propio tinte 13%  >= 4.5   (mínimo real: 4.56)
+       distancia OKLab entre dos etapas     >= 0.054 (mínimo real: 0.060)
+         — 0.054 es la separación más chica de la paleta oscura que ya se usa
+           (identificando/cotizado), o sea la vara que el producto ya acepta
+       chroma OKLab (qué tan vivo)          los dos que cambiaron pasaron de
+         0.103 y 0.143 a 0.202 y 0.237, en línea con el resto de la paleta */
   --stage-nuevo: #0369a1;
   --stage-identificando: #4f46e5;
   --stage-cotizado: #7c3aed;
-  --stage-negociando: #854d0e;
-  --stage-esperando-pago: #9a3412;
+  --stage-negociando: #c2185b;
+  --stage-esperando-pago: #7e22ce;
   --stage-cerrado: #047857;
   --stage-perdido: #b91c1c;
   --stage-requiere-humano: #a21caf;
