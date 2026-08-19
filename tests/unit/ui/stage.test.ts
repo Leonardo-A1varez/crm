@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, test } from "vitest";
 import { CURRENT_STAGE } from "@/types/domain";
 import {
@@ -11,6 +13,35 @@ import {
   stageColor,
   stageLabel,
 } from "@/lib/ui/stage";
+
+/**
+ * `stageColor` solo mapea etapa -> nombre de token; los hex reales viven en
+ * `globals.css` (`:root` claro, `.dark` oscuro) y ningún test los tocaba desde
+ * que Task 4 del tema claro/oscuro reescribió las aserciones de hex literal a
+ * nombre de token. Eso hizo dos cosas invisibles: (1) nada pinneaba los ocho
+ * hex de `.dark` contra la fidelidad del handoff original — podían cambiar
+ * sin que ningún test lo notara; (2) "ninguna etapa comparte token" pasó a
+ * probar que se tipearon ocho strings distintos, no que resuelven a ocho
+ * colores distintos — dos tokens con el mismo hex en `globals.css` seguirían
+ * siendo "distintos" para ese test. Leer el CSS acá es legítimo: ese archivo
+ * es la fuente de verdad de estos valores, no un detalle de implementación.
+ */
+function leerStageTokens(bloque: "root" | "dark"): Record<string, string> {
+  const css = readFileSync(path.resolve(__dirname, "../../../src/app/globals.css"), "utf-8");
+  const inicio = bloque === "root" ? css.indexOf("\n:root {") : css.indexOf("\n.dark {");
+  const fin = css.indexOf("\n}", inicio);
+  const bloqueCss = css.slice(inicio, fin);
+
+  const tokens: Record<string, string> = {};
+  const regex = /--(stage-[a-z-]+):\s*(#[0-9a-fA-F]{6});/g;
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(bloqueCss)) !== null) {
+    const nombre = m[1];
+    const valor = m[2];
+    if (nombre && valor) tokens[nombre] = valor;
+  }
+  return tokens;
+}
 
 describe("stageColor", () => {
   test("las 8 etapas resuelven a un token CSS var(--stage-...)", () => {
@@ -36,6 +67,39 @@ describe("stageColor", () => {
   test("ninguna etapa comparte token con otra", () => {
     const colores = CURRENT_STAGE.map(stageColor);
     expect(new Set(colores).size).toBe(CURRENT_STAGE.length);
+  });
+});
+
+describe("valores de --stage-* en globals.css", () => {
+  test("oscuro coincide exactamente con la fidelidad del handoff original", () => {
+    const dark = leerStageTokens("dark");
+    expect(dark).toEqual({
+      "stage-nuevo": "#38bdf8",
+      "stage-identificando": "#818cf8",
+      "stage-cotizado": "#a78bfa",
+      "stage-negociando": "#fbbf24",
+      "stage-esperando-pago": "#fb923c",
+      "stage-cerrado": "#34d399",
+      "stage-perdido": "#f87171",
+      "stage-requiere-humano": "#e879f9",
+    });
+  });
+
+  test("claro define las 8 y ninguna resuelve al mismo hex que otra", () => {
+    const light = leerStageTokens("root");
+    expect(Object.keys(light).sort()).toEqual(
+      [
+        "stage-nuevo",
+        "stage-identificando",
+        "stage-cotizado",
+        "stage-negociando",
+        "stage-esperando-pago",
+        "stage-cerrado",
+        "stage-perdido",
+        "stage-requiere-humano",
+      ].sort(),
+    );
+    expect(new Set(Object.values(light)).size).toBe(Object.values(light).length);
   });
 });
 

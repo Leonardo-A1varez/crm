@@ -18,9 +18,12 @@ const MEDIA_LABEL: Partial<Record<TipoMensaje, string>> = {
 /**
  * Gradiente de la burbuja del agente. Va inline y no como token: son dos
  * paradas de color, algo que la escala de `--color-*` no puede expresar.
+ * `color-mix` sobre `--color-brand` y no un `rgba()` fijo: así el gradiente
+ * sigue el rebrand y el tema en vez de quedar pegado a un hex hardcodeado.
  */
 const FONDO_IA = {
-  backgroundImage: "linear-gradient(150deg, rgba(255,175,58,.16), rgba(255,175,58,.07))",
+  backgroundImage:
+    "linear-gradient(150deg, color-mix(in srgb, var(--color-brand) 16%, transparent), color-mix(in srgb, var(--color-brand) 7%, transparent))",
 };
 
 /**
@@ -31,9 +34,10 @@ const FONDO_IA = {
 function AcuseEntrega({ mensaje, claro }: { mensaje: Mensaje; claro: boolean }) {
   if (mensaje.direction !== "out" || mensaje.sender === "sistema") return null;
 
-  // Sobre la burbuja clara del vendedor el gris del handoff no se ve: ahí el
-  // acuse va en la tinta oscura de esa burbuja, con la misma jerarquia.
-  const tono = claro ? "text-[#14161b]/45" : "text-ink-dim";
+  // Sobre la burbuja del vendedor el gris del handoff no se ve: ahí el acuse
+  // va en `background`, que se invierte junto con `surface-bubble-vend` (la
+  // burbuja es clara en oscuro y oscura en claro, y el acuse la sigue).
+  const tono = claro ? "text-background/45" : "text-ink-dim";
 
   switch (mensaje.estado_entrega) {
     case "leido":
@@ -167,14 +171,16 @@ export function MessageBubble({
           esLead &&
             "bg-surface-bubble-in border-line-input text-ink-body rounded-[15px_15px_15px_5px] border",
           // El texto de la burbuja del agente es más cálido que `ink-body`
-          // para no chocar con el ámbar del fondo. Sin token en globals.css.
+          // para no chocar con el fondo de marca. Sin token en globals.css.
           message.sender === "ia" &&
             "border-brand/22 text-ink-warm rounded-[15px_15px_5px_15px] border",
-          // Burbuja clara sobre fondo oscuro, a propósito: así distingue el
-          // handoff al vendedor del agente. El texto no puede ser un token
-          // `ink-*` porque todos están pensados para fondo oscuro.
+          // `surface-bubble-vend` se invierte entre temas (clara en oscuro,
+          // oscura en claro) para distinguir el handoff al vendedor del
+          // agente. `background` se invierte con ella: es exactamente la
+          // superficie de fondo del tema contrario, que es el texto que hace
+          // falta encima.
           message.sender === "humano" &&
-            "bg-surface-bubble-vend rounded-[15px_15px_5px_15px] text-[#14161b]",
+            "bg-surface-bubble-vend text-background rounded-[15px_15px_5px_15px]",
         )}
         style={message.sender === "ia" ? FONDO_IA : undefined}
       >

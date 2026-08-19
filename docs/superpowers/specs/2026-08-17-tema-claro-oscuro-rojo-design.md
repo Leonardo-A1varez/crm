@@ -65,10 +65,12 @@ Todos los tokens custom de `@theme inline` en `globals.css` (hoy dark-only) pasa
 | `ink-body`      | `#e4e6ea` | `#1c1f26` |
 | `ink-secondary` | `#c8ccd3` | `#383d47` |
 | `ink-muted`     | `#a9aeb7` | `#565c68` |
-| `ink-dim`       | `#8b909a` | `#6b7280` |
-| `ink-faint`     | `#7c838e` | `#757b87` |
-| `ink-fainter`   | `#6e7580` | `#8b909a` |
-| `ink-ghost`     | `#5f6672` | `#9aa0ab` |
+| `ink-dim`       | `#8b909a` | `#5a616e` |
+| `ink-faint`     | `#7c838e` | `#646b78` |
+| `ink-fainter`   | `#6e7580` | `#6d7481` |
+| `ink-ghost`     | `#5f6672` | `#757c89` |
+
+> Los cuatro últimos (`dim`/`faint`/`fainter`/`ghost`) salieron de esta tabla más claros de lo que shippeó. Se midieron por debajo de la paridad de contraste que el oscuro ya tenía contra su propio fondo — texto secundario que en oscuro se lee perfectamente bien quedaba, con estos valores, más tenue en claro de lo que el oscuro es en oscuro. Se oscurecieron a los de `globals.css` (columna de arriba, ya corregida) durante la implementación, sin que se actualizara esta tabla; ver Finding 5 del review final de rama.
 
 **Marca — rojo, mismo valor en los dos temas:**
 
@@ -92,14 +94,32 @@ Todos los tokens custom de `@theme inline` en `globals.css` (hoy dark-only) pasa
 
 **Tokens de bloque de aviso** (`ink-warm`, `surface-glow`, `surface-warm`, `ink-warm-dim` — el bloque ENTONCES de una regla, la tarjeta de gasto destacada):
 
-| Token          | Oscuro    | Claro                                                                                                                    |
-| -------------- | --------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `ink-warm`     | `#f2ede4` | `#f2ede4` (sin cambio — este texto vive sobre un chip oscuro/rojo fijo en los dos temas, no sobre el fondo de la página) |
-| `surface-glow` | `#151116` | `#fff0ee` (primer stop del gradiente de tarjetas destacadas)                                                             |
-| `surface-warm` | `#141116` | `#fdf1f0`                                                                                                                |
-| `ink-warm-dim` | `#e4d9cb` | `#6b2a26`                                                                                                                |
+| Token          | Oscuro    | Claro                                                        |
+| -------------- | --------- | ------------------------------------------------------------ |
+| `ink-warm`     | `#f2ede4` | `#6b2a26` (mismo valor que `ink-warm-dim`)                   |
+| `surface-glow` | `#151116` | `#fff0ee` (primer stop del gradiente de tarjetas destacadas) |
+| `surface-warm` | `#141116` | `#fdf1f0`                                                    |
+| `ink-warm-dim` | `#e4d9cb` | `#6b2a26`                                                    |
+
+> `ink-warm` no quedó como esta tabla decía originalmente ("sin cambio, vive sobre un chip oscuro/rojo fijo en los dos temas"). Esa premisa era falsa incluso en oscuro: los dos usos reales son la respuesta del bloque ENTONCES de una regla (`DetalleRegla.tsx`, sobre `bg-brand/[0.06]`) y el texto de la burbuja del agente (`MessageBubble.tsx`, sobre el gradiente `FONDO_IA`) — ambos tintes translúcidos de `--color-brand`, no un chip sólido. El crema `#f2ede4` funciona sobre el tinte oscuro (12-16:1) pero cae a 1.02-1.06:1 sobre el tinte claro. Se corrigió a `#6b2a26` — el mismo valor que `ink-warm-dim` ya usaba para ese rol — durante el fix wave del review final de rama (Finding 2).
 
 **shadcn genéricos** (`background/foreground/card/primary/...`, ya tenían light+dark vía `:root`/`.dark` con oklch): `--primary`/`--ring`/`--sidebar-primary`/`--sidebar-ring` pasan de `#ffaf3a` a `#d61f1f` en `.dark`, y sus contrapartes en `:root` (hoy genéricas de shadcn, `oklch(0.205 0 0)` etc.) se alinean a los mismos hex que la tabla de arriba donde correspondan (`--background` = `surface-root` claro, `--foreground` = `ink-primary` claro, etc.) para que ambos sistemas de tokens (custom y shadcn) queden consistentes.
+
+**Colores de etapa del embudo** (`stage-*`, `src/lib/ui/stage.ts`) y **rail congelado** (`rail-congelado`, rail del Twin en un desvío) — no estaban en la versión original de este spec; se agregaron durante la implementación:
+
+| Token                   | Oscuro (= handoff, sin cambio) | Claro     |
+| ----------------------- | ------------------------------ | --------- |
+| `stage-nuevo`           | `#38bdf8`                      | `#0369a1` |
+| `stage-identificando`   | `#818cf8`                      | `#4f46e5` |
+| `stage-cotizado`        | `#a78bfa`                      | `#7c3aed` |
+| `stage-negociando`      | `#fbbf24`                      | `#854d0e` |
+| `stage-esperando-pago`  | `#fb923c`                      | `#9a3412` |
+| `stage-cerrado`         | `#34d399`                      | `#047857` |
+| `stage-perdido`         | `#f87171`                      | `#b91c1c` |
+| `stage-requiere-humano` | `#e879f9`                      | `#a21caf` |
+| `rail-congelado`        | `#3a3f49`                      | `#b8bec7` |
+
+Los valores claros de `stage-*` no son los mismos que los tokens semánticos que a simple vista comparten familia de matiz (`warn`/`caution`/`danger`/`special` de la tabla de arriba, o incluso `ok`/`info`). Es deliberado: un badge de etapa pinta el texto sobre `stageBadgeBackground()`, un `color-mix` al 13% del propio color de la etapa (`src/lib/ui/stage.ts`), así que la superficie efectiva es un tinte muy claro del mismo tono — no la superficie plana (`surface-card`/`surface-root`) sobre la que sientan `ok/warn/caution/danger/info/special`. Un texto que alcanza 4.5:1 sobre superficie plana puede no alcanzarlo sobre un tinte de sí mismo, porque ese tinte ya aclaró el fondo hacia el color del texto. Cuatro etapas necesitaron oscurecerse más allá de lo que su semántico equivalente hubiera sugerido para volver a pasar 4.5:1 sobre su propio 13%: `negociando`, `esperando_pago`, `cerrado`, `perdido`. Las otras cuatro (`nuevo`, `identificando`, `cotizado`, `requiere_humano`) alcanzan con el mismo criterio de oscurecimiento que el resto de la paleta clara. `rail-congelado` no es de etapa: es el gris del rail cuando la sesión tomó un desvío, y se mantiene más claro que `line-card` a propósito para leerse como barra inerte y no como progreso apagado — mismo criterio en los dos temas.
 
 ## 5. No entra en este spec
 

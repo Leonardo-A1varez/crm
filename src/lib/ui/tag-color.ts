@@ -1,12 +1,24 @@
 /**
  * Paleta cerrada de colores para las etiquetas.
  *
- * No hay input de color libre a propósito. El panel es solo tema oscuro
- * (handoff §Fidelity) y una etiqueta se lee en un badge de 10px donde el color
- * es a la vez borde y texto: un hex elegido a mano sobre un picker claro
- * produce etiquetas que no se leen sobre `--color-surface-root`. Estos nueve
- * son colores que el handoff ya usa sobre ese fondo — los seis de las etapas
- * del embudo (`src/lib/ui/stage.ts`) más el ámbar y el azul de acento.
+ * No hay input de color libre a propósito: una etiqueta se lee en un badge de
+ * 10px donde el color es a la vez borde y texto, y un hex elegido a mano sobre
+ * un picker no garantiza que se lea sobre `--color-surface-root`. Estos nueve
+ * son los mismos hex que el handoff original usaba sobre fondo oscuro — ya no
+ * viven los seis de las etapas del embudo en `src/lib/ui/stage.ts` (ese
+ * archivo pasó a tokens `var(--stage-*)` con el tema claro/oscuro; ver
+ * `globals.css`) más el ámbar y el azul de acento.
+ *
+ * **Estos valores están calibrados para tema oscuro y no tienen contraparte
+ * clara.** A diferencia de `stage.ts`, esta paleta se persiste tal cual en
+ * `tags.color` (Supabase): una etiqueta creada hoy guarda el hex, no un
+ * token, así que "arreglarla" para tema claro no es solo código — implica una
+ * migración que reinterprete o reescriba las filas existentes. Queda afuera
+ * del alcance del tema claro/oscuro por esa razón. Mismo problema en
+ * `COLORES_ETIQUETA` de `src/server/services/inbox/default-inbox.service.ts`,
+ * que además sigue escribiendo `#FFAF3A` (ámbar pre-rebrand) en etiquetas
+ * nuevas creadas al vuelo desde el Twin — tampoco se tocó en esta rama por el
+ * mismo motivo de datos persistidos.
  *
  * **Es un superconjunto de `COLORES_ETIQUETA`** (`default-inbox.service.ts`),
  * los seis con los que el Twin pinta las etiquetas que se crean al vuelo desde

@@ -51,8 +51,10 @@
   --color-brand-hover: var(--brand-hover);
   --color-brand-deep: var(--brand-deep);
   --color-brand-ink: var(--brand-ink);
-  /* Blanco cálido de la respuesta en el bloque ENTONCES de una regla: es texto
-     sobre fondo de marca, y los `ink-*` están calibrados contra el fondo. */
+  /* Texto de la respuesta en el bloque ENTONCES de una regla y de la burbuja
+     del agente: sienta sobre un tinte translúcido de `--color-brand` (6-16%),
+     no sobre un chip sólido fijo, así que sí necesita un valor por tema —
+     igual que cualquier otro `ink-*`. */
   --color-ink-warm: var(--ink-warm);
   /* Primer stop del gradiente de las tarjetas destacadas; el segundo es
      `surface-card`. No es una superficie plana, por eso no entra en esa escala. */
@@ -148,7 +150,11 @@
   --brand-hover: #ff5c5c;
   --brand-deep: #b71414;
   --brand-ink: #fff5f4;
-  --ink-warm: #f2ede4;
+  /* Mismo valor que `ink-warm-dim`: en claro, el bloque de aviso deja de ser
+     el chip oscuro/rojo fijo que era en el diseño original (spec §4) y pasa
+     a sentar sobre un tinte translúcido de `--color-brand` — el crema del
+     oscuro cae a 1.02-1.06:1 ahí. */
+  --ink-warm: #6b2a26;
   --surface-glow: #fff0ee;
   --surface-warm: #fdf1f0;
   --ink-warm-dim: #6b2a26;
@@ -160,13 +166,17 @@
   --info: #2563a8;
   --special: #a21caf;
 
-  /* Colores de las etapas del embudo. Los valores aclaran sobre superficie plana
-     pero no alcanzan 4.5:1 cuando se componen sobre un tinte 13% de sí mismos
-     (como sucede con el badge). Los ocho aquí se oscurecen manteniendo el matiz;
-     los cuatro primeros + requiere_humano ya alcanzan sobre sus propios tintes.
-     Los otros cuatro se oscurecen: negociando, esperando_pago, cerrado, perdido.
-     Divergen de los semánticos (ok/warn/caution/danger) porque sientan sobre
-     superficies distintas: los semánticos sobre plano, estos sobre tinte propio. */
+  /* Colores de las etapas del embudo. El badge (`stageBadgeBackground()` en
+     `src/lib/ui/stage.ts`) pinta el texto sobre un `color-mix` al 13% del
+     propio color de la etapa, no sobre superficie plana — ese tinte ya aclara
+     el fondo hacia el mismo tono del texto, así que hace falta más oscuro que
+     lo que un texto plano necesitaría para llegar a 4.5:1. Por eso divergen de
+     los semánticos (`ok/warn/caution/danger`), que sientan sobre superficie
+     plana y no tienen ese problema. De las ocho, cuatro necesitaron oscurecerse
+     más allá de su semántico equivalente para pasar 4.5:1 sobre su propio 13%:
+     `negociando`, `esperando-pago`, `cerrado`, `perdido`. Las otras cuatro
+     (`nuevo`, `identificando`, `cotizado`, `requiere-humano`) alcanzan con el
+     mismo criterio de oscurecimiento que el resto de la paleta clara. */
   --stage-nuevo: #0369a1;
   --stage-identificando: #4f46e5;
   --stage-cotizado: #7c3aed;

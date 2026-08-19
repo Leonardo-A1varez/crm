@@ -179,7 +179,7 @@ export function CierreSesion({
             motivo !== null &&
             confirmar({ leadId, sessionId, resultado: "perdido", motivoPerdida: motivo })
           }
-          className="bg-danger text-brand-ink rounded-[7px] px-2 py-[3px] text-[10.5px] font-semibold disabled:opacity-50"
+          className="bg-danger text-background rounded-[7px] px-2 py-[3px] text-[10.5px] font-semibold disabled:opacity-50"
         >
           {isPending ? "Cerrando…" : "Confirmar pérdida"}
         </button>
