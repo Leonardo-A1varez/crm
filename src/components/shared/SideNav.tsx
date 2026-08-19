@@ -13,6 +13,7 @@ import {
   SmartToy,
 } from "@/components/icons";
 import { InitialsAvatar } from "@/components/shared/InitialsAvatar";
+import { ThemeToggle } from "@/components/shared/ThemeToggle";
 import { cn } from "@/lib/utils";
 import type { ActionResult } from "@/types/inbox";
 import type { ComponentType } from "react";
@@ -122,6 +123,7 @@ export function SideNav({
           </span>
           <span className="text-ink-faint block truncate text-[10px]">{user.rol}</span>
         </span>
+        <ThemeToggle />
         <LogoutButton onLogout={onLogout} />
       </div>
     </aside>
