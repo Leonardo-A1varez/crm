@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
+import { ThemeProvider } from "@/components/shared/ThemeProvider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -24,13 +25,20 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
+    // suppressHydrationWarning: la clase de tema la escribe un script inline de
+    // next-themes antes de que React hidrate, así que el HTML del server y el
+    // del cliente difieren en `class` a propósito. Sin esto, React avisa de un
+    // mismatch que no es un bug.
     <html
       lang="es"
-      className={`${geistSans.variable} ${geistMono.variable} dark h-full antialiased`}
+      suppressHydrationWarning
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col">
-        {children}
-        <Toaster />
+        <ThemeProvider>
+          {children}
+          <Toaster />
+        </ThemeProvider>
       </body>
     </html>
   );
