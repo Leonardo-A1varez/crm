@@ -13,24 +13,27 @@ import {
 } from "@/lib/ui/stage";
 
 describe("stageColor", () => {
-  test("las 8 etapas tienen color hex de 6 digitos", () => {
+  test("las 8 etapas resuelven a un token CSS var(--stage-...)", () => {
     for (const stage of CURRENT_STAGE) {
-      expect(stageColor(stage)).toMatch(/^#[0-9a-fA-F]{6}$/);
+      expect(stageColor(stage)).toMatch(/^var\(--stage-[a-z-]+\)$/);
     }
   });
 
-  test("los colores del handoff son exactos", () => {
-    expect(stageColor("nuevo")).toBe("#38BDF8");
-    expect(stageColor("identificando")).toBe("#818CF8");
-    expect(stageColor("cotizado")).toBe("#A78BFA");
-    expect(stageColor("negociando")).toBe("#FBBF24");
-    expect(stageColor("esperando_pago")).toBe("#FB923C");
-    expect(stageColor("cerrado")).toBe("#34D399");
-    expect(stageColor("perdido")).toBe("#F87171");
-    expect(stageColor("requiere_humano")).toBe("#E879F9");
+  test("cada etapa apunta a su propio token: el color vive en el tema, no acá", () => {
+    // El valor hex real está en globals.css (:root claro, .dark oscuro) — este
+    // módulo solo referencia el token correcto por etapa, para que el tema
+    // claro/oscuro pueda tener valores distintos sin tocar este archivo.
+    expect(stageColor("nuevo")).toBe("var(--stage-nuevo)");
+    expect(stageColor("identificando")).toBe("var(--stage-identificando)");
+    expect(stageColor("cotizado")).toBe("var(--stage-cotizado)");
+    expect(stageColor("negociando")).toBe("var(--stage-negociando)");
+    expect(stageColor("esperando_pago")).toBe("var(--stage-esperando-pago)");
+    expect(stageColor("cerrado")).toBe("var(--stage-cerrado)");
+    expect(stageColor("perdido")).toBe("var(--stage-perdido)");
+    expect(stageColor("requiere_humano")).toBe("var(--stage-requiere-humano)");
   });
 
-  test("ninguna etapa comparte color con otra", () => {
+  test("ninguna etapa comparte token con otra", () => {
     const colores = CURRENT_STAGE.map(stageColor);
     expect(new Set(colores).size).toBe(CURRENT_STAGE.length);
   });
@@ -50,13 +53,17 @@ describe("stageLabel", () => {
 });
 
 describe("stageBadgeBackground", () => {
-  test("es el color de la etapa al 13% de alpha", () => {
-    expect(stageBadgeBackground("cerrado")).toBe("#34D39921");
+  test("es el color de la etapa mezclado al 13% (alpha del handoff)", () => {
+    expect(stageBadgeBackground("cerrado")).toBe(
+      "color-mix(in srgb, var(--stage-cerrado) 13%, transparent)",
+    );
   });
 
-  test("aplica a las 8 etapas", () => {
+  test("aplica a las 8 etapas, mezclando el token de cada una", () => {
     for (const stage of CURRENT_STAGE) {
-      expect(stageBadgeBackground(stage)).toBe(`${stageColor(stage)}21`);
+      expect(stageBadgeBackground(stage)).toBe(
+        `color-mix(in srgb, ${stageColor(stage)} 13%, transparent)`,
+      );
     }
   });
 });

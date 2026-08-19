@@ -14,11 +14,10 @@ import type { ProcedenciaCampo, UUID } from "@/types/entities";
 import type { ActionResult } from "@/types/inbox";
 
 /**
- * Gris del rail congelado. Va literal porque no hay token: es más claro que
- * `line-card` a propósito, para que el rail de un desvío se lea como una barra
- * inerte y no como progreso apagado.
+ * Gris del rail congelado: más claro que `line-card` a propósito, para que el
+ * rail de un desvío se lea como una barra inerte y no como progreso apagado.
  */
-const RAIL_CONGELADO = "#3A3F49";
+const RAIL_CONGELADO = "var(--rail-congelado)";
 
 /**
  * Rail del embudo: 6 segmentos, los alcanzados en el color de la etapa, y cada

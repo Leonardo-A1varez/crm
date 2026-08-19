@@ -17,14 +17,14 @@ export const FUNNEL_STAGES = ETAPAS_EMBUDO;
 export const FUNNEL_LENGTH = FUNNEL_STAGES.length;
 
 const COLOR: Record<CurrentStage, string> = {
-  nuevo: "#38BDF8",
-  identificando: "#818CF8",
-  cotizado: "#A78BFA",
-  negociando: "#FBBF24",
-  esperando_pago: "#FB923C",
-  cerrado: "#34D399",
-  perdido: "#F87171",
-  requiere_humano: "#E879F9",
+  nuevo: "var(--stage-nuevo)",
+  identificando: "var(--stage-identificando)",
+  cotizado: "var(--stage-cotizado)",
+  negociando: "var(--stage-negociando)",
+  esperando_pago: "var(--stage-esperando-pago)",
+  cerrado: "var(--stage-cerrado)",
+  perdido: "var(--stage-perdido)",
+  requiere_humano: "var(--stage-requiere-humano)",
 };
 
 const LABEL: Record<CurrentStage, string> = {
@@ -38,9 +38,6 @@ const LABEL: Record<CurrentStage, string> = {
   requiere_humano: "Requiere humano",
 };
 
-/** Alpha 13% del handoff = 0x21 sobre 0xFF. */
-const BADGE_ALPHA = "21";
-
 export function stageColor(stage: CurrentStage): string {
   return COLOR[stage];
 }
@@ -49,8 +46,14 @@ export function stageLabel(stage: CurrentStage): string {
   return LABEL[stage];
 }
 
+/**
+ * Fondo del badge de etapa: 13% del color de la etapa (el alpha 0x21 del
+ * handoff). `color-mix` y no concatenación de hex + alpha porque `COLOR[stage]`
+ * es un `var(--stage-...)`: pegarle un sufijo de hex produciría el string
+ * literal `var(--stage-nuevo)21`, que el navegador no puede interpretar.
+ */
 export function stageBadgeBackground(stage: CurrentStage): string {
-  return `${COLOR[stage]}${BADGE_ALPHA}`;
+  return `color-mix(in srgb, ${COLOR[stage]} 13%, transparent)`;
 }
 
 export function isDetour(stage: CurrentStage): boolean {

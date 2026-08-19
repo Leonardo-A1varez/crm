@@ -138,10 +138,10 @@
   --ink-body: #1c1f26;
   --ink-secondary: #383d47;
   --ink-muted: #565c68;
-  --ink-dim: #6b7280;
-  --ink-faint: #757b87;
-  --ink-fainter: #8b909a;
-  --ink-ghost: #9aa0ab;
+  --ink-dim: #5a616e;
+  --ink-faint: #646b78;
+  --ink-fainter: #6d7481;
+  --ink-ghost: #757c89;
 
   /* La marca no se invierte: mismo rojo en los dos temas. */
   --brand: #d61f1f;
@@ -159,6 +159,26 @@
   --danger: #dc2626;
   --info: #2563a8;
   --special: #a21caf;
+
+  /* Colores de las etapas del embudo. Mismo problema que `ok/warn/...`: los
+     del oscuro están calibrados contra un fondo casi negro, así que en claro
+     se oscurecen manteniendo el matiz. Los cuatro que se superponen con un rol
+     semántico ya definido arriba reusan el valor de ese rol a propósito, para
+     que la paleta no tenga dos grises de significado distinto para el mismo
+     matiz. */
+  --stage-nuevo: #0369a1;
+  --stage-identificando: #4f46e5;
+  --stage-cotizado: #7c3aed;
+  --stage-negociando: #a16207;
+  --stage-esperando-pago: #c2540f;
+  --stage-cerrado: #0f8f61;
+  --stage-perdido: #dc2626;
+  --stage-requiere-humano: #a21caf;
+
+  /* Gris del rail congelado del Twin: más claro que `line-card` a propósito,
+     para que el rail de un desvío se lea como una barra inerte y no como
+     progreso apagado. */
+  --rail-congelado: #b8bec7;
 
   /* shadcn genéricos, alineados a los tokens de arriba. */
   --background: #f6f7f8;
@@ -238,6 +258,20 @@
   --danger: #f87171;
   --info: #7fb3f5;
   --special: #e879f9;
+
+  /* Colores de las etapas del embudo. Valores tal cual estaban antes en
+     `stage.ts`, hoy tokenizados para que el tema claro pueda tener los suyos. */
+  --stage-nuevo: #38bdf8;
+  --stage-identificando: #818cf8;
+  --stage-cotizado: #a78bfa;
+  --stage-negociando: #fbbf24;
+  --stage-esperando-pago: #fb923c;
+  --stage-cerrado: #34d399;
+  --stage-perdido: #f87171;
+  --stage-requiere-humano: #e879f9;
+
+  /* Gris del rail congelado del Twin, sin cambios. */
+  --rail-congelado: #3a3f49;
 
   --background: #08090b;
   --foreground: #ecedef;

@@ -19,8 +19,8 @@ const COLORES_RAZON = [
   "var(--color-info)",
   "var(--color-danger)",
   "var(--color-ok)",
-  "#E879F9",
-  "#FB923C",
+  "var(--color-special)",
+  "var(--color-warn)",
 ] as const;
 
 /**
