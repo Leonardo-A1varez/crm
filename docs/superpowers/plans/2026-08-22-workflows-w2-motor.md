@@ -128,11 +128,23 @@ begin
       return query select null::uuid, 'ya_hay_corrida_viva'::text;
       return;
     elsif v_politica = 'reiniciar' then
-      update public.workflow_runs
+      -- Set-based: cancela TODAS las corridas vivas de este (workflow, lead),
+      -- no solo la que encontro el `limit 1` de arriba. Mismo join y mismo
+      -- filtro de estado que el chequeo de existencia. `v_viva` solo sirve
+      -- para saber si hay ALGUNA corrida viva; el chequeo de existencia
+      -- hace join contra TODAS las versiones del workflow, asi que una
+      -- version anterior con `politica_concurrencia = 'permitir'` puede
+      -- haber dejado varias corridas vivas para el mismo lead -- cancelar
+      -- solo una las dejaria coexistir con la corrida nueva.
+      update public.workflow_runs as r
          set estado = 'cancelado',
              ended_at = now(),
              error = 'reiniciado por un disparo nuevo'
-       where id = v_viva;
+        from public.workflow_versiones as v
+       where v.id = r.workflow_version_id
+         and v.workflow_id = v_workflow_id
+         and r.lead_id = p_lead_id
+         and r.estado in ('corriendo','esperando');
     end if;
   end if;
 
@@ -147,8 +159,18 @@ revoke all on function public.arrancar_workflow_run(uuid, uuid, uuid, jsonb) fro
 grant execute on function public.arrancar_workflow_run(uuid, uuid, uuid, jsonb) to service_role;
 
 comment on function public.arrancar_workflow_run(uuid, uuid, uuid, jsonb) is
-  'Arranca una corrida aplicando la politica de concurrencia de la version, con advisory lock por (workflow, lead) para que decision e insert sean atomicos.';
+  'Arranca una corrida aplicando la politica de concurrencia de la version, con advisory lock por (workflow, lead) para que decision e insert sean atomicos. reiniciar cancela TODAS las corridas vivas del workflow para ese lead, no solo una.';
 ```
+
+> Nota post-review: el `reiniciar` de arriba ya viene corregido a set-based.
+> La primera version aplicada (`20260822162456_workflows_motor.sql`) traia
+> un `update ... where id = v_viva` que solo cancelaba una corrida, aunque el
+> chequeo de existencia hace join contra TODAS las versiones del workflow y
+> una version anterior en `permitir` puede haber dejado varias vivas. El fix
+> real vive en `20260822205109_fix_arrancar_workflow_run_reinicia_todas.sql`
+> (`create or replace function`, la migracion aplicada no se edita); este
+> Step 1 se corrigio para que el texto del plan no siga mostrando la SQL
+> con el defecto.
 
 - [ ] **Step 2: Aplicar con el MCP y reconciliar el nombre**
 
