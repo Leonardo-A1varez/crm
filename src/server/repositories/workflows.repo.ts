@@ -3,7 +3,11 @@ import type { UUID, Workflow, WorkflowVersion } from "@/types/entities";
 import type { Insert } from "./_types";
 
 export type WorkflowInsert = Insert<Workflow, "id" | "created_at">;
-export type WorkflowVersionInsert = Insert<WorkflowVersion, "id" | "created_at">;
+// `publicada` queda afuera del alta: una versión nace despublicada siempre,
+// y publicar es un acto aparte (`publicarVersion`), que además tiene que
+// despublicar la anterior. Dejar `publicada` en el alta permitía expresar
+// un estado que Postgres rechaza con 23505 (índice único parcial).
+export type WorkflowVersionInsert = Insert<WorkflowVersion, "id" | "created_at" | "publicada">;
 
 /**
  * Lectura y escritura de la definición de workflows.
@@ -46,7 +50,12 @@ export class InMemoryWorkflowsRepository implements WorkflowsRepository {
   }
 
   async crearVersion(input: WorkflowVersionInsert): Promise<WorkflowVersion> {
-    const v: WorkflowVersion = { ...input, id: crypto.randomUUID(), created_at: new Date() };
+    const v: WorkflowVersion = {
+      ...input,
+      id: crypto.randomUUID(),
+      created_at: new Date(),
+      publicada: false,
+    };
     this.versiones.set(v.id, v);
     return { ...v };
   }

@@ -36,7 +36,6 @@ export function runWorkflowsContract(makeRepo: () => WorkflowsRepository) {
         version: 1,
         grafo: GRAFO,
         max_pasos: 500,
-        publicada: false,
         created_by: null,
       });
       expect(await repo.proximaVersion(w.id)).toBe(2);
@@ -49,7 +48,6 @@ export function runWorkflowsContract(makeRepo: () => WorkflowsRepository) {
         version: 1,
         grafo: GRAFO,
         max_pasos: 500,
-        publicada: false,
         created_by: null,
       });
       const v2 = await repo.crearVersion({
@@ -57,7 +55,6 @@ export function runWorkflowsContract(makeRepo: () => WorkflowsRepository) {
         version: 2,
         grafo: GRAFO,
         max_pasos: 500,
-        publicada: false,
         created_by: null,
       });
 
@@ -78,6 +75,19 @@ export function runWorkflowsContract(makeRepo: () => WorkflowsRepository) {
       expect(await repo.findVersionPublicada(w.id)).toBeNull();
     });
 
+    it("una version recien creada nace despublicada", async () => {
+      const w = await repo.crearWorkflow({ nombre: "W", descripcion: null, activo: false });
+      const v = await repo.crearVersion({
+        workflow_id: w.id,
+        version: 1,
+        grafo: GRAFO,
+        max_pasos: 500,
+        created_by: null,
+      });
+      expect(v.publicada).toBe(false);
+      expect(await repo.findVersionPublicada(w.id)).toBeNull();
+    });
+
     it("el grafo sobrevive el viaje de ida y vuelta", async () => {
       const w = await repo.crearWorkflow({ nombre: "W", descripcion: null, activo: false });
       const v = await repo.crearVersion({
@@ -85,7 +95,6 @@ export function runWorkflowsContract(makeRepo: () => WorkflowsRepository) {
         version: 1,
         grafo: GRAFO,
         max_pasos: 500,
-        publicada: false,
         created_by: null,
       });
       const leida = await repo.listarVersiones(w.id);

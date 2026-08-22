@@ -55,7 +55,9 @@ export class SupabaseWorkflowsRepository implements WorkflowsRepository {
         // código.
         grafo: input.grafo as never,
         max_pasos: input.max_pasos,
-        publicada: input.publicada,
+        // Una versión nace despublicada siempre: ver el comentario en
+        // `WorkflowVersionInsert` (workflows.repo.ts).
+        publicada: false,
         created_by: input.created_by,
       })
       .select(COLS_VERSION)
