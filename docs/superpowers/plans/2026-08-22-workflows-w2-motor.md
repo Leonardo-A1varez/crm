@@ -1301,7 +1301,7 @@ Expected: FAIL — módulo inexistente.
 - [ ] **Step 3: Implementar**
 
 ```ts
-import { crearRegistro, type AccionHandler } from "./acciones/registro";
+import type { RegistroDeAcciones } from "./acciones/registro";
 import { ejecutarSegmento, type PasoEjecutado } from "./ejecutor.service";
 import { disparadorDe } from "@/lib/workflows/recorrer";
 import type { Grafo } from "@/types/workflows";
@@ -1341,17 +1341,26 @@ export function simular(grafo: Grafo, opciones: OpcionesSimulacion): ResultadoSi
   let reloj = new Date(opciones.desde);
   let salientes = 0;
 
-  const anotar: AccionHandler = async (nodo) => {
-    const accion = String(nodo.config["accion"] ?? "");
-    if (accion === "enviar_mensaje") salientes += 1;
-    return { puerto: "salida", salida: { simulado: accion } };
+  // Implementa `RegistroDeAcciones` directo en vez de pasar por
+  // `crearRegistro`. Dos razones, y la primera es dura:
+  //
+  //   1. `crearRegistro` construye `new Map(Object.entries(handlers))` desde
+  //      el fix de prototype chain de la Task 4. Un `Proxy` que solo trapea
+  //      `get`/`has` devuelve `[]` en `Object.entries` —el trap que hace
+  //      falta es `ownKeys`, no `get`— asi que el Map saldria vacio y CADA
+  //      accion tiraria `ValidationError`. Verificado:
+  //          node -e "console.log(Object.entries(new Proxy({},{get:()=>1})))"
+  //          []
+  //   2. Aun sin ese choque, el simulador no necesita despachar por nombre:
+  //      acepta cualquier accion a proposito, porque simula en vez de actuar.
+  //      Pasar por el despachador solo para engañarlo es mas fragil.
+  const registro: RegistroDeAcciones = {
+    async ejecutar(nodo) {
+      const accion = String(nodo.config["accion"] ?? "");
+      if (accion === "enviar_mensaje") salientes += 1;
+      return { puerto: "salida", salida: { simulado: accion } };
+    },
   };
-  const registro = crearRegistro(
-    new Proxy({} as Record<string, AccionHandler>, {
-      get: () => anotar,
-      has: () => true,
-    }),
-  );
 
   let nodoActual = disparadorDe(grafo)?.id;
   let pasosPrevios = 0;
