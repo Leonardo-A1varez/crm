@@ -64,18 +64,33 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
   private readonly runs = new Map<UUID, WorkflowRun>();
   private readonly pasos = new Map<UUID, WorkflowRunPaso[]>();
 
+  /**
+   * En Postgres, "corrida viva" se escopea por (workflow, lead): el join de
+   * `arrancar_workflow_run` filtra por `workflow_id` de la versión que
+   * dispara, y dos workflows distintos sí pueden correr en paralelo para el
+   * mismo lead. Acá sólo llega `versionId` en cada `arrancar`, así que este
+   * repo necesita poder resolver a qué workflow pertenece cada versión para
+   * escopear igual.
+   *
+   * `resolverWorkflowId` es **opcional** a propósito: sin él, el escopeo cae
+   * al fallback histórico (por `leadId` a secas, equivalente a la política
+   * 'ignorar' aplicada sin distinguir workflows) — un test que no le importa
+   * el multi-workflow no necesita setup extra. Un test que sí ejercita dos
+   * workflows distintos sobre el mismo lead tiene que inyectar la función
+   * que resuelve `versionId -> workflowId` para que el escopeo matchee el
+   * de Postgres.
+   */
+  constructor(private readonly resolverWorkflowId?: (versionId: UUID) => UUID | undefined) {}
+
   async arrancar(input: ArrancarWorkflowRunInput): Promise<ArrancarWorkflowRunResult> {
-    // Simplificación deliberada frente a Postgres: allá "corrida viva" se
-    // escopea por (workflow, lead) — dos workflows distintos sí pueden
-    // correr en paralelo para el mismo lead — pero acá sólo llega
-    // `versionId`, no el workflow al que pertenece. Este InMemory escopea
-    // por lead a secas, que es el comportamiento de la política 'ignorar'
-    // (la única que ejercitan los tests de este repo). La política real
-    // ('ignorar'/'reiniciar'/'permitir') vive en `arrancar_workflow_run`
-    // (Postgres) — ahí sí conoce el workflow de cada versión.
-    const viva = [...this.runs.values()].find(
-      (r) => r.lead_id === input.leadId && ESTADOS_VIVOS.includes(r.estado),
-    );
+    const workflowId = this.resolverWorkflowId?.(input.versionId);
+    const viva = [...this.runs.values()].find((r) => {
+      if (r.lead_id !== input.leadId) return false;
+      if (!ESTADOS_VIVOS.includes(r.estado)) return false;
+      // Sin lookup inyectado: fallback histórico, escopea sólo por lead.
+      if (this.resolverWorkflowId === undefined) return true;
+      return this.resolverWorkflowId(r.workflow_version_id) === workflowId;
+    });
     if (viva) return { run: null, motivo: "ya_hay_corrida_viva" };
 
     const run: WorkflowRun = {

@@ -53,7 +53,7 @@ export function runWorkflowRunsContract(
       expect(await repo.tomarSegmento("00000000-0000-4000-8000-000000000999", 0)).toBeNull();
     });
 
-    it("una corrida cancelada no se puede tomar", async () => {
+    it("una corrida fallada no se puede tomar (mismo predicado que 'cancelado')", async () => {
       const { repo, versionId, leadId } = await makeRepo();
       const { run } = await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });
       await repo.fallar(run!.id, "cancelada a mano", 0);

@@ -47,11 +47,16 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
     const { data, error } = await this.db.rpc("arrancar_workflow_run", {
       p_version_id: input.versionId,
       p_lead_id: input.leadId,
-      // La firma generada marca estos dos como `string` sin `| null` porque
+      // La firma generada marca este arg como `string` sin `| null` porque
       // el codegen de Supabase no refleja nulabilidad de argumentos de
-      // función — el parámetro Postgres sí acepta NULL. Mismo motivo que el
-      // cast de `grafo` en workflows.supabase.repo.ts.
+      // función — el parámetro Postgres (`p_session_id uuid`, sin `not
+      // null`) sí acepta NULL.
       p_session_id: input.sessionId as never,
+      // Acá el mismatch no es de nulabilidad: `p_contexto` espera `Json`
+      // (unión recursiva de string|number|boolean|null|Json[]|{[k]:Json}) y
+      // el dominio trabaja con `Record<string, unknown>`, que TS no
+      // considera asignable pese a que el valor en runtime es JSON válido.
+      // Mismo motivo que el cast de `grafo` en workflows.supabase.repo.ts.
       p_contexto: input.contexto as never,
     });
     if (error) throw mapPostgrestError(error, { resource: "workflow_runs" });
