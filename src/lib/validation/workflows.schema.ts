@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { NODO_TIPOS, PUERTOS } from "@/types/workflows";
+import { CAMPOS_CONDICION, OPERADORES } from "@/lib/workflows/condiciones";
 
 /**
  * Forma del grafo, no su sentido.
@@ -25,6 +26,12 @@ export const AristaSchema = z.object({
   desde: NodoIdSchema,
   hasta: NodoIdSchema,
   puerto: z.enum(PUERTOS),
+});
+
+export const CondicionSchema = z.object({
+  campo: z.enum(CAMPOS_CONDICION),
+  operador: z.enum(OPERADORES),
+  valor: z.string().max(200).nullable(),
 });
 
 // Un flujo armado a mano en un canvas tiene decenas de nodos, no miles. 200
