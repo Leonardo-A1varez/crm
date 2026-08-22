@@ -101,6 +101,14 @@ describe("DefaultWorkflowsAdminService", () => {
   it("rechaza un grafo con la forma rota antes de validar la semantica", async () => {
     const { service } = build();
     const w = await service.crear({ nombre: "W", descripcion: null });
+    // El fixture también rompería la etapa semántica si corriera sola (el nodo
+    // "inventado" no es `disparador` y por lo tanto viola `disparador_unico`),
+    // así que basta con `ValidationError` no alcanza para probar el orden:
+    // ambas etapas producen ese mismo tipo de error. Lo que distingue una
+    // etapa de la otra es el código que el service adjunta en `issues`
+    // (ver `workflows-admin.service.ts`) — sólo la etapa Zod puede producir
+    // "grafo_forma_invalida", porque si `validarGrafo` corriera primero
+    // recibiría un grafo sin parsear y el problema sería "grafo_invalido".
     await expect(
       service.guardarVersion({
         workflowId: w.id,
@@ -112,7 +120,7 @@ describe("DefaultWorkflowsAdminService", () => {
         maxPasos: 500,
         userId: null,
       }),
-    ).rejects.toThrow(ValidationError);
+    ).rejects.toMatchObject({ issues: "grafo_forma_invalida" });
   });
 
   it("publicar deja esa version como la publicada", async () => {
