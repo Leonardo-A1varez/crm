@@ -56,6 +56,19 @@ export interface ProblemaGrafo {
   mensaje: string;
 }
 
+/**
+ * Por qué falló un segmento. Task 10 (el step de Inngest) lo usa para decidir
+ * si reintenta: comparar contra este enum en vez de contra el texto de
+ * `error` es lo que sobrevive a un reword del mensaje.
+ */
+export const MOTIVOS_FALLO = [
+  "tope_pasos",
+  "grafo_invalido",
+  "condicion_invalida",
+  "accion_fallo",
+] as const;
+export type MotivoFallo = (typeof MOTIVOS_FALLO)[number];
+
 /** Lo que el ejecutor le devuelve a quien lo llamó al terminar un segmento. */
 export type ResultadoSegmento =
   | {
@@ -73,7 +86,22 @@ export type ResultadoSegmento =
       reanudarEn: string;
     }
   | { tipo: "fin" }
-  | { tipo: "fallado"; nodoId: string; error: string };
+  | {
+      tipo: "fallado";
+      nodoId: string;
+      /** Legible por una persona. Se persiste para mostrarlo en la UI. */
+      error: string;
+      motivo: MotivoFallo;
+      /**
+       * Si reintentar el segmento tiene sentido. Sólo `accion_fallo` puede dar
+       * `true`: se calcula con `isNonRetriable()` (`src/lib/errors.ts`) sobre
+       * el error crudo ANTES de aplanarlo a `error: string`, porque una vez
+       * aplanado el tipo de dominio ya no existe. Todo lo demás (tope de
+       * pasos, grafo mal formado, condición mal configurada) es un bug de
+       * datos, no una falla transitoria: reintentarlo repite el mismo error.
+       */
+      retriable: boolean;
+    };
 
 /** El estado que viaja entre nodos y se persiste en `workflow_runs.contexto`. */
 export type ContextoRun = Record<string, unknown>;

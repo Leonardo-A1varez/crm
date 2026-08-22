@@ -1,8 +1,9 @@
+import { isNonRetriable } from "@/lib/errors";
 import { CondicionSchema } from "@/lib/validation/workflows.schema";
 import { evaluarCondicion } from "@/lib/workflows/condiciones";
 import { nodoPorId, siguienteNodo } from "@/lib/workflows/recorrer";
 import type { UUID } from "@/types/entities";
-import type { ContextoRun, Grafo, ResultadoSegmento } from "@/types/workflows";
+import type { ContextoRun, Grafo, Puerto, ResultadoSegmento } from "@/types/workflows";
 import type { RegistroDeAcciones } from "./acciones/registro";
 
 export interface PasoEjecutado {
@@ -38,6 +39,30 @@ function minutosDeEspera(config: Record<string, unknown>): number {
 }
 
 /**
+ * Cuál nodo sigue por `puerto`, o `undefined` si ese puerto no tiene arista.
+ *
+ * En un grafo que pasó el validador de W1 esto nunca debería pasar: la regla
+ * `salida_sin_conectar` exige que todo puerto de todo nodo no-`fin` tenga
+ * arista. Si pasa, el grafo se guardó sin validar, y las cuatro clases de
+ * nodo que avanzan por un puerto (`disparador`, `condicion`, `espera`,
+ * `accion`) lo tratan igual: es una falla del grafo, nunca un `fin` silencioso.
+ */
+function siguienteObligatorio(
+  grafo: Grafo,
+  nodoId: string,
+  puerto: Puerto,
+): { ok: true; nodoId: string } | { ok: false; error: string } {
+  const siguiente = siguienteNodo(grafo, nodoId, puerto);
+  if (siguiente === undefined) {
+    return {
+      ok: false,
+      error: `el nodo "${nodoId}" no tiene conectado el puerto "${puerto}"`,
+    };
+  }
+  return { ok: true, nodoId: siguiente };
+}
+
+/**
  * Corre nodos inline hasta toparse con una espera, un fin, o el tope.
  *
  * No cicla nunca, y no por disciplina: el subgrafo sin esperas es acíclico por
@@ -59,6 +84,8 @@ export async function ejecutarSegmento(
         tipo: "fallado",
         nodoId: actual,
         error: `el nodo "${actual}" no existe en el grafo`,
+        motivo: "grafo_invalido",
+        retriable: false,
       };
     }
 
@@ -69,6 +96,8 @@ export async function ejecutarSegmento(
         tipo: "fallado",
         nodoId: nodo.id,
         error: `tope de ${input.maxPasos} pasos alcanzado en "${nodo.id}"`,
+        motivo: "tope_pasos",
+        retriable: false,
       };
     }
     orden += 1;
@@ -79,12 +108,15 @@ export async function ejecutarSegmento(
     }
 
     if (nodo.tipo === "espera") {
-      const siguiente = siguienteNodo(input.grafo, nodo.id, "salida");
-      if (siguiente === undefined) {
+      const sig = siguienteObligatorio(input.grafo, nodo.id, "salida");
+      if (!sig.ok) {
+        await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: sig.error });
         return {
           tipo: "fallado",
           nodoId: nodo.id,
-          error: `la espera "${nodo.id}" no tiene salida conectada`,
+          error: sig.error,
+          motivo: "grafo_invalido",
+          retriable: false,
         };
       }
       const hasta = new Date(deps.ahora().getTime() + minutosDeEspera(nodo.config) * 60_000);
@@ -94,12 +126,23 @@ export async function ejecutarSegmento(
         salida: { hasta: hasta.toISOString() },
         error: null,
       });
-      return { tipo: "espera", nodoId: nodo.id, hasta, reanudarEn: siguiente };
+      return { tipo: "espera", nodoId: nodo.id, hasta, reanudarEn: sig.nodoId };
     }
 
     if (nodo.tipo === "disparador") {
+      const sig = siguienteObligatorio(input.grafo, nodo.id, "salida");
+      if (!sig.ok) {
+        await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: sig.error });
+        return {
+          tipo: "fallado",
+          nodoId: nodo.id,
+          error: sig.error,
+          motivo: "grafo_invalido",
+          retriable: false,
+        };
+      }
       await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: null });
-      actual = siguienteNodo(input.grafo, nodo.id, "salida");
+      actual = sig.nodoId;
       continue;
     }
 
@@ -111,11 +154,28 @@ export async function ejecutarSegmento(
       if (!forma.success) {
         const mensaje = `la condición "${nodo.id}" está mal configurada: ${forma.error.issues[0]?.message ?? "forma inválida"}`;
         await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: mensaje });
-        return { tipo: "fallado", nodoId: nodo.id, error: mensaje };
+        return {
+          tipo: "fallado",
+          nodoId: nodo.id,
+          error: mensaje,
+          motivo: "condicion_invalida",
+          retriable: false,
+        };
       }
       const cumple = evaluarCondicion(forma.data, contexto);
+      const sig = siguienteObligatorio(input.grafo, nodo.id, cumple ? "verdadero" : "falso");
+      if (!sig.ok) {
+        await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: sig.error });
+        return {
+          tipo: "fallado",
+          nodoId: nodo.id,
+          error: sig.error,
+          motivo: "grafo_invalido",
+          retriable: false,
+        };
+      }
       await deps.onPaso({ nodoId: nodo.id, orden, salida: { cumple }, error: null });
-      actual = siguienteNodo(input.grafo, nodo.id, cumple ? "verdadero" : "falso");
+      actual = sig.nodoId;
       continue;
     }
 
@@ -138,17 +198,47 @@ export async function ejecutarSegmento(
         });
         return { tipo: "espera", nodoId: nodo.id, hasta: r.diferirHasta, reanudarEn: nodo.id };
       }
+      const sig = siguienteObligatorio(input.grafo, nodo.id, r.puerto);
+      if (!sig.ok) {
+        await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: sig.error });
+        return {
+          tipo: "fallado",
+          nodoId: nodo.id,
+          error: sig.error,
+          motivo: "grafo_invalido",
+          retriable: false,
+        };
+      }
       if (r.contexto) contexto = { ...contexto, ...r.contexto };
       await deps.onPaso({ nodoId: nodo.id, orden, salida: r.salida ?? null, error: null });
-      actual = siguienteNodo(input.grafo, nodo.id, r.puerto);
+      actual = sig.nodoId;
     } catch (error) {
+      // isNonRetriable() se calcula sobre el `error` crudo, ANTES de
+      // aplanarlo a texto: una vez convertido a `string` para persistir, la
+      // clase de dominio (ValidationError, InfraError, ...) ya no existe y
+      // Inngest no puede decidir si reintentar.
       const mensaje = error instanceof Error ? error.message : String(error);
       await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: mensaje });
-      return { tipo: "fallado", nodoId: nodo.id, error: mensaje };
+      return {
+        tipo: "fallado",
+        nodoId: nodo.id,
+        error: mensaje,
+        motivo: "accion_fallo",
+        retriable: !isNonRetriable(error),
+      };
     }
   }
 
-  // Un puerto sin arista en un grafo validado sólo puede ser un `fin`; llegar
-  // acá significa que el grafo se guardó sin pasar por el validador.
-  return { tipo: "fin" };
+  // Con el chequeo de puerto conectado en cada sitio que avanza `actual`,
+  // esta línea es inalcanzable en la práctica: nunca se sale del `while` sin
+  // pasar por un `return` explícito. Queda como cierre defensivo porque
+  // TypeScript no puede probar la exhaustividad del `while`, y si alguna vez
+  // se alcanza es señal de un invariante roto, no de un final exitoso.
+  return {
+    tipo: "fallado",
+    nodoId: input.desdeNodo,
+    error: "el segmento terminó sin llegar a un fin, espera o falla explícita",
+    motivo: "grafo_invalido",
+    retriable: false,
+  };
 }

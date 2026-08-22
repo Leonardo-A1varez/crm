@@ -465,6 +465,19 @@ git commit -m "feat(workflows): condiciones estructuradas, sin lenguaje de expre
 - [ ] **Step 1: Agregar los tipos del motor a `src/types/workflows.ts`**
 
 ```ts
+/**
+ * Por qué falló un segmento. Task 10 (el step de Inngest) lo usa para decidir
+ * si reintenta: comparar contra este enum en vez de contra el texto de
+ * `error` es lo que sobrevive a un reword del mensaje.
+ */
+export const MOTIVOS_FALLO = [
+  "tope_pasos",
+  "grafo_invalido",
+  "condicion_invalida",
+  "accion_fallo",
+] as const;
+export type MotivoFallo = (typeof MOTIVOS_FALLO)[number];
+
 /** Lo que el ejecutor le devuelve a quien lo llamó al terminar un segmento. */
 export type ResultadoSegmento =
   | {
@@ -482,7 +495,22 @@ export type ResultadoSegmento =
       reanudarEn: string;
     }
   | { tipo: "fin" }
-  | { tipo: "fallado"; nodoId: string; error: string };
+  | {
+      tipo: "fallado";
+      nodoId: string;
+      /** Legible por una persona. Se persiste para mostrarlo en la UI. */
+      error: string;
+      motivo: MotivoFallo;
+      /**
+       * Si reintentar el segmento tiene sentido. Sólo `accion_fallo` puede dar
+       * `true`: se calcula con `isNonRetriable()` (`src/lib/errors.ts`) sobre
+       * el error crudo ANTES de aplanarlo a `error: string`, porque una vez
+       * aplanado el tipo de dominio ya no existe. Todo lo demás (tope de
+       * pasos, grafo mal formado, condición mal configurada) es un bug de
+       * datos, no una falla transitoria: reintentarlo repite el mismo error.
+       */
+      retriable: boolean;
+    };
 
 /** El estado que viaja entre nodos y se persiste en `workflow_runs.contexto`. */
 export type ContextoRun = Record<string, unknown>;
@@ -680,7 +708,9 @@ git commit -m "feat(workflows): registro inyectable de acciones y tipos del moto
 
 ```ts
 import { describe, expect, it, vi } from "vitest";
+import { ValidationError } from "@/lib/errors";
 import { ejecutarSegmento } from "@/server/services/workflows/ejecutor.service";
+import type { PasoEjecutado } from "@/server/services/workflows/ejecutor.service";
 import { crearRegistro } from "@/server/services/workflows/acciones/registro";
 import type { Grafo } from "@/types/workflows";
 
@@ -707,7 +737,7 @@ const deps = (
 ) => ({
   registro,
   ahora: () => AHORA,
-  onPaso: vi.fn(async () => {}),
+  onPaso: vi.fn(async (_paso: PasoEjecutado) => {}),
 });
 
 describe("ejecutarSegmento", () => {
@@ -752,6 +782,28 @@ describe("ejecutarSegmento", () => {
     expect(r).toEqual({ tipo: "fin" });
   });
 
+  it("el orden de los pasos continua desde pasosPrevios, sin saltos", async () => {
+    // Mutante que este test mata: computar `orden` como una constante
+    // `pasosPrevios + 1` en vez de incrementar por nodo. Con esa mutacion los
+    // 5 tests originales seguian en verde porque ninguno miraba la secuencia.
+    const d = deps();
+    const r = await ejecutarSegmento(
+      {
+        grafo: grafoLineal(),
+        desdeNodo: "d",
+        contexto: {},
+        leadId: "l1",
+        runId: "r1",
+        pasosPrevios: 7,
+        maxPasos: 500,
+      },
+      d,
+    );
+    expect(r.tipo).toBe("espera");
+    const ordenes = d.onPaso.mock.calls.map(([paso]) => paso.orden);
+    expect(ordenes).toEqual([8, 9, 10]);
+  });
+
   it("el tope de pasos se chequea ANTES de ejecutar el nodo", async () => {
     const marcar = vi.fn(async () => ({ puerto: "salida" as const }));
     const d = deps(crearRegistro({ marcar }));
@@ -767,7 +819,7 @@ describe("ejecutarSegmento", () => {
       },
       d,
     );
-    expect(r.tipo).toBe("fallado");
+    expect(r).toMatchObject({ tipo: "fallado", motivo: "tope_pasos", retriable: false });
     // Lo que importa: la accion NO se ejecuto. Chequear despues manda el
     // mensaje 501 y recien ahi se entera.
     expect(marcar).not.toHaveBeenCalled();
@@ -796,11 +848,16 @@ describe("ejecutarSegmento", () => {
       },
       deps(),
     );
-    expect(r).toMatchObject({ tipo: "fallado", nodoId: "c" });
+    expect(r).toMatchObject({
+      tipo: "fallado",
+      nodoId: "c",
+      motivo: "condicion_invalida",
+      retriable: false,
+    });
     expect((r as { error: string }).error).toContain("mal configurada");
   });
 
-  it("una accion que tira deja la corrida fallada con el nodo", async () => {
+  it("una accion que tira deja la corrida fallada con el nodo, y un error generico es reintentable", async () => {
     const d = deps(
       crearRegistro({
         marcar: async () => {
@@ -820,7 +877,73 @@ describe("ejecutarSegmento", () => {
       },
       d,
     );
-    expect(r).toMatchObject({ tipo: "fallado", nodoId: "a" });
+    // Un Error comun no es un DomainError no-reintentable: por defecto se
+    // asume transitorio y se deja reintentar.
+    expect(r).toMatchObject({
+      tipo: "fallado",
+      nodoId: "a",
+      motivo: "accion_fallo",
+      retriable: true,
+    });
+  });
+
+  it("una accion que tira un DomainError no-reintentable marca retriable en false", async () => {
+    const d = deps(
+      crearRegistro({
+        marcar: async () => {
+          throw new ValidationError("telefono invalido", "telefono");
+        },
+      }),
+    );
+    const r = await ejecutarSegmento(
+      {
+        grafo: grafoLineal(),
+        desdeNodo: "a",
+        contexto: {},
+        leadId: "l1",
+        runId: "r1",
+        pasosPrevios: 0,
+        maxPasos: 500,
+      },
+      d,
+    );
+    expect(r).toMatchObject({
+      tipo: "fallado",
+      nodoId: "a",
+      motivo: "accion_fallo",
+      retriable: false,
+    });
+  });
+
+  it("un puerto sin arista conectada falla en vez de reportar un fin silencioso", async () => {
+    // "a" termina en "salida" pero esa arista no existe: sin el chequeo en
+    // cada sitio, el ejecutor caeria fuera del while y devolveria { tipo:
+    // "fin" }, reportando un grafo roto como una corrida exitosa.
+    const grafoRoto: Grafo = {
+      nodos: [
+        { id: "d", tipo: "disparador", config: {}, posicion: { x: 0, y: 0 } },
+        { id: "a", tipo: "accion", config: { accion: "marcar" }, posicion: { x: 0, y: 0 } },
+      ],
+      aristas: [{ desde: "d", hasta: "a", puerto: "salida" }],
+    };
+    const r = await ejecutarSegmento(
+      {
+        grafo: grafoRoto,
+        desdeNodo: "d",
+        contexto: {},
+        leadId: "l1",
+        runId: "r1",
+        pasosPrevios: 0,
+        maxPasos: 500,
+      },
+      deps(),
+    );
+    expect(r).toMatchObject({
+      tipo: "fallado",
+      nodoId: "a",
+      motivo: "grafo_invalido",
+      retriable: false,
+    });
   });
 });
 ```
@@ -833,11 +956,12 @@ Expected: FAIL — módulo inexistente.
 - [ ] **Step 3: Implementar**
 
 ```ts
+import { isNonRetriable } from "@/lib/errors";
 import { CondicionSchema } from "@/lib/validation/workflows.schema";
 import { evaluarCondicion } from "@/lib/workflows/condiciones";
 import { nodoPorId, siguienteNodo } from "@/lib/workflows/recorrer";
 import type { UUID } from "@/types/entities";
-import type { ContextoRun, Grafo, ResultadoSegmento } from "@/types/workflows";
+import type { ContextoRun, Grafo, Puerto, ResultadoSegmento } from "@/types/workflows";
 import type { RegistroDeAcciones } from "./acciones/registro";
 
 export interface PasoEjecutado {
@@ -873,6 +997,30 @@ function minutosDeEspera(config: Record<string, unknown>): number {
 }
 
 /**
+ * Cuál nodo sigue por `puerto`, o `undefined` si ese puerto no tiene arista.
+ *
+ * En un grafo que pasó el validador de W1 esto nunca debería pasar: la regla
+ * `salida_sin_conectar` exige que todo puerto de todo nodo no-`fin` tenga
+ * arista. Si pasa, el grafo se guardó sin validar, y las cuatro clases de
+ * nodo que avanzan por un puerto (`disparador`, `condicion`, `espera`,
+ * `accion`) lo tratan igual: es una falla del grafo, nunca un `fin` silencioso.
+ */
+function siguienteObligatorio(
+  grafo: Grafo,
+  nodoId: string,
+  puerto: Puerto,
+): { ok: true; nodoId: string } | { ok: false; error: string } {
+  const siguiente = siguienteNodo(grafo, nodoId, puerto);
+  if (siguiente === undefined) {
+    return {
+      ok: false,
+      error: `el nodo "${nodoId}" no tiene conectado el puerto "${puerto}"`,
+    };
+  }
+  return { ok: true, nodoId: siguiente };
+}
+
+/**
  * Corre nodos inline hasta toparse con una espera, un fin, o el tope.
  *
  * No cicla nunca, y no por disciplina: el subgrafo sin esperas es acíclico por
@@ -894,6 +1042,8 @@ export async function ejecutarSegmento(
         tipo: "fallado",
         nodoId: actual,
         error: `el nodo "${actual}" no existe en el grafo`,
+        motivo: "grafo_invalido",
+        retriable: false,
       };
     }
 
@@ -904,6 +1054,8 @@ export async function ejecutarSegmento(
         tipo: "fallado",
         nodoId: nodo.id,
         error: `tope de ${input.maxPasos} pasos alcanzado en "${nodo.id}"`,
+        motivo: "tope_pasos",
+        retriable: false,
       };
     }
     orden += 1;
@@ -914,12 +1066,15 @@ export async function ejecutarSegmento(
     }
 
     if (nodo.tipo === "espera") {
-      const siguiente = siguienteNodo(input.grafo, nodo.id, "salida");
-      if (siguiente === undefined) {
+      const sig = siguienteObligatorio(input.grafo, nodo.id, "salida");
+      if (!sig.ok) {
+        await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: sig.error });
         return {
           tipo: "fallado",
           nodoId: nodo.id,
-          error: `la espera "${nodo.id}" no tiene salida conectada`,
+          error: sig.error,
+          motivo: "grafo_invalido",
+          retriable: false,
         };
       }
       const hasta = new Date(deps.ahora().getTime() + minutosDeEspera(nodo.config) * 60_000);
@@ -929,12 +1084,23 @@ export async function ejecutarSegmento(
         salida: { hasta: hasta.toISOString() },
         error: null,
       });
-      return { tipo: "espera", nodoId: nodo.id, hasta, reanudarEn: siguiente };
+      return { tipo: "espera", nodoId: nodo.id, hasta, reanudarEn: sig.nodoId };
     }
 
     if (nodo.tipo === "disparador") {
+      const sig = siguienteObligatorio(input.grafo, nodo.id, "salida");
+      if (!sig.ok) {
+        await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: sig.error });
+        return {
+          tipo: "fallado",
+          nodoId: nodo.id,
+          error: sig.error,
+          motivo: "grafo_invalido",
+          retriable: false,
+        };
+      }
       await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: null });
-      actual = siguienteNodo(input.grafo, nodo.id, "salida");
+      actual = sig.nodoId;
       continue;
     }
 
@@ -946,11 +1112,28 @@ export async function ejecutarSegmento(
       if (!forma.success) {
         const mensaje = `la condición "${nodo.id}" está mal configurada: ${forma.error.issues[0]?.message ?? "forma inválida"}`;
         await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: mensaje });
-        return { tipo: "fallado", nodoId: nodo.id, error: mensaje };
+        return {
+          tipo: "fallado",
+          nodoId: nodo.id,
+          error: mensaje,
+          motivo: "condicion_invalida",
+          retriable: false,
+        };
       }
       const cumple = evaluarCondicion(forma.data, contexto);
+      const sig = siguienteObligatorio(input.grafo, nodo.id, cumple ? "verdadero" : "falso");
+      if (!sig.ok) {
+        await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: sig.error });
+        return {
+          tipo: "fallado",
+          nodoId: nodo.id,
+          error: sig.error,
+          motivo: "grafo_invalido",
+          retriable: false,
+        };
+      }
       await deps.onPaso({ nodoId: nodo.id, orden, salida: { cumple }, error: null });
-      actual = siguienteNodo(input.grafo, nodo.id, cumple ? "verdadero" : "falso");
+      actual = sig.nodoId;
       continue;
     }
 
@@ -973,26 +1156,56 @@ export async function ejecutarSegmento(
         });
         return { tipo: "espera", nodoId: nodo.id, hasta: r.diferirHasta, reanudarEn: nodo.id };
       }
+      const sig = siguienteObligatorio(input.grafo, nodo.id, r.puerto);
+      if (!sig.ok) {
+        await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: sig.error });
+        return {
+          tipo: "fallado",
+          nodoId: nodo.id,
+          error: sig.error,
+          motivo: "grafo_invalido",
+          retriable: false,
+        };
+      }
       if (r.contexto) contexto = { ...contexto, ...r.contexto };
       await deps.onPaso({ nodoId: nodo.id, orden, salida: r.salida ?? null, error: null });
-      actual = siguienteNodo(input.grafo, nodo.id, r.puerto);
+      actual = sig.nodoId;
     } catch (error) {
+      // isNonRetriable() se calcula sobre el `error` crudo, ANTES de
+      // aplanarlo a texto: una vez convertido a `string` para persistir, la
+      // clase de dominio (ValidationError, InfraError, ...) ya no existe y
+      // Inngest no puede decidir si reintentar.
       const mensaje = error instanceof Error ? error.message : String(error);
       await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: mensaje });
-      return { tipo: "fallado", nodoId: nodo.id, error: mensaje };
+      return {
+        tipo: "fallado",
+        nodoId: nodo.id,
+        error: mensaje,
+        motivo: "accion_fallo",
+        retriable: !isNonRetriable(error),
+      };
     }
   }
 
-  // Un puerto sin arista en un grafo validado sólo puede ser un `fin`; llegar
-  // acá significa que el grafo se guardó sin pasar por el validador.
-  return { tipo: "fin" };
+  // Con el chequeo de puerto conectado en cada sitio que avanza `actual`,
+  // esta línea es inalcanzable en la práctica: nunca se sale del `while` sin
+  // pasar por un `return` explícito. Queda como cierre defensivo porque
+  // TypeScript no puede probar la exhaustividad del `while`, y si alguna vez
+  // se alcanza es señal de un invariante roto, no de un final exitoso.
+  return {
+    tipo: "fallado",
+    nodoId: input.desdeNodo,
+    error: "el segmento terminó sin llegar a un fin, espera o falla explícita",
+    motivo: "grafo_invalido",
+    retriable: false,
+  };
 }
 ```
 
 - [ ] **Step 4: Correr los tests**
 
 Run: `npx vitest run tests/unit/workflows/ejecutor.test.ts`
-Expected: PASS, 5 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 5: Probar que el test del tope tiene dientes**
 
@@ -1178,7 +1391,10 @@ export function simular(grafo: Grafo, opciones: OpcionesSimulacion): ResultadoSi
       break;
     }
     if (resultado.tipo === "fallado") {
-      desenlace = resultado.error.includes("tope de") ? "tope" : "fallado";
+      // Comparar contra el enum, no contra el texto de `error`: un reword del
+      // mensaje (fix round 1 de Task 5, Important 1) no puede romper esta
+      // rama en silencio.
+      desenlace = resultado.motivo === "tope_pasos" ? "tope" : "fallado";
       error = resultado.error;
       break;
     }
