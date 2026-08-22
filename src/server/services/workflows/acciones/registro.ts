@@ -24,15 +24,19 @@ export interface RegistroDeAcciones {
  * Que el registro se inyecte es lo que hace posible el simulador: pasarle un
  * registro que anota en vez de hacer da una simulación con el MISMO ejecutor,
  * no una segunda implementación que se desincroniza.
+ *
+ * Usa Map en lugar de acceso directo a objeto para evitar alcanzar la cadena
+ * de prototipos (constructor, toString, __proto__, etc.).
  */
 export function crearRegistro(handlers: Record<string, AccionHandler>): RegistroDeAcciones {
+  const mapaHandlers = new Map(Object.entries(handlers));
   return {
     async ejecutar(nodo, entorno) {
       const nombre = nodo.config["accion"];
       if (typeof nombre !== "string") {
         throw new ValidationError(`el nodo "${nodo.id}" no declara acción`, "accion_ausente");
       }
-      const handler = handlers[nombre];
+      const handler = mapaHandlers.get(nombre);
       if (!handler) {
         throw new ValidationError(`acción desconocida: ${nombre}`, "accion_desconocida");
       }
