@@ -78,6 +78,10 @@ export function validarGrafo(grafo: Grafo): ProblemaGrafo[] {
     else salientesPorNodo.set(a.desde, [a]);
   }
   for (const n of grafo.nodos) {
+    // `condicion` queda afuera: `condicion_puertos` cubre sus dos puertos con
+    // un mensaje específico ("no tiene camino por «falso»"), y reportar acá
+    // también daría dos errores para un solo defecto.
+    if (n.tipo === "condicion") continue;
     const salientes = salientesPorNodo.get(n.id) ?? [];
     for (const puerto of puertosDe(n.tipo)) {
       if (!salientes.some((a) => a.puerto === puerto)) {
@@ -91,8 +95,10 @@ export function validarGrafo(grafo: Grafo): ProblemaGrafo[] {
   }
 
   // --- regla: condicion_puertos -----------------------------------------
-  // `salida_sin_conectar` ya cubre el puerto faltante; acá lo que importa es
-  // el duplicado, que es indeterminismo: dos caminos por la misma respuesta.
+  // Dueña de los dos puertos de una condición: el duplicado (indeterminismo,
+  // dos caminos por la misma respuesta) y el faltante. `salida_sin_conectar`
+  // se salteó estos nodos a propósito porque el mensaje específico de acá
+  // ("no tiene camino por «falso»") es más claro que el genérico.
   for (const n of grafo.nodos) {
     if (n.tipo !== "condicion") continue;
     const salientes = salientesPorNodo.get(n.id) ?? [];

@@ -66,6 +66,19 @@ describe("validarGrafo — una prueba por regla", () => {
     expect(reglas(g)).toContain("condicion_puertos");
   });
 
+  it("condicion_puertos: la rama falso faltante reporta un solo problema, no dos", () => {
+    // Pinnea la decisión: `condicion_puertos` es la única dueña de los puertos
+    // de una condición. Si `salida_sin_conectar` volviera a mirar nodos
+    // `condicion`, este test detecta el doble reporte del mismo defecto.
+    const g = grafo(
+      [nodo("d", "disparador"), nodo("c", "condicion"), nodo("f", "fin")],
+      [arista("d", "c"), arista("c", "f", "verdadero")],
+    );
+    const problemas = validarGrafo(g);
+    expect(problemas).toHaveLength(1);
+    expect(problemas[0]?.regla).toBe("condicion_puertos");
+  });
+
   it("condicion_puertos: dos aristas por el mismo puerto es indeterminista", () => {
     const g = grafo(
       [
