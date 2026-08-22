@@ -18,6 +18,7 @@ import type {
   TipoMensaje,
   Urgencia,
 } from "./domain";
+import type { Grafo } from "@/types/workflows";
 
 export type UUID = string;
 
@@ -485,5 +486,53 @@ export interface EventOutboxRow {
   last_error: string | null;
   scheduled_at: Date;
   sent_at: Date | null;
+  created_at: Date;
+}
+
+export interface Workflow {
+  id: UUID;
+  nombre: string;
+  descripcion: string | null;
+  activo: boolean;
+  created_at: Date;
+}
+
+export interface WorkflowVersion {
+  id: UUID;
+  workflow_id: UUID;
+  version: number;
+  /** El grafo. Se guarda validado: `validarGrafo()` corre antes de insertar. */
+  grafo: Grafo;
+  max_pasos: number;
+  publicada: boolean;
+  created_at: Date;
+  created_by: UUID | null;
+}
+
+export type WorkflowRunEstado = "corriendo" | "esperando" | "terminado" | "fallado" | "cancelado";
+
+export interface WorkflowRun {
+  id: UUID;
+  /** Inmutable: la corrida termina con la versión con la que arrancó. */
+  workflow_version_id: UUID;
+  lead_id: UUID;
+  lead_session_id: UUID | null;
+  estado: WorkflowRunEstado;
+  nodo_actual: string | null;
+  contexto: Record<string, unknown>;
+  pasos_ejecutados: number;
+  error: string | null;
+  started_at: Date;
+  ended_at: Date | null;
+}
+
+export interface WorkflowRunPaso {
+  id: UUID;
+  run_id: UUID;
+  nodo_id: string;
+  orden: number;
+  entrada: Record<string, unknown> | null;
+  salida: Record<string, unknown> | null;
+  error: string | null;
   created_at: Date;
 }

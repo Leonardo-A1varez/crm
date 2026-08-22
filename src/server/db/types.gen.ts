@@ -1331,6 +1331,183 @@ export type Database = {
         }
         Relationships: []
       }
+      workflow_run_pasos: {
+        Row: {
+          created_at: string
+          entrada: Json | null
+          error: string | null
+          id: string
+          nodo_id: string
+          orden: number
+          run_id: string
+          salida: Json | null
+        }
+        Insert: {
+          created_at?: string
+          entrada?: Json | null
+          error?: string | null
+          id?: string
+          nodo_id: string
+          orden: number
+          run_id: string
+          salida?: Json | null
+        }
+        Update: {
+          created_at?: string
+          entrada?: Json | null
+          error?: string | null
+          id?: string
+          nodo_id?: string
+          orden?: number
+          run_id?: string
+          salida?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_run_pasos_run_id_fkey"
+            columns: ["run_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workflow_runs: {
+        Row: {
+          contexto: Json
+          ended_at: string | null
+          error: string | null
+          estado: Database["public"]["Enums"]["workflow_run_estado"]
+          id: string
+          lead_id: string
+          lead_session_id: string | null
+          nodo_actual: string | null
+          pasos_ejecutados: number
+          started_at: string
+          workflow_version_id: string
+        }
+        Insert: {
+          contexto?: Json
+          ended_at?: string | null
+          error?: string | null
+          estado?: Database["public"]["Enums"]["workflow_run_estado"]
+          id?: string
+          lead_id: string
+          lead_session_id?: string | null
+          nodo_actual?: string | null
+          pasos_ejecutados?: number
+          started_at?: string
+          workflow_version_id: string
+        }
+        Update: {
+          contexto?: Json
+          ended_at?: string | null
+          error?: string | null
+          estado?: Database["public"]["Enums"]["workflow_run_estado"]
+          id?: string
+          lead_id?: string
+          lead_session_id?: string | null
+          nodo_actual?: string | null
+          pasos_ejecutados?: number
+          started_at?: string
+          workflow_version_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_runs_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_runs_lead_session_id_fkey"
+            columns: ["lead_session_id"]
+            isOneToOne: false
+            referencedRelation: "lead_session"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_runs_workflow_version_id_fkey"
+            columns: ["workflow_version_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_versiones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workflow_versiones: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          grafo: Json
+          id: string
+          max_pasos: number
+          publicada: boolean
+          version: number
+          workflow_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          grafo: Json
+          id?: string
+          max_pasos?: number
+          publicada?: boolean
+          version: number
+          workflow_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          grafo?: Json
+          id?: string
+          max_pasos?: number
+          publicada?: boolean
+          version?: number
+          workflow_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_versiones_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_versiones_workflow_id_fkey"
+            columns: ["workflow_id"]
+            isOneToOne: false
+            referencedRelation: "workflows"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workflows: {
+        Row: {
+          activo: boolean
+          created_at: string
+          descripcion: string | null
+          id: string
+          nombre: string
+        }
+        Insert: {
+          activo?: boolean
+          created_at?: string
+          descripcion?: string | null
+          id?: string
+          nombre: string
+        }
+        Update: {
+          activo?: boolean
+          created_at?: string
+          descripcion?: string | null
+          id?: string
+          nombre?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -1387,6 +1564,13 @@ export type Database = {
         }[]
       }
       plegar_texto: { Args: { t: string }; Returns: string }
+      publicar_workflow_version: {
+        Args: { p_version_id: string }
+        Returns: {
+          error_code: string
+          version_id: string
+        }[]
+      }
       revert_lead_merge: {
         Args: { p_merge_action_id: string }
         Returns: {
@@ -1463,6 +1647,12 @@ export type Database = {
         | "location"
         | "template"
       urgencia_enum: "baja" | "media" | "alta"
+      workflow_run_estado:
+        | "corriendo"
+        | "esperando"
+        | "terminado"
+        | "fallado"
+        | "cancelado"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1637,6 +1827,13 @@ export const Constants = {
         "template",
       ],
       urgencia_enum: ["baja", "media", "alta"],
+      workflow_run_estado: [
+        "corriendo",
+        "esperando",
+        "terminado",
+        "fallado",
+        "cancelado",
+      ],
     },
   },
 } as const
