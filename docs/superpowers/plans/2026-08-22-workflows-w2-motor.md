@@ -667,6 +667,25 @@ describe("ejecutarSegmento", () => {
     expect(marcar).not.toHaveBeenCalled();
   });
 
+  it("una condicion mal configurada falla con motivo, no explota", async () => {
+    const conCondicionRota: Grafo = {
+      nodos: [
+        { id: "c", tipo: "condicion", config: { campo: "inventado" }, posicion: { x: 0, y: 0 } },
+        { id: "f", tipo: "fin", config: {}, posicion: { x: 0, y: 0 } },
+      ],
+      aristas: [
+        { desde: "c", hasta: "f", puerto: "verdadero" },
+        { desde: "c", hasta: "f", puerto: "falso" },
+      ],
+    };
+    const r = await ejecutarSegmento(
+      { grafo: conCondicionRota, desdeNodo: "c", contexto: {}, leadId: "l1", runId: "r1", pasosPrevios: 0, maxPasos: 500 },
+      deps(),
+    );
+    expect(r).toMatchObject({ tipo: "fallado", nodoId: "c" });
+    expect((r as { error: string }).error).toContain("mal configurada");
+  });
+
   it("una accion que tira deja la corrida fallada con el nodo", async () => {
     const d = deps(
       crearRegistro({
@@ -700,7 +719,8 @@ Expected: FAIL — módulo inexistente.
 - [ ] **Step 3: Implementar**
 
 ```ts
-import { evaluarCondicion, type Condicion } from "@/lib/workflows/condiciones";
+import { CondicionSchema } from "@/lib/validation/workflows.schema";
+import { evaluarCondicion } from "@/lib/workflows/condiciones";
 import { nodoPorId, siguienteNodo } from "@/lib/workflows/recorrer";
 import type { UUID } from "@/types/entities";
 import type { ContextoRun, Grafo, ResultadoSegmento } from "@/types/workflows";
@@ -797,7 +817,16 @@ export async function ejecutarSegmento(
     }
 
     if (nodo.tipo === "condicion") {
-      const cumple = evaluarCondicion(nodo.config as unknown as Condicion, contexto);
+      // Validar y no castear: `config` es `Record<string, unknown>` y un
+      // `as Condicion` haría que una condición mal guardada explotara en
+      // runtime, a mitad de una corrida, en vez de acá con un motivo legible.
+      const forma = CondicionSchema.safeParse(nodo.config);
+      if (!forma.success) {
+        const mensaje = `la condición "${nodo.id}" está mal configurada: ${forma.error.issues[0]?.message ?? "forma inválida"}`;
+        await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: mensaje });
+        return { tipo: "fallado", nodoId: nodo.id, error: mensaje };
+      }
+      const cumple = evaluarCondicion(forma.data, contexto);
       await deps.onPaso({ nodoId: nodo.id, orden, salida: { cumple }, error: null });
       actual = siguienteNodo(input.grafo, nodo.id, cumple ? "verdadero" : "falso");
       continue;
@@ -830,7 +859,7 @@ export async function ejecutarSegmento(
 - [ ] **Step 4: Correr los tests**
 
 Run: `npx vitest run tests/unit/workflows/ejecutor.test.ts`
-Expected: PASS, 4 tests.
+Expected: PASS, 5 tests.
 
 - [ ] **Step 5: Probar que el test del tope tiene dientes**
 
