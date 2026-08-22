@@ -1,13 +1,13 @@
 import { InfraError, NotFoundError } from "@/lib/errors";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import type { AppClient } from "@/server/db/client";
-import type { UUID, Workflow, WorkflowVersion } from "@/types/entities";
+import type { PoliticaConcurrencia, UUID, Workflow, WorkflowVersion } from "@/types/entities";
 import type { Grafo } from "@/types/workflows";
 import type { WorkflowInsert, WorkflowVersionInsert, WorkflowsRepository } from "./workflows.repo";
 
 const COLS_WORKFLOW = "id, nombre, descripcion, activo, created_at";
 const COLS_VERSION =
-  "id, workflow_id, version, grafo, max_pasos, publicada, created_at, created_by";
+  "id, workflow_id, version, grafo, max_pasos, publicada, created_at, created_by, politica_concurrencia";
 
 type PublicarVersionErrorCode = "version_not_found";
 
@@ -165,6 +165,7 @@ function mapVersion(r: {
   publicada: boolean;
   created_at: string;
   created_by: string | null;
+  politica_concurrencia: PoliticaConcurrencia;
 }): WorkflowVersion {
   return {
     id: r.id,
@@ -176,5 +177,6 @@ function mapVersion(r: {
     publicada: r.publicada,
     created_at: new Date(r.created_at),
     created_by: r.created_by,
+    politica_concurrencia: r.politica_concurrencia,
   };
 }

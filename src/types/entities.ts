@@ -497,6 +497,9 @@ export interface Workflow {
   created_at: Date;
 }
 
+export const POLITICAS_CONCURRENCIA = ["ignorar", "reiniciar", "permitir"] as const;
+export type PoliticaConcurrencia = (typeof POLITICAS_CONCURRENCIA)[number];
+
 export interface WorkflowVersion {
   id: UUID;
   workflow_id: UUID;
@@ -507,6 +510,8 @@ export interface WorkflowVersion {
   publicada: boolean;
   created_at: Date;
   created_by: UUID | null;
+  /** Qué hacer si llega un disparo con una corrida viva de este workflow. */
+  politica_concurrencia: PoliticaConcurrencia;
 }
 
 export type WorkflowRunEstado = "corriendo" | "esperando" | "terminado" | "fallado" | "cancelado";

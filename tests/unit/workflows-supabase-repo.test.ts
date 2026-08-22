@@ -4,7 +4,7 @@ import type { AppClient } from "@/server/db/client";
 import { SupabaseWorkflowsRepository } from "@/server/repositories/workflows.supabase.repo";
 
 const COLS_VERSION =
-  "id, workflow_id, version, grafo, max_pasos, publicada, created_at, created_by";
+  "id, workflow_id, version, grafo, max_pasos, publicada, created_at, created_by, politica_concurrencia";
 
 describe("SupabaseWorkflowsRepository.publicarVersion", () => {
   test("invoca la RPC transaccional y relee la version publicada", async () => {
@@ -19,6 +19,7 @@ describe("SupabaseWorkflowsRepository.publicarVersion", () => {
       publicada: true,
       created_at: new Date().toISOString(),
       created_by: null,
+      politica_concurrencia: "ignorar",
     };
 
     const rpc = vi.fn().mockResolvedValue({

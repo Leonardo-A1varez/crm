@@ -7,7 +7,14 @@ export type WorkflowInsert = Insert<Workflow, "id" | "created_at">;
 // y publicar es un acto aparte (`publicarVersion`), que además tiene que
 // despublicar la anterior. Dejar `publicada` en el alta permitía expresar
 // un estado que Postgres rechaza con 23505 (índice único parcial).
-export type WorkflowVersionInsert = Insert<WorkflowVersion, "id" | "created_at" | "publicada">;
+// `politica_concurrencia` también queda afuera: el default seguro
+// ("ignorar") vive en un solo lugar por impl (acá en `crearVersion` y en
+// `COLS_VERSION` de la impl Supabase, que lo deja en manos del DEFAULT de
+// la columna), no repetido en cada call site.
+export type WorkflowVersionInsert = Insert<
+  WorkflowVersion,
+  "id" | "created_at" | "publicada" | "politica_concurrencia"
+>;
 
 /**
  * Lectura y escritura de la definición de workflows.
@@ -55,6 +62,7 @@ export class InMemoryWorkflowsRepository implements WorkflowsRepository {
       id: crypto.randomUUID(),
       created_at: new Date(),
       publicada: false,
+      politica_concurrencia: "ignorar",
     };
     this.versiones.set(v.id, v);
     return { ...v };
