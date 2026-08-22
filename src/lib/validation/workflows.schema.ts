@@ -27,7 +27,14 @@ export const AristaSchema = z.object({
   puerto: z.enum(PUERTOS),
 });
 
+// Un flujo armado a mano en un canvas tiene decenas de nodos, no miles. 200
+// nodos y 500 aristas dejan margen de sobra (una condición sola ya usa 2
+// aristas) sin permitir que un payload patológico convierta lo que debería
+// ser un ValidationError en un DFS gigante en el servidor.
+const NODOS_MAX = 200;
+const ARISTAS_MAX = 500;
+
 export const GrafoSchema = z.object({
-  nodos: z.array(NodoSchema),
-  aristas: z.array(AristaSchema),
+  nodos: z.array(NodoSchema).max(NODOS_MAX),
+  aristas: z.array(AristaSchema).max(ARISTAS_MAX),
 });

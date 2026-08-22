@@ -142,7 +142,7 @@ export function validarGrafo(grafo: Grafo): ProblemaGrafo[] {
   }
 
   // --- regla: ciclo_sin_espera ------------------------------------------
-  problemas.push(...ciclosSinEspera(grafo.nodos, salientesPorNodo, porId));
+  problemas.push(...ciclosSinEspera(grafo.nodos, salientesPorNodo));
 
   return problemas;
 }
@@ -156,58 +156,100 @@ export function validarGrafo(grafo: Grafo): ProblemaGrafo[] {
  * corrida en menos de un segundo y no hace nada útil. La diferencia se puede
  * probar sin ejecutar nada, así que se prueba acá y no en runtime.
  *
- * DFS de tres colores: blanco (sin visitar), gris (en la pila actual), negro
- * (cerrado). Una arista hacia un gris cierra un ciclo, que se reconstruye
- * desde la pila.
+ * La versión anterior recorría el grafo completo y descartaba, por cada
+ * ciclo encontrado, si alguno de sus nodos era una espera. Eso falla: un
+ * mismo back edge cierra distintos ciclos según qué camino lo alcanzó
+ * primero, y un DFS clásico visita cada nodo una sola vez — el primer camino
+ * que llega a un nodo decide para siempre por dónde no se vuelve a entrar
+ * ("`else if (!negro.has(a.hasta))`"). Si ese primer camino pasaba por una
+ * espera, el ciclo sin espera que compartía el mismo back edge nunca se
+ * examinaba: el mismo grafo daba veredictos opuestos según el orden del
+ * array de aristas.
+ *
+ * La pregunta correcta no es "enumerar todos los ciclos" (depende del
+ * recorrido) sino "¿existe un ciclo?" (no depende de nada): se saca del
+ * grafo a todos los nodos `espera` — junto con toda arista que los toque — y
+ * se corre un DFS de ciclos común sobre lo que queda. Cualquier ciclo que
+ * aparezca ahí es wait-free por construcción, porque no quedó ninguna espera
+ * para ocultarlo.
  */
-function ciclosSinEspera(
-  nodos: Nodo[],
-  salientesPorNodo: Map<string, Arista[]>,
-  porId: Map<string, Nodo>,
-): ProblemaGrafo[] {
-  const problemas: ProblemaGrafo[] = [];
-  const negro = new Set<string>();
-  const gris = new Set<string>();
-  const pila: string[] = [];
-  // Un mismo ciclo se puede alcanzar por varios caminos; sin esto el mismo
-  // problema se reportaría repetido.
-  const reportados = new Set<string>();
-
-  function visitar(id: string): void {
-    gris.add(id);
-    pila.push(id);
-
-    for (const a of salientesPorNodo.get(id) ?? []) {
-      if (gris.has(a.hasta)) {
-        const desde = pila.indexOf(a.hasta);
-        const ciclo = pila.slice(desde);
-        const clave = [...ciclo].sort().join(">");
-        if (!reportados.has(clave)) {
-          reportados.add(clave);
-          const tieneEspera = ciclo.some((n) => porId.get(n)?.tipo === "espera");
-          if (!tieneEspera) {
-            problemas.push({
-              regla: "ciclo_sin_espera",
-              nodos: ciclo,
-              mensaje: `Este ciclo no tiene ninguna espera (${ciclo.join(" → ")}): giraría sin freno. Agregá una espera adentro del ciclo.`,
-            });
-          }
-        }
-      } else if (!negro.has(a.hasta)) {
-        visitar(a.hasta);
-      }
-    }
-
-    pila.pop();
-    gris.delete(id);
-    negro.add(id);
+function ciclosSinEspera(nodos: Nodo[], salientesPorNodo: Map<string, Arista[]>): ProblemaGrafo[] {
+  const sinEspera = nodos.filter((n) => n.tipo !== "espera");
+  const idsSinEspera = new Set(sinEspera.map((n) => n.id));
+  const salientesSubgrafo = new Map<string, Arista[]>();
+  for (const id of idsSinEspera) {
+    salientesSubgrafo.set(
+      id,
+      (salientesPorNodo.get(id) ?? []).filter((a) => idsSinEspera.has(a.hasta)),
+    );
   }
 
-  // Desde todos los nodos y no sólo desde el disparador: un ciclo entre
-  // nodos inalcanzables sigue siendo un ciclo mal formado, y reportarlo
-  // ayuda a quien está armando el flujo por partes.
-  for (const n of nodos) {
-    if (!negro.has(n.id)) visitar(n.id);
+  return detectarCiclos(
+    sinEspera.map((n) => n.id),
+    salientesSubgrafo,
+  );
+}
+
+/** Un frame del DFS: qué nodo, cuáles son sus salientes y por cuál va. */
+interface FrameDfs {
+  id: string;
+  salientes: Arista[];
+  siguiente: number;
+}
+
+/**
+ * DFS de ciclos de tres colores (blanco / gris en la pila actual / negro
+ * cerrado) con **pila explícita**, no recursión: un grafo con una cadena
+ * larga de miles de nodos no puede reventar el call stack de Node.
+ *
+ * Reporta un problema por cada arista que cierra un ciclo hacia un nodo
+ * todavía gris. Dos ciclos disjuntos no comparten nodos, así que cada uno
+ * arranca su propio DFS raíz en el `for` externo y ambos se reportan.
+ */
+function detectarCiclos(ids: string[], salientes: Map<string, Arista[]>): ProblemaGrafo[] {
+  const problemas: ProblemaGrafo[] = [];
+  const estado = new Map<string, "gris" | "negro">();
+  const pila: string[] = [];
+  const frames: FrameDfs[] = [];
+
+  for (const raiz of ids) {
+    if (estado.has(raiz)) continue;
+
+    estado.set(raiz, "gris");
+    pila.push(raiz);
+    frames.push({ id: raiz, salientes: salientes.get(raiz) ?? [], siguiente: 0 });
+
+    while (frames.length > 0) {
+      const frame = frames[frames.length - 1]!;
+      if (frame.siguiente >= frame.salientes.length) {
+        frames.pop();
+        pila.pop();
+        estado.set(frame.id, "negro");
+        continue;
+      }
+
+      const arista = frame.salientes[frame.siguiente]!;
+      frame.siguiente++;
+
+      const destino = estado.get(arista.hasta);
+      if (destino === "gris") {
+        const desde = pila.indexOf(arista.hasta);
+        const ciclo = pila.slice(desde);
+        problemas.push({
+          regla: "ciclo_sin_espera",
+          nodos: ciclo,
+          mensaje: `Este ciclo no tiene ninguna espera (${ciclo.join(" → ")}): giraría sin freno. Agregá una espera adentro del ciclo.`,
+        });
+      } else if (destino !== "negro") {
+        estado.set(arista.hasta, "gris");
+        pila.push(arista.hasta);
+        frames.push({
+          id: arista.hasta,
+          salientes: salientes.get(arista.hasta) ?? [],
+          siguiente: 0,
+        });
+      }
+    }
   }
 
   return problemas;

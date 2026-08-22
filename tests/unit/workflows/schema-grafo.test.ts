@@ -45,4 +45,20 @@ describe("GrafoSchema", () => {
     });
     expect(r.success).toBe(true);
   });
+
+  it("rechaza un grafo con mas de 200 nodos: un canvas armado a mano no llega a eso", () => {
+    const nodos = Array.from({ length: 201 }, (_, i) => ({ ...nodoMinimo, id: `n${i}` }));
+    const r = GrafoSchema.safeParse({ nodos, aristas: [] });
+    expect(r.success).toBe(false);
+  });
+
+  it("rechaza un grafo con mas de 500 aristas", () => {
+    const aristas = Array.from({ length: 501 }, (_, i) => ({
+      desde: "n1",
+      hasta: `destino${i}`,
+      puerto: "salida" as const,
+    }));
+    const r = GrafoSchema.safeParse({ nodos: [nodoMinimo], aristas });
+    expect(r.success).toBe(false);
+  });
 });

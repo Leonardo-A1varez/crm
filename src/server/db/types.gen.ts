@@ -1564,6 +1564,13 @@ export type Database = {
         }[]
       }
       plegar_texto: { Args: { t: string }; Returns: string }
+      publicar_workflow_version: {
+        Args: { p_version_id: string }
+        Returns: {
+          error_code: string
+          version_id: string
+        }[]
+      }
       revert_lead_merge: {
         Args: { p_merge_action_id: string }
         Returns: {

@@ -1,3 +1,4 @@
+import { InfraError, NotFoundError } from "@/lib/errors";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import type { AppClient } from "@/server/db/client";
 import type { UUID, Workflow, WorkflowVersion } from "@/types/entities";
@@ -7,6 +8,13 @@ import type { WorkflowInsert, WorkflowVersionInsert, WorkflowsRepository } from 
 const COLS_WORKFLOW = "id, nombre, descripcion, activo, created_at";
 const COLS_VERSION =
   "id, workflow_id, version, grafo, max_pasos, publicada, created_at, created_by";
+
+type PublicarVersionErrorCode = "version_not_found";
+
+interface PublicarVersionRow {
+  version_id: string | null;
+  error_code: PublicarVersionErrorCode | null;
+}
 
 export class SupabaseWorkflowsRepository implements WorkflowsRepository {
   constructor(private readonly db: AppClient) {}
@@ -88,34 +96,35 @@ export class SupabaseWorkflowsRepository implements WorkflowsRepository {
   }
 
   async publicarVersion(versionId: UUID): Promise<WorkflowVersion> {
-    const actual = await this.db
-      .from("workflow_versiones")
-      .select("workflow_id")
-      .eq("id", versionId)
-      .maybeSingle();
-    if (actual.error) throw mapPostgrestError(actual.error, { resource: "workflow_versiones" });
-    if (!actual.data) {
-      const { NotFoundError } = await import("@/lib/errors");
+    // Despublicar la anterior y publicar ésta son una sola transacción
+    // Postgres (`publicar_workflow_version`), no dos UPDATE sueltos desde
+    // acá: si el proceso muriera entre medio, el workflow quedaría con cero
+    // versiones publicadas sin que nadie se enterara. Mismo patrón que
+    // `approve_lead_merge` para fusionar leads.
+    const { data, error } = await this.db.rpc("publicar_workflow_version", {
+      p_version_id: versionId,
+    });
+    if (error) throw mapPostgrestError(error, { resource: "workflow_versiones" });
+
+    const row = (data as PublicarVersionRow[] | null)?.[0];
+    if (!row) {
+      throw new InfraError("publicar_workflow_version no devolvió resultado", "postgrest");
+    }
+    if (row.error_code === "version_not_found") {
       throw new NotFoundError(`versión no encontrada: ${versionId}`, "workflow_version", versionId);
     }
+    if (row.version_id === null) {
+      throw new InfraError("publicar_workflow_version devolvió version_id nulo", "postgrest");
+    }
 
-    // Despublicar primero: el índice único parcial rechaza dos publicadas del
-    // mismo workflow, así que el orden inverso fallaría con 23505.
-    const baja = await this.db
+    const publicada = await this.db
       .from("workflow_versiones")
-      .update({ publicada: false })
-      .eq("workflow_id", actual.data.workflow_id)
-      .eq("publicada", true);
-    if (baja.error) throw mapPostgrestError(baja.error, { resource: "workflow_versiones" });
-
-    const { data, error } = await this.db
-      .from("workflow_versiones")
-      .update({ publicada: true })
-      .eq("id", versionId)
       .select(COLS_VERSION)
+      .eq("id", row.version_id)
       .single();
-    if (error) throw mapPostgrestError(error, { resource: "workflow_versiones" });
-    return mapVersion(data);
+    if (publicada.error)
+      throw mapPostgrestError(publicada.error, { resource: "workflow_versiones" });
+    return mapVersion(publicada.data);
   }
 
   async proximaVersion(workflowId: UUID): Promise<number> {
