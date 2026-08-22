@@ -55,3 +55,42 @@ export interface ProblemaGrafo {
   nodos: string[];
   mensaje: string;
 }
+
+/** Lo que el ejecutor le devuelve a quien lo llamó al terminar un segmento. */
+export type ResultadoSegmento =
+  | {
+      tipo: "espera";
+      /** El nodo donde se cortó. Para la observabilidad de W4. */
+      nodoId: string;
+      hasta: Date;
+      /**
+       * Con qué nodo arranca el segmento siguiente. NO siempre es el que sigue:
+       * un nodo `espera` reanuda en el que le sigue, pero una acción diferida
+       * (fuera de horario) reanuda en SÍ MISMA, porque todavía no se ejecutó.
+       * Lo resuelve el ejecutor y no quien llama, así la regla vive en un solo
+       * lado en vez de repetirse en el runtime y en el simulador.
+       */
+      reanudarEn: string;
+    }
+  | { tipo: "fin" }
+  | { tipo: "fallado"; nodoId: string; error: string };
+
+/** El estado que viaja entre nodos y se persiste en `workflow_runs.contexto`. */
+export type ContextoRun = Record<string, unknown>;
+
+/** Lo que devuelve una acción: por dónde seguir y qué agregar al contexto. */
+export interface ResultadoAccion {
+  /** Sólo `condicion` usa `verdadero`/`falso`. El resto devuelve `salida`. */
+  puerto: Puerto;
+  /** Se mergea sobre el contexto de la corrida. */
+  contexto?: ContextoRun;
+  /** Queda en `workflow_run_pasos.salida` para la observabilidad de W4. */
+  salida?: Record<string, unknown>;
+  /**
+   * "Todavía no, volvé a intentarme a esta hora." La acción NO se ejecutó y el
+   * ejecutor corta el segmento reanudando en este mismo nodo. Lo usa
+   * `enviar_mensaje` fuera del horario de atención: el mensaje sale igual, a
+   * una hora razonable, en vez de descartarse en silencio.
+   */
+  diferirHasta?: Date;
+}
