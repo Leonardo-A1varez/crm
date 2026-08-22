@@ -445,7 +445,20 @@ git commit -m "feat(workflows): condiciones estructuradas, sin lenguaje de expre
 ```ts
 /** Lo que el ejecutor le devuelve a quien lo llamó al terminar un segmento. */
 export type ResultadoSegmento =
-  | { tipo: "espera"; nodoId: string; hasta: Date }
+  | {
+      tipo: "espera";
+      /** El nodo donde se cortó. Para la observabilidad de W4. */
+      nodoId: string;
+      hasta: Date;
+      /**
+       * Con qué nodo arranca el segmento siguiente. NO siempre es el que sigue:
+       * un nodo `espera` reanuda en el que le sigue, pero una acción diferida
+       * (fuera de horario) reanuda en SÍ MISMA, porque todavía no se ejecutó.
+       * Lo resuelve el ejecutor y no quien llama, así la regla vive en un solo
+       * lado en vez de repetirse en el runtime y en el simulador.
+       */
+      reanudarEn: string;
+    }
   | { tipo: "fin" }
   | { tipo: "fallado"; nodoId: string; error: string };
 
@@ -460,6 +473,13 @@ export interface ResultadoAccion {
   contexto?: ContextoRun;
   /** Queda en `workflow_run_pasos.salida` para la observabilidad de W4. */
   salida?: Record<string, unknown>;
+  /**
+   * "Todavía no, volvé a intentarme a esta hora." La acción NO se ejecutó y el
+   * ejecutor corta el segmento reanudando en este mismo nodo. Lo usa
+   * `enviar_mensaje` fuera del horario de atención: el mensaje sale igual, a
+   * una hora razonable, en vez de descartarse en silencio.
+   */
+  diferirHasta?: Date;
 }
 ```
 
@@ -624,7 +644,12 @@ describe("ejecutarSegmento", () => {
       },
       d,
     );
-    expect(r).toEqual({ tipo: "espera", nodoId: "w", hasta: new Date("2026-08-22T11:00:00Z") });
+    expect(r).toEqual({
+      tipo: "espera",
+      nodoId: "w",
+      hasta: new Date("2026-08-22T11:00:00Z"),
+      reanudarEn: "f",
+    });
     // d, a, w: la espera tambien es un paso.
     expect(d.onPaso).toHaveBeenCalledTimes(3);
   });
@@ -679,7 +704,15 @@ describe("ejecutarSegmento", () => {
       ],
     };
     const r = await ejecutarSegmento(
-      { grafo: conCondicionRota, desdeNodo: "c", contexto: {}, leadId: "l1", runId: "r1", pasosPrevios: 0, maxPasos: 500 },
+      {
+        grafo: conCondicionRota,
+        desdeNodo: "c",
+        contexto: {},
+        leadId: "l1",
+        runId: "r1",
+        pasosPrevios: 0,
+        maxPasos: 500,
+      },
       deps(),
     );
     expect(r).toMatchObject({ tipo: "fallado", nodoId: "c" });
@@ -800,6 +833,14 @@ export async function ejecutarSegmento(
     }
 
     if (nodo.tipo === "espera") {
+      const siguiente = siguienteNodo(input.grafo, nodo.id, "salida");
+      if (siguiente === undefined) {
+        return {
+          tipo: "fallado",
+          nodoId: nodo.id,
+          error: `la espera "${nodo.id}" no tiene salida conectada`,
+        };
+      }
       const hasta = new Date(deps.ahora().getTime() + minutosDeEspera(nodo.config) * 60_000);
       await deps.onPaso({
         nodoId: nodo.id,
@@ -807,7 +848,7 @@ export async function ejecutarSegmento(
         salida: { hasta: hasta.toISOString() },
         error: null,
       });
-      return { tipo: "espera", nodoId: nodo.id, hasta };
+      return { tipo: "espera", nodoId: nodo.id, hasta, reanudarEn: siguiente };
     }
 
     if (nodo.tipo === "disparador") {
@@ -840,6 +881,17 @@ export async function ejecutarSegmento(
         orden,
         contexto,
       });
+      // La acción pidió posponerse (fuera de horario). NO se ejecutó: el
+      // segmento corta acá y el siguiente reanuda en ESTE mismo nodo.
+      if (r.diferirHasta) {
+        await deps.onPaso({
+          nodoId: nodo.id,
+          orden,
+          salida: { diferido_hasta: r.diferirHasta.toISOString() },
+          error: null,
+        });
+        return { tipo: "espera", nodoId: nodo.id, hasta: r.diferirHasta, reanudarEn: nodo.id };
+      }
       if (r.contexto) contexto = { ...contexto, ...r.contexto };
       await deps.onPaso({ nodoId: nodo.id, orden, salida: r.salida ?? null, error: null });
       actual = siguienteNodo(input.grafo, nodo.id, r.puerto);
@@ -1050,7 +1102,9 @@ export function simular(grafo: Grafo, opciones: OpcionesSimulacion): ResultadoSi
       break;
     }
     reloj = resultado.hasta;
-    nodoActual = siguienteNodo(grafo, resultado.nodoId, "salida");
+    // reanudarEn y no siguienteNodo: el ejecutor ya decidio si se vuelve al
+    // nodo siguiente (espera) o al mismo (accion diferida fuera de horario).
+    nodoActual = resultado.reanudarEn;
   }
 
   return { pasos, desenlace, error, salientes };
@@ -1384,6 +1438,82 @@ En `messages.repo.ts` (interface + InMemory) y `messages.supabase.repo.ts`:
 
 Impl Supabase: `select count` sobre `mensajes` con join a `conversaciones` por `lead_id`, `direction = 'out'`, `sender in ('ia','sistema')`, `created_at >= desde`.
 
+- [ ] **Step 3b: Agregar `proximaApertura` a `src/lib/agente/horario.ts`**
+
+Decisión del dueño: un workflow **respeta el horario de atención y difiere hasta la hora hábil siguiente**. El mensaje sale igual, a una hora razonable. Ya existe `estaAbierto(horario, timezone, ahora)`; falta "cuándo vuelve a abrir".
+
+Test primero, en `tests/unit/agente/horario.test.ts`:
+
+```ts
+import { proximaApertura } from "@/lib/agente/horario";
+
+const lunesAViernes = {
+  lunes: [{ desde: "09:00", hasta: "18:00" }],
+  martes: [{ desde: "09:00", hasta: "18:00" }],
+  miercoles: [{ desde: "09:00", hasta: "18:00" }],
+  jueves: [{ desde: "09:00", hasta: "18:00" }],
+  viernes: [{ desde: "09:00", hasta: "18:00" }],
+  sabado: [],
+  domingo: [],
+};
+
+it("un sabado a la madrugada difiere al lunes 09:00", () => {
+  // Sabado 2026-08-22 03:00 en Guayaquil (UTC-5) = 08:00Z.
+  const r = proximaApertura(lunesAViernes, "America/Guayaquil", new Date("2026-08-22T08:00:00Z"));
+  // Lunes 2026-08-24 09:00 local = 14:00Z.
+  expect(r?.toISOString()).toBe("2026-08-24T14:00:00.000Z");
+});
+
+it("dentro del horario devuelve el mismo instante", () => {
+  const dentro = new Date("2026-08-24T15:00:00Z"); // lunes 10:00 local
+  expect(proximaApertura(lunesAViernes, "America/Guayaquil", dentro)?.toISOString()).toBe(
+    dentro.toISOString(),
+  );
+});
+
+it("sin ningun rango devuelve null", () => {
+  const vacio = {
+    lunes: [],
+    martes: [],
+    miercoles: [],
+    jueves: [],
+    viernes: [],
+    sabado: [],
+    domingo: [],
+  };
+  expect(proximaApertura(vacio, "America/Guayaquil", new Date())).toBeNull();
+});
+```
+
+Implementación: **sondear hacia adelante en pasos de 15 minutos, hasta 8 días, devolviendo el primer instante en que `estaAbierto` da `true`.**
+
+```ts
+const PASO_MS = 15 * 60_000;
+const HORIZONTE_MS = 8 * 24 * 60 * 60_000;
+
+/**
+ * El próximo instante en que el negocio está abierto, o `ahora` si ya lo está.
+ * `null` si el horario no tiene un solo rango válido — ahí no hay hora hábil a
+ * la que diferir y quien llama decide qué hacer.
+ *
+ * Sondea con `estaAbierto` en vez de calcular el borde del rango a mano. Es
+ * más trabajo de CPU (a lo sumo 768 evaluaciones, y sólo cuando hay un mensaje
+ * que diferir) a cambio de que las dos funciones no puedan discrepar nunca:
+ * un cálculo propio de bordes tendría que reimplementar el manejo de zona
+ * horaria y de días sin rangos, y ahí es donde aparecen los desacuerdos.
+ */
+export function proximaApertura(horario: Horario, timezone: string, ahora: Date): Date | null {
+  if (!tieneAlgunRango(horario)) return null;
+  for (let t = 0; t <= HORIZONTE_MS; t += PASO_MS) {
+    const candidato = new Date(ahora.getTime() + t);
+    if (estaAbierto(horario, timezone, candidato)) return candidato;
+  }
+  return null;
+}
+```
+
+Nota: `estaAbierto` devuelve `true` ante timezone inválida (fail-open deliberado, ya documentado ahí). `proximaApertura` hereda eso y devuelve `ahora` — coherente: si no sabemos la zona, no diferimos.
+
 - [ ] **Step 4: Implementar la acción**
 
 Orden obligatorio: **primero el tope, después la ventana, después mandar.** Chequear después de mandar es mandar el mensaje 4 y recién ahí enterarse.
@@ -1399,6 +1529,24 @@ if (usados >= limite) {
     `tope de ${limite} salientes automáticos en 24 h alcanzado para este lead`,
     "salientes_24h",
   );
+}
+```
+
+**Horario, después del tope y antes de mandar.** Si está cerrado, la acción **no manda y se pospone** — devuelve `{ puerto: "salida", diferirHasta }` y el ejecutor corta el segmento reanudando en este mismo nodo (ver Task 5). El orden importa: chequear el tope primero evita que un mensaje diferido consuma presupuesto que no va a usar.
+
+```ts
+const cfg = await deps.configProvider.activa();
+if (!estaAbierto(cfg.horario, cfg.horario_timezone, ahora)) {
+  const cuando = proximaApertura(cfg.horario, cfg.horario_timezone, ahora);
+  // Sin un solo rango válido no hay hora hábil a la que diferir. Mandar igual
+  // sería ignorar la decisión; diferir para siempre sería un flujo mudo.
+  if (!cuando) {
+    throw new ValidationError(
+      "el horario de atención no tiene ningún rango: no hay hora hábil a la que diferir",
+      "horario_vacio",
+    );
+  }
+  return { puerto: "salida", diferirHasta: cuando, salida: { diferido: true } };
 }
 ```
 
