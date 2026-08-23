@@ -48,16 +48,56 @@ describe("acciones internas", () => {
     expect(r.salida).toEqual({ tag_id: "t1", quitada_at: quitadaAt.toISOString() });
   });
 
-  it("cambiar_etapa escribe current_stage vía sessions.update", async () => {
-    const sessions = { update: vi.fn(async () => ({})) };
+  it("cambiar_etapa escribe current_stage y procedencia por: workflow en la misma operacion", async () => {
+    const sesionActual = { current_stage: "cotizado", procedencia: {} };
+    const sessions = {
+      findById: vi.fn(async () => sesionActual),
+      aplicarExtraccion: vi.fn(async () => ({})),
+    };
     const acciones = crearAccionesInternas({ tags: {}, sessions, handoff: {} } as never);
     const r = await acciones["cambiar_etapa"]!(
       nodo({ accion: "cambiar_etapa", etapa: "negociando" }),
       entorno,
     );
-    expect(sessions.update).toHaveBeenCalledWith("s1", { current_stage: "negociando" });
+    expect(sessions.aplicarExtraccion).toHaveBeenCalledWith(
+      "s1",
+      { current_stage: "negociando" },
+      {
+        current_stage: expect.objectContaining({
+          por: "workflow",
+          user_id: null,
+          mensaje_origen_id: null,
+          valor_anterior: "cotizado",
+        }),
+      },
+    );
     expect(r.puerto).toBe("salida");
     expect(r.salida).toEqual({ current_stage: "negociando" });
+  });
+
+  it("cambiar_etapa sobrescribe una etapa fijada a mano y el chip cambia de dueno", async () => {
+    // El vendedor habia fijado "negociando" a mano (procedencia.por === "humano").
+    // El dueno resolvio: el workflow gana, pero la procedencia tiene que decir
+    // la verdad -- "workflow", no seguir mintiendo "humano".
+    const sesionConPinHumano = {
+      current_stage: "negociando",
+      procedencia: {
+        current_stage: { por: "humano", at: "2026-08-20T09:00:00.000Z", user_id: "u1" },
+      },
+    };
+    const sessions = {
+      findById: vi.fn(async () => sesionConPinHumano),
+      aplicarExtraccion: vi.fn(async () => ({})),
+    };
+    const acciones = crearAccionesInternas({ tags: {}, sessions, handoff: {} } as never);
+    await acciones["cambiar_etapa"]!(nodo({ accion: "cambiar_etapa", etapa: "cotizado" }), entorno);
+    expect(sessions.aplicarExtraccion).toHaveBeenCalledWith(
+      "s1",
+      { current_stage: "cotizado" },
+      {
+        current_stage: expect.objectContaining({ por: "workflow", valor_anterior: "negociando" }),
+      },
+    );
   });
 
   it("cambiar_etapa sin etapa es ValidationError", async () => {
@@ -69,7 +109,7 @@ describe("acciones internas", () => {
 
   it("cambiar_etapa con etapa que no es del embudo es ValidationError", async () => {
     const acciones = crearAccionesInternas({ tags: {}, sessions: {}, handoff: {} } as never);
-    // "perdido" y "requiere_humano" son desvíos, no posiciones del embudo: los decide el pipeline.
+    // "perdido" y "requiere_humano" son desvios, no posiciones del embudo: los decide el pipeline.
     await expect(
       acciones["cambiar_etapa"]!(nodo({ accion: "cambiar_etapa", etapa: "perdido" }), entorno),
     ).rejects.toBeInstanceOf(ValidationError);
@@ -79,7 +119,10 @@ describe("acciones internas", () => {
   });
 
   it("cambiar_etapa sin lead_session_id en el entorno es ValidationError", async () => {
-    const sessions = { update: vi.fn(async () => ({})) };
+    const sessions = {
+      findById: vi.fn(async () => ({})),
+      aplicarExtraccion: vi.fn(async () => ({})),
+    };
     const acciones = crearAccionesInternas({ tags: {}, sessions, handoff: {} } as never);
     await expect(
       acciones["cambiar_etapa"]!(nodo({ accion: "cambiar_etapa", etapa: "cotizado" }), {
@@ -87,7 +130,8 @@ describe("acciones internas", () => {
         leadSessionId: null,
       }),
     ).rejects.toBeInstanceOf(ValidationError);
-    expect(sessions.update).not.toHaveBeenCalled();
+    expect(sessions.findById).not.toHaveBeenCalled();
+    expect(sessions.aplicarExtraccion).not.toHaveBeenCalled();
   });
 
   it("escalar_a_humano delega en HandoffService.pause con reason/source de regla", async () => {
@@ -101,7 +145,7 @@ describe("acciones internas", () => {
       reasonCode: "rule_handoff",
       source: "rule",
       sourceEventKey: "workflow:r1:1",
-      notifyCustomer: false,
+      notifyCustomer: true,
     });
     expect(r.puerto).toBe("salida");
     expect(r.salida).toEqual({ lead_session_id: "s1", current_stage: "requiere_humano" });

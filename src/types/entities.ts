@@ -37,7 +37,11 @@ export interface CompatibilidadEntry {
 }
 
 /** Quién escribió el valor actual de un campo del Twin. */
-export type ProcedenciaPor = "ia" | "humano";
+// "workflow" (Task 8 fix): un nodo `cambiar_etapa` mueve `current_stage` y
+// pisa un pin humano si hace falta -- pero tiene que decirlo, no mentir
+// "humano". El CHECK `lead_session_procedencia_por_valido` en Postgres
+// también lo permite desde la migración que acompaña este cambio.
+export type ProcedenciaPor = "ia" | "humano" | "workflow";
 
 /**
  * De dónde salió el valor actual de un campo del Twin.
