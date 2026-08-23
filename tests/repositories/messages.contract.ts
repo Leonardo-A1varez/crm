@@ -478,5 +478,52 @@ export function runMessagesContract(
       // Y si lo cuenta contra el lead que efectivamente lo mando.
       expect(await repo.contarSalientesAutomaticos(fixtures.leadIdAlt, new Date(0))).toBe(1);
     });
+
+    // Task 10 (motor de workflows): `enviar_mensaje` cierra la ventana de 24h
+    // de Meta contra esto, no contra `ultima_actividad_at` de la conversacion.
+    describe("findUltimoEntranteAt", () => {
+      test("null cuando la conversacion no tiene ningun mensaje entrante", async () => {
+        await repo.create(
+          baseInsert(fixtures, { direction: "out", sender: "ia", meta_message_id: "ue_solo_out" }),
+        );
+        expect(await repo.findUltimoEntranteAt(fixtures.conversacionIds.one)).toBeNull();
+      });
+
+      test("trae el created_at del entrante", async () => {
+        const m = await repo.create(
+          baseInsert(fixtures, { direction: "in", sender: "lead", meta_message_id: "ue_in" }),
+        );
+        const ultimo = await repo.findUltimoEntranteAt(fixtures.conversacionIds.one);
+        expect(ultimo?.getTime()).toBe(m.created_at.getTime());
+      });
+
+      test("NO cuenta un saliente como si fuera el ultimo entrante", async () => {
+        await repo.create(
+          baseInsert(fixtures, { direction: "in", sender: "lead", meta_message_id: "ue_in2" }),
+        );
+        // El saliente que la propia accion esta por mandar no debe pisar la
+        // fecha del ultimo entrante -- si lo hiciera, la ventana de 24h de
+        // Meta nunca se cerraria.
+        await repo.create(
+          baseInsert(fixtures, { direction: "out", sender: "ia", meta_message_id: "ue_out2" }),
+        );
+        const ultimo = await repo.findUltimoEntranteAt(fixtures.conversacionIds.one);
+        expect(ultimo).not.toBeNull();
+      });
+
+      test("no mezcla mensajes de otra conversacion", async () => {
+        await repo.create(
+          baseInsert(fixtures, {
+            direction: "in",
+            sender: "lead",
+            meta_message_id: "ue_otra_conv",
+            conversacion_id: fixtures.conversacionIdAlt,
+            lead_session_id: fixtures.leadSessionIdAlt,
+          }),
+        );
+        expect(await repo.findUltimoEntranteAt(fixtures.conversacionIds.one)).toBeNull();
+        expect(await repo.findUltimoEntranteAt(fixtures.conversacionIdAlt)).not.toBeNull();
+      });
+    });
   });
 }

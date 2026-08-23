@@ -84,6 +84,16 @@ export type ResultadoSegmento =
        * lado en vez de repetirse en el runtime y en el simulador.
        */
       reanudarEn: string;
+      /**
+       * El contexto de la corrida al cortar el segmento -- con los merges de
+       * cada acción ya aplicados (ver `ResultadoAccion.contexto`). Task 10
+       * (el wiring a Inngest) lo necesita para persistir `workflow_runs.contexto`
+       * en `runs.esperar()`: sin esto, el segmento siguiente arrancaría con el
+       * contexto de ANTES de esta corrida en vez del real. `fin` y `fallado`
+       * no lo llevan porque `terminar()`/`fallar()` no reciben contexto -- la
+       * corrida terminó, nadie va a reanudarla.
+       */
+      contexto: ContextoRun;
     }
   | { tipo: "fin" }
   | {

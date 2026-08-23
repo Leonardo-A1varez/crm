@@ -33,6 +33,10 @@ import { FakeMetaApiClient } from "../mocks/meta";
 import { InMemoryLeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 import { InMemoryReglasEtiquetaRepository } from "@/server/repositories/reglas-etiqueta.repo";
 import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
+import { InMemoryWorkflowRunsRepository } from "@/server/repositories/workflow-runs.repo";
+import { InMemoryWorkflowsRepository } from "@/server/repositories/workflows.repo";
+import { crearAccionesInternas } from "@/server/services/workflows/acciones/internas";
+import { crearRegistro } from "@/server/services/workflows/acciones/registro";
 
 describe("makeCrmInngestFunctions", () => {
   test("produce 12 InngestFunction con IDs esperados", () => {
@@ -70,6 +74,10 @@ describe("makeCrmInngestFunctions", () => {
       mergeCandidates,
       identificadores,
     );
+    const tags = new InMemoryTagsRepository();
+    const workflows = new InMemoryWorkflowsRepository();
+    const workflowRuns = new InMemoryWorkflowRunsRepository();
+    const registro = crearRegistro(crearAccionesInternas({ tags, sessions, handoff }));
 
     const fns = makeCrmInngestFunctions({
       onMessageReceived: {
@@ -83,7 +91,7 @@ describe("makeCrmInngestFunctions", () => {
         ruleExecutions: new InMemoryRuleExecutionsRepository(),
         turnClassifications: new InMemoryTurnClassificationsRepository(),
         ruleEngine,
-        tags: new InMemoryTagsRepository(),
+        tags,
         intents,
         identificadores,
         configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
@@ -111,9 +119,11 @@ describe("makeCrmInngestFunctions", () => {
       detectMergeCandidatesPerLead: { detector: mergeDetector },
       detectMergeCandidatesGlobal: { leads, detector: mergeDetector },
       dispatchOutboxEvents: { outbox, inngestEmit: async () => {} },
+      workflowDisparar: { workflows, runs: workflowRuns, emitir: async () => {} },
+      workflowSegmento: { runs: workflowRuns, workflows, registro },
     });
 
-    expect(fns).toHaveLength(12);
+    expect(fns).toHaveLength(14);
     const ids = fns.map((f) => f.id());
     expect(ids).toEqual(
       expect.arrayContaining([
@@ -129,6 +139,8 @@ describe("makeCrmInngestFunctions", () => {
         expect.stringContaining("dispatch-outbox-events"),
         expect.stringContaining("recordatorio-seguimiento"),
         expect.stringContaining("handoff-notification"),
+        expect.stringContaining("workflow-disparar"),
+        expect.stringContaining("workflow-segmento"),
       ]),
     );
   });

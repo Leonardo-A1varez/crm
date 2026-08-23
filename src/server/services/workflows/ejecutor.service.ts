@@ -126,7 +126,7 @@ export async function ejecutarSegmento(
         salida: { hasta: hasta.toISOString() },
         error: null,
       });
-      return { tipo: "espera", nodoId: nodo.id, hasta, reanudarEn: sig.nodoId };
+      return { tipo: "espera", nodoId: nodo.id, hasta, reanudarEn: sig.nodoId, contexto };
     }
 
     if (nodo.tipo === "disparador") {
@@ -196,7 +196,16 @@ export async function ejecutarSegmento(
           salida: { diferido_hasta: r.diferirHasta.toISOString() },
           error: null,
         });
-        return { tipo: "espera", nodoId: nodo.id, hasta: r.diferirHasta, reanudarEn: nodo.id };
+        // `contexto` sin el merge de `r.contexto`: la acción NO se ejecutó
+        // (se pospuso), así que su `contexto` -- si trajera uno, que hoy
+        // ninguna acción que difiere trae -- tampoco debería aplicarse.
+        return {
+          tipo: "espera",
+          nodoId: nodo.id,
+          hasta: r.diferirHasta,
+          reanudarEn: nodo.id,
+          contexto,
+        };
       }
       const sig = siguienteObligatorio(input.grafo, nodo.id, r.puerto);
       if (!sig.ok) {

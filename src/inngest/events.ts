@@ -110,3 +110,24 @@ export const mergeCandidatesDetectRequested = eventType("merge-candidates/detect
 export const outboxDispatchRequested = eventType("outbox/dispatch.requested", {
   schema: staticSchema<Record<string, never>>(),
 });
+
+/**
+ * Dispara el motor de workflows (W2). Quien lo emite NO es responsabilidad de
+ * esta task -- etiquetado, el pipeline de mensajes y el cambio de etapa son
+ * candidatos naturales, pero conectarlos es trabajo de quien integre cada
+ * disparador con su fuente real. `workflow-disparar` sólo consume esto.
+ */
+export const workflowDisparoRecibido = eventType("workflow/disparo.recibido", {
+  schema: staticSchema<{
+    disparador: "etiqueta_asignada" | "mensaje_recibido" | "etapa_cambiada";
+    leadId: UUID;
+    leadSessionId?: UUID;
+    contexto: Record<string, unknown>;
+  }>(),
+});
+
+// `desdePaso` es el compare-and-swap: si no coincide con pasos_ejecutados, este
+// segmento ya corrio y la reentrega no lo reejecuta.
+export const workflowSegmentoPendiente = eventType("workflow/segmento.pendiente", {
+  schema: staticSchema<{ runId: UUID; desdePaso: number }>(),
+});

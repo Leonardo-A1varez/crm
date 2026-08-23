@@ -1,4 +1,5 @@
 import { NotFoundError } from "@/lib/errors";
+import { disparadorMatch } from "@/lib/workflows/recorrer";
 import type { UUID, Workflow, WorkflowVersion } from "@/types/entities";
 import type { Insert } from "./_types";
 
@@ -31,10 +32,24 @@ export interface WorkflowsRepository {
   crearVersion(input: WorkflowVersionInsert): Promise<WorkflowVersion>;
   listarVersiones(workflowId: UUID): Promise<WorkflowVersion[]>;
   findVersionPublicada(workflowId: UUID): Promise<WorkflowVersion | null>;
+  /**
+   * Una versión por id, publicada o no. Task 10 (motor de Inngest) la usa
+   * para leer la versión PINNEADA de una corrida (`workflow_runs.workflow_version_id`)
+   * -- nunca la publicada actual, que puede haber cambiado desde que la
+   * corrida arrancó. `findVersionPublicada` no sirve para esto: una corrida
+   * vieja puede estar corriendo sobre una versión que ya no es la publicada.
+   */
+  findVersion(id: UUID): Promise<WorkflowVersion | null>;
   /** Publica una y despublica la que estuviera publicada de ese workflow. */
   publicarVersion(versionId: UUID): Promise<WorkflowVersion>;
   /** Qué número le toca a la próxima versión. 1 si no hay ninguna. */
   proximaVersion(workflowId: UUID): Promise<number>;
+  /**
+   * Versiones publicadas de workflows `activo` cuyo nodo disparador matchea
+   * `disparador`. Es lo que `workflow-disparar` (Task 10) recorre para saber
+   * qué corridas arrancar en respuesta a un evento de dominio.
+   */
+  listarPublicadasPorDisparador(disparador: string): Promise<WorkflowVersion[]>;
 }
 
 export class InMemoryWorkflowsRepository implements WorkflowsRepository {
@@ -79,6 +94,11 @@ export class InMemoryWorkflowsRepository implements WorkflowsRepository {
     return v ? { ...v } : null;
   }
 
+  async findVersion(id: UUID): Promise<WorkflowVersion | null> {
+    const v = this.versiones.get(id);
+    return v ? { ...v } : null;
+  }
+
   async publicarVersion(versionId: UUID): Promise<WorkflowVersion> {
     const v = this.versiones.get(versionId);
     if (!v)
@@ -98,5 +118,16 @@ export class InMemoryWorkflowsRepository implements WorkflowsRepository {
   async proximaVersion(workflowId: UUID): Promise<number> {
     const versiones = [...this.versiones.values()].filter((v) => v.workflow_id === workflowId);
     return versiones.reduce((max, v) => Math.max(max, v.version), 0) + 1;
+  }
+
+  async listarPublicadasPorDisparador(disparador: string): Promise<WorkflowVersion[]> {
+    const resultado: WorkflowVersion[] = [];
+    for (const v of this.versiones.values()) {
+      if (!v.publicada) continue;
+      const w = this.workflows.get(v.workflow_id);
+      if (!w?.activo) continue;
+      if (disparadorMatch(v.grafo, disparador)) resultado.push({ ...v });
+    }
+    return resultado;
   }
 }

@@ -250,6 +250,20 @@ export class SupabaseMessagesRepository implements MessagesRepository {
     return count ?? 0;
   }
 
+  /** Ver el doc comment de la interface (`messages.repo.ts`) para el por qué. */
+  async findUltimoEntranteAt(conversacionId: UUID): Promise<Date | null> {
+    const { data, error } = await this.db
+      .from("mensajes")
+      .select("created_at")
+      .eq("conversacion_id", conversacionId)
+      .eq("direction", "in")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw mapPostgrestError(error, { resource: "mensajes" });
+    return data ? new Date(data.created_at) : null;
+  }
+
   async confirmarEnvio(id: UUID, metaMessageId: string): Promise<Mensaje> {
     const { data, error } = await this.db
       .from("mensajes")

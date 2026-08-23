@@ -51,9 +51,32 @@ describe("ejecutarSegmento", () => {
       nodoId: "w",
       hasta: new Date("2026-08-22T11:00:00Z"),
       reanudarEn: "f",
+      contexto: {},
     });
     // d, a, w: la espera tambien es un paso.
     expect(d.onPaso).toHaveBeenCalledTimes(3);
+  });
+
+  it("el contexto que agrega una accion viaja en el resultado de espera", async () => {
+    // Task 10 (wiring a Inngest) necesita el contexto final para persistir
+    // `workflow_runs.contexto` en `runs.esperar()`: sin este campo, el
+    // segmento siguiente arrancaria con el contexto de ANTES de esta corrida.
+    const d = deps(
+      crearRegistro({ marcar: async () => ({ puerto: "salida" as const, contexto: { x: 1 } }) }),
+    );
+    const r = await ejecutarSegmento(
+      {
+        grafo: grafoLineal(),
+        desdeNodo: "d",
+        contexto: { y: 2 },
+        leadId: "l1",
+        runId: "r1",
+        pasosPrevios: 0,
+        maxPasos: 500,
+      },
+      d,
+    );
+    expect(r).toMatchObject({ tipo: "espera", contexto: { x: 1, y: 2 } });
   });
 
   it("reanudar despues de la espera llega al fin", async () => {

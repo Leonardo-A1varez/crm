@@ -119,6 +119,20 @@ export interface MessagesRepository {
    */
   contarSalientesAutomaticos(leadId: UUID, desde: Date): Promise<number>;
   /**
+   * Cuándo llegó el último mensaje ENTRANTE de esta conversación, o `null` si
+   * nunca hubo uno. `null` si la conversación no tiene mensajes con
+   * `direction = 'in'` -- una conversación creada desde el panel (duplicado
+   * manual, por ejemplo) puede no tener ninguno.
+   *
+   * Existe para la acción `enviar_mensaje` del motor de workflows (Task 9/10,
+   * `acciones/enviar-mensaje.ts`): la ventana de 24 h de Meta se cuenta desde
+   * el último mensaje del CLIENTE, no desde `conversaciones.ultima_actividad_at`
+   * -- ese campo se toca con cualquier mensaje, saliente incluido, y el propio
+   * mensaje que la acción está por mandar refrescaría su reloj, así que la
+   * ventana nunca se cerraría y el guard quedaría inerte.
+   */
+  findUltimoEntranteAt(conversacionId: UUID): Promise<Date | null>;
+  /**
    * Completa una reserva con el id que devolvió Meta.
    *
    * Existe porque el saliente se escribe ANTES de llamar a Meta: si se
@@ -326,6 +340,15 @@ export class InMemoryMessagesRepository implements MessagesRepository {
       total += 1;
     }
     return total;
+  }
+
+  async findUltimoEntranteAt(conversacionId: UUID): Promise<Date | null> {
+    let ultimo: Date | null = null;
+    for (const m of this.store.values()) {
+      if (m.conversacion_id !== conversacionId || m.direction !== "in") continue;
+      if (!ultimo || m.created_at.getTime() > ultimo.getTime()) ultimo = m.created_at;
+    }
+    return ultimo;
   }
 
   async confirmarEnvio(id: UUID, metaMessageId: string): Promise<Mensaje> {
