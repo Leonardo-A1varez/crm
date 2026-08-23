@@ -19,7 +19,7 @@ export interface WorkflowSegmentoInput {
 export interface WorkflowSegmentoDeps {
   runs: Pick<
     WorkflowRunsRepository,
-    "tomarSegmento" | "registrarPaso" | "esperar" | "terminar" | "fallar"
+    "tomarSegmento" | "registrarPaso" | "esperar" | "terminar" | "fallar" | "fallarSiVivo"
   >;
   workflows: Pick<WorkflowsRepository, "findVersion">;
   registro: RegistroDeAcciones;
@@ -195,7 +195,17 @@ export async function segmentoHandler(
     // que antes; el cambio es que ahora la falla queda clasificada (en vez
     // de un `Error` generico) y `dependency` deja en logs/traces cual nodo
     // fallo, no solo que algo fallo.
-    throw new InfraError(resultado.error, resultado.nodoId);
+    //
+    // El nodo va TAMBIÉN en el mensaje, no sólo en `dependency`: si Inngest
+    // agota los reintentos, `onFailure` (más abajo) recibe el error
+    // reserializado por `jsonErrorSchema` -- sólo sobreviven `name`/`message`/
+    // `stack`, `dependency` se pierde en el viaje. Sin el nodo en el texto,
+    // el `error` que queda escrito en `workflow_runs` tras agotar reintentos
+    // sería ilegible sobre cuál nodo lo causó.
+    throw new InfraError(
+      `el nodo "${resultado.nodoId}" falló: ${resultado.error}`,
+      resultado.nodoId,
+    );
   }
 
   await deps.runs.fallar(run.id, resultado.error, ultimoOrden);
@@ -203,9 +213,71 @@ export async function segmentoHandler(
   return { tipo: "fallado", nodoId: resultado.nodoId, motivo: resultado.motivo };
 }
 
+export interface WorkflowSegmentoFalloInput {
+  runId: UUID;
+  desdePaso: number;
+  /** `error.message` del error final que agotó los reintentos de Inngest. */
+  mensaje: string;
+}
+
+/**
+ * `onFailure` de `workflow-segmento`: corre cuando Inngest agotó TODOS los
+ * reintentos del step retriable de arriba (default 3, ver comentario grande
+ * sobre retry semantics en `segmentoHandler`) sin que llegara a completar.
+ *
+ * Sin este handler, esa corrida queda para siempre en `corriendo`/`esperando`
+ * con `error: null` -- invisible, indistinguible de una corrida legítimamente
+ * en vuelo. Y como `arrancar_workflow_run` trata esos dos estados como "viva"
+ * y `politica_concurrencia` por defecto es `'ignorar'`, ese workflow NUNCA
+ * vuelve a dispararse para ese lead: sin error en ningún log, sin forma de
+ * volver salvo SQL a mano.
+ *
+ * `fallarSiVivo` (CAS), no `fallar` a secas: este handler puede correr
+ * DESPUÉS de que la corrida ya cerró por otro camino -- una reentrega de
+ * Inngest, o una carrera contra un handoff/cancelación manual -- y en ese
+ * caso NO debe resucitar una corrida que ya cerró con un error que ya no
+ * aplica.
+ */
+export async function segmentoFalloHandler(
+  input: WorkflowSegmentoFalloInput,
+  deps: Pick<WorkflowSegmentoDeps, "runs" | "logger">,
+): Promise<{ marcado: boolean }> {
+  const logger = (deps.logger ?? new NoopLogger()).child({
+    workflow: "workflow-segmento",
+    run_id: input.runId,
+  });
+  const mensaje = `agotados los reintentos en el paso ${input.desdePaso}: ${input.mensaje}`;
+  const marcado = await deps.runs.fallarSiVivo(input.runId, mensaje, input.desdePaso);
+  if (marcado) {
+    logger.error("segmento-agoto-reintentos", { paso: input.desdePaso });
+  } else {
+    // La corrida ya había cerrado por otro camino cuando esto corrió --
+    // ver el comentario grande de arriba. No es un error de este handler.
+    logger.info("segmento-agoto-reintentos-sin-efecto", { paso: input.desdePaso });
+  }
+  return { marcado };
+}
+
 export function makeWorkflowSegmentoFn(deps: WorkflowSegmentoDeps) {
   return inngest.createFunction(
-    { id: "workflow-segmento", triggers: [{ event: workflowSegmentoPendiente }] },
+    {
+      id: "workflow-segmento",
+      triggers: [{ event: workflowSegmentoPendiente }],
+      onFailure: async ({ event, error }) => {
+        // El evento original -- `{ runId, desdePaso }` -- viaja anidado en
+        // `event.data.event.data`: Inngest envuelve el disparo del run
+        // fallado en `FailureEventPayload`, que carga el evento que lo
+        // arrancó completo. Ver `node_modules/inngest/types.d.ts`
+        // (`FailureEventArgs`/`FailureEventPayload`) -- la forma cambia
+        // entre versiones de Inngest, así que esto se verificó contra la
+        // instalada (4.4.0), no se asumió.
+        const original = event.data.event.data as WorkflowSegmentoInput;
+        await segmentoFalloHandler(
+          { runId: original.runId, desdePaso: original.desdePaso, mensaje: error.message },
+          deps,
+        );
+      },
+    },
     async ({ event, step }) => {
       const { runId, desdePaso } = event.data;
 

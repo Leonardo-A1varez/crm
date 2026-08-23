@@ -156,6 +156,25 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
     });
   }
 
+  async fallarSiVivo(runId: UUID, error: string, desdePaso: number): Promise<boolean> {
+    // Mismo UPDATE compare-and-swap que `tomarSegmento` (id + pasos_ejecutados
+    // + estado vivo), pero escribe `fallado` en vez de tomar la corrida: si
+    // otro camino ya la cerró (avanzó a otro paso, o la terminaron/fallaron/
+    // cancelaron a mano) el `.eq`/`.in` no matchea ninguna fila y esto es un
+    // no-op -- no resucita una corrida que ya cerró.
+    const endedAt = await serverNowIso(this.db);
+    const { data, error: pgError } = await this.db
+      .from("workflow_runs")
+      .update({ estado: "fallado", pasos_ejecutados: desdePaso, error, ended_at: endedAt })
+      .eq("id", runId)
+      .eq("pasos_ejecutados", desdePaso)
+      .in("estado", ESTADOS_VIVOS)
+      .select("id")
+      .maybeSingle();
+    if (pgError) throw mapPostgrestError(pgError, { resource: "workflow_runs" });
+    return data !== null;
+  }
+
   async findRun(id: UUID): Promise<WorkflowRun | null> {
     const { data, error } = await this.db
       .from("workflow_runs")

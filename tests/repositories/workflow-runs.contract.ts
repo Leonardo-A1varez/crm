@@ -93,6 +93,68 @@ export function runWorkflowRunsContract(
       expect(final?.ended_at).not.toBeNull();
     });
 
+    it("fallarSiVivo marca fallado una corrida corriendo y devuelve true", async () => {
+      const { repo, versionId, leadId } = await makeRepo();
+      const { run } = await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });
+      const marcado = await repo.fallarSiVivo(run!.id, "agotados los reintentos", 0);
+      expect(marcado).toBe(true);
+      const final = await repo.findRun(run!.id);
+      expect(final?.estado).toBe("fallado");
+      expect(final?.error).toBe("agotados los reintentos");
+      expect(final?.ended_at).not.toBeNull();
+    });
+
+    it("fallarSiVivo marca fallado una corrida esperando y devuelve true", async () => {
+      const { repo, versionId, leadId } = await makeRepo();
+      const { run } = await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });
+      await repo.esperar(run!.id, "espera-cotizacion", { pedido: 1 }, 2);
+      const marcado = await repo.fallarSiVivo(run!.id, "agotados los reintentos", 2);
+      expect(marcado).toBe(true);
+      const final = await repo.findRun(run!.id);
+      expect(final?.estado).toBe("fallado");
+    });
+
+    it("fallarSiVivo NO toca una corrida ya terminada -- no la resucita", async () => {
+      const { repo, versionId, leadId } = await makeRepo();
+      const { run } = await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });
+      await repo.terminar(run!.id, 3);
+      const marcado = await repo.fallarSiVivo(run!.id, "reintento tardío", 3);
+      expect(marcado).toBe(false);
+      const final = await repo.findRun(run!.id);
+      expect(final?.estado).toBe("terminado");
+      expect(final?.error).toBeNull();
+    });
+
+    it("fallarSiVivo NO toca una corrida ya fallada -- no pisa el error original", async () => {
+      const { repo, versionId, leadId } = await makeRepo();
+      const { run } = await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });
+      await repo.fallar(run!.id, "error original", 1);
+      const marcado = await repo.fallarSiVivo(run!.id, "reintento tardío", 1);
+      expect(marcado).toBe(false);
+      const final = await repo.findRun(run!.id);
+      expect(final?.error).toBe("error original");
+    });
+
+    it("fallarSiVivo con desdePaso desactualizado (otro segmento ya avanzó) devuelve false", async () => {
+      const { repo, versionId, leadId } = await makeRepo();
+      const { run } = await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });
+      await repo.avanzar(run!.id, "b", {}, 5);
+      const marcado = await repo.fallarSiVivo(run!.id, "reintento tardío", 0);
+      expect(marcado).toBe(false);
+      const final = await repo.findRun(run!.id);
+      expect(final?.estado).toBe("corriendo");
+    });
+
+    it("fallarSiVivo con un runId inexistente devuelve false", async () => {
+      const { repo } = await makeRepo();
+      const marcado = await repo.fallarSiVivo(
+        "00000000-0000-4000-8000-000000000999",
+        "no existe",
+        0,
+      );
+      expect(marcado).toBe(false);
+    });
+
     it("registrarPaso no revienta contra una corrida existente", async () => {
       const { repo, versionId, leadId } = await makeRepo();
       const { run } = await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });

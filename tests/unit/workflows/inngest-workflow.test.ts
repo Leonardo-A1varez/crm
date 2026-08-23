@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ConflictError, InfraError, ValidationError, isNonRetriable } from "@/lib/errors";
 import { arrancarPorDisparador, dispararHandler } from "@/inngest/functions/workflow-disparar";
 import type { EmitirSegmentoPendienteInput } from "@/inngest/functions/workflow-disparar";
-import { segmentoHandler } from "@/inngest/functions/workflow-segmento";
+import { segmentoFalloHandler, segmentoHandler } from "@/inngest/functions/workflow-segmento";
 import { crearRegistro } from "@/server/services/workflows/acciones/registro";
 import type { WorkflowRun } from "@/types/entities";
 import type { Grafo } from "@/types/workflows";
@@ -456,5 +456,46 @@ describe("segmentoHandler", () => {
     // termina normalmente en la espera -- el conflicto se ignora.
     expect(r).toMatchObject({ tipo: "espera", nodoId: "w" });
     expect(runs.esperar).toHaveBeenCalledWith(run.id, "f", {}, 3);
+  });
+});
+
+// MUST-FIX 1 (review de rama completa): sin `onFailure`, una corrida que
+// agota los reintentos de Inngest queda para siempre en `corriendo`/
+// `esperando` -- invisible y, con `politica_concurrencia: 'ignorar'` (la
+// default), ese workflow nunca vuelve a dispararse para ese lead.
+describe("segmentoFalloHandler (onFailure de workflow-segmento)", () => {
+  it("una corrida que se quedó en 'corriendo' se marca fallado", async () => {
+    const runs = { fallarSiVivo: vi.fn(async () => true) };
+    const r = await segmentoFalloHandler(
+      { runId: "run-1", desdePaso: 2, mensaje: "timeout de red" },
+      { runs } as never,
+    );
+    expect(r).toEqual({ marcado: true });
+    expect(runs.fallarSiVivo).toHaveBeenCalledWith(
+      "run-1",
+      expect.stringContaining("timeout de red"),
+      2,
+    );
+    // El mensaje deja explícito que se agotaron los reintentos -- no sólo
+    // repite el error crudo, que por sí solo parecería un fallo cualquiera.
+    expect(runs.fallarSiVivo).toHaveBeenCalledWith(
+      "run-1",
+      expect.stringContaining("agotados los reintentos"),
+      2,
+    );
+  });
+
+  it("una corrida ya 'terminado' NO se toca -- fallarSiVivo hizo de CAS y devolvió false", async () => {
+    const runs = { fallarSiVivo: vi.fn(async () => false) };
+    const r = await segmentoFalloHandler(
+      { runId: "run-2", desdePaso: 5, mensaje: "timeout de red" },
+      { runs } as never,
+    );
+    expect(r).toEqual({ marcado: false });
+    // El handler no reintenta ni escala distinto -- confía en el CAS del
+    // repo. Este test fija que el resultado de `fallarSiVivo` se propaga
+    // sin transformarlo, para que un futuro cambio no le agregue un "reintentar
+    // si false" que resucitaría corridas cerradas.
+    expect(runs.fallarSiVivo).toHaveBeenCalledTimes(1);
   });
 });

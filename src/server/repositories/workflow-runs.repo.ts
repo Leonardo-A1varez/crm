@@ -57,6 +57,18 @@ export interface WorkflowRunsRepository {
   ): Promise<void>;
   terminar(runId: UUID, pasos: number): Promise<void>;
   fallar(runId: UUID, error: string, pasos: number): Promise<void>;
+  /**
+   * CAS de fallo definitivo: mismo predicado que `tomarSegmento`
+   * (`pasos_ejecutados === desdePaso` Y estado en `ESTADOS_VIVOS`), pero en
+   * vez de tomar la corrida la marca `fallado`. Lo usa el `onFailure` de
+   * Inngest cuando `workflow-segmento` agota los reintentos de un error
+   * retriable: ese handler puede correr DESPUÉS de que la corrida ya cerró
+   * por otro camino (reentrega de Inngest, o una carrera contra un handoff/
+   * cancelación manual que la dejó en un estado terminal), y en ese caso NO
+   * debe resucitar ni pisar una corrida que ya cerró con un error que ya no
+   * aplica. Devuelve si efectivamente la marcó.
+   */
+  fallarSiVivo(runId: UUID, error: string, desdePaso: number): Promise<boolean>;
   findRun(id: UUID): Promise<WorkflowRun | null>;
 }
 
@@ -177,6 +189,22 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
       error,
       ended_at: new Date(),
     });
+  }
+
+  async fallarSiVivo(runId: UUID, error: string, desdePaso: number): Promise<boolean> {
+    const run = this.runs.get(runId);
+    // Mismo predicado que tomarSegmento: sin esto, este método resucitaría
+    // una corrida que ya cerró (terminado/fallado) por otro camino.
+    if (!run) return false;
+    if (run.pasos_ejecutados !== desdePaso) return false;
+    if (!ESTADOS_VIVOS.includes(run.estado)) return false;
+    this.actualizar(runId, {
+      estado: "fallado",
+      pasos_ejecutados: desdePaso,
+      error,
+      ended_at: new Date(),
+    });
+    return true;
   }
 
   async findRun(id: UUID): Promise<WorkflowRun | null> {

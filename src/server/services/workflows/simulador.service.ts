@@ -13,7 +13,14 @@ export interface PasoSimulado {
 
 export interface ResultadoSimulacion {
   pasos: PasoSimulado[];
-  desenlace: "fin" | "fallado" | "tope";
+  /**
+   * `sin_disparador`: el grafo no tiene nodo `disparador` -- el estado más
+   * común de un borrador a medio armar en el canvas de W5, ANTES de que el
+   * validador de W1 lo vea (el validador sólo corre al guardar). Sin este
+   * miembro, un borrador sin disparador y un flujo sano que corrió y terminó
+   * bien son indistinguibles: los dos devolverían `"fin"` con 0 pasos.
+   */
+  desenlace: "fin" | "fallado" | "tope" | "sin_disparador";
   error?: string;
   /** Cuántos mensajes le habría mandado al lead. El número que importa. */
   salientes: number;
@@ -58,12 +65,34 @@ export async function simular(
     async ejecutar(nodo) {
       const accion = String(nodo.config["accion"] ?? "");
       if (accion === "enviar_mensaje") salientes += 1;
-      return { puerto: "salida", salida: { simulado: accion } };
+      // `config["contexto"]` no es un campo real de ninguna acción de W3 --
+      // no existe todavía. Es el gancho que permite escribir un test para la
+      // propagación de contexto entre segmentos (Fix MUST-FIX 2) sin esperar
+      // a que W3 exista: el simulador simula, así que una acción simulada
+      // puede anotar contexto igual que una real lo haría vía
+      // `ResultadoAccion.contexto`.
+      const contexto = nodo.config["contexto"];
+      const contextoAccion =
+        contexto !== null && typeof contexto === "object"
+          ? (contexto as Record<string, unknown>)
+          : undefined;
+      return { puerto: "salida", salida: { simulado: accion }, contexto: contextoAccion };
     },
   };
 
-  let nodoActual = disparadorDe(grafo)?.id;
+  const disparador = disparadorDe(grafo);
+  if (!disparador) {
+    return {
+      pasos: [],
+      desenlace: "sin_disparador",
+      error: "el grafo no tiene nodo disparador",
+      salientes: 0,
+    };
+  }
+
+  let nodoActual: string | undefined = disparador.id;
   let pasosPrevios = 0;
+  let contextoActual: Record<string, unknown> = opciones.contexto ?? {};
   let desenlace: ResultadoSimulacion["desenlace"] = "fin";
   let error: string | undefined;
 
@@ -86,7 +115,7 @@ export async function simular(
       {
         grafo,
         desdeNodo: nodoActual,
-        contexto: opciones.contexto ?? {},
+        contexto: contextoActual,
         leadId: "simulacion",
         runId: "simulacion",
         pasosPrevios,
@@ -108,6 +137,13 @@ export async function simular(
       break;
     }
     reloj = resultado.hasta;
+    // MUST-FIX 2 (review de rama completa): `resultado.contexto`, NO
+    // `opciones.contexto` de vuelta. Producción persiste `resultado.contexto`
+    // en `runs.esperar()` (workflow-segmento.ts:166) y el segmento siguiente
+    // arranca desde ahí -- re-pasar el contexto ORIGINAL acá haría que una
+    // condición después de una espera viera datos viejos, distinto de lo que
+    // vería producción. Ver el test de "una condición después de una espera..."
+    contextoActual = resultado.contexto;
     // reanudarEn y no siguienteNodo: el ejecutor ya decidio si se vuelve al
     // nodo siguiente (espera) o al mismo (accion diferida fuera de horario).
     nodoActual = resultado.reanudarEn;

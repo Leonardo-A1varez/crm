@@ -45,3 +45,7 @@ for (const p of r.pasos) {
 }
 console.log(`\ndesenlace: ${r.desenlace}${r.error ? ` -- ${r.error}` : ""}`);
 console.log(`salientes al lead: ${r.salientes}`);
+// "fin" es el único desenlace sano. Cualquier otro (fallado, tope,
+// sin_disparador) sale con código distinto de cero: nada que lea el status
+// de este proceso puede confundir un borrador roto con uno que corrió bien.
+if (r.desenlace !== "fin") process.exitCode = 1;
