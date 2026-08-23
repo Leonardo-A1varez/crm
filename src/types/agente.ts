@@ -41,6 +41,15 @@ export interface AgenteConfigValores {
   timeout_tool_ms: number;
   tope_gasto_diario_usd: number;
   politica_tope: PoliticaTope;
+  /**
+   * Capa 3 (workflows): tope de salientes `ia`+`sistema` por lead en una
+   * ventana móvil de 24 h. Vive acá y no en una tabla propia de workflows
+   * porque `agente_config` ya ES la política de la organización, versionada
+   * y auditada — el mismo criterio que `tope_gasto_diario_usd`. CHECK en SQL
+   * (migración `20260822162456`) exige 1-20; el mismo rango va en
+   * `GuardarConfigSchema`.
+   */
+  max_salientes_automaticos_24h: number;
   /** §4.2. Intents desconocidos consecutivos que pausan la IA. */
   escalar_umbral_intents: number;
   /** §4.2. Escalan sin importar el intent detectado. Se comparan normalizadas. */

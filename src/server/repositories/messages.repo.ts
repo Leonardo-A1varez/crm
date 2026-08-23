@@ -107,6 +107,18 @@ export interface MessagesRepository {
    */
   buscarContenido(q: string, filter: BuscarContenidoFilter): Promise<CoincidenciaContenido[]>;
   /**
+   * Salientes automáticos a este lead desde `desde`. Cuenta `ia` y `sistema`;
+   * NO cuenta `humano`, porque un vendedor tipeando a mano no gasta el
+   * presupuesto automático. Ventana móvil, no día calendario: 3 mensajes a las
+   * 23:00 y 3 a las 00:05 serían 6 en 65 minutos con un corte por día.
+   *
+   * Es el guard de la capa 3 de workflows (`enviar_mensaje`, Task 9): un
+   * grafo con ciclos puede intentar mandar cientos de WhatsApps a un mismo
+   * lead, y este conteo es lo único que se interpone antes de la llamada a
+   * Meta.
+   */
+  contarSalientesAutomaticos(leadId: UUID, desde: Date): Promise<number>;
+  /**
    * Completa una reserva con el id que devolvió Meta.
    *
    * Existe porque el saliente se escribe ANTES de llamar a Meta: si se
@@ -274,6 +286,33 @@ export class InMemoryMessagesRepository implements MessagesRepository {
         direction: m.direction,
         createdAt: m.created_at,
       }));
+  }
+
+  /**
+   * LIMITACION DE ESTA IMPL: `Mensaje` no tiene `lead_id` -- solo
+   * `lead_session_id` y `conversacion_id` -- y este repo no conoce
+   * `ConversationsRepository` ni `LeadSessionRepository` para resolver cuál
+   * sesión pertenece a qué lead. La impl in-memory (solo tests) usa
+   * `lead_session_id` como proxy de `leadId`, lo que subcuenta si el mismo
+   * lead tuvo más de una sesión dentro de la ventana de 24 h. La impl real de
+   * Supabase (la que corre en producción, `messages.supabase.repo.ts`) hace
+   * el join correcto contra `conversaciones.lead_id` y no tiene este
+   * problema. Ver el reporte de Task 9 para el detalle de por qué no se
+   * resolvió acá: requeriría inyectar una dependencia cruzada que ningún
+   * otro repo in-memory de este proyecto tiene, o denormalizar `lead_id` en
+   * `mensajes`, y ninguna de las dos entra en el alcance de esa task.
+   */
+  async contarSalientesAutomaticos(leadId: UUID, desde: Date): Promise<number> {
+    const ts = desde.getTime();
+    let total = 0;
+    for (const m of this.store.values()) {
+      if (m.direction !== "out") continue;
+      if (m.sender !== "ia" && m.sender !== "sistema") continue;
+      if (m.created_at.getTime() < ts) continue;
+      if (m.lead_session_id !== leadId) continue;
+      total += 1;
+    }
+    return total;
   }
 
   async confirmarEnvio(id: UUID, metaMessageId: string): Promise<Mensaje> {

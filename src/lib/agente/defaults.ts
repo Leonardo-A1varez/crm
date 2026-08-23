@@ -35,6 +35,11 @@ export const CONFIG_DE_FABRICA: AgenteConfigValores = {
   timeout_tool_ms: 3000,
   tope_gasto_diario_usd: 10,
   politica_tope: "pausar",
+  // Espeja el default de la columna (migración `20260822162456`). Es el
+  // mismo valor con el que arrancó la fila semilla: cambiarlo acá sin
+  // cambiarlo en la migración desincroniza fábrica y semilla, el mismo
+  // riesgo que ya documenta el comment de esta constante.
+  max_salientes_automaticos_24h: 3,
   // 2 y no 3: el handoff pide 2 con rango 1–5. El 3 anterior vivía fijo en
   // `handoff.service` y nadie podía cambiarlo.
   escalar_umbral_intents: 2,

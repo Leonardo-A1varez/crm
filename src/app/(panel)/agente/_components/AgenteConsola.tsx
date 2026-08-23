@@ -41,6 +41,9 @@ function extraerValores(c: AgenteConfig): AgenteConfigValores {
     timeout_tool_ms: c.timeout_tool_ms,
     tope_gasto_diario_usd: c.tope_gasto_diario_usd,
     politica_tope: c.politica_tope,
+    // Sin input propio todavía (Task 9 solo cierra el motor); se lee y se
+    // reenvía tal cual para que guardar la config no la resetee al default.
+    max_salientes_automaticos_24h: c.max_salientes_automaticos_24h,
     escalar_umbral_intents: c.escalar_umbral_intents,
     // Copia: el estado del formulario no puede compartir el array con el
     // baseline `guardado`, o "Descartar" no tendría a qué volver.

@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { esTimezoneValida, estaAbierto, normalizarRangos } from "@/lib/agente/horario";
+import {
+  esTimezoneValida,
+  estaAbierto,
+  normalizarRangos,
+  proximaApertura,
+} from "@/lib/agente/horario";
 import { DIAS_SEMANA, type Horario } from "@/types/agente";
 
 const TZ = "America/Argentina/Buenos_Aires";
@@ -135,5 +140,39 @@ describe("esTimezoneValida", () => {
   test("rechaza basura", () => {
     expect(esTimezoneValida("No/Existe")).toBe(false);
     expect(esTimezoneValida("")).toBe(false);
+  });
+});
+
+describe("proximaApertura", () => {
+  // El brief de la task usa nombres de dia completos ("lunes", "martes"...);
+  // `Horario`/`DIAS_SEMANA` usan las 3 letras ("lun", "mar"...) en todo el
+  // resto del archivo y del codebase. Se corrige acá para que el fixture
+  // matchee el tipo real -- con las claves largas `estaAbierto` nunca
+  // encuentra el dia (`horario["lun"]` da `undefined`) y el sondeo de
+  // `proximaApertura` daría `null` siempre, sin importar la hora.
+  const lunesAViernes = horario({
+    lun: [{ desde: "09:00", hasta: "18:00" }],
+    mar: [{ desde: "09:00", hasta: "18:00" }],
+    mie: [{ desde: "09:00", hasta: "18:00" }],
+    jue: [{ desde: "09:00", hasta: "18:00" }],
+    vie: [{ desde: "09:00", hasta: "18:00" }],
+  });
+
+  test("un sabado a la madrugada difiere al lunes 09:00", () => {
+    // Sabado 2026-08-22 03:00 en Guayaquil (UTC-5) = 08:00Z.
+    const r = proximaApertura(lunesAViernes, "America/Guayaquil", new Date("2026-08-22T08:00:00Z"));
+    // Lunes 2026-08-24 09:00 local = 14:00Z.
+    expect(r?.toISOString()).toBe("2026-08-24T14:00:00.000Z");
+  });
+
+  test("dentro del horario devuelve el mismo instante", () => {
+    const dentro = new Date("2026-08-24T15:00:00Z"); // lunes 10:00 local
+    expect(proximaApertura(lunesAViernes, "America/Guayaquil", dentro)?.toISOString()).toBe(
+      dentro.toISOString(),
+    );
+  });
+
+  test("sin ningun rango devuelve null", () => {
+    expect(proximaApertura(horario(), "America/Guayaquil", new Date())).toBeNull();
   });
 });

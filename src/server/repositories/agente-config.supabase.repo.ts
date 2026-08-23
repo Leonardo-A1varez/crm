@@ -26,6 +26,7 @@ interface Row {
   timeout_tool_ms: number;
   tope_gasto_diario_usd: number | string;
   politica_tope: string;
+  max_salientes_automaticos_24h: number;
   escalar_umbral_intents: number;
   // `text[]` llega como array real por PostgREST, no como el literal `{a,b}`.
   escalar_palabras: string[] | null;
@@ -74,6 +75,7 @@ function aDominio(row: Row): AgenteConfig {
     timeout_tool_ms: row.timeout_tool_ms,
     tope_gasto_diario_usd: aNumero(row.tope_gasto_diario_usd),
     politica_tope: row.politica_tope as AgenteConfig["politica_tope"],
+    max_salientes_automaticos_24h: row.max_salientes_automaticos_24h,
     escalar_umbral_intents: row.escalar_umbral_intents,
     // El `not null default '{}'` de la migracion hace que el null no ocurra;
     // el `?? []` cubre una fila escrita antes de ese default sin romper el

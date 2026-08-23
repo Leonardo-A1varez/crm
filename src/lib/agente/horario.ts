@@ -98,3 +98,26 @@ export function estaAbierto(horario: Horario, timezone: string, ahora: Date): bo
 export function tieneAlgunRango(horario: Horario): boolean {
   return DIAS_SEMANA.some((dia) => normalizarRangos(horario[dia] ?? []).length > 0);
 }
+
+const PASO_MS = 15 * 60_000;
+const HORIZONTE_MS = 8 * 24 * 60 * 60_000;
+
+/**
+ * El próximo instante en que el negocio está abierto, o `ahora` si ya lo está.
+ * `null` si el horario no tiene un solo rango válido — ahí no hay hora hábil a
+ * la que diferir y quien llama decide qué hacer.
+ *
+ * Sondea con `estaAbierto` en vez de calcular el borde del rango a mano. Es
+ * más trabajo de CPU (a lo sumo 768 evaluaciones, y sólo cuando hay un mensaje
+ * que diferir) a cambio de que las dos funciones no puedan discrepar nunca:
+ * un cálculo propio de bordes tendría que reimplementar el manejo de zona
+ * horaria y de días sin rangos, y ahí es donde aparecen los desacuerdos.
+ */
+export function proximaApertura(horario: Horario, timezone: string, ahora: Date): Date | null {
+  if (!tieneAlgunRango(horario)) return null;
+  for (let t = 0; t <= HORIZONTE_MS; t += PASO_MS) {
+    const candidato = new Date(ahora.getTime() + t);
+    if (estaAbierto(horario, timezone, candidato)) return candidato;
+  }
+  return null;
+}

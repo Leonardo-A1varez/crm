@@ -227,6 +227,29 @@ export class SupabaseMessagesRepository implements MessagesRepository {
     return out;
   }
 
+  /**
+   * `lead_id` no vive en `mensajes` sino en la conversación que lo contiene
+   * -- mismo motivo que `listMensajesDesde` en `metrics.supabase.repo.ts` --
+   * así que se filtra sobre el embed `conversaciones!inner(lead_id)`. El
+   * `!inner` no es cosmético: sin él, PostgREST no admite filtrar por una
+   * columna del recurso embebido.
+   *
+   * `head: true` descarta el body: a este conteo no le importa una sola fila,
+   * y traer 3-20 mensajes por lead en cada envío sería puro desperdicio en el
+   * camino más caliente de esta acción.
+   */
+  async contarSalientesAutomaticos(leadId: UUID, desde: Date): Promise<number> {
+    const { count, error } = await this.db
+      .from("mensajes")
+      .select("id, conversaciones!inner(lead_id)", { count: "exact", head: true })
+      .eq("conversaciones.lead_id", leadId)
+      .eq("direction", "out")
+      .in("sender", ["ia", "sistema"])
+      .gte("created_at", desde.toISOString());
+    if (error) throw mapPostgrestError(error, { resource: "mensajes" });
+    return count ?? 0;
+  }
+
   async confirmarEnvio(id: UUID, metaMessageId: string): Promise<Mensaje> {
     const { data, error } = await this.db
       .from("mensajes")
