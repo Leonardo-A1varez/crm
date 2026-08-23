@@ -151,6 +151,23 @@ export interface MessagesRepository {
 export class InMemoryMessagesRepository implements MessagesRepository {
   private readonly store = new Map<UUID, Mensaje>();
 
+  /**
+   * `resolverLeadId` es **opcional**, mismo idioma que `resolverWorkflowId`
+   * en `workflow-runs.repo.ts` para el mismo problema (una impl in-memory
+   * que necesita resolver a través de una tabla que no le pertenece).
+   * `Mensaje` no tiene `lead_id` -- solo `lead_session_id` -- así que sin
+   * este resolver `contarSalientesAutomaticos` no tiene forma de saber a
+   * qué lead pertenece cada mensaje.
+   *
+   * Sin resolver inyectado: fallback histórico, usa `lead_session_id` como
+   * proxy de `leadId` (subcuenta si el lead tuvo más de una sesión en la
+   * ventana). Un test que no le importa el multi-sesión no necesita setup
+   * extra. Un test que sí lo ejercita inyecta la función que resuelve
+   * `lead_session_id -> leadId` para que el conteo matchee el join real de
+   * Supabase.
+   */
+  constructor(private readonly resolverLeadId?: (leadSessionId: UUID) => UUID | undefined) {}
+
   async create(input: MensajeInsert): Promise<Mensaje> {
     if (
       input.direction === "out" &&
@@ -289,18 +306,10 @@ export class InMemoryMessagesRepository implements MessagesRepository {
   }
 
   /**
-   * LIMITACION DE ESTA IMPL: `Mensaje` no tiene `lead_id` -- solo
-   * `lead_session_id` y `conversacion_id` -- y este repo no conoce
-   * `ConversationsRepository` ni `LeadSessionRepository` para resolver cuál
-   * sesión pertenece a qué lead. La impl in-memory (solo tests) usa
-   * `lead_session_id` como proxy de `leadId`, lo que subcuenta si el mismo
-   * lead tuvo más de una sesión dentro de la ventana de 24 h. La impl real de
-   * Supabase (la que corre en producción, `messages.supabase.repo.ts`) hace
-   * el join correcto contra `conversaciones.lead_id` y no tiene este
-   * problema. Ver el reporte de Task 9 para el detalle de por qué no se
-   * resolvió acá: requeriría inyectar una dependencia cruzada que ningún
-   * otro repo in-memory de este proyecto tiene, o denormalizar `lead_id` en
-   * `mensajes`, y ninguna de las dos entra en el alcance de esa task.
+   * Con `resolverLeadId` inyectado: cuenta correctamente contra `leadId`
+   * real, resolviendo cada `lead_session_id` a través del resolver. Sin él:
+   * fallback histórico por `lead_session_id === leadId` -- ver el doc
+   * comment del constructor.
    */
   async contarSalientesAutomaticos(leadId: UUID, desde: Date): Promise<number> {
     const ts = desde.getTime();
@@ -309,7 +318,11 @@ export class InMemoryMessagesRepository implements MessagesRepository {
       if (m.direction !== "out") continue;
       if (m.sender !== "ia" && m.sender !== "sistema") continue;
       if (m.created_at.getTime() < ts) continue;
-      if (m.lead_session_id !== leadId) continue;
+      const dueño =
+        this.resolverLeadId === undefined
+          ? m.lead_session_id
+          : this.resolverLeadId(m.lead_session_id);
+      if (dueño !== leadId) continue;
       total += 1;
     }
     return total;

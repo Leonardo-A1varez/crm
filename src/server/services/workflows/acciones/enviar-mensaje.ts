@@ -118,18 +118,23 @@ export function crearAccionEnviarMensaje(deps: AccionEnviarMensajeDeps): AccionH
       );
     }
 
-    // 2. HORARIO. `cfg.horario`/`cfg.horario_timezone` se leen con guarda en
-    // vez de pasarlos directo a `estaAbierto`: esta acción declara el tipo de
-    // `configProvider.activa()` como obligatorio para esos dos campos, pero
-    // un adaptador real que falle en traerlos no debería tirar el turno por
-    // un `undefined[dia]` -- el mismo criterio de "fallar abierto ante un
-    // horario que no se puede leer" que ya documenta `estaAbierto`.
+    // 2. HORARIO. `cfg.horario`/`cfg.horario_timezone` son obligatorios en el
+    // tipo, pero un adaptador real puede llegar a devolverlos vacíos (bug de
+    // integración, config parcial). Fix-round-1: la primera versión los leía
+    // con un `&&` que, si faltaban, saltaba el chequeo entero en silencio --
+    // el mensaje se mandaba igual sin importar la hora. Eso es exactamente
+    // lo que la regla "fallar en voz alta" de este proyecto prohíbe: acá NO
+    // aplica el fail-open documentado en `estaAbierto` (ese es para una
+    // *timezone* que no se puede interpretar, no para una config ausente).
+    if (!cfg.horario || !cfg.horario_timezone) {
+      throw new ValidationError(
+        "la config del agente no trae horario de atención: no se puede decidir si está abierto",
+        "horario_config_ausente",
+      );
+    }
+
     const ahora = new Date();
-    if (
-      cfg.horario &&
-      cfg.horario_timezone &&
-      !estaAbierto(cfg.horario, cfg.horario_timezone, ahora)
-    ) {
+    if (!estaAbierto(cfg.horario, cfg.horario_timezone, ahora)) {
       const cuando = proximaApertura(cfg.horario, cfg.horario_timezone, ahora);
       // Sin un solo rango válido no hay hora hábil a la que diferir. Mandar
       // igual sería ignorar la decisión del dueño; diferir para siempre sería

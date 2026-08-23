@@ -40,6 +40,9 @@ async function seedFixtures(c: TestClient): Promise<MessagesContractFixtures> {
     A: crypto.randomUUID(),
     B: crypto.randomUUID(),
   };
+  // Conversacion de leadIdAlt -- Task 9 fix-round-1, contract de
+  // contarSalientesAutomaticos "no cuenta mensajes de otro lead".
+  const conversacionIdAlt = crypto.randomUUID();
   const leadSessionId = crypto.randomUUID();
   // Sesión alt en OTRO lead: constraint lead_session_unique_activa_idx permite
   // 1 sola sesión activa por lead.
@@ -88,8 +91,23 @@ async function seedFixtures(c: TestClient): Promise<MessagesContractFixtures> {
     canal: "wa" as const,
     canal_thread_id: `msg-fix-${key}-${id.slice(0, 8)}`,
   }));
-  const { error: convErr } = await c.from("conversaciones").insert(convRows);
+  const { error: convErr } = await c.from("conversaciones").insert([
+    ...convRows,
+    {
+      id: conversacionIdAlt,
+      lead_id: leadIdAlt,
+      canal: "wa" as const,
+      canal_thread_id: `msg-fix-alt-${conversacionIdAlt.slice(0, 8)}`,
+    },
+  ]);
   if (convErr) throw new Error(`seed conversaciones: ${convErr.message}`);
 
-  return { conversacionIds, leadSessionId, leadSessionIdAlt };
+  return {
+    conversacionIds,
+    conversacionIdAlt,
+    leadSessionId,
+    leadSessionIdAlt,
+    leadId,
+    leadIdAlt,
+  };
 }
