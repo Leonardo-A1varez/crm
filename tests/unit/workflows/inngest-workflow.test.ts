@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { ConflictError, ValidationError } from "@/lib/errors";
-import { dispararHandler } from "@/inngest/functions/workflow-disparar";
+import { ConflictError, InfraError, ValidationError, isNonRetriable } from "@/lib/errors";
+import { arrancarPorDisparador, dispararHandler } from "@/inngest/functions/workflow-disparar";
+import type { EmitirSegmentoPendienteInput } from "@/inngest/functions/workflow-disparar";
 import { segmentoHandler } from "@/inngest/functions/workflow-segmento";
 import { crearRegistro } from "@/server/services/workflows/acciones/registro";
 import type { WorkflowRun } from "@/types/entities";
@@ -128,6 +129,54 @@ describe("dispararHandler", () => {
     expect(r.arrancadas).toBe(0);
     expect(runs.arrancar).not.toHaveBeenCalled();
     expect(emitir).not.toHaveBeenCalled();
+  });
+
+  // Fix round 1 (Important): pinea el seam entre los dos steps de
+  // `makeWorkflowDispararFn`. `arrancarPorDisparador` es el primer step
+  // (arrancar); el segundo step del wrapper real sólo hace un loop de
+  // `emitir` sobre lo que el primero devolvió -- acá se simula ese segundo
+  // step con el mismo loop, contra el resultado YA CAPTURADO del primero,
+  // para probar que reejecutar la fase de emit no necesita (ni puede, en
+  // Inngest real: el primer step ya está memoizado) volver a llamar
+  // `runs.arrancar`. No hay harness de Inngest en este repo que simule la
+  // memoización real de `step.run`; esto prueba la propiedad al nivel del
+  // seam real entre las dos funciones que el wrapper compone.
+  it("el resultado de arrancarPorDisparador alcanza para emitir sin volver a invocar arrancar", async () => {
+    const runs = {
+      arrancar: vi
+        .fn()
+        .mockResolvedValueOnce({ run: makeRun({ id: "run-a" }) })
+        .mockResolvedValueOnce({ run: makeRun({ id: "run-b" }) }),
+    };
+    const workflows = {
+      listarPublicadasPorDisparador: vi.fn(async () => [
+        { id: "v1", max_pasos: 500 },
+        { id: "v2", max_pasos: 500 },
+      ]),
+    };
+
+    // Fase 1 ("step arrancar"): arma la lista JSON-safe.
+    const iniciadas = await arrancarPorDisparador(
+      { disparador: "etiqueta_asignada", leadId: "l1", contexto: {} },
+      { runs, workflows } as never,
+    );
+    expect(iniciadas).toEqual([
+      { runId: "run-a", desdePaso: 0 },
+      { runId: "run-b", desdePaso: 0 },
+    ]);
+    expect(runs.arrancar).toHaveBeenCalledTimes(2);
+
+    // Fase 2 ("step emitir"), simulada contra el resultado YA CAPTURADO --
+    // ningun nuevo llamado a listarPublicadasPorDisparador ni a arrancar.
+    const emitir = vi.fn(async (_input: EmitirSegmentoPendienteInput) => {});
+    for (const iniciada of iniciadas) {
+      await emitir(iniciada);
+    }
+
+    expect(emitir).toHaveBeenCalledTimes(2);
+    // El seam que importa: la fase 2 no volvio a tocar arrancar.
+    expect(runs.arrancar).toHaveBeenCalledTimes(2);
+    expect(workflows.listarPublicadasPorDisparador).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -327,17 +376,29 @@ describe("segmentoHandler", () => {
         throw new Error("timeout de red");
       },
     });
-    await expect(
-      segmentoHandler({ runId: run.id, desdePaso: 0 }, {
-        runs,
-        workflows,
-        registro,
-        ahora: () => AHORA,
-      } as never),
-    ).rejects.toThrow("timeout de red");
+    const deps = { runs, workflows, registro, ahora: () => AHORA } as never;
+
+    await expect(segmentoHandler({ runId: run.id, desdePaso: 0 }, deps)).rejects.toThrow(
+      "timeout de red",
+    );
     expect(runs.fallar).not.toHaveBeenCalled();
     expect(runs.terminar).not.toHaveBeenCalled();
     expect(runs.esperar).not.toHaveBeenCalled();
+
+    // Fix round 1 (Minor): el error tirado es un InfraError -- clase de
+    // dominio, no un `Error` a secas -- y sigue dando `retriable` (Inngest
+    // reintenta) porque InfraError NO esta en isNonRetriable(). Si alguna
+    // vez InfraError se agregara a esa lista por error, este test lo
+    // detecta: el comportamiento de retry se invertiria en silencio.
+    let capturado: unknown;
+    try {
+      await segmentoHandler({ runId: run.id, desdePaso: 0 }, deps);
+    } catch (error) {
+      capturado = error;
+    }
+    expect(capturado).toBeInstanceOf(InfraError);
+    expect((capturado as InfraError).dependency).toBe("a");
+    expect(isNonRetriable(capturado)).toBe(false);
   });
 
   it("version pinneada ausente: falla la corrida en voz alta, no explota", async () => {

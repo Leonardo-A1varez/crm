@@ -1,7 +1,7 @@
 import { NonRetriableError } from "inngest";
 import { inngest } from "@/inngest/client";
 import { workflowSegmentoPendiente } from "@/inngest/events";
-import { ConflictError, isNonRetriable } from "@/lib/errors";
+import { ConflictError, InfraError, isNonRetriable } from "@/lib/errors";
 import { NoopLogger, type Logger } from "@/lib/observability/logger";
 import { disparadorDe } from "@/lib/workflows/recorrer";
 import { ejecutarSegmento, type PasoEjecutado } from "@/server/services/workflows/ejecutor.service";
@@ -188,10 +188,14 @@ export async function segmentoHandler(
       motivo: resultado.motivo,
       nodo_id: resultado.nodoId,
     });
-    // Deliberadamente un Error genérico, no un DomainError: isNonRetriable()
-    // le da false en el wrapper de abajo, así que Inngest lo trata como
-    // transitorio y reintenta el step. Ver el doc comment de esta función.
-    throw new Error(resultado.error);
+    // `InfraError`, no un `Error` a secas: AGENTS.md prohibe `throw new
+    // Error()` -- clases de dominio siempre. `InfraError` NO esta en la
+    // lista de `isNonRetriable()` (`src/lib/errors.ts`), asi que sigue
+    // dando false en el wrapper de abajo y Inngest reintenta el step igual
+    // que antes; el cambio es que ahora la falla queda clasificada (en vez
+    // de un `Error` generico) y `dependency` deja en logs/traces cual nodo
+    // fallo, no solo que algo fallo.
+    throw new InfraError(resultado.error, resultado.nodoId);
   }
 
   await deps.runs.fallar(run.id, resultado.error, ultimoOrden);
