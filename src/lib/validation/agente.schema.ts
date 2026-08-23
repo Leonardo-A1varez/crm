@@ -109,6 +109,8 @@ export const GuardarConfigSchema = z.object({
   timeout_tool_ms: z.number().int().min(TIMEOUT_TOOL_MIN_MS).max(TIMEOUT_TOOL_MAX_MS),
   tope_gasto_diario_usd: z.number().min(0.5).max(1000),
   politica_tope: z.enum(POLITICA_TOPE),
+  // Mismo rango que el CHECK de la migración `20260822162456` (1-20).
+  max_salientes_automaticos_24h: z.number().int().min(1).max(20),
   escalar_umbral_intents: z.number().int().min(UMBRAL_INTENTS_MIN).max(UMBRAL_INTENTS_MAX),
   escalar_palabras: PalabrasEscaladoSchema,
   escalar_cotizacion_desde: z.number().min(COTIZACION_MIN).max(COTIZACION_MAX).nullable(),

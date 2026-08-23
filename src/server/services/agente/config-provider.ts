@@ -32,6 +32,7 @@ function aValores(c: AgenteConfigValores): AgenteConfigValores {
     timeout_tool_ms: c.timeout_tool_ms,
     tope_gasto_diario_usd: c.tope_gasto_diario_usd,
     politica_tope: c.politica_tope,
+    max_salientes_automaticos_24h: c.max_salientes_automaticos_24h,
     escalar_umbral_intents: c.escalar_umbral_intents,
     escalar_palabras: c.escalar_palabras,
     escalar_cotizacion_desde: c.escalar_cotizacion_desde,

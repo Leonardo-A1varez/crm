@@ -10,6 +10,21 @@ const GRAFO: Grafo = {
   aristas: [{ desde: "d", hasta: "f", puerto: "salida" }],
 };
 
+function grafoConDisparador(disparador: string): Grafo {
+  return {
+    nodos: [
+      {
+        id: "d",
+        tipo: "disparador",
+        config: { disparador },
+        posicion: { x: 0, y: 0 },
+      },
+      { id: "f", tipo: "fin", config: {}, posicion: { x: 1, y: 0 } },
+    ],
+    aristas: [{ desde: "d", hasta: "f", puerto: "salida" }],
+  };
+}
+
 export function runWorkflowsContract(makeRepo: () => WorkflowsRepository) {
   describe("WorkflowsRepository", () => {
     let repo: WorkflowsRepository;
@@ -100,6 +115,77 @@ export function runWorkflowsContract(makeRepo: () => WorkflowsRepository) {
       const leida = await repo.listarVersiones(w.id);
       expect(leida[0]?.grafo).toEqual(GRAFO);
       expect(leida[0]?.id).toBe(v.id);
+    });
+
+    it("findVersion trae una version por id, publicada o no; null si no existe", async () => {
+      const w = await repo.crearWorkflow({ nombre: "W", descripcion: null, activo: false });
+      const v = await repo.crearVersion({
+        workflow_id: w.id,
+        version: 1,
+        grafo: GRAFO,
+        max_pasos: 500,
+        created_by: null,
+      });
+      expect((await repo.findVersion(v.id))?.id).toBe(v.id);
+      expect(await repo.findVersion("00000000-0000-0000-0000-000000000000")).toBeNull();
+    });
+
+    describe("listarPublicadasPorDisparador", () => {
+      it("trae la version publicada de un workflow activo cuyo disparador matchea", async () => {
+        const w = await repo.crearWorkflow({ nombre: "W", descripcion: null, activo: true });
+        const v = await repo.crearVersion({
+          workflow_id: w.id,
+          version: 1,
+          grafo: grafoConDisparador("etiqueta_asignada"),
+          max_pasos: 500,
+          created_by: null,
+        });
+        await repo.publicarVersion(v.id);
+
+        const encontradas = await repo.listarPublicadasPorDisparador("etiqueta_asignada");
+        expect(encontradas.map((x) => x.id)).toEqual([v.id]);
+      });
+
+      it("no trae nada si el disparador no matchea", async () => {
+        const w = await repo.crearWorkflow({ nombre: "W", descripcion: null, activo: true });
+        const v = await repo.crearVersion({
+          workflow_id: w.id,
+          version: 1,
+          grafo: grafoConDisparador("etiqueta_asignada"),
+          max_pasos: 500,
+          created_by: null,
+        });
+        await repo.publicarVersion(v.id);
+
+        expect(await repo.listarPublicadasPorDisparador("mensaje_recibido")).toEqual([]);
+      });
+
+      it("no trae la version de un workflow inactivo aunque el disparador matchee", async () => {
+        const w = await repo.crearWorkflow({ nombre: "W", descripcion: null, activo: false });
+        const v = await repo.crearVersion({
+          workflow_id: w.id,
+          version: 1,
+          grafo: grafoConDisparador("etiqueta_asignada"),
+          max_pasos: 500,
+          created_by: null,
+        });
+        await repo.publicarVersion(v.id);
+
+        expect(await repo.listarPublicadasPorDisparador("etiqueta_asignada")).toEqual([]);
+      });
+
+      it("no trae una version sin publicar aunque el workflow este activo y el disparador matchee", async () => {
+        const w = await repo.crearWorkflow({ nombre: "W", descripcion: null, activo: true });
+        await repo.crearVersion({
+          workflow_id: w.id,
+          version: 1,
+          grafo: grafoConDisparador("etiqueta_asignada"),
+          max_pasos: 500,
+          created_by: null,
+        });
+
+        expect(await repo.listarPublicadasPorDisparador("etiqueta_asignada")).toEqual([]);
+      });
     });
   });
 }

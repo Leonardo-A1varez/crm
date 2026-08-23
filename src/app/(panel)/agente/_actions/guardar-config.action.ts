@@ -24,7 +24,7 @@ export async function guardarConfigAction(raw: unknown): Promise<ActionResult> {
 
   try {
     const svc = await getAgenteConfigServiceForRequest();
-    // `GuardarConfigSchema` es plano (los 14 campos de `AgenteConfigValores`
+    // `GuardarConfigSchema` es plano (los 15 campos de `AgenteConfigValores`
     // directamente, sin wrapper `valores` ni campo `nota` — ese `nota` lo
     // genera el propio service solo para rollback). `parsed.data` YA es la
     // forma que pide `guardarYActivar`.

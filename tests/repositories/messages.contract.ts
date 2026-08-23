@@ -5,16 +5,29 @@ import type { UUID } from "@/types/entities";
 
 export interface MessagesContractFixtures {
   conversacionIds: { one: UUID; A: UUID; B: UUID };
+  // Conversacion de OTRO lead (leadIdAlt). Task 9 fix-round-1: hace falta
+  // para probar que contarSalientesAutomaticos no cuenta mensajes de un
+  // lead distinto -- el join real de Supabase filtra por
+  // conversaciones.lead_id, asi que variar solo lead_session_id no
+  // alcanza para ejercitar ese camino.
+  conversacionIdAlt: UUID;
   leadSessionId: UUID;
-  // Sesión de OTRO lead (constraint 1 activa por lead). Para asserts de
+  // Sesion de OTRO lead (constraint 1 activa por lead). Para asserts de
   // aislamiento en listBySessionId.
   leadSessionIdAlt: UUID;
+  // El lead dueno de leadSessionId/conversacionIds. Para contarSalientesAutomaticos.
+  leadId: UUID;
+  // El lead dueno de leadSessionIdAlt/conversacionIdAlt.
+  leadIdAlt: UUID;
 }
 
-const DEFAULT_FIXTURES: MessagesContractFixtures = {
+export const DEFAULT_FIXTURES: MessagesContractFixtures = {
   conversacionIds: { one: "conv-1", A: "conv-A", B: "conv-B" },
+  conversacionIdAlt: "conv-alt",
   leadSessionId: "session-1",
   leadSessionIdAlt: "session-2",
+  leadId: "lead-1",
+  leadIdAlt: "lead-2",
 };
 
 export type MessagesContractFixturesArg =
@@ -397,6 +410,120 @@ export function runMessagesContract(
 
       await expect(repo.liberarReserva(enviado.id)).rejects.toThrow(ConflictError);
       expect(await repo.findById(enviado.id)).not.toBeNull();
+    });
+
+    // Task 9 fix-round-1: contarSalientesAutomaticos es el unico guard entre
+    // un workflow ciclico y un WhatsApp real. Sin estos casos, InMemory y
+    // Supabase podian discrepar sobre que cuenta y nada lo iba a notar.
+    test("contarSalientesAutomaticos cuenta un saliente de ia", async () => {
+      await repo.create(
+        baseInsert(fixtures, { direction: "out", sender: "ia", meta_message_id: "csa_ia" }),
+      );
+      expect(await repo.contarSalientesAutomaticos(fixtures.leadId, new Date(0))).toBe(1);
+    });
+
+    test("contarSalientesAutomaticos cuenta un saliente de sistema", async () => {
+      await repo.create(
+        baseInsert(fixtures, {
+          direction: "out",
+          sender: "sistema",
+          meta_message_id: "csa_sistema",
+        }),
+      );
+      expect(await repo.contarSalientesAutomaticos(fixtures.leadId, new Date(0))).toBe(1);
+    });
+
+    // El caso que protege el presupuesto automatico de las respuestas
+    // manuales: si "humano" contara, un vendedor activo taparia el tope de
+    // un workflow sin que el workflow haya gastado presupuesto automatico.
+    test("contarSalientesAutomaticos NO cuenta un saliente de humano", async () => {
+      await repo.create(
+        baseInsert(fixtures, {
+          direction: "out",
+          sender: "humano",
+          meta_message_id: "csa_humano",
+        }),
+      );
+      expect(await repo.contarSalientesAutomaticos(fixtures.leadId, new Date(0))).toBe(0);
+    });
+
+    test("contarSalientesAutomaticos no cuenta entrantes", async () => {
+      await repo.create(
+        baseInsert(fixtures, { direction: "in", sender: "lead", meta_message_id: "csa_in" }),
+      );
+      expect(await repo.contarSalientesAutomaticos(fixtures.leadId, new Date(0))).toBe(0);
+    });
+
+    test("contarSalientesAutomaticos no cuenta mensajes anteriores a la ventana", async () => {
+      await repo.create(
+        baseInsert(fixtures, { direction: "out", sender: "ia", meta_message_id: "csa_viejo" }),
+      );
+      // desde en el futuro: cualquier mensaje ya creado queda antes de la
+      // ventana. Deterministico, sin esperar 24 h de verdad.
+      const desdeFuturo = new Date(Date.now() + 60_000);
+      expect(await repo.contarSalientesAutomaticos(fixtures.leadId, desdeFuturo)).toBe(0);
+    });
+
+    test("contarSalientesAutomaticos no cuenta mensajes de otro lead", async () => {
+      await repo.create(
+        baseInsert(fixtures, {
+          direction: "out",
+          sender: "ia",
+          meta_message_id: "csa_ajeno",
+          conversacion_id: fixtures.conversacionIdAlt,
+          lead_session_id: fixtures.leadSessionIdAlt,
+        }),
+      );
+      expect(await repo.contarSalientesAutomaticos(fixtures.leadId, new Date(0))).toBe(0);
+      // Y si lo cuenta contra el lead que efectivamente lo mando.
+      expect(await repo.contarSalientesAutomaticos(fixtures.leadIdAlt, new Date(0))).toBe(1);
+    });
+
+    // Task 10 (motor de workflows): `enviar_mensaje` cierra la ventana de 24h
+    // de Meta contra esto, no contra `ultima_actividad_at` de la conversacion.
+    describe("findUltimoEntranteAt", () => {
+      test("null cuando la conversacion no tiene ningun mensaje entrante", async () => {
+        await repo.create(
+          baseInsert(fixtures, { direction: "out", sender: "ia", meta_message_id: "ue_solo_out" }),
+        );
+        expect(await repo.findUltimoEntranteAt(fixtures.conversacionIds.one)).toBeNull();
+      });
+
+      test("trae el created_at del entrante", async () => {
+        const m = await repo.create(
+          baseInsert(fixtures, { direction: "in", sender: "lead", meta_message_id: "ue_in" }),
+        );
+        const ultimo = await repo.findUltimoEntranteAt(fixtures.conversacionIds.one);
+        expect(ultimo?.getTime()).toBe(m.created_at.getTime());
+      });
+
+      test("NO cuenta un saliente como si fuera el ultimo entrante", async () => {
+        await repo.create(
+          baseInsert(fixtures, { direction: "in", sender: "lead", meta_message_id: "ue_in2" }),
+        );
+        // El saliente que la propia accion esta por mandar no debe pisar la
+        // fecha del ultimo entrante -- si lo hiciera, la ventana de 24h de
+        // Meta nunca se cerraria.
+        await repo.create(
+          baseInsert(fixtures, { direction: "out", sender: "ia", meta_message_id: "ue_out2" }),
+        );
+        const ultimo = await repo.findUltimoEntranteAt(fixtures.conversacionIds.one);
+        expect(ultimo).not.toBeNull();
+      });
+
+      test("no mezcla mensajes de otra conversacion", async () => {
+        await repo.create(
+          baseInsert(fixtures, {
+            direction: "in",
+            sender: "lead",
+            meta_message_id: "ue_otra_conv",
+            conversacion_id: fixtures.conversacionIdAlt,
+            lead_session_id: fixtures.leadSessionIdAlt,
+          }),
+        );
+        expect(await repo.findUltimoEntranteAt(fixtures.conversacionIds.one)).toBeNull();
+        expect(await repo.findUltimoEntranteAt(fixtures.conversacionIdAlt)).not.toBeNull();
+      });
     });
   });
 }

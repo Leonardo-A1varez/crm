@@ -128,11 +128,23 @@ begin
       return query select null::uuid, 'ya_hay_corrida_viva'::text;
       return;
     elsif v_politica = 'reiniciar' then
-      update public.workflow_runs
+      -- Set-based: cancela TODAS las corridas vivas de este (workflow, lead),
+      -- no solo la que encontro el `limit 1` de arriba. Mismo join y mismo
+      -- filtro de estado que el chequeo de existencia. `v_viva` solo sirve
+      -- para saber si hay ALGUNA corrida viva; el chequeo de existencia
+      -- hace join contra TODAS las versiones del workflow, asi que una
+      -- version anterior con `politica_concurrencia = 'permitir'` puede
+      -- haber dejado varias corridas vivas para el mismo lead -- cancelar
+      -- solo una las dejaria coexistir con la corrida nueva.
+      update public.workflow_runs as r
          set estado = 'cancelado',
              ended_at = now(),
              error = 'reiniciado por un disparo nuevo'
-       where id = v_viva;
+        from public.workflow_versiones as v
+       where v.id = r.workflow_version_id
+         and v.workflow_id = v_workflow_id
+         and r.lead_id = p_lead_id
+         and r.estado in ('corriendo','esperando');
     end if;
   end if;
 
@@ -147,8 +159,18 @@ revoke all on function public.arrancar_workflow_run(uuid, uuid, uuid, jsonb) fro
 grant execute on function public.arrancar_workflow_run(uuid, uuid, uuid, jsonb) to service_role;
 
 comment on function public.arrancar_workflow_run(uuid, uuid, uuid, jsonb) is
-  'Arranca una corrida aplicando la politica de concurrencia de la version, con advisory lock por (workflow, lead) para que decision e insert sean atomicos.';
+  'Arranca una corrida aplicando la politica de concurrencia de la version, con advisory lock por (workflow, lead) para que decision e insert sean atomicos. reiniciar cancela TODAS las corridas vivas del workflow para ese lead, no solo una.';
 ```
+
+> Nota post-review: el `reiniciar` de arriba ya viene corregido a set-based.
+> La primera version aplicada (`20260822162456_workflows_motor.sql`) traia
+> un `update ... where id = v_viva` que solo cancelaba una corrida, aunque el
+> chequeo de existencia hace join contra TODAS las versiones del workflow y
+> una version anterior en `permitir` puede haber dejado varias vivas. El fix
+> real vive en `20260822205109_fix_arrancar_workflow_run_reinicia_todas.sql`
+> (`create or replace function`, la migracion aplicada no se edita); este
+> Step 1 se corrigio para que el texto del plan no siga mostrando la SQL
+> con el defecto.
 
 - [ ] **Step 2: Aplicar con el MCP y reconciliar el nombre**
 
@@ -443,11 +465,52 @@ git commit -m "feat(workflows): condiciones estructuradas, sin lenguaje de expre
 - [ ] **Step 1: Agregar los tipos del motor a `src/types/workflows.ts`**
 
 ```ts
+/**
+ * Por qué falló un segmento. Task 10 (el step de Inngest) lo usa para decidir
+ * si reintenta: comparar contra este enum en vez de contra el texto de
+ * `error` es lo que sobrevive a un reword del mensaje.
+ */
+export const MOTIVOS_FALLO = [
+  "tope_pasos",
+  "grafo_invalido",
+  "condicion_invalida",
+  "accion_fallo",
+] as const;
+export type MotivoFallo = (typeof MOTIVOS_FALLO)[number];
+
 /** Lo que el ejecutor le devuelve a quien lo llamó al terminar un segmento. */
 export type ResultadoSegmento =
-  | { tipo: "espera"; nodoId: string; hasta: Date }
+  | {
+      tipo: "espera";
+      /** El nodo donde se cortó. Para la observabilidad de W4. */
+      nodoId: string;
+      hasta: Date;
+      /**
+       * Con qué nodo arranca el segmento siguiente. NO siempre es el que sigue:
+       * un nodo `espera` reanuda en el que le sigue, pero una acción diferida
+       * (fuera de horario) reanuda en SÍ MISMA, porque todavía no se ejecutó.
+       * Lo resuelve el ejecutor y no quien llama, así la regla vive en un solo
+       * lado en vez de repetirse en el runtime y en el simulador.
+       */
+      reanudarEn: string;
+    }
   | { tipo: "fin" }
-  | { tipo: "fallado"; nodoId: string; error: string };
+  | {
+      tipo: "fallado";
+      nodoId: string;
+      /** Legible por una persona. Se persiste para mostrarlo en la UI. */
+      error: string;
+      motivo: MotivoFallo;
+      /**
+       * Si reintentar el segmento tiene sentido. Sólo `accion_fallo` puede dar
+       * `true`: se calcula con `isNonRetriable()` (`src/lib/errors.ts`) sobre
+       * el error crudo ANTES de aplanarlo a `error: string`, porque una vez
+       * aplanado el tipo de dominio ya no existe. Todo lo demás (tope de
+       * pasos, grafo mal formado, condición mal configurada) es un bug de
+       * datos, no una falla transitoria: reintentarlo repite el mismo error.
+       */
+      retriable: boolean;
+    };
 
 /** El estado que viaja entre nodos y se persiste en `workflow_runs.contexto`. */
 export type ContextoRun = Record<string, unknown>;
@@ -460,6 +523,13 @@ export interface ResultadoAccion {
   contexto?: ContextoRun;
   /** Queda en `workflow_run_pasos.salida` para la observabilidad de W4. */
   salida?: Record<string, unknown>;
+  /**
+   * "Todavía no, volvé a intentarme a esta hora." La acción NO se ejecutó y el
+   * ejecutor corta el segmento reanudando en este mismo nodo. Lo usa
+   * `enviar_mensaje` fuera del horario de atención: el mensaje sale igual, a
+   * una hora razonable, en vez de descartarse en silencio.
+   */
+  diferirHasta?: Date;
 }
 ```
 
@@ -491,6 +561,61 @@ describe("crearRegistro", () => {
         { leadId: "l1", runId: "r1", orden: 1, contexto: {} },
       ),
     ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("accion 'constructor' (propiedad de Object.prototype) es ValidationError", async () => {
+    const registro = crearRegistro({});
+    await expect(
+      registro.ejecutar(
+        { id: "a", tipo: "accion", config: { accion: "constructor" }, posicion: { x: 0, y: 0 } },
+        { leadId: "l1", runId: "r1", orden: 1, contexto: {} },
+      ),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("accion '__proto__' es ValidationError, no TypeError", async () => {
+    const registro = crearRegistro({});
+    await expect(
+      registro.ejecutar(
+        { id: "a", tipo: "accion", config: { accion: "__proto__" }, posicion: { x: 0, y: 0 } },
+        { leadId: "l1", runId: "r1", orden: 1, contexto: {} },
+      ),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("accion 'toString' es ValidationError", async () => {
+    const registro = crearRegistro({});
+    await expect(
+      registro.ejecutar(
+        { id: "a", tipo: "accion", config: { accion: "toString" }, posicion: { x: 0, y: 0 } },
+        { leadId: "l1", runId: "r1", orden: 1, contexto: {} },
+      ),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("accion con valor no-string es ValidationError", async () => {
+    const registro = crearRegistro({});
+    await expect(
+      registro.ejecutar(
+        { id: "a", tipo: "accion", config: { accion: 42 }, posicion: { x: 0, y: 0 } },
+        { leadId: "l1", runId: "r1", orden: 1, contexto: {} },
+      ),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("un handler genuinamente registrado con nombre 'toString' funciona", async () => {
+    const registro = crearRegistro({
+      toString: async () => ({
+        puerto: "salida" as const,
+        salida: { resultado: "ok" },
+      }),
+    });
+    const r = await registro.ejecutar(
+      { id: "a", tipo: "accion", config: { accion: "toString" }, posicion: { x: 0, y: 0 } },
+      { leadId: "l1", runId: "r1", orden: 1, contexto: {} },
+    );
+    expect(r.puerto).toBe("salida");
+    expect(r.salida).toEqual({ resultado: "ok" });
   });
 });
 ```
@@ -529,15 +654,19 @@ export interface RegistroDeAcciones {
  * Que el registro se inyecte es lo que hace posible el simulador: pasarle un
  * registro que anota en vez de hacer da una simulación con el MISMO ejecutor,
  * no una segunda implementación que se desincroniza.
+ *
+ * Usa Map en lugar de acceso directo a objeto para evitar alcanzar la cadena
+ * de prototipos (constructor, toString, __proto__, etc.).
  */
 export function crearRegistro(handlers: Record<string, AccionHandler>): RegistroDeAcciones {
+  const mapaHandlers = new Map(Object.entries(handlers));
   return {
     async ejecutar(nodo, entorno) {
       const nombre = nodo.config["accion"];
       if (typeof nombre !== "string") {
         throw new ValidationError(`el nodo "${nodo.id}" no declara acción`, "accion_ausente");
       }
-      const handler = handlers[nombre];
+      const handler = mapaHandlers.get(nombre);
       if (!handler) {
         throw new ValidationError(`acción desconocida: ${nombre}`, "accion_desconocida");
       }
@@ -579,7 +708,9 @@ git commit -m "feat(workflows): registro inyectable de acciones y tipos del moto
 
 ```ts
 import { describe, expect, it, vi } from "vitest";
+import { ValidationError } from "@/lib/errors";
 import { ejecutarSegmento } from "@/server/services/workflows/ejecutor.service";
+import type { PasoEjecutado } from "@/server/services/workflows/ejecutor.service";
 import { crearRegistro } from "@/server/services/workflows/acciones/registro";
 import type { Grafo } from "@/types/workflows";
 
@@ -606,7 +737,7 @@ const deps = (
 ) => ({
   registro,
   ahora: () => AHORA,
-  onPaso: vi.fn(async () => {}),
+  onPaso: vi.fn(async (_paso: PasoEjecutado) => {}),
 });
 
 describe("ejecutarSegmento", () => {
@@ -624,7 +755,12 @@ describe("ejecutarSegmento", () => {
       },
       d,
     );
-    expect(r).toEqual({ tipo: "espera", nodoId: "w", hasta: new Date("2026-08-22T11:00:00Z") });
+    expect(r).toEqual({
+      tipo: "espera",
+      nodoId: "w",
+      hasta: new Date("2026-08-22T11:00:00Z"),
+      reanudarEn: "f",
+    });
     // d, a, w: la espera tambien es un paso.
     expect(d.onPaso).toHaveBeenCalledTimes(3);
   });
@@ -646,6 +782,28 @@ describe("ejecutarSegmento", () => {
     expect(r).toEqual({ tipo: "fin" });
   });
 
+  it("el orden de los pasos continua desde pasosPrevios, sin saltos", async () => {
+    // Mutante que este test mata: computar `orden` como una constante
+    // `pasosPrevios + 1` en vez de incrementar por nodo. Con esa mutacion los
+    // 5 tests originales seguian en verde porque ninguno miraba la secuencia.
+    const d = deps();
+    const r = await ejecutarSegmento(
+      {
+        grafo: grafoLineal(),
+        desdeNodo: "d",
+        contexto: {},
+        leadId: "l1",
+        runId: "r1",
+        pasosPrevios: 7,
+        maxPasos: 500,
+      },
+      d,
+    );
+    expect(r.tipo).toBe("espera");
+    const ordenes = d.onPaso.mock.calls.map(([paso]) => paso.orden);
+    expect(ordenes).toEqual([8, 9, 10]);
+  });
+
   it("el tope de pasos se chequea ANTES de ejecutar el nodo", async () => {
     const marcar = vi.fn(async () => ({ puerto: "salida" as const }));
     const d = deps(crearRegistro({ marcar }));
@@ -661,13 +819,45 @@ describe("ejecutarSegmento", () => {
       },
       d,
     );
-    expect(r.tipo).toBe("fallado");
+    expect(r).toMatchObject({ tipo: "fallado", motivo: "tope_pasos", retriable: false });
     // Lo que importa: la accion NO se ejecuto. Chequear despues manda el
     // mensaje 501 y recien ahi se entera.
     expect(marcar).not.toHaveBeenCalled();
   });
 
-  it("una accion que tira deja la corrida fallada con el nodo", async () => {
+  it("una condicion mal configurada falla con motivo, no explota", async () => {
+    const conCondicionRota: Grafo = {
+      nodos: [
+        { id: "c", tipo: "condicion", config: { campo: "inventado" }, posicion: { x: 0, y: 0 } },
+        { id: "f", tipo: "fin", config: {}, posicion: { x: 0, y: 0 } },
+      ],
+      aristas: [
+        { desde: "c", hasta: "f", puerto: "verdadero" },
+        { desde: "c", hasta: "f", puerto: "falso" },
+      ],
+    };
+    const r = await ejecutarSegmento(
+      {
+        grafo: conCondicionRota,
+        desdeNodo: "c",
+        contexto: {},
+        leadId: "l1",
+        runId: "r1",
+        pasosPrevios: 0,
+        maxPasos: 500,
+      },
+      deps(),
+    );
+    expect(r).toMatchObject({
+      tipo: "fallado",
+      nodoId: "c",
+      motivo: "condicion_invalida",
+      retriable: false,
+    });
+    expect((r as { error: string }).error).toContain("mal configurada");
+  });
+
+  it("una accion que tira deja la corrida fallada con el nodo, y un error generico es reintentable", async () => {
     const d = deps(
       crearRegistro({
         marcar: async () => {
@@ -687,7 +877,73 @@ describe("ejecutarSegmento", () => {
       },
       d,
     );
-    expect(r).toMatchObject({ tipo: "fallado", nodoId: "a" });
+    // Un Error comun no es un DomainError no-reintentable: por defecto se
+    // asume transitorio y se deja reintentar.
+    expect(r).toMatchObject({
+      tipo: "fallado",
+      nodoId: "a",
+      motivo: "accion_fallo",
+      retriable: true,
+    });
+  });
+
+  it("una accion que tira un DomainError no-reintentable marca retriable en false", async () => {
+    const d = deps(
+      crearRegistro({
+        marcar: async () => {
+          throw new ValidationError("telefono invalido", "telefono");
+        },
+      }),
+    );
+    const r = await ejecutarSegmento(
+      {
+        grafo: grafoLineal(),
+        desdeNodo: "a",
+        contexto: {},
+        leadId: "l1",
+        runId: "r1",
+        pasosPrevios: 0,
+        maxPasos: 500,
+      },
+      d,
+    );
+    expect(r).toMatchObject({
+      tipo: "fallado",
+      nodoId: "a",
+      motivo: "accion_fallo",
+      retriable: false,
+    });
+  });
+
+  it("un puerto sin arista conectada falla en vez de reportar un fin silencioso", async () => {
+    // "a" termina en "salida" pero esa arista no existe: sin el chequeo en
+    // cada sitio, el ejecutor caeria fuera del while y devolveria { tipo:
+    // "fin" }, reportando un grafo roto como una corrida exitosa.
+    const grafoRoto: Grafo = {
+      nodos: [
+        { id: "d", tipo: "disparador", config: {}, posicion: { x: 0, y: 0 } },
+        { id: "a", tipo: "accion", config: { accion: "marcar" }, posicion: { x: 0, y: 0 } },
+      ],
+      aristas: [{ desde: "d", hasta: "a", puerto: "salida" }],
+    };
+    const r = await ejecutarSegmento(
+      {
+        grafo: grafoRoto,
+        desdeNodo: "d",
+        contexto: {},
+        leadId: "l1",
+        runId: "r1",
+        pasosPrevios: 0,
+        maxPasos: 500,
+      },
+      deps(),
+    );
+    expect(r).toMatchObject({
+      tipo: "fallado",
+      nodoId: "a",
+      motivo: "grafo_invalido",
+      retriable: false,
+    });
   });
 });
 ```
@@ -700,10 +956,12 @@ Expected: FAIL — módulo inexistente.
 - [ ] **Step 3: Implementar**
 
 ```ts
-import { evaluarCondicion, type Condicion } from "@/lib/workflows/condiciones";
+import { isNonRetriable } from "@/lib/errors";
+import { CondicionSchema } from "@/lib/validation/workflows.schema";
+import { evaluarCondicion } from "@/lib/workflows/condiciones";
 import { nodoPorId, siguienteNodo } from "@/lib/workflows/recorrer";
 import type { UUID } from "@/types/entities";
-import type { ContextoRun, Grafo, ResultadoSegmento } from "@/types/workflows";
+import type { ContextoRun, Grafo, Puerto, ResultadoSegmento } from "@/types/workflows";
 import type { RegistroDeAcciones } from "./acciones/registro";
 
 export interface PasoEjecutado {
@@ -739,6 +997,30 @@ function minutosDeEspera(config: Record<string, unknown>): number {
 }
 
 /**
+ * Cuál nodo sigue por `puerto`, o `undefined` si ese puerto no tiene arista.
+ *
+ * En un grafo que pasó el validador de W1 esto nunca debería pasar: la regla
+ * `salida_sin_conectar` exige que todo puerto de todo nodo no-`fin` tenga
+ * arista. Si pasa, el grafo se guardó sin validar, y las cuatro clases de
+ * nodo que avanzan por un puerto (`disparador`, `condicion`, `espera`,
+ * `accion`) lo tratan igual: es una falla del grafo, nunca un `fin` silencioso.
+ */
+function siguienteObligatorio(
+  grafo: Grafo,
+  nodoId: string,
+  puerto: Puerto,
+): { ok: true; nodoId: string } | { ok: false; error: string } {
+  const siguiente = siguienteNodo(grafo, nodoId, puerto);
+  if (siguiente === undefined) {
+    return {
+      ok: false,
+      error: `el nodo "${nodoId}" no tiene conectado el puerto "${puerto}"`,
+    };
+  }
+  return { ok: true, nodoId: siguiente };
+}
+
+/**
  * Corre nodos inline hasta toparse con una espera, un fin, o el tope.
  *
  * No cicla nunca, y no por disciplina: el subgrafo sin esperas es acíclico por
@@ -760,6 +1042,8 @@ export async function ejecutarSegmento(
         tipo: "fallado",
         nodoId: actual,
         error: `el nodo "${actual}" no existe en el grafo`,
+        motivo: "grafo_invalido",
+        retriable: false,
       };
     }
 
@@ -770,6 +1054,8 @@ export async function ejecutarSegmento(
         tipo: "fallado",
         nodoId: nodo.id,
         error: `tope de ${input.maxPasos} pasos alcanzado en "${nodo.id}"`,
+        motivo: "tope_pasos",
+        retriable: false,
       };
     }
     orden += 1;
@@ -780,6 +1066,17 @@ export async function ejecutarSegmento(
     }
 
     if (nodo.tipo === "espera") {
+      const sig = siguienteObligatorio(input.grafo, nodo.id, "salida");
+      if (!sig.ok) {
+        await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: sig.error });
+        return {
+          tipo: "fallado",
+          nodoId: nodo.id,
+          error: sig.error,
+          motivo: "grafo_invalido",
+          retriable: false,
+        };
+      }
       const hasta = new Date(deps.ahora().getTime() + minutosDeEspera(nodo.config) * 60_000);
       await deps.onPaso({
         nodoId: nodo.id,
@@ -787,19 +1084,56 @@ export async function ejecutarSegmento(
         salida: { hasta: hasta.toISOString() },
         error: null,
       });
-      return { tipo: "espera", nodoId: nodo.id, hasta };
+      return { tipo: "espera", nodoId: nodo.id, hasta, reanudarEn: sig.nodoId };
     }
 
     if (nodo.tipo === "disparador") {
+      const sig = siguienteObligatorio(input.grafo, nodo.id, "salida");
+      if (!sig.ok) {
+        await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: sig.error });
+        return {
+          tipo: "fallado",
+          nodoId: nodo.id,
+          error: sig.error,
+          motivo: "grafo_invalido",
+          retriable: false,
+        };
+      }
       await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: null });
-      actual = siguienteNodo(input.grafo, nodo.id, "salida");
+      actual = sig.nodoId;
       continue;
     }
 
     if (nodo.tipo === "condicion") {
-      const cumple = evaluarCondicion(nodo.config as unknown as Condicion, contexto);
+      // Validar y no castear: `config` es `Record<string, unknown>` y un
+      // `as Condicion` haría que una condición mal guardada explotara en
+      // runtime, a mitad de una corrida, en vez de acá con un motivo legible.
+      const forma = CondicionSchema.safeParse(nodo.config);
+      if (!forma.success) {
+        const mensaje = `la condición "${nodo.id}" está mal configurada: ${forma.error.issues[0]?.message ?? "forma inválida"}`;
+        await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: mensaje });
+        return {
+          tipo: "fallado",
+          nodoId: nodo.id,
+          error: mensaje,
+          motivo: "condicion_invalida",
+          retriable: false,
+        };
+      }
+      const cumple = evaluarCondicion(forma.data, contexto);
+      const sig = siguienteObligatorio(input.grafo, nodo.id, cumple ? "verdadero" : "falso");
+      if (!sig.ok) {
+        await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: sig.error });
+        return {
+          tipo: "fallado",
+          nodoId: nodo.id,
+          error: sig.error,
+          motivo: "grafo_invalido",
+          retriable: false,
+        };
+      }
       await deps.onPaso({ nodoId: nodo.id, orden, salida: { cumple }, error: null });
-      actual = siguienteNodo(input.grafo, nodo.id, cumple ? "verdadero" : "falso");
+      actual = sig.nodoId;
       continue;
     }
 
@@ -811,26 +1145,67 @@ export async function ejecutarSegmento(
         orden,
         contexto,
       });
+      // La acción pidió posponerse (fuera de horario). NO se ejecutó: el
+      // segmento corta acá y el siguiente reanuda en ESTE mismo nodo.
+      if (r.diferirHasta) {
+        await deps.onPaso({
+          nodoId: nodo.id,
+          orden,
+          salida: { diferido_hasta: r.diferirHasta.toISOString() },
+          error: null,
+        });
+        return { tipo: "espera", nodoId: nodo.id, hasta: r.diferirHasta, reanudarEn: nodo.id };
+      }
+      const sig = siguienteObligatorio(input.grafo, nodo.id, r.puerto);
+      if (!sig.ok) {
+        await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: sig.error });
+        return {
+          tipo: "fallado",
+          nodoId: nodo.id,
+          error: sig.error,
+          motivo: "grafo_invalido",
+          retriable: false,
+        };
+      }
       if (r.contexto) contexto = { ...contexto, ...r.contexto };
       await deps.onPaso({ nodoId: nodo.id, orden, salida: r.salida ?? null, error: null });
-      actual = siguienteNodo(input.grafo, nodo.id, r.puerto);
+      actual = sig.nodoId;
     } catch (error) {
+      // isNonRetriable() se calcula sobre el `error` crudo, ANTES de
+      // aplanarlo a texto: una vez convertido a `string` para persistir, la
+      // clase de dominio (ValidationError, InfraError, ...) ya no existe y
+      // Inngest no puede decidir si reintentar.
       const mensaje = error instanceof Error ? error.message : String(error);
       await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: mensaje });
-      return { tipo: "fallado", nodoId: nodo.id, error: mensaje };
+      return {
+        tipo: "fallado",
+        nodoId: nodo.id,
+        error: mensaje,
+        motivo: "accion_fallo",
+        retriable: !isNonRetriable(error),
+      };
     }
   }
 
-  // Un puerto sin arista en un grafo validado sólo puede ser un `fin`; llegar
-  // acá significa que el grafo se guardó sin pasar por el validador.
-  return { tipo: "fin" };
+  // Con el chequeo de puerto conectado en cada sitio que avanza `actual`,
+  // esta línea es inalcanzable en la práctica: nunca se sale del `while` sin
+  // pasar por un `return` explícito. Queda como cierre defensivo porque
+  // TypeScript no puede probar la exhaustividad del `while`, y si alguna vez
+  // se alcanza es señal de un invariante roto, no de un final exitoso.
+  return {
+    tipo: "fallado",
+    nodoId: input.desdeNodo,
+    error: "el segmento terminó sin llegar a un fin, espera o falla explícita",
+    motivo: "grafo_invalido",
+    retriable: false,
+  };
 }
 ```
 
 - [ ] **Step 4: Correr los tests**
 
 Run: `npx vitest run tests/unit/workflows/ejecutor.test.ts`
-Expected: PASS, 4 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 5: Probar que el test del tope tiene dientes**
 
@@ -926,7 +1301,7 @@ Expected: FAIL — módulo inexistente.
 - [ ] **Step 3: Implementar**
 
 ```ts
-import { crearRegistro, type AccionHandler } from "./acciones/registro";
+import type { RegistroDeAcciones } from "./acciones/registro";
 import { ejecutarSegmento, type PasoEjecutado } from "./ejecutor.service";
 import { disparadorDe } from "@/lib/workflows/recorrer";
 import type { Grafo } from "@/types/workflows";
@@ -966,17 +1341,26 @@ export function simular(grafo: Grafo, opciones: OpcionesSimulacion): ResultadoSi
   let reloj = new Date(opciones.desde);
   let salientes = 0;
 
-  const anotar: AccionHandler = async (nodo) => {
-    const accion = String(nodo.config["accion"] ?? "");
-    if (accion === "enviar_mensaje") salientes += 1;
-    return { puerto: "salida", salida: { simulado: accion } };
+  // Implementa `RegistroDeAcciones` directo en vez de pasar por
+  // `crearRegistro`. Dos razones, y la primera es dura:
+  //
+  //   1. `crearRegistro` construye `new Map(Object.entries(handlers))` desde
+  //      el fix de prototype chain de la Task 4. Un `Proxy` que solo trapea
+  //      `get`/`has` devuelve `[]` en `Object.entries` —el trap que hace
+  //      falta es `ownKeys`, no `get`— asi que el Map saldria vacio y CADA
+  //      accion tiraria `ValidationError`. Verificado:
+  //          node -e "console.log(Object.entries(new Proxy({},{get:()=>1})))"
+  //          []
+  //   2. Aun sin ese choque, el simulador no necesita despachar por nombre:
+  //      acepta cualquier accion a proposito, porque simula en vez de actuar.
+  //      Pasar por el despachador solo para engañarlo es mas fragil.
+  const registro: RegistroDeAcciones = {
+    async ejecutar(nodo) {
+      const accion = String(nodo.config["accion"] ?? "");
+      if (accion === "enviar_mensaje") salientes += 1;
+      return { puerto: "salida", salida: { simulado: accion } };
+    },
   };
-  const registro = crearRegistro(
-    new Proxy({} as Record<string, AccionHandler>, {
-      get: () => anotar,
-      has: () => true,
-    }),
-  );
 
   let nodoActual = disparadorDe(grafo)?.id;
   let pasosPrevios = 0;
@@ -1016,12 +1400,17 @@ export function simular(grafo: Grafo, opciones: OpcionesSimulacion): ResultadoSi
       break;
     }
     if (resultado.tipo === "fallado") {
-      desenlace = resultado.error.includes("tope de") ? "tope" : "fallado";
+      // Comparar contra el enum, no contra el texto de `error`: un reword del
+      // mensaje (fix round 1 de Task 5, Important 1) no puede romper esta
+      // rama en silencio.
+      desenlace = resultado.motivo === "tope_pasos" ? "tope" : "fallado";
       error = resultado.error;
       break;
     }
     reloj = resultado.hasta;
-    nodoActual = siguienteNodo(grafo, resultado.nodoId, "salida");
+    // reanudarEn y no siguienteNodo: el ejecutor ya decidio si se vuelve al
+    // nodo siguiente (espera) o al mismo (accion diferida fuera de horario).
+    nodoActual = resultado.reanudarEn;
   }
 
   return { pasos, desenlace, error, salientes };
@@ -1355,6 +1744,82 @@ En `messages.repo.ts` (interface + InMemory) y `messages.supabase.repo.ts`:
 
 Impl Supabase: `select count` sobre `mensajes` con join a `conversaciones` por `lead_id`, `direction = 'out'`, `sender in ('ia','sistema')`, `created_at >= desde`.
 
+- [ ] **Step 3b: Agregar `proximaApertura` a `src/lib/agente/horario.ts`**
+
+Decisión del dueño: un workflow **respeta el horario de atención y difiere hasta la hora hábil siguiente**. El mensaje sale igual, a una hora razonable. Ya existe `estaAbierto(horario, timezone, ahora)`; falta "cuándo vuelve a abrir".
+
+Test primero, en `tests/unit/agente/horario.test.ts`:
+
+```ts
+import { proximaApertura } from "@/lib/agente/horario";
+
+const lunesAViernes = {
+  lunes: [{ desde: "09:00", hasta: "18:00" }],
+  martes: [{ desde: "09:00", hasta: "18:00" }],
+  miercoles: [{ desde: "09:00", hasta: "18:00" }],
+  jueves: [{ desde: "09:00", hasta: "18:00" }],
+  viernes: [{ desde: "09:00", hasta: "18:00" }],
+  sabado: [],
+  domingo: [],
+};
+
+it("un sabado a la madrugada difiere al lunes 09:00", () => {
+  // Sabado 2026-08-22 03:00 en Guayaquil (UTC-5) = 08:00Z.
+  const r = proximaApertura(lunesAViernes, "America/Guayaquil", new Date("2026-08-22T08:00:00Z"));
+  // Lunes 2026-08-24 09:00 local = 14:00Z.
+  expect(r?.toISOString()).toBe("2026-08-24T14:00:00.000Z");
+});
+
+it("dentro del horario devuelve el mismo instante", () => {
+  const dentro = new Date("2026-08-24T15:00:00Z"); // lunes 10:00 local
+  expect(proximaApertura(lunesAViernes, "America/Guayaquil", dentro)?.toISOString()).toBe(
+    dentro.toISOString(),
+  );
+});
+
+it("sin ningun rango devuelve null", () => {
+  const vacio = {
+    lunes: [],
+    martes: [],
+    miercoles: [],
+    jueves: [],
+    viernes: [],
+    sabado: [],
+    domingo: [],
+  };
+  expect(proximaApertura(vacio, "America/Guayaquil", new Date())).toBeNull();
+});
+```
+
+Implementación: **sondear hacia adelante en pasos de 15 minutos, hasta 8 días, devolviendo el primer instante en que `estaAbierto` da `true`.**
+
+```ts
+const PASO_MS = 15 * 60_000;
+const HORIZONTE_MS = 8 * 24 * 60 * 60_000;
+
+/**
+ * El próximo instante en que el negocio está abierto, o `ahora` si ya lo está.
+ * `null` si el horario no tiene un solo rango válido — ahí no hay hora hábil a
+ * la que diferir y quien llama decide qué hacer.
+ *
+ * Sondea con `estaAbierto` en vez de calcular el borde del rango a mano. Es
+ * más trabajo de CPU (a lo sumo 768 evaluaciones, y sólo cuando hay un mensaje
+ * que diferir) a cambio de que las dos funciones no puedan discrepar nunca:
+ * un cálculo propio de bordes tendría que reimplementar el manejo de zona
+ * horaria y de días sin rangos, y ahí es donde aparecen los desacuerdos.
+ */
+export function proximaApertura(horario: Horario, timezone: string, ahora: Date): Date | null {
+  if (!tieneAlgunRango(horario)) return null;
+  for (let t = 0; t <= HORIZONTE_MS; t += PASO_MS) {
+    const candidato = new Date(ahora.getTime() + t);
+    if (estaAbierto(horario, timezone, candidato)) return candidato;
+  }
+  return null;
+}
+```
+
+Nota: `estaAbierto` devuelve `true` ante timezone inválida (fail-open deliberado, ya documentado ahí). `proximaApertura` hereda eso y devuelve `ahora` — coherente: si no sabemos la zona, no diferimos.
+
 - [ ] **Step 4: Implementar la acción**
 
 Orden obligatorio: **primero el tope, después la ventana, después mandar.** Chequear después de mandar es mandar el mensaje 4 y recién ahí enterarse.
@@ -1370,6 +1835,24 @@ if (usados >= limite) {
     `tope de ${limite} salientes automáticos en 24 h alcanzado para este lead`,
     "salientes_24h",
   );
+}
+```
+
+**Horario, después del tope y antes de mandar.** Si está cerrado, la acción **no manda y se pospone** — devuelve `{ puerto: "salida", diferirHasta }` y el ejecutor corta el segmento reanudando en este mismo nodo (ver Task 5). El orden importa: chequear el tope primero evita que un mensaje diferido consuma presupuesto que no va a usar.
+
+```ts
+const cfg = await deps.configProvider.activa();
+if (!estaAbierto(cfg.horario, cfg.horario_timezone, ahora)) {
+  const cuando = proximaApertura(cfg.horario, cfg.horario_timezone, ahora);
+  // Sin un solo rango válido no hay hora hábil a la que diferir. Mandar igual
+  // sería ignorar la decisión; diferir para siempre sería un flujo mudo.
+  if (!cuando) {
+    throw new ValidationError(
+      "el horario de atención no tiene ningún rango: no hay hora hábil a la que diferir",
+      "horario_vacio",
+    );
+  }
+  return { puerto: "salida", diferirHasta: cuando, salida: { diferido: true } };
 }
 ```
 

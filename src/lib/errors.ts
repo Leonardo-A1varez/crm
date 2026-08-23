@@ -67,22 +67,27 @@ export class IllegalStateError extends DomainError {
   }
 }
 
-// Kill switch LLM: cuando daily cap excedido (CostTracker.exceedsCap === true) las
-// invocaciones LLM lanzan este error. NonRetriable: reintentar repite el problema
-// hasta override admin (subir cap) o reset diario. Ver docs/cost-budget.md.
+// Kill switch generico de presupuesto: NonRetriable, reintentar repite el
+// problema hasta un override admin o un reset de ventana. Pensado para el cap
+// diario de gasto LLM (`docs/cost-budget.md`, `CostTracker.exceedsCap`) y
+// usado primero por el tope de salientes automaticos por lead de la capa 3 de
+// workflows (Task 9, `docs/cost-budget.md` documentaba ya un `throw new
+// BudgetExceededError(mensaje)` de un solo argumento). Antes tenia una firma
+// fija `(day, capUsd, spentUsd)` que generaba el mensaje en dolares -- sin un
+// solo `new BudgetExceededError(...)` en todo el repo (grep verificado) -- lo
+// que la dejaba inutilizable para un tope que no es plata. Se generaliza al
+// mismo patron `(message, categoria?, cause?)` que ya usan `ConflictError` y
+// `ValidationError` antes de que aparezca un segundo uso real que dependa de
+// la firma vieja.
 export class BudgetExceededError extends DomainError {
   readonly code = "BUDGET_EXCEEDED";
 
   constructor(
-    public readonly day: string,
-    public readonly capUsd: number,
-    public readonly spentUsd: number,
+    message: string,
+    public readonly budgetType?: string,
     cause?: unknown,
   ) {
-    super(
-      `LLM daily budget excedido (day=${day}, cap=$${capUsd.toFixed(2)}, spent=$${spentUsd.toFixed(2)})`,
-      cause,
-    );
+    super(message, cause);
   }
 }
 

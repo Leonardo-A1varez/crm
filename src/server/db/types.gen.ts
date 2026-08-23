@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       admin_actions: {
@@ -93,6 +68,7 @@ export type Database = {
           instrucciones: string
           largo: string
           max_pasos_tool: number
+          max_salientes_automaticos_24h: number
           modelo: string
           nota: string | null
           plantilla_escalado: string
@@ -121,6 +97,7 @@ export type Database = {
           instrucciones?: string
           largo: string
           max_pasos_tool: number
+          max_salientes_automaticos_24h?: number
           modelo: string
           nota?: string | null
           plantilla_escalado?: string
@@ -149,6 +126,7 @@ export type Database = {
           instrucciones?: string
           largo?: string
           max_pasos_tool?: number
+          max_salientes_automaticos_24h?: number
           modelo?: string
           nota?: string | null
           plantilla_escalado?: string
@@ -1443,6 +1421,7 @@ export type Database = {
           grafo: Json
           id: string
           max_pasos: number
+          politica_concurrencia: Database["public"]["Enums"]["workflow_concurrencia"]
           publicada: boolean
           version: number
           workflow_id: string
@@ -1453,6 +1432,7 @@ export type Database = {
           grafo: Json
           id?: string
           max_pasos?: number
+          politica_concurrencia?: Database["public"]["Enums"]["workflow_concurrencia"]
           publicada?: boolean
           version: number
           workflow_id: string
@@ -1463,6 +1443,7 @@ export type Database = {
           grafo?: Json
           id?: string
           max_pasos?: number
+          politica_concurrencia?: Database["public"]["Enums"]["workflow_concurrencia"]
           publicada?: boolean
           version?: number
           workflow_id?: string
@@ -1518,6 +1499,18 @@ export type Database = {
         Returns: {
           error_code: string
           ganador_id: string
+        }[]
+      }
+      arrancar_workflow_run: {
+        Args: {
+          p_contexto: Json
+          p_lead_id: string
+          p_session_id: string
+          p_version_id: string
+        }
+        Returns: {
+          error_code: string
+          run_id: string
         }[]
       }
       buscar_productos: {
@@ -1647,6 +1640,7 @@ export type Database = {
         | "location"
         | "template"
       urgencia_enum: "baja" | "media" | "alta"
+      workflow_concurrencia: "ignorar" | "reiniciar" | "permitir"
       workflow_run_estado:
         | "corriendo"
         | "esperando"
@@ -1778,9 +1772,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       canal_enum: ["wa", "ig", "fb"],
@@ -1827,6 +1818,7 @@ export const Constants = {
         "template",
       ],
       urgencia_enum: ["baja", "media", "alta"],
+      workflow_concurrencia: ["ignorar", "reiniciar", "permitir"],
       workflow_run_estado: [
         "corriendo",
         "esperando",

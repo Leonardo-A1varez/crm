@@ -55,3 +55,80 @@ export interface ProblemaGrafo {
   nodos: string[];
   mensaje: string;
 }
+
+/**
+ * Por qué falló un segmento. Task 10 (el step de Inngest) lo usa para decidir
+ * si reintenta: comparar contra este enum en vez de contra el texto de
+ * `error` es lo que sobrevive a un reword del mensaje.
+ */
+export const MOTIVOS_FALLO = [
+  "tope_pasos",
+  "grafo_invalido",
+  "condicion_invalida",
+  "accion_fallo",
+] as const;
+export type MotivoFallo = (typeof MOTIVOS_FALLO)[number];
+
+/** Lo que el ejecutor le devuelve a quien lo llamó al terminar un segmento. */
+export type ResultadoSegmento =
+  | {
+      tipo: "espera";
+      /** El nodo donde se cortó. Para la observabilidad de W4. */
+      nodoId: string;
+      hasta: Date;
+      /**
+       * Con qué nodo arranca el segmento siguiente. NO siempre es el que sigue:
+       * un nodo `espera` reanuda en el que le sigue, pero una acción diferida
+       * (fuera de horario) reanuda en SÍ MISMA, porque todavía no se ejecutó.
+       * Lo resuelve el ejecutor y no quien llama, así la regla vive en un solo
+       * lado en vez de repetirse en el runtime y en el simulador.
+       */
+      reanudarEn: string;
+      /**
+       * El contexto de la corrida al cortar el segmento -- con los merges de
+       * cada acción ya aplicados (ver `ResultadoAccion.contexto`). Task 10
+       * (el wiring a Inngest) lo necesita para persistir `workflow_runs.contexto`
+       * en `runs.esperar()`: sin esto, el segmento siguiente arrancaría con el
+       * contexto de ANTES de esta corrida en vez del real. `fin` y `fallado`
+       * no lo llevan porque `terminar()`/`fallar()` no reciben contexto -- la
+       * corrida terminó, nadie va a reanudarla.
+       */
+      contexto: ContextoRun;
+    }
+  | { tipo: "fin" }
+  | {
+      tipo: "fallado";
+      nodoId: string;
+      /** Legible por una persona. Se persiste para mostrarlo en la UI. */
+      error: string;
+      motivo: MotivoFallo;
+      /**
+       * Si reintentar el segmento tiene sentido. Sólo `accion_fallo` puede dar
+       * `true`: se calcula con `isNonRetriable()` (`src/lib/errors.ts`) sobre
+       * el error crudo ANTES de aplanarlo a `error: string`, porque una vez
+       * aplanado el tipo de dominio ya no existe. Todo lo demás (tope de
+       * pasos, grafo mal formado, condición mal configurada) es un bug de
+       * datos, no una falla transitoria: reintentarlo repite el mismo error.
+       */
+      retriable: boolean;
+    };
+
+/** El estado que viaja entre nodos y se persiste en `workflow_runs.contexto`. */
+export type ContextoRun = Record<string, unknown>;
+
+/** Lo que devuelve una acción: por dónde seguir y qué agregar al contexto. */
+export interface ResultadoAccion {
+  /** Sólo `condicion` usa `verdadero`/`falso`. El resto devuelve `salida`. */
+  puerto: Puerto;
+  /** Se mergea sobre el contexto de la corrida. */
+  contexto?: ContextoRun;
+  /** Queda en `workflow_run_pasos.salida` para la observabilidad de W4. */
+  salida?: Record<string, unknown>;
+  /**
+   * "Todavía no, volvé a intentarme a esta hora." La acción NO se ejecutó y el
+   * ejecutor corta el segmento reanudando en este mismo nodo. Lo usa
+   * `enviar_mensaje` fuera del horario de atención: el mensaje sale igual, a
+   * una hora razonable, en vez de descartarse en silencio.
+   */
+  diferirHasta?: Date;
+}

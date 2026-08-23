@@ -46,6 +46,8 @@ import { SupabaseToolExecutionsRepository } from "@/server/repositories/tool-exe
 import { SupabaseTurnClassificationsRepository } from "@/server/repositories/turn-classifications.supabase.repo";
 import { SupabaseAgenteConfigRepository } from "@/server/repositories/agente-config.supabase.repo";
 import { SupabaseLlmUsageRepository } from "@/server/repositories/llm-usage.supabase.repo";
+import { SupabaseWorkflowsRepository } from "@/server/repositories/workflows.supabase.repo";
+import { SupabaseWorkflowRunsRepository } from "@/server/repositories/workflow-runs.supabase.repo";
 
 import { makeCostTracker } from "@/lib/observability/upstash-cost-tracker";
 import { PersistingCostTracker } from "@/server/services/llm/persisting-cost-tracker";
@@ -61,9 +63,15 @@ import type { CrmInngestClient } from "@/inngest/client";
 import type { CrmInngestDeps } from "@/inngest/functions";
 
 import { makeEmitForOnMessageReceived, makeInngestEmitForOutbox } from "@/inngest/callbacks/emit";
-import { recordatorioCancelado } from "@/inngest/events";
+import { recordatorioCancelado, workflowSegmentoPendiente } from "@/inngest/events";
 import { makePurgeSession } from "@/inngest/callbacks/purge-session";
 import { makeSendReactivation } from "@/inngest/callbacks/send-reactivation";
+import { makeConversationsParaEnviarMensaje } from "@/inngest/callbacks/workflow-adapters";
+
+import { crearAccionesInternas } from "@/server/services/workflows/acciones/internas";
+import { crearAccionEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
+import { crearRegistro } from "@/server/services/workflows/acciones/registro";
+import type { ConfigProviderParaEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
 
 export interface BootstrapConfig {
   env: AppEnv;
@@ -108,6 +116,8 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   const toolExecutions = new SupabaseToolExecutionsRepository(db);
   const recordatorios = new SupabaseSessionRecordatoriosRepository(db);
   const handoffEvents = new SupabaseHandoffEventsRepository(db, sessions);
+  const workflows = new SupabaseWorkflowsRepository(db);
+  const workflowRuns = new SupabaseWorkflowRunsRepository(db);
 
   // ===== Infrastructure (cost tracker, LLM bundle) =====
   // Dos responsabilidades distintas, deliberadamente separadas:
@@ -187,6 +197,24 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     toolExecutions,
     handoff,
   );
+
+  // ===== Motor de workflows (W2/Task 10) =====
+  // `configProvider.get()` con otro nombre: ver el doc comment de
+  // `ConfigProviderParaEnviarMensaje` en `acciones/enviar-mensaje.ts` sobre
+  // por qué esto es un adaptador de una línea y no el provider real.
+  const configProviderParaEnviarMensaje: ConfigProviderParaEnviarMensaje = {
+    activa: () => agenteConfigProvider.get(),
+  };
+  const registroDeAcciones = crearRegistro({
+    ...crearAccionesInternas({ tags, sessions, handoff }),
+    enviar_mensaje: crearAccionEnviarMensaje({
+      messages,
+      metaApi,
+      conversations: makeConversationsParaEnviarMensaje({ conversations, messages }),
+      leads,
+      configProvider: configProviderParaEnviarMensaje,
+    }),
+  });
 
   // ===== Callbacks =====
   const emit = makeEmitForOnMessageReceived(inngest);
@@ -298,6 +326,24 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     dispatchOutboxEvents: {
       outbox: eventOutbox,
       inngestEmit,
+      logger,
+    },
+    workflowDisparar: {
+      workflows,
+      runs: workflowRuns,
+      emitir: async ({ runId, desdePaso }) => {
+        await inngest.send({
+          name: workflowSegmentoPendiente.name,
+          data: { runId, desdePaso },
+          id: `workflow-segmento-pendiente:${runId}:${desdePaso}`,
+        });
+      },
+      logger,
+    },
+    workflowSegmento: {
+      runs: workflowRuns,
+      workflows,
+      registro: registroDeAcciones,
       logger,
     },
   };

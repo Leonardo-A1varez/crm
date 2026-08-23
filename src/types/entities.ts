@@ -37,7 +37,11 @@ export interface CompatibilidadEntry {
 }
 
 /** Quién escribió el valor actual de un campo del Twin. */
-export type ProcedenciaPor = "ia" | "humano";
+// "workflow" (Task 8 fix): un nodo `cambiar_etapa` mueve `current_stage` y
+// pisa un pin humano si hace falta -- pero tiene que decirlo, no mentir
+// "humano". El CHECK `lead_session_procedencia_por_valido` en Postgres
+// también lo permite desde la migración que acompaña este cambio.
+export type ProcedenciaPor = "ia" | "humano" | "workflow";
 
 /**
  * De dónde salió el valor actual de un campo del Twin.
@@ -497,6 +501,9 @@ export interface Workflow {
   created_at: Date;
 }
 
+export const POLITICAS_CONCURRENCIA = ["ignorar", "reiniciar", "permitir"] as const;
+export type PoliticaConcurrencia = (typeof POLITICAS_CONCURRENCIA)[number];
+
 export interface WorkflowVersion {
   id: UUID;
   workflow_id: UUID;
@@ -507,6 +514,8 @@ export interface WorkflowVersion {
   publicada: boolean;
   created_at: Date;
   created_by: UUID | null;
+  /** Qué hacer si llega un disparo con una corrida viva de este workflow. */
+  politica_concurrencia: PoliticaConcurrencia;
 }
 
 export type WorkflowRunEstado = "corriendo" | "esperando" | "terminado" | "fallado" | "cancelado";

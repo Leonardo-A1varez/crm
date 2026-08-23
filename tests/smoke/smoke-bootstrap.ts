@@ -60,8 +60,15 @@ import type {
 import { makeEmitForOnMessageReceived, makeInngestEmitForOutbox } from "@/inngest/callbacks/emit";
 import { makePurgeSession } from "@/inngest/callbacks/purge-session";
 import { makeSendReactivation } from "@/inngest/callbacks/send-reactivation";
+import { makeConversationsParaEnviarMensaje } from "@/inngest/callbacks/workflow-adapters";
 import { InMemoryReglasEtiquetaRepository } from "@/server/repositories/reglas-etiqueta.repo";
 import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
+import { InMemoryWorkflowRunsRepository } from "@/server/repositories/workflow-runs.repo";
+import { InMemoryWorkflowsRepository } from "@/server/repositories/workflows.repo";
+import { crearAccionesInternas } from "@/server/services/workflows/acciones/internas";
+import { crearAccionEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
+import type { ConfigProviderParaEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
+import { crearRegistro } from "@/server/services/workflows/acciones/registro";
 
 export interface SmokeBundle {
   deps: CrmInngestDeps;
@@ -126,6 +133,9 @@ export function makeSmokeBundle(): SmokeBundle {
   const vehiculos = new InMemoryLeadVehiculosRepository();
   const eventOutbox = new InMemoryEventOutboxRepository();
   const toolExecutions = new InMemoryToolExecutionsRepository();
+  const tags = new InMemoryTagsRepository();
+  const workflows = new InMemoryWorkflowsRepository();
+  const workflowRuns = new InMemoryWorkflowRunsRepository();
 
   // ===== Infrastructure =====
   const costTracker = new InMemoryCostTracker({
@@ -172,6 +182,21 @@ export function makeSmokeBundle(): SmokeBundle {
     toolExecutions,
   );
 
+  // ===== Motor de workflows (W2/Task 10) =====
+  const configProviderParaEnviarMensaje: ConfigProviderParaEnviarMensaje = {
+    activa: () => Promise.resolve(CONFIG_DE_FABRICA),
+  };
+  const registroDeAcciones = crearRegistro({
+    ...crearAccionesInternas({ tags, sessions, handoff }),
+    enviar_mensaje: crearAccionEnviarMensaje({
+      messages,
+      metaApi,
+      conversations: makeConversationsParaEnviarMensaje({ conversations, messages }),
+      leads,
+      configProvider: configProviderParaEnviarMensaje,
+    }),
+  });
+
   // ===== Callbacks =====
   const emit = makeEmitForOnMessageReceived(inngestClient);
   const inngestEmit = makeInngestEmitForOutbox(inngestClient);
@@ -202,7 +227,7 @@ export function makeSmokeBundle(): SmokeBundle {
       ruleExecutions: new InMemoryRuleExecutionsRepository(),
       turnClassifications: new InMemoryTurnClassificationsRepository(),
       ruleEngine,
-      tags: new InMemoryTagsRepository(),
+      tags,
       intents,
       identificadores,
       recordatorios,
@@ -237,6 +262,23 @@ export function makeSmokeBundle(): SmokeBundle {
     detectMergeCandidatesPerLead: { detector: mergeDetector, logger },
     detectMergeCandidatesGlobal: { leads, detector: mergeDetector, logger },
     dispatchOutboxEvents: { outbox: eventOutbox, inngestEmit, logger },
+    workflowDisparar: {
+      workflows,
+      runs: workflowRuns,
+      emitir: async ({ runId, desdePaso }) => {
+        await inngestClient.send({
+          name: "workflow/segmento.pendiente",
+          data: { runId, desdePaso },
+        });
+      },
+      logger,
+    },
+    workflowSegmento: {
+      runs: workflowRuns,
+      workflows,
+      registro: registroDeAcciones,
+      logger,
+    },
   };
 
   return {

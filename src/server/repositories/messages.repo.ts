@@ -107,6 +107,32 @@ export interface MessagesRepository {
    */
   buscarContenido(q: string, filter: BuscarContenidoFilter): Promise<CoincidenciaContenido[]>;
   /**
+   * Salientes automáticos a este lead desde `desde`. Cuenta `ia` y `sistema`;
+   * NO cuenta `humano`, porque un vendedor tipeando a mano no gasta el
+   * presupuesto automático. Ventana móvil, no día calendario: 3 mensajes a las
+   * 23:00 y 3 a las 00:05 serían 6 en 65 minutos con un corte por día.
+   *
+   * Es el guard de la capa 3 de workflows (`enviar_mensaje`, Task 9): un
+   * grafo con ciclos puede intentar mandar cientos de WhatsApps a un mismo
+   * lead, y este conteo es lo único que se interpone antes de la llamada a
+   * Meta.
+   */
+  contarSalientesAutomaticos(leadId: UUID, desde: Date): Promise<number>;
+  /**
+   * Cuándo llegó el último mensaje ENTRANTE de esta conversación, o `null` si
+   * nunca hubo uno. `null` si la conversación no tiene mensajes con
+   * `direction = 'in'` -- una conversación creada desde el panel (duplicado
+   * manual, por ejemplo) puede no tener ninguno.
+   *
+   * Existe para la acción `enviar_mensaje` del motor de workflows (Task 9/10,
+   * `acciones/enviar-mensaje.ts`): la ventana de 24 h de Meta se cuenta desde
+   * el último mensaje del CLIENTE, no desde `conversaciones.ultima_actividad_at`
+   * -- ese campo se toca con cualquier mensaje, saliente incluido, y el propio
+   * mensaje que la acción está por mandar refrescaría su reloj, así que la
+   * ventana nunca se cerraría y el guard quedaría inerte.
+   */
+  findUltimoEntranteAt(conversacionId: UUID): Promise<Date | null>;
+  /**
    * Completa una reserva con el id que devolvió Meta.
    *
    * Existe porque el saliente se escribe ANTES de llamar a Meta: si se
@@ -138,6 +164,23 @@ export interface MessagesRepository {
 
 export class InMemoryMessagesRepository implements MessagesRepository {
   private readonly store = new Map<UUID, Mensaje>();
+
+  /**
+   * `resolverLeadId` es **opcional**, mismo idioma que `resolverWorkflowId`
+   * en `workflow-runs.repo.ts` para el mismo problema (una impl in-memory
+   * que necesita resolver a través de una tabla que no le pertenece).
+   * `Mensaje` no tiene `lead_id` -- solo `lead_session_id` -- así que sin
+   * este resolver `contarSalientesAutomaticos` no tiene forma de saber a
+   * qué lead pertenece cada mensaje.
+   *
+   * Sin resolver inyectado: fallback histórico, usa `lead_session_id` como
+   * proxy de `leadId` (subcuenta si el lead tuvo más de una sesión en la
+   * ventana). Un test que no le importa el multi-sesión no necesita setup
+   * extra. Un test que sí lo ejercita inyecta la función que resuelve
+   * `lead_session_id -> leadId` para que el conteo matchee el join real de
+   * Supabase.
+   */
+  constructor(private readonly resolverLeadId?: (leadSessionId: UUID) => UUID | undefined) {}
 
   async create(input: MensajeInsert): Promise<Mensaje> {
     if (
@@ -274,6 +317,38 @@ export class InMemoryMessagesRepository implements MessagesRepository {
         direction: m.direction,
         createdAt: m.created_at,
       }));
+  }
+
+  /**
+   * Con `resolverLeadId` inyectado: cuenta correctamente contra `leadId`
+   * real, resolviendo cada `lead_session_id` a través del resolver. Sin él:
+   * fallback histórico por `lead_session_id === leadId` -- ver el doc
+   * comment del constructor.
+   */
+  async contarSalientesAutomaticos(leadId: UUID, desde: Date): Promise<number> {
+    const ts = desde.getTime();
+    let total = 0;
+    for (const m of this.store.values()) {
+      if (m.direction !== "out") continue;
+      if (m.sender !== "ia" && m.sender !== "sistema") continue;
+      if (m.created_at.getTime() < ts) continue;
+      const dueño =
+        this.resolverLeadId === undefined
+          ? m.lead_session_id
+          : this.resolverLeadId(m.lead_session_id);
+      if (dueño !== leadId) continue;
+      total += 1;
+    }
+    return total;
+  }
+
+  async findUltimoEntranteAt(conversacionId: UUID): Promise<Date | null> {
+    let ultimo: Date | null = null;
+    for (const m of this.store.values()) {
+      if (m.conversacion_id !== conversacionId || m.direction !== "in") continue;
+      if (!ultimo || m.created_at.getTime() > ultimo.getTime()) ultimo = m.created_at;
+    }
+    return ultimo;
   }
 
   async confirmarEnvio(id: UUID, metaMessageId: string): Promise<Mensaje> {

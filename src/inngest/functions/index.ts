@@ -26,6 +26,10 @@ import type { HandoffNotificationDeps } from "@/inngest/functions/handoff-notifi
 import { makeHandoffNotificationFn } from "@/inngest/functions/handoff-notification";
 import type { UpdateLeadTwinDeps } from "@/inngest/functions/update-lead-twin";
 import { makeUpdateLeadTwinFn } from "@/inngest/functions/update-lead-twin";
+import type { DispararWorkflowDeps } from "@/inngest/functions/workflow-disparar";
+import { makeWorkflowDispararFn } from "@/inngest/functions/workflow-disparar";
+import type { WorkflowSegmentoDeps } from "@/inngest/functions/workflow-segmento";
+import { makeWorkflowSegmentoFn } from "@/inngest/functions/workflow-segmento";
 
 export interface CrmInngestDeps {
   onMessageReceived: OnMessageReceivedDeps;
@@ -40,6 +44,8 @@ export interface CrmInngestDeps {
   detectMergeCandidatesPerLead: DetectMergeCandidatesPerLeadDeps;
   detectMergeCandidatesGlobal: DetectMergeCandidatesGlobalDeps;
   dispatchOutboxEvents: DispatchOutboxEventsDeps;
+  workflowDisparar: DispararWorkflowDeps;
+  workflowSegmento: WorkflowSegmentoDeps;
 }
 
 export function makeCrmInngestFunctions(deps: CrmInngestDeps) {
@@ -56,5 +62,7 @@ export function makeCrmInngestFunctions(deps: CrmInngestDeps) {
     makeDetectMergeCandidatesPerLeadFn(deps.detectMergeCandidatesPerLead),
     makeDetectMergeCandidatesGlobalFn(deps.detectMergeCandidatesGlobal),
     makeDispatchOutboxEventsFn(deps.dispatchOutboxEvents),
+    makeWorkflowDispararFn(deps.workflowDisparar),
+    makeWorkflowSegmentoFn(deps.workflowSegmento),
   ];
 }
