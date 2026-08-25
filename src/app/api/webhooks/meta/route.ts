@@ -19,7 +19,11 @@
 import { env } from "@/lib/env";
 import { inngest } from "@/inngest/client";
 import type { CrmInngestClient } from "@/inngest/client";
-import { parseMetaStatuses, parseMetaWebhook } from "@/lib/meta/parse-webhook";
+import {
+  parseMetaOperationalEvents,
+  parseMetaStatuses,
+  parseMetaWebhook,
+} from "@/lib/meta/parse-webhook";
 import { verifyMetaSignature } from "@/lib/meta/verify-signature";
 import { getLogger } from "@/lib/observability/get-logger";
 import { withSpan } from "@/lib/observability/tracing";
@@ -114,6 +118,22 @@ export function makeMetaWebhookHandlers(deps: MetaWebhookHandlersDeps) {
         await deps.inngest.send({
           name: "meta/status.received",
           data: { parsed: { ...status, at: status.at.toISOString() } },
+        });
+      }
+
+      // 8. Eventos operativos de la plataforma: plantilla aprobada o rechazada,
+      //    cambio de limite del numero, revision de la cuenta. Hasta el
+      //    2026-08-25 se descartaban en silencio junto con todo `field` que no
+      //    fuera `messages`, asi que un rechazo de plantilla no se sabia hasta
+      //    que fallaba un envio.
+      const operativos = parseMetaOperationalEvents(payload);
+      if (operativos.length > 0) {
+        deps.logger.info("meta.webhook.operational", { ip, count: operativos.length });
+      }
+      for (const ev of operativos) {
+        await deps.inngest.send({
+          name: "meta/operational.received",
+          data: { ...ev, ocurrido_at: ev.ocurrido_at?.toISOString() ?? null },
         });
       }
 

@@ -893,6 +893,39 @@ export type Database = {
           },
         ]
       }
+      meta_operational_events: {
+        Row: {
+          campo: string
+          created_at: string
+          evento: string | null
+          id: string
+          objeto_id: string | null
+          objeto_nombre: string | null
+          ocurrido_at: string | null
+          payload: Json
+        }
+        Insert: {
+          campo: string
+          created_at?: string
+          evento?: string | null
+          id?: string
+          objeto_id?: string | null
+          objeto_nombre?: string | null
+          ocurrido_at?: string | null
+          payload: Json
+        }
+        Update: {
+          campo?: string
+          created_at?: string
+          evento?: string | null
+          id?: string
+          objeto_id?: string | null
+          objeto_nombre?: string | null
+          ocurrido_at?: string | null
+          payload?: Json
+        }
+        Relationships: []
+      }
       productos: {
         Row: {
           activo: boolean

@@ -248,3 +248,75 @@ Invariantes:
 - [Instagram API](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api)
 - [Instagram Conversations API](https://www.postman.com/meta/instagram/folder/23987686-6a91368f-1fa8-4614-9ed6-7d1e08c21e62)
 - [Messenger Webhooks](https://www.postman.com/meta/messenger-platform-api/folder/22794852-b5d97624-14d8-4e67-a2e4-529add49ca58)
+
+---
+
+## Eventos operativos — RESUELTO 2026-08-25
+
+La sección "Eventos operativos no procesados" de arriba describía el problema. Esto es lo que se hizo.
+
+### Qué se construyó
+
+`parseMetaOperationalEvents()` en `src/lib/meta/parse-webhook.ts` captura **cualquier** `change.field` que no sea `messages` y lo persiste en la tabla `meta_operational_events` vía el evento de Inngest `meta/operational.received`.
+
+Antes el parser hacía `if (change.field !== "messages") continue` y los descartaba en silencio. No rompía nada —el webhook devolvía 200— pero si Meta rechazaba una plantilla nadie se enteraba hasta que fallaba un envío.
+
+**Por qué tabla y no sólo log:** los logs de Vercel rotan en minutos. Se comprobó el 2026-08-25 depurando el deploy: los logs del webhook desaparecieron antes de poder leerlos. Un evento que avisa "te rechazaron una plantilla" no sirve si dura menos que el tiempo en que alguien lo mira.
+
+**Por qué captura campos desconocidos:** un allowlist de campos conocidos se queda viejo en silencio, que es exactamente el problema que este código viene a resolver. Si Meta inventa un campo mañana, se persiste igual y el crudo queda para inspeccionarlo.
+
+### Suscripción actual — exactamente 3 campos
+
+Se desuscribieron 7 campos que estaban activos y cuyo tráfico se descartaba: `account_alerts`, `account_review_update`, `account_update`, `calls`, `security`, `message_template_quality_update`, `phone_number_name_update`.
+
+Quedan suscritos sólo los que el código maneja:
+
+| Campo                            | Para qué                                               |
+| -------------------------------- | ------------------------------------------------------ |
+| `messages`                       | Mensajes entrantes y estados de entrega                |
+| `message_template_status_update` | Plantilla aprobada, rechazada, pausada o deshabilitada |
+| `phone_number_quality_update`    | Cambios de límite de mensajería del número             |
+
+Volver a suscribir alguno se hace con `devtools_webhook_manage` del MCP oficial de Meta (requiere scope `manage`).
+
+### Formas verificadas contra la doc oficial
+
+Obtenidas con `devtools_discovery` el 2026-08-25, de la referencia actualizada el 2025-11-14. **No inventadas** — los tests de `tests/unit/meta-parse-operational.test.ts` usan estos payloads verbatim.
+
+`message_template_status_update` → `value`:
+
+```
+event                      APPROVED | REJECTED | DISABLED | PAUSED | FLAGGED |
+                           ARCHIVED | DELETED | IN_APPEAL | LIMIT_EXCEEDED |
+                           LOCKED | PENDING | REINSTATED | PENDING_DELETION
+message_template_id        entero
+message_template_name      string
+message_template_language  string
+reason                     ABUSIVE_CONTENT | INCORRECT_CATEGORY | INVALID_FORMAT |
+                           NONE | PROMOTIONAL | SCAM | TAG_CONTENT_MISMATCH | null
+message_template_category  string
+disable_info               sólo si la plantilla fue deshabilitada
+other_info                 sólo si fue bloqueada o desbloqueada
+rejection_info             sólo si el rechazo fue INVALID_FORMAT
+```
+
+`phone_number_quality_update` → `value`:
+
+```
+display_phone_number                  string
+event                                 ONBOARDING | THROUGHPUT_UPGRADE
+old_limit                             DEPRECADO (ver abajo)
+current_limit                         DEPRECADO (ver abajo)
+max_daily_conversations_per_business  TIER_50 | TIER_250 | TIER_2K | TIER_10K |
+                                      TIER_100K | TIER_NOT_SET | TIER_UNLIMITED
+```
+
+### Dos trampas encontradas en la doc de Meta
+
+**1. `current_limit` y `old_limit` ya deberían no existir.** La doc dice textual _"This field will be removed in February, 2026"_ y sin embargo su propio ejemplo los sigue mostrando. Estamos en agosto de 2026: la doc quedó atrasada respecto de su propio aviso. Un parser que dependa de esos campos puede recibir `undefined` hoy. Por eso el parser guarda el `value` crudo y no depende de campos puntuales.
+
+**2. `rejection_info` aparece en dos lugares distintos.** La sección _Syntax_ lo muestra como hermano de `value`; el _Example_ lo muestra adentro de `value`. La doc se contradice sola. Como el parser conserva el `value` entero, el dato sobrevive en el caso del ejemplo, que es el que se observó en la práctica.
+
+### Corrección de un error previo de este documento
+
+En una sesión anterior se dijo que `phone_number_quality_update` avisa cuando **baja la calidad o reputación** del número. **Es falso.** La doc oficial dice que notifica _"changes to a business phone number's throughput level"_ — cambios de **límite de mensajería**, y sus únicos eventos son `ONBOARDING` y `THROUGHPUT_UPGRADE`. Lo de la reputación vive en `account_alerts` y `message_template_quality_update`, dos campos que hoy están **desuscritos**.

@@ -37,9 +37,10 @@ import { InMemoryWorkflowRunsRepository } from "@/server/repositories/workflow-r
 import { InMemoryWorkflowsRepository } from "@/server/repositories/workflows.repo";
 import { crearAccionesInternas } from "@/server/services/workflows/acciones/internas";
 import { crearRegistro } from "@/server/services/workflows/acciones/registro";
+import { InMemoryMetaOperationalEventsRepository } from "@/server/repositories/meta-operational-events.repo";
 
 describe("makeCrmInngestFunctions", () => {
-  test("produce 12 InngestFunction con IDs esperados", () => {
+  test("produce 15 InngestFunction con IDs esperados", () => {
     const leads = new InMemoryLeadsRepository();
     const conversations = new InMemoryConversationsRepository();
     const sessions = new InMemoryLeadSessionRepository();
@@ -98,6 +99,7 @@ describe("makeCrmInngestFunctions", () => {
         emit: async () => {},
       },
       onStatusReceived: { messages },
+      onOperationalReceived: { eventos: new InMemoryMetaOperationalEventsRepository() },
       updateLeadTwin: { twinExtractor },
       detectIntentsBatch: {
         sessions,
@@ -123,12 +125,13 @@ describe("makeCrmInngestFunctions", () => {
       workflowSegmento: { runs: workflowRuns, workflows, registro },
     });
 
-    expect(fns).toHaveLength(14);
+    expect(fns).toHaveLength(15);
     const ids = fns.map((f) => f.id());
     expect(ids).toEqual(
       expect.arrayContaining([
         expect.stringContaining("on-message-received"),
         expect.stringContaining("on-status-received"),
+        expect.stringContaining("on-operational-received"),
         expect.stringContaining("update-lead-twin"),
         expect.stringContaining("detect-intents.batch"),
         expect.stringContaining("auto-handoff"),

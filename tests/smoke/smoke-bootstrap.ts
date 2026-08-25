@@ -69,6 +69,7 @@ import { crearAccionesInternas } from "@/server/services/workflows/acciones/inte
 import { crearAccionEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
 import type { ConfigProviderParaEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
 import { crearRegistro } from "@/server/services/workflows/acciones/registro";
+import { InMemoryMetaOperationalEventsRepository } from "@/server/repositories/meta-operational-events.repo";
 
 export interface SmokeBundle {
   deps: CrmInngestDeps;
@@ -236,6 +237,7 @@ export function makeSmokeBundle(): SmokeBundle {
       logger,
     },
     onStatusReceived: { messages },
+    onOperationalReceived: { eventos: new InMemoryMetaOperationalEventsRepository() },
     updateLeadTwin: { twinExtractor },
     detectIntentsBatch: {
       sessions,

@@ -25,6 +25,25 @@ export const statusReceived = eventType("meta/status.received", {
 // procedencia de cada campo para poder decir de qué mensaje salió el dato.
 // Opcional porque los eventos ya encolados con la forma vieja tienen que seguir
 // procesándose.
+/**
+ * Eventos operativos de la plataforma de Meta: le pasan a la cuenta, no a una
+ * conversación. Plantilla aprobada o rechazada, cambio de límite del número,
+ * revisión de la cuenta.
+ *
+ * `ocurrido_at` viaja en ISO por el mismo motivo que el `at` de los estados de
+ * entrega: una `Date` no sobrevive la serialización del evento.
+ */
+export const operationalReceived = eventType("meta/operational.received", {
+  schema: staticSchema<{
+    campo: string;
+    evento: string | null;
+    objeto_id: string | null;
+    objeto_nombre: string | null;
+    payload: Record<string, unknown>;
+    ocurrido_at: string | null;
+  }>(),
+});
+
 export const turnCompleted = eventType("lead-session/turn.completed", {
   schema: staticSchema<{
     leadSessionId: UUID;

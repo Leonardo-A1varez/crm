@@ -52,10 +52,10 @@ describe("E2E smoke — bootstrap wireup with InMemory repos", () => {
     expect(bundle.repos.leads.constructor.name).toBe("InMemoryLeadsRepository");
   });
 
-  test("makeCrmInngestFunctions(smokeDeps) retorna 14 functions", () => {
+  test("makeCrmInngestFunctions(smokeDeps) retorna 15 functions", () => {
     const bundle = makeSmokeBundle();
     const functions = makeCrmInngestFunctions(bundle.deps);
-    expect(functions).toHaveLength(14);
+    expect(functions).toHaveLength(15);
     // Verifica que cada function tiene shape Inngest válido (id + trigger).
     for (const fn of functions) {
       expect(fn).toBeDefined();

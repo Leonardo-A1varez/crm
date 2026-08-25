@@ -9,6 +9,20 @@ export interface ParsedStatus {
   error: string | null;
 }
 
+export interface ParsedOperationalEvent {
+  /** El `field` del change de Meta. Ver `meta_operational_events.campo`. */
+  campo: string;
+  /** El `event` de adentro del value. No todos los campos operativos traen uno. */
+  evento: string | null;
+  /** Id de la plantilla, número, o lo que sea que el evento nombre. */
+  objeto_id: string | null;
+  objeto_nombre: string | null;
+  /** El `value` crudo. Fuente de verdad; las columnas son sólo un índice. */
+  payload: Record<string, unknown>;
+  /** Cuándo lo disparó Meta, no cuándo lo recibimos. */
+  ocurrido_at: Date | null;
+}
+
 export interface ParsedMessage {
   canal: Canal;
   canal_thread_id: string;
@@ -275,4 +289,75 @@ function asArray(v: unknown): unknown[] {
 
 function asString(v: unknown): string | null {
   return typeof v === "string" && v.length > 0 ? v : null;
+}
+
+/**
+ * Eventos operativos de la plataforma: le pasan a la CUENTA, no a una
+ * conversación. Una plantilla aprobada o rechazada, un cambio de límite de
+ * mensajería del número, una revisión de la cuenta.
+ *
+ * Hasta el 2026-08-25 el parser hacía `if (change.field !== "messages") continue`
+ * y los tiraba en silencio. No rompía nada —el webhook seguía devolviendo 200—
+ * pero significaba que si Meta rechazaba una plantilla nadie se enteraba hasta
+ * que fallaba un envío.
+ *
+ * Captura **cualquier** `field` que no sea `messages`, incluidos los que Meta
+ * invente mañana. Un allowlist de campos conocidos se quedaría viejo en
+ * silencio, que es el problema que este código viene a resolver, no a repetir.
+ * El `value` entero se conserva crudo: las columnas de `meta_operational_events`
+ * son un índice para consultar, no un reemplazo del payload.
+ */
+export function parseMetaOperationalEvents(payload: unknown): ParsedOperationalEvent[] {
+  if (!isObject(payload)) return [];
+  if (payload.object !== "whatsapp_business_account") return [];
+
+  const out: ParsedOperationalEvent[] = [];
+  for (const entry of asArray(payload.entry)) {
+    if (!isObject(entry)) continue;
+    const ocurrido = tiempoDeEntry(entry.time);
+
+    for (const change of asArray(entry.changes)) {
+      if (!isObject(change)) continue;
+      const campo = change.field;
+      // `messages` trae mensajes y estados de entrega, que tienen sus propios
+      // parsers y su propio destino. Acá sería duplicarlos.
+      if (typeof campo !== "string" || campo === "messages") continue;
+
+      const value = isObject(change.value) ? change.value : {};
+      out.push({
+        campo,
+        evento: typeof value["event"] === "string" ? value["event"] : null,
+        objeto_id: identificarObjeto(value),
+        objeto_nombre:
+          typeof value["message_template_name"] === "string"
+            ? value["message_template_name"]
+            : null,
+        payload: value,
+        ocurrido_at: ocurrido,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Qué objeto de Meta quedó afectado. Cada campo operativo lo nombra distinto y
+ * no hay una clave común, así que se prueban las conocidas en orden y se cae a
+ * `null` — que significa "el evento no dice sobre qué", no "no importa".
+ */
+function identificarObjeto(value: Record<string, unknown>): string | null {
+  const candidatos = ["message_template_id", "display_phone_number", "phone_number", "id"];
+  for (const clave of candidatos) {
+    const v = value[clave];
+    if (typeof v === "string" && v.length > 0) return v;
+    if (typeof v === "number") return String(v);
+  }
+  return null;
+}
+
+/** `entry[].time` viene en segundos Unix. Ausente o inválido queda en null. */
+function tiempoDeEntry(time: unknown): Date | null {
+  if (typeof time !== "number" || !Number.isFinite(time)) return null;
+  const d = new Date(time * 1000);
+  return Number.isNaN(d.getTime()) ? null : d;
 }

@@ -72,6 +72,7 @@ import { crearAccionesInternas } from "@/server/services/workflows/acciones/inte
 import { crearAccionEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
 import { crearRegistro } from "@/server/services/workflows/acciones/registro";
 import type { ConfigProviderParaEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
+import { SupabaseMetaOperationalEventsRepository } from "@/server/repositories/meta-operational-events.supabase.repo";
 
 export interface BootstrapConfig {
   env: AppEnv;
@@ -277,6 +278,10 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     },
     onStatusReceived: {
       messages,
+    },
+    onOperationalReceived: {
+      eventos: new SupabaseMetaOperationalEventsRepository(db),
+      logger: getLogger({ scope: "meta-operational" }),
     },
     updateLeadTwin: {
       twinExtractor,
