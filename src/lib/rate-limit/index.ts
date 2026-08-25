@@ -13,6 +13,7 @@
  */
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
+import { esPlaceholder } from "@/lib/config-placeholder";
 
 export interface RateLimitResult {
   /** True si la request es permitida; false si excede limit. */
@@ -115,7 +116,11 @@ export function makeRateLimiterFromEnv(options: {
   window?: UpstashRateLimiterOptions["window"];
   prefix?: string;
 }): RateLimiter {
-  if (!options.url || !options.token) {
+  // Un placeholder ES una URL valida, asi que chequear solo por vacio lo deja
+  // pasar y termina construyendo un cliente Redis contra un host inexistente:
+  // el webhook devuelve 500 y Meta reintenta en loop. Paso en produccion el
+  // 2026-08-25 con `https://placeholder.upstash.io`.
+  if (esPlaceholder(options.url) || esPlaceholder(options.token)) {
     return new NoopRateLimiter();
   }
   const redis = new Redis({ url: options.url, token: options.token });

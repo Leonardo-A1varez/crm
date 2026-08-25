@@ -7,6 +7,7 @@ import {
   type UsageRecord,
 } from "./cost-tracker";
 import type { Logger } from "./logger";
+import { esPlaceholder } from "@/lib/config-placeholder";
 
 /**
  * CostTracker persistente sobre Upstash Redis. Arregla el kill-switch roto en
@@ -68,13 +69,9 @@ export interface MakeCostTrackerConfig extends CostTrackerConfig {
   logger: Logger;
 }
 
-function isPlaceholder(value: string | undefined): boolean {
-  return !value || value.includes("placeholder") || value.startsWith("test-");
-}
-
 export function makeCostTracker(cfg: MakeCostTrackerConfig): CostTracker {
   const { upstashUrl, upstashToken, logger, ...base } = cfg;
-  if (isPlaceholder(upstashUrl) || isPlaceholder(upstashToken)) {
+  if (esPlaceholder(upstashUrl) || esPlaceholder(upstashToken)) {
     logger.warn("cost-tracker in-memory: daily cap NO persistente entre cold starts", {
       hint: "configurar UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN para prod",
     });
