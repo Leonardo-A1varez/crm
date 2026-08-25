@@ -322,7 +322,7 @@ El CLI de Supabase se negaba a aplicar por dos entradas fantasma (`seed_seguimie
 ### Lo que sigue pendiente, sin adornos
 
 - **Sin rate limit ni tope de gasto en producción.** Las variables de Upstash quedaron eliminadas porque eran placeholders que reventaban. `NoopRateLimiter` y cost tracker en memoria. **No urge con el número sin publicar; es requisito antes de publicarlo.**
-- **Sin Sentry.** `AGENTS.md` lo lista como obligatorio pre-launch. Una excepción no atrapada en producción no la ve nadie.
+- **Sentry activo y verificado (2026-08-25).** Excepción de prueba capturada en producción con `handled: false`, `environment: vercel-production` y `mechanism: auto.function.nextjs.on_request_error`. Alerta `Errores del CRM` conectada al monitor del proyecto: dispara con issue nuevo, escalado o regresión, y notifica al miembro por mail — no a “Suggested Assignees”, que depende de la integración de código que no está conectada, ni a “Recently Active Members”, que falla justo cuando hace falta: cuando nadie miró Sentry en semanas. `Send Test Notification` confirmó el envío.
 - **Sin pen test.** Es la primera vez que la app está expuesta a internet. RLS está (43 policies, matriz 11/11) pero nunca se probó desde afuera.
 - **Nada emite el evento que dispara un workflow.** El motor de W2 está completo y sólo arranca a mano. Queda para W3.
 - **Integration tests congelados**, esperando la base aislada.
