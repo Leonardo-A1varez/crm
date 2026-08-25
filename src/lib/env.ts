@@ -115,7 +115,12 @@ const testEnvSchema = envSchema.partial().transform(
     META_VERIFY_TOKEN: partial.META_VERIFY_TOKEN ?? "test-verify",
     META_WHATSAPP_PHONE_NUMBER_ID: partial.META_WHATSAPP_PHONE_NUMBER_ID ?? "0",
     META_WHATSAPP_ACCESS_TOKEN: partial.META_WHATSAPP_ACCESS_TOKEN ?? "test-token",
-    META_GRAPH_API_VERSION: partial.META_GRAPH_API_VERSION ?? "v21.0",
+    // v26.0 desde el 2026-08-25. Se subio desde v21.0 tras verificar con el MCP
+    // oficial de Meta que la app no tiene NINGUNA deprecacion abierta y que el
+    // changelog de Business Messaging no trae cambios que rompan el envio de
+    // texto. AGENTS.md decia "v21.0 necesita upgrade contractual" sin fecha, y
+    // ese apuro nunca existio: era higiene, no incendio.
+    META_GRAPH_API_VERSION: partial.META_GRAPH_API_VERSION ?? "v26.0",
     META_IG_PAGE_ID: partial.META_IG_PAGE_ID,
     META_IG_ACCESS_TOKEN: partial.META_IG_ACCESS_TOKEN,
     META_FB_PAGE_ID: partial.META_FB_PAGE_ID,

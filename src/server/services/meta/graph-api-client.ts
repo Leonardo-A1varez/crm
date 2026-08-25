@@ -7,7 +7,7 @@ import type {
 } from "@/server/services/meta-api.service";
 
 export interface GraphApiMetaClientConfig {
-  /** Meta Graph API version, e.g. "v21.0". Reads from env `META_GRAPH_API_VERSION`. */
+  /** Meta Graph API version, e.g. "v26.0". Reads from env `META_GRAPH_API_VERSION`. */
   graphApiVersion: string;
   /** WhatsApp Business phone_number_id (from env `META_WHATSAPP_PHONE_NUMBER_ID`). */
   whatsappPhoneNumberId: string;
