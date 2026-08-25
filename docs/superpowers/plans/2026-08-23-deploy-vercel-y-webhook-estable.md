@@ -202,3 +202,75 @@ Reemplazar la línea del upgrade contractual por lo verificado: versión en uso,
 - **No hace pen test** ni revisión de seguridad del endpoint público. Es la primera vez que la app queda expuesta a internet; RLS está (43 policies, matriz 11/11) pero nunca se probó desde afuera.
 - **No toca la IA del CRM.** Las herramientas de DevTools son de desarrollo y se quedan en desarrollo: el agente vendedor procesa texto de desconocidos, y darle una herramienta que escribe configuración de Meta es prompt injection con superficie abierta.
 - **No corre los integration tests.** Siguen congelados esperando la base aislada.
+
+---
+
+## ESTADO AL PARAR — 2026-08-23
+
+**El CRM está desplegado y la entrada funciona de punta a punta contra produccion.**
+
+URL estable: `https://crm-wine-one-38.vercel.app` (alias de produccion, no cambia entre deploys).
+
+### Lo que quedo funcionando y verificado
+
+| Cosa                      | Evidencia                                                                                      |
+| ------------------------- | ---------------------------------------------------------------------------------------------- |
+| Deploy en produccion      | `readyState: READY`                                                                            |
+| `/api/health`             | 200 · `db: ok` · `inngest: ok` · `openai: skipped`                                             |
+| Handshake de Meta         | 200, devolvio el challenge exacto                                                              |
+| Suscripcion del webhook   | apunta a Vercel (antes: ngrok muerto)                                                          |
+| Sync con Inngest Cloud    | `Successfully registered`, y el cron `dispatch-outbox-events` corre cada minuto                |
+| **Mensaje entrante real** | fila en `mensajes` con `direction='in'`, **por webhook**, sin `metadata.origen='carga_manual'` |
+
+### Los 5 bloqueantes que se encontraron y arreglaron, en orden
+
+Cada uno era invisible hasta que el anterior estaba resuelto. El pipeline falla en capas.
+
+1. **Callback en ngrok muerto** → reapuntado a Vercel con `devtools_webhook_manage`.
+2. **`INNGEST_SIGNING_KEY` invalida** (`401 Your signing key is invalid` en el `PUT` de sync) → rotada y recargada.
+3. **`META_APP_SECRET` viejo** (`meta.webhook.hmac.invalid`, Meta entregaba y se rechazaba) → actualizado.
+4. **`UPSTASH_REDIS_REST_URL` = `https://placeholder.upstash.io`** (`ENOTFOUND`, el webhook devolvia 500 y Meta reintentaba) → variables placeholder eliminadas.
+5. **`INNGEST_EVENT_KEY` invalida** (`401 Event key not found`, el mensaje se parseaba y moria al pasar a Inngest) → reemplazada.
+
+Todas eran variables de Vercel de hace 39 dias, de una preparacion que nunca se llego a desplegar.
+
+### Lo ultimo que falta — un solo paso
+
+Se cargo `LLM_MODE=real` y el `META_WHATSAPP_ACCESS_TOKEN` bueno (el de `.env.local`, que funciona), y se redesplego. **Falta mandar un WhatsApp y confirmar que el agente responde.**
+
+Los dos ultimos errores vistos, ya corregidos pero sin verificar:
+
+- `[mock agent — LLM_MODE=mock activo]` → arreglado con `LLM_MODE=real`.
+- `Meta auth error (wa.sendText): Invalid OAuth access token` (code 190) → arreglado con el token nuevo.
+
+Si el proximo mensaje entra Y el agente contesta por WhatsApp, la cadena esta cerrada en las dos direcciones.
+
+### DEFECTO DE CODIGO ENCONTRADO — pendiente de arreglar con test
+
+`makeRateLimiterFromEnv` (`src/lib/rate-limit/index.ts:118`) chequea solo `if (!options.url || !options.token)`. Un placeholder **es** una URL valida, asi que pasa el filtro, construye un cliente Redis contra un host inexistente, y **tumba el webhook con 500** — haciendo que Meta reintente en loop.
+
+`makeCostTracker` (`src/lib/observability/upstash-cost-tracker.ts:77`) hace lo correcto: usa `isPlaceholder()` y degrada limpio a InMemory con un warn.
+
+**Dos fabricas, el mismo escenario, comportamientos opuestos.** La del rate limiter tiene que usar el mismo `isPlaceholder()`. Es exactamente el patron que este proyecto viene cazando: una guarda que parece estar y no esta.
+
+### B2 confirmado con evidencia
+
+Los logs de produccion dicen `cost-tracker in-memory: daily cap NO persistente entre cold starts`. **Los valores de Upstash eran placeholders**, y ahora las variables estan directamente eliminadas. En produccion no hay tope de gasto persistente ni rate limit en el webhook (`NoopRateLimiter`).
+
+No bloquea hoy: el numero de prueba no esta publicado y el HMAC cubre el borde. **Entra al checklist de publicar el numero.**
+
+### Tareas 2 y 3 del plan: sin empezar
+
+- Task 2 (los 9 campos de webhook que se descartan) — sin tocar.
+- Task 3 (`v21.0` → `v26.0`) — sin tocar, y sin urgencia: Meta no tiene deprecaciones abiertas contra la app.
+
+### MCP nuevos, sin commitear
+
+`.mcp.json` esta **untracked**. Tiene dos servidores, ninguno con secretos:
+
+- `meta_developer_tools` → `https://mcp.facebook.com/devtools` (OAuth, ya autenticado, scope read+manage sobre `Crm Genuino`)
+- `inngest-dev` → `http://127.0.0.1:8288/mcp` (sin auth, solo sirve con el dev server local levantado)
+
+**Decision pendiente del dueño:** commitearlo (toda sesion futura sobre el repo los levanta sola) o dejarlo local.
+
+Opcional para la proxima: una API key de Inngest (`sk-inn-api-...`) habilita el MCP de Inngest **Cloud**, con `list_runs`, `get_run_trace` y demas. Convierte "creo que funciono" en "aca esta la corrida".
