@@ -44,13 +44,26 @@ Las dos llaves de Inngest son `local-dev`. En producción eso hace que `inngest.
 
 Hace falta: cuenta en inngest.com, una app, y de ahí el **Event Key** y el **Signing Key** de producción.
 
-### B2 — [DUEÑO] Decisión sobre el tope de gasto de IA
+### B2 — Upstash: NO bloquea el deploy. Bloquea publicar el número.
 
-`AGENTS.md` registra que Upstash quedó afuera por decisión tuya. Consecuencia que ahora es real y no teórica: el `CostTracker` cae al fallback **InMemory**, y en serverless cada invocación arranca con memoria limpia. **El kill-switch de gasto diario no funciona en producción.**
+> **Corregido el 2026-08-23 tras verificar el código.** La primera versión de este bloqueante decía que "cualquiera que consiga tu número puede generar llamadas a OpenAI sin techo". **Eso es falso** y sobredimensionaba el riesgo. Queda acá el análisis real.
 
-Hasta hoy eso no importaba porque no había producción. Con una URL pública, cualquiera que consiga tu número puede generar llamadas a OpenAI sin techo.
+Sin las dos variables de Upstash caen **dos** protecciones, no una, y las dos en silencio:
 
-Tres caminos, y hay que elegir uno antes del deploy: (a) Upstash (revierte la decisión, ~gratis en free tier), (b) desplegar igual y aceptar que no hay tope, (c) bajar `LLM_DAILY_CAP_USD` y aceptar que solo limita dentro de una misma invocación.
+| Fábrica                                                                | Sin vars devuelve            | Efecto                                       |
+| ---------------------------------------------------------------------- | ---------------------------- | -------------------------------------------- |
+| `makeRateLimiterFromEnv` (`src/lib/rate-limit/index.ts:118`)           | `NoopRateLimiter`            | **cero rate limit** en el webhook público    |
+| `makeCostTracker` (`src/lib/observability/upstash-cost-tracker.ts:77`) | `InMemoryCostTracker` + warn | el tope diario se resetea en cada cold start |
+
+**Lo que NO es un problema:** el webhook tiene el orden correcto (`src/app/api/webhooks/meta/route.ts`): HMAC en el paso 2, **antes** del rate limit, del parser y de Inngest. Sin `META_APP_SECRET` un atacante se come un 401 antes de que se toque nada caro. **No puede disparar ni una llamada al LLM.**
+
+**El riesgo real:** alguien que **conozca el número de WhatsApp** puede sostener conversación con el agente sin techo diario de gasto y sin throttle en nuestro borde. Es exposición acotada a quien tenga el número, no a internet.
+
+**Además el gasto sigue siendo observable**: `persisting-cost-tracker` envuelve al tracker y escribe en `llm_usage` independientemente de Upstash. Se pierde el corte automático, no la visibilidad.
+
+**Decisión:** con número de prueba sin publicar y 3-4 usuarios internos, la exposición es baja. **El deploy procede sin Upstash.**
+
+**Pero las dos variables entran antes de poner el número real** — y no por el tope de gasto, que fue decisión del dueño y se respeta, sino por el **rate limit del webhook**, que es otra cosa y que hoy está en `Noop` sin que nadie lo haya decidido. Eso queda como entrada del checklist de "publicar el número", no de este plan.
 
 ---
 
@@ -58,7 +71,7 @@ Tres caminos, y hay que elegir uno antes del deploy: (a) Upstash (revierte la de
 
 **Files:** ninguno de código. Es configuración y verificación.
 
-**Depende de:** B1 y B2 resueltos.
+**Depende de:** B1 resuelto. B2 NO bloquea (ver arriba).
 
 - [ ] **Paso 1: Cargar las variables de entorno en Vercel**
 
@@ -184,7 +197,7 @@ Reemplazar la línea del upgrade contractual por lo verificado: versión en uso,
 
 ## Lo que este plan NO hace, dicho en voz alta
 
-- **No arregla que el tope de gasto de IA no funcione en serverless.** Depende de B2. Si el dueño elige (b) o (c), producción queda sin techo real de gasto de OpenAI y hay que decirlo al cerrar.
+- **No pone Upstash.** Producción queda con en el webhook y sin tope diario de gasto persistente. Decidido a proposito (ver B2): la exposicion es baja mientras el numero no se publique, y el gasto sigue siendo visible en . **Entra al checklist de publicar el numero, no a este plan.**
 - **No pone Sentry.** `AGENTS.md` lo lista como obligatorio pre-launch y sigue pendiente. Sin él, una excepción no atrapada en producción no se entera nadie.
 - **No hace pen test** ni revisión de seguridad del endpoint público. Es la primera vez que la app queda expuesta a internet; RLS está (43 policies, matriz 11/11) pero nunca se probó desde afuera.
 - **No toca la IA del CRM.** Las herramientas de DevTools son de desarrollo y se quedan en desarrollo: el agente vendedor procesa texto de desconocidos, y darle una herramienta que escribe configuración de Meta es prompt injection con superficie abierta.
