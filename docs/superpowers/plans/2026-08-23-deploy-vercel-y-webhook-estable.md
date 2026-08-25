@@ -274,3 +274,55 @@ No bloquea hoy: el numero de prueba no esta publicado y el HMAC cubre el borde. 
 **Decision pendiente del dueño:** commitearlo (toda sesion futura sobre el repo los levanta sola) o dejarlo local.
 
 Opcional para la proxima: una API key de Inngest (`sk-inn-api-...`) habilita el MCP de Inngest **Cloud**, con `list_runs`, `get_run_trace` y demas. Convierte "creo que funciono" en "aca esta la corrida".
+
+---
+
+## PLAN COMPLETO — 2026-08-25
+
+Las tres tareas cerradas y verificadas contra producción real.
+
+### Task 1 — Deploy con URL estable ✅
+
+`https://crm-wine-one-38.vercel.app`. Cadena entera funcionando en las dos direcciones: WhatsApp → Meta → Vercel → HMAC → Inngest → Postgres → OpenAI → Meta → teléfono, en 7-8 segundos.
+
+`/api/health` pasó de `degraded` a **`ok`**: `db`, `inngest` y `openai` los tres verdes. Antes `openai` daba `skipped` porque la key era un placeholder — el endpoint de salud recién ahora dice la verdad.
+
+**Se encontraron 7 variables placeholder**, todas de una tanda de 39 días atrás de una preparación que nunca se desplegó. Cada una era invisible hasta arreglar la anterior:
+
+| #   | Variable                        | Sintoma                                                |
+| --- | ------------------------------- | ------------------------------------------------------ |
+| 1   | callback en ngrok muerto        | mensajes perdidos sin error                            |
+| 2   | `INNGEST_SIGNING_KEY`           | `401 signing key is invalid` en el sync                |
+| 3   | `META_APP_SECRET`               | `hmac.invalid` — Meta entregaba y se rechazaba         |
+| 4   | `UPSTASH_REDIS_REST_URL`        | `ENOTFOUND placeholder.upstash.io`, 500 y Meta en loop |
+| 5   | `INNGEST_EVENT_KEY`             | `401 Event key not found`                              |
+| 6   | `OPENAI_API_KEY`                | `Incorrect API key: dev-plac***lder`                   |
+| 7   | `META_WHATSAPP_PHONE_NUMBER_ID` | `Object with ID '000000000000000'`                     |
+
+**Lección para el runbook:** un deploy que levanta y responde 200 no prueba nada. `/api/health` daba 200 con `inngest: ok` mientras el pipeline no procesaba un solo mensaje. Lo unico que valida es disparar tráfico real y leer los logs.
+
+### Task 2 — Campos operativos del webhook ✅
+
+`parseMetaOperationalEvents()` + tabla `meta_operational_events` + función de Inngest. Captura cualquier campo que no sea `messages`, incluidos los que Meta invente después. Detalle y formas verificadas en `docs/meta-webhook-payloads.md`.
+
+Suscripción reducida de 10 campos a los 3 que el código maneja.
+
+### Task 3 — `v21.0` → `v26.0` ✅
+
+Sin urgencia real: cero deprecaciones abiertas contra la app, y el changelog no trae cambios que rompan el envío de texto. Verificado disparándolo — mensaje y respuesta con `wamid` de Meta.
+
+### Bug de código encontrado y arreglado en el camino
+
+`makeRateLimiterFromEnv` chequeaba solo si la URL estaba vacía; un placeholder **es** una URL válida, así que construía un cliente Redis contra un host inexistente y tumbaba el webhook. `makeCostTracker` nunca tuvo el bug porque usaba `isPlaceholder()` — que vivía **privada** en su módulo, y esa era la causa raíz: la regla no se podía compartir. Ahora es `esPlaceholder()` en `src/lib/config-placeholder.ts` y las dos fábricas la usan.
+
+### Divergencia repo↔ledger cerrada
+
+El CLI de Supabase se negaba a aplicar por dos entradas fantasma (`seed_seguimiento_carlos`, `limpiar_leads_de_prueba`) que se arrastraban desde la sesión de Métricas. Reparadas: **64 archivos = 64 en el ledger** por primera vez en semanas.
+
+### Lo que sigue pendiente, sin adornos
+
+- **Sin rate limit ni tope de gasto en producción.** Las variables de Upstash quedaron eliminadas porque eran placeholders que reventaban. `NoopRateLimiter` y cost tracker en memoria. **No urge con el número sin publicar; es requisito antes de publicarlo.**
+- **Sin Sentry.** `AGENTS.md` lo lista como obligatorio pre-launch. Una excepción no atrapada en producción no la ve nadie.
+- **Sin pen test.** Es la primera vez que la app está expuesta a internet. RLS está (43 policies, matriz 11/11) pero nunca se probó desde afuera.
+- **Nada emite el evento que dispara un workflow.** El motor de W2 está completo y sólo arranca a mano. Queda para W3.
+- **Integration tests congelados**, esperando la base aislada.
