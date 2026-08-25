@@ -7,6 +7,10 @@
     "inngest-dev": {
       "type": "http",
       "url": "http://127.0.0.1:8288/mcp"
+    },
+    "sentry": {
+      "type": "http",
+      "url": "https://mcp.sentry.dev/mcp/genuino-crm-dev"
     }
   }
 }
