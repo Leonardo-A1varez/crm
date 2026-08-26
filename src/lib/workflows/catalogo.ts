@@ -11,6 +11,8 @@
  * en producción con un `accion_desconocida`.
  */
 
+import type { NodoTipo } from "@/types/workflows";
+
 /**
  * Los eventos de dominio que arrancan una corrida.
  *
@@ -51,7 +53,7 @@ export const ETIQUETA_ACCION: Record<AccionWorkflow, string> = {
   escalar_a_humano: "Pasar a un vendedor",
 };
 
-export const ETIQUETA_NODO: Record<string, string> = {
+export const ETIQUETA_NODO: Record<NodoTipo, string> = {
   disparador: "Disparador",
   accion: "Acción",
   condicion: "Condición",

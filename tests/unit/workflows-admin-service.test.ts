@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { ValidationError } from "@/lib/errors";
+import { describe, expect, it, vi } from "vitest";
+import { NotFoundError, ValidationError } from "@/lib/errors";
+import { InMemoryWorkflowRunsRepository } from "@/server/repositories/workflow-runs.repo";
 import { InMemoryWorkflowsRepository } from "@/server/repositories/workflows.repo";
 import { DefaultWorkflowsAdminService } from "@/server/services/workflows/workflows-admin.service";
 import type { Grafo } from "@/types/workflows";
@@ -28,7 +29,12 @@ const CICLO_SIN_ESPERA: Grafo = {
 
 function build() {
   const repo = new InMemoryWorkflowsRepository();
-  return { repo, service: new DefaultWorkflowsAdminService({ workflows: repo }) };
+  const runs = new InMemoryWorkflowRunsRepository();
+  return {
+    repo,
+    runs,
+    service: new DefaultWorkflowsAdminService({ workflows: repo, workflowRuns: runs }),
+  };
 }
 
 describe("DefaultWorkflowsAdminService", () => {
@@ -180,5 +186,198 @@ describe("DefaultWorkflowsAdminService", () => {
 
     expect(d?.workflow.nombre).toBe("W");
     expect(d?.versiones).toEqual([]);
+  });
+});
+
+/**
+ * `runs.arrancar` sólo recibe `versionId`; para que `metricasPorWorkflow`
+ * agrupe por el workflow correcto (y no por la versión, su fallback sin
+ * resolver) cada test que necesita runs registra el par en este mapa antes de
+ * arrancar la corrida -- mismo patrón que ya usa
+ * `tests/unit/workflow-runs-repo.test.ts` para el escopeo de "corrida viva".
+ */
+function buildConRuns() {
+  const versionDeWorkflow = new Map<string, string>();
+  const workflows = new InMemoryWorkflowsRepository();
+  const workflowRuns = new InMemoryWorkflowRunsRepository((versionId) =>
+    versionDeWorkflow.get(versionId),
+  );
+  const service = new DefaultWorkflowsAdminService({ workflows, workflowRuns });
+  return { workflows, workflowRuns, service, versionDeWorkflow };
+}
+
+describe("DefaultWorkflowsAdminService.listarConResumen", () => {
+  it("un workflow sin ninguna version es 'borrador', sin métricas ni pasos", async () => {
+    const { service } = buildConRuns();
+    await service.crear({ nombre: "W", descripcion: null });
+
+    const [resumen] = await service.listarConResumen();
+
+    expect(resumen?.estado).toBe("borrador");
+    expect(resumen?.tieneVersionBorrador).toBe(false);
+    expect(resumen?.versionPublicada).toBeNull();
+    expect(resumen?.resumenPasos).toEqual([]);
+    expect(resumen?.metricas).toEqual({ totalRuns: 0, runsExitosos: 0, ultimoRun: null });
+  });
+
+  it("con version publicada y prendido, sin runs recientes que hayan fallado: 'activo'", async () => {
+    const { service } = buildConRuns();
+    const w = await service.crear({ nombre: "W", descripcion: null });
+    const v = await service.guardarVersion({
+      workflowId: w.id,
+      grafo: VALIDO,
+      maxPasos: 500,
+      userId: null,
+    });
+    await service.publicar(v.id);
+    await service.reanudar(w.id);
+
+    const [resumen] = await service.listarConResumen();
+
+    expect(resumen?.estado).toBe("activo");
+    expect(resumen?.versionPublicada).toBe(1);
+    expect(resumen?.resumenPasos.length).toBeGreaterThan(0);
+  });
+
+  it("apagado con version publicada: 'pausado', pise o no un fallo viejo", async () => {
+    const { service } = buildConRuns();
+    const w = await service.crear({ nombre: "W", descripcion: null });
+    const v = await service.guardarVersion({
+      workflowId: w.id,
+      grafo: VALIDO,
+      maxPasos: 500,
+      userId: null,
+    });
+    await service.publicar(v.id);
+    // Nace apagado (`crear()`): no hace falta pausar para probar este caso.
+
+    const [resumen] = await service.listarConResumen();
+
+    expect(resumen?.estado).toBe("pausado");
+  });
+
+  it("prendido con la corrida más reciente fallada: 'error'", async () => {
+    const { service, workflowRuns, versionDeWorkflow } = buildConRuns();
+    const w = await service.crear({ nombre: "W", descripcion: null });
+    const v = await service.guardarVersion({
+      workflowId: w.id,
+      grafo: VALIDO,
+      maxPasos: 500,
+      userId: null,
+    });
+    await service.publicar(v.id);
+    await service.reanudar(w.id);
+
+    versionDeWorkflow.set(v.id, w.id);
+    const { run } = await workflowRuns.arrancar({
+      versionId: v.id,
+      leadId: "lead-1",
+      sessionId: null,
+      contexto: {},
+    });
+    await workflowRuns.fallar(run!.id, "el tool tardó demasiado", 1);
+
+    const [resumen] = await service.listarConResumen();
+
+    expect(resumen?.estado).toBe("error");
+    expect(resumen?.metricas.totalRuns).toBe(1);
+    expect(resumen?.metricas.runsExitosos).toBe(0);
+    expect(resumen?.metricas.ultimoRun?.exito).toBe(false);
+  });
+
+  it("una version nueva sin publicar sobre una publicada: tieneVersionBorrador true", async () => {
+    const { service } = buildConRuns();
+    const w = await service.crear({ nombre: "W", descripcion: null });
+    const v1 = await service.guardarVersion({
+      workflowId: w.id,
+      grafo: VALIDO,
+      maxPasos: 500,
+      userId: null,
+    });
+    await service.publicar(v1.id);
+    await service.guardarVersion({ workflowId: w.id, grafo: VALIDO, maxPasos: 500, userId: null });
+
+    const [resumen] = await service.listarConResumen();
+
+    expect(resumen?.tieneVersionBorrador).toBe(true);
+    expect(resumen?.versionPublicada).toBe(1);
+  });
+
+  it("sin ningún workflow, devuelve la lista vacía sin tocar workflowRuns", async () => {
+    const { service, workflowRuns } = buildConRuns();
+    const spy = vi.spyOn(workflowRuns, "metricasPorWorkflow");
+
+    expect(await service.listarConResumen()).toEqual([]);
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe("DefaultWorkflowsAdminService.duplicar", () => {
+  it("copia nombre, descripción y la última versión guardada a un workflow nuevo y apagado", async () => {
+    const { service } = buildConRuns();
+    const w = await service.crear({ nombre: "Original", descripcion: "una descripción" });
+    await service.guardarVersion({ workflowId: w.id, grafo: VALIDO, maxPasos: 77, userId: null });
+
+    const copia = await service.duplicar(w.id);
+
+    expect(copia.nombre).toBe("Original (copia)");
+    expect(copia.descripcion).toBe("una descripción");
+    expect(copia.activo).toBe(false);
+
+    const detalle = await service.detalle(copia.id);
+    expect(detalle?.versiones).toHaveLength(1);
+    expect(detalle?.versiones[0]?.grafo).toEqual(VALIDO);
+    expect(detalle?.versiones[0]?.max_pasos).toBe(77);
+    expect(detalle?.versiones[0]?.publicada).toBe(false);
+  });
+
+  it("duplicar un workflow sin ninguna version no crea ninguna en la copia", async () => {
+    const { service } = buildConRuns();
+    const w = await service.crear({ nombre: "Sin version", descripcion: null });
+
+    const copia = await service.duplicar(w.id);
+
+    const detalle = await service.detalle(copia.id);
+    expect(detalle?.versiones).toEqual([]);
+  });
+
+  it("el nombre de la copia no supera el tope de 80 caracteres", async () => {
+    const { service } = buildConRuns();
+    const nombreLargo = "N".repeat(80);
+    const w = await service.crear({ nombre: nombreLargo, descripcion: null });
+
+    const copia = await service.duplicar(w.id);
+
+    expect(copia.nombre.length).toBeLessThanOrEqual(80);
+    expect(copia.nombre.endsWith(" (copia)")).toBe(true);
+  });
+
+  it("duplicar un workflow inexistente rechaza con NotFoundError", async () => {
+    const { service } = buildConRuns();
+    await expect(service.duplicar("00000000-0000-4000-8000-000000000999")).rejects.toBeInstanceOf(
+      NotFoundError,
+    );
+  });
+});
+
+describe("DefaultWorkflowsAdminService.pausar / reanudar / eliminar", () => {
+  it("pausar apaga y reanudar prende", async () => {
+    const { service } = buildConRuns();
+    const w = await service.crear({ nombre: "W", descripcion: null });
+
+    await service.reanudar(w.id);
+    expect((await service.listar()).find((x) => x.id === w.id)?.activo).toBe(true);
+
+    await service.pausar(w.id);
+    expect((await service.listar()).find((x) => x.id === w.id)?.activo).toBe(false);
+  });
+
+  it("eliminar saca el workflow del listado", async () => {
+    const { service } = buildConRuns();
+    const w = await service.crear({ nombre: "W", descripcion: null });
+
+    await service.eliminar(w.id);
+
+    expect(await service.listar()).toEqual([]);
   });
 });

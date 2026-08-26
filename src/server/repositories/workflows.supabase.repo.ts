@@ -220,6 +220,23 @@ export class SupabaseWorkflowsRepository implements WorkflowsRepository {
       .map(mapVersion)
       .filter((v) => disparadorMatch(v.grafo, disparador));
   }
+
+  async setActivo(id: UUID, activo: boolean): Promise<Workflow> {
+    const { data, error } = await this.db
+      .from("workflows")
+      .update({ activo })
+      .eq("id", id)
+      .select(COLS_WORKFLOW)
+      .maybeSingle();
+    if (error) throw mapPostgrestError(error, { resource: "workflows" });
+    if (!data) throw new NotFoundError(`workflow no encontrado: ${id}`, "workflow", id);
+    return mapWorkflow(data);
+  }
+
+  async eliminar(id: UUID): Promise<void> {
+    const { error } = await this.db.from("workflows").delete().eq("id", id);
+    if (error) throw mapPostgrestError(error, { resource: "workflows" });
+  }
 }
 
 function mapWorkflow(r: {

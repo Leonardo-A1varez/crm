@@ -177,3 +177,63 @@ describe("SupabaseWorkflowsRepository.listarPublicadasPorDisparador", () => {
     expect(r.map((v) => v.id)).toEqual([versionQueMatchea.id]);
   });
 });
+
+const COLS_WORKFLOW = "id, nombre, descripcion, activo, created_at";
+
+describe("SupabaseWorkflowsRepository.setActivo", () => {
+  test("hace UPDATE de activo y devuelve la fila", async () => {
+    const id = crypto.randomUUID();
+    const fila = {
+      id,
+      nombre: "W",
+      descripcion: null,
+      activo: true,
+      created_at: new Date().toISOString(),
+    };
+    const maybeSingle = vi.fn().mockResolvedValue({ data: fila, error: null });
+    const select = vi.fn().mockReturnThis();
+    const eq = vi.fn().mockReturnThis();
+    const update = vi.fn().mockReturnThis();
+    const from = vi.fn().mockReturnValue({ update, eq, select, maybeSingle });
+    const fake = { from } as unknown as AppClient;
+    const repo = new SupabaseWorkflowsRepository(fake);
+
+    const resultado = await repo.setActivo(id, true);
+
+    expect(from).toHaveBeenCalledWith("workflows");
+    expect(update).toHaveBeenCalledWith({ activo: true });
+    expect(eq).toHaveBeenCalledWith("id", id);
+    expect(select).toHaveBeenCalledWith(COLS_WORKFLOW);
+    expect(resultado.activo).toBe(true);
+  });
+
+  test("sin fila devuelta, rechaza con NotFoundError", async () => {
+    const id = crypto.randomUUID();
+    const maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+    const from = vi.fn().mockReturnValue({
+      update: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      select: vi.fn().mockReturnThis(),
+      maybeSingle,
+    });
+    const fake = { from } as unknown as AppClient;
+    const repo = new SupabaseWorkflowsRepository(fake);
+
+    await expect(repo.setActivo(id, false)).rejects.toBeInstanceOf(NotFoundError);
+  });
+});
+
+describe("SupabaseWorkflowsRepository.eliminar", () => {
+  test("hace DELETE por id", async () => {
+    const id = crypto.randomUUID();
+    const eq = vi.fn().mockResolvedValue({ error: null });
+    const from = vi.fn().mockReturnValue({ delete: vi.fn().mockReturnValue({ eq }) });
+    const fake = { from } as unknown as AppClient;
+    const repo = new SupabaseWorkflowsRepository(fake);
+
+    await repo.eliminar(id);
+
+    expect(from).toHaveBeenCalledWith("workflows");
+    expect(eq).toHaveBeenCalledWith("id", id);
+  });
+});

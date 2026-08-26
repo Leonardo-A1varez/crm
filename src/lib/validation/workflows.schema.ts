@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { NODO_TIPOS, PUERTOS } from "@/types/workflows";
 import { CAMPOS_CONDICION, OPERADORES } from "@/lib/workflows/condiciones";
+import { ESTADOS_WORKFLOW_FILTRO, ORDENAR_WORKFLOWS } from "@/lib/ui/filtros-workflows";
 
 /**
  * Forma del grafo, no su sentido.
@@ -78,3 +79,17 @@ export type GuardarVersionActionInput = z.infer<typeof GuardarVersionSchema>;
 export const PublicarVersionSchema = z.object({
   versionId: z.string().uuid(),
 });
+
+/** Duplicar, pausar, reanudar y eliminar sólo necesitan saber cuál workflow. */
+export const WorkflowIdSchema = z.object({
+  workflowId: z.string().uuid(),
+});
+export type WorkflowIdInput = z.infer<typeof WorkflowIdSchema>;
+
+/** Filtros del listado (`getWorkflowsAction`). Todo opcional: sin filtros llega la lista entera. */
+export const FiltrosWorkflowsSchema = z.object({
+  busqueda: z.string().trim().max(200).optional(),
+  estado: z.enum(ESTADOS_WORKFLOW_FILTRO).optional(),
+  ordenar: z.enum(ORDENAR_WORKFLOWS).optional(),
+});
+export type FiltrosWorkflowsInput = z.infer<typeof FiltrosWorkflowsSchema>;

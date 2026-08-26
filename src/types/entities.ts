@@ -559,3 +559,42 @@ export interface WorkflowRunPaso {
   error: string | null;
   created_at: Date;
 }
+
+/**
+ * Corridas de los últimos 30 días de UN workflow (todas sus versiones, no sólo
+ * la publicada: una corrida vieja sigue pinneada a la versión con la que
+ * arrancó). "Éxito" = terminó sin error; una corrida todavía viva
+ * (`corriendo`/`esperando`) cuenta para `totalRuns` pero no para
+ * `runsExitosos` ni puede ser el último "fallado" que dispara el estado
+ * `error` de la card -- sólo lo hace un `fallado` real.
+ */
+export interface WorkflowMetricas {
+  totalRuns: number;
+  runsExitosos: number;
+  ultimoRun: { at: Date; exito: boolean; duracionMs: number | null } | null;
+}
+
+/**
+ * Los cuatro estados que ve alguien mirando la lista. NO es una columna: se
+ * deriva en `calcularEstadoWorkflow` (`lib/ui/workflow-estado.ts`) a partir de
+ * `workflows.activo`, si hay versión publicada y si la corrida más reciente
+ * falló -- la tabla no tiene ninguna columna "estado" y agregar una
+ * duplicaría una verdad que ya vive en otro lado.
+ */
+export const WORKFLOW_ESTADOS = ["activo", "borrador", "pausado", "error"] as const;
+export type WorkflowEstado = (typeof WORKFLOW_ESTADOS)[number];
+
+/** Lo que pinta una card de `/workflows`. Lo arma `WorkflowsAdminService.listarConResumen`. */
+export interface WorkflowResumen {
+  workflow: Workflow;
+  estado: WorkflowEstado;
+  /** Hay una versión más nueva que la publicada -- cambios sin publicar. */
+  tieneVersionBorrador: boolean;
+  /** Número de la versión publicada. `null` si nunca se publicó ninguna. */
+  versionPublicada: number | null;
+  /** Primeros pasos del grafo de la última versión, para leer el flujo sin abrirlo. */
+  resumenPasos: string[];
+  metricas: WorkflowMetricas;
+  /** `created_at` de la última versión guardada; si no hay ninguna, el del workflow. */
+  ultimaEdicion: Date;
+}

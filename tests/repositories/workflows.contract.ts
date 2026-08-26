@@ -187,5 +187,30 @@ export function runWorkflowsContract(makeRepo: () => WorkflowsRepository) {
         expect(await repo.listarPublicadasPorDisparador("etiqueta_asignada")).toEqual([]);
       });
     });
+
+    describe("setActivo", () => {
+      it("prende y apaga sin tocar nombre ni descripción", async () => {
+        const w = await repo.crearWorkflow({ nombre: "W", descripcion: "d", activo: false });
+
+        const prendido = await repo.setActivo(w.id, true);
+        expect(prendido.activo).toBe(true);
+        expect(prendido.nombre).toBe("W");
+        expect(prendido.descripcion).toBe("d");
+
+        const apagado = await repo.setActivo(w.id, false);
+        expect(apagado.activo).toBe(false);
+      });
+    });
+
+    describe("eliminar", () => {
+      it("saca el workflow de listarWorkflows", async () => {
+        const w = await repo.crearWorkflow({ nombre: "W", descripcion: null, activo: false });
+
+        await repo.eliminar(w.id);
+
+        expect(await repo.findWorkflow(w.id)).toBeNull();
+        expect(await repo.listarWorkflows()).toEqual([]);
+      });
+    });
   });
 }

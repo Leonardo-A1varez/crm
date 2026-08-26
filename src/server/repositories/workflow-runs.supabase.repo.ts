@@ -2,7 +2,7 @@ import { InfraError, NotFoundError } from "@/lib/errors";
 import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { serverNowIso } from "@/server/db/server-time";
-import type { UUID, WorkflowRun, WorkflowRunEstado } from "@/types/entities";
+import type { UUID, WorkflowMetricas, WorkflowRun, WorkflowRunEstado } from "@/types/entities";
 import type {
   ArrancarWorkflowRunInput,
   ArrancarWorkflowRunMotivo,
@@ -15,6 +15,23 @@ const COLS_RUN =
   "id, workflow_version_id, lead_id, lead_session_id, estado, nodo_actual, contexto, pasos_ejecutados, error, started_at, ended_at";
 
 const ESTADOS_VIVOS: readonly WorkflowRunEstado[] = ["corriendo", "esperando"];
+
+/**
+ * Tope de `metricasPorWorkflow`, mismo motivo que `MAX_WORKFLOWS_ACTIVOS` en
+ * `workflows.supabase.repo.ts`: PostgREST corta en 1.000 filas sin avisar
+ * (AGENTS.md nota 12), así que el `.range()` va explícito. 20.000 corridas en
+ * 30 días es generoso para el tier piloto (~5K leads/mes, AGENTS.md §1) y
+ * deja margen sin acercarse a un `.select()` sin tope.
+ */
+const MAX_RUNS_METRICAS = 20000;
+
+interface RunMetricaRow {
+  estado: WorkflowRunEstado;
+  error: string | null;
+  started_at: string;
+  ended_at: string | null;
+  workflow_versiones: { workflow_id: string };
+}
 
 interface ArrancarWorkflowRunRow {
   run_id: string | null;
@@ -183,6 +200,59 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
       .maybeSingle();
     if (error) throw mapPostgrestError(error, { resource: "workflow_runs" });
     return data ? mapRun(data as WorkflowRunRow) : null;
+  }
+
+  /**
+   * `workflow_id` no vive en `workflow_runs` (sólo `workflow_version_id`), así
+   * que se embebe `workflow_versiones!inner(workflow_id)` -- un join, no una
+   * segunda vuelta a la base. Mismo patrón que `listMensajesDesde` en
+   * `metrics.supabase.repo.ts`. La agregación (total/exitosos/último) se hace
+   * en JS sobre las filas crudas: es exactamente lo que ya hace el resto de
+   * `MetricsRepository` para la pantalla de Métricas, no una excepción nueva.
+   */
+  async metricasPorWorkflow(
+    workflowIds: readonly UUID[],
+    desde: Date,
+  ): Promise<Record<UUID, WorkflowMetricas>> {
+    if (workflowIds.length === 0) return {};
+
+    const { data, error } = await this.db
+      .from("workflow_runs")
+      .select("estado, error, started_at, ended_at, workflow_versiones!inner(workflow_id)")
+      .in("workflow_versiones.workflow_id", workflowIds as string[])
+      .gte("started_at", desde.toISOString())
+      .range(0, MAX_RUNS_METRICAS - 1);
+    if (error) throw mapPostgrestError(error, { resource: "workflow_runs" });
+
+    const acumulado = new Map<
+      string,
+      { total: number; exitosos: number; ultimo: WorkflowMetricas["ultimoRun"] }
+    >();
+    for (const r of (data ?? []) as unknown as RunMetricaRow[]) {
+      const workflowId = r.workflow_versiones.workflow_id;
+      const startedAt = new Date(r.started_at);
+      const exito = r.estado === "terminado" && r.error === null;
+
+      const actual = acumulado.get(workflowId) ?? { total: 0, exitosos: 0, ultimo: null };
+      actual.total += 1;
+      if (exito) actual.exitosos += 1;
+      // `>=` y no `>`: en un empate de `started_at` gana la fila procesada
+      // después, mismo criterio que la impl InMemory.
+      if (!actual.ultimo || startedAt >= actual.ultimo.at) {
+        actual.ultimo = {
+          at: startedAt,
+          exito,
+          duracionMs: r.ended_at ? new Date(r.ended_at).getTime() - startedAt.getTime() : null,
+        };
+      }
+      acumulado.set(workflowId, actual);
+    }
+
+    const resultado: Record<string, WorkflowMetricas> = {};
+    for (const [id, v] of acumulado) {
+      resultado[id] = { totalRuns: v.total, runsExitosos: v.exitosos, ultimoRun: v.ultimo };
+    }
+    return resultado;
   }
 
   private async actualizar(runId: UUID, cambios: Record<string, unknown>): Promise<void> {

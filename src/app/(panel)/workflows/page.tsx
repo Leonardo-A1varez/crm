@@ -1,40 +1,61 @@
 import { PageHeader } from "@/components/shared/PageHeader";
 import { CrearWorkflowDialog } from "@/components/workflows/CrearWorkflowDialog";
+import { FiltrosWorkflows } from "@/components/workflows/FiltrosWorkflows";
 import { ListaWorkflows } from "@/components/workflows/ListaWorkflows";
+import { parseFiltrosWorkflowsParams } from "@/lib/ui/filtros-workflows";
 import { getCurrentRol } from "@/server/auth/guards";
-import { getWorkflowsAdminServiceForRequest } from "@/server/bootstrap/workflows-bootstrap";
-import { crearWorkflowAction } from "./_actions/workflows.actions";
+import {
+  crearWorkflowAction,
+  deleteWorkflowAction,
+  duplicateWorkflowAction,
+  getWorkflowsAction,
+  pauseWorkflowAction,
+  resumeWorkflowAction,
+} from "./_actions/workflows.actions";
+import type { ValorParam } from "@/lib/ui/filtros-leads";
 
 export const dynamic = "force-dynamic";
 
-export default async function WorkflowsPage() {
-  const svc = await getWorkflowsAdminServiceForRequest();
-  const [rol, workflows] = await Promise.all([getCurrentRol(), svc.listar()]);
+export default async function WorkflowsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, ValorParam>>;
+}) {
+  const params = await searchParams;
+  const filtros = parseFiltrosWorkflowsParams(params);
+
+  const [rol, resultado] = await Promise.all([getCurrentRol(), getWorkflowsAction(filtros)]);
   const isAdmin = rol === "admin";
 
-  // Una lectura por workflow. Es N+1 y está asumido: los workflows de una
-  // instalación son una docena, no miles, y `listar()` no trae la versión
-  // publicada. Si algún día son cientos, esto se resuelve en el repo con un
-  // join, no acá.
-  const versiones = await Promise.all(
-    workflows.map(async (w) => [w.id, (await svc.versionPublicada(w.id))?.version] as const),
-  );
-  const publicadas: Record<string, number> = {};
-  for (const [id, version] of versiones) {
-    if (version !== undefined) publicadas[id] = version;
-  }
-
-  const corriendo = workflows.filter((w) => w.activo && publicadas[w.id] !== undefined).length;
+  const corriendo = resultado.ok ? resultado.activosCorriendo : 0;
+  const total = resultado.ok ? resultado.totalSinFiltrar : 0;
 
   return (
     <div className="bg-surface-root relative flex h-full flex-col overflow-hidden">
       <PageHeader
         title="Flujos"
-        subtitle={`${workflows.length} flujo${workflows.length === 1 ? "" : "s"} · ${corriendo} corriendo`}
+        subtitle={`${total} flujo${total === 1 ? "" : "s"} · ${corriendo} corriendo`}
         actions={isAdmin ? <CrearWorkflowDialog onCrear={crearWorkflowAction} /> : null}
       />
+      <FiltrosWorkflows
+        q={filtros.busqueda}
+        estado={filtros.estado ?? "todos"}
+        ordenar={filtros.ordenar ?? "editado"}
+      />
       <div className="flex-1 overflow-y-auto">
-        <ListaWorkflows workflows={workflows} publicadas={publicadas} />
+        {resultado.ok ? (
+          <ListaWorkflows
+            items={resultado.items}
+            totalSinFiltrar={resultado.totalSinFiltrar}
+            puedeEditar={isAdmin}
+            onDuplicar={duplicateWorkflowAction}
+            onPausar={pauseWorkflowAction}
+            onReanudar={resumeWorkflowAction}
+            onEliminar={deleteWorkflowAction}
+          />
+        ) : (
+          <p className="p-5 text-[12px] text-red-600 dark:text-red-400">{resultado.error}</p>
+        )}
       </div>
     </div>
   );

@@ -1,5 +1,11 @@
 import { NotFoundError } from "@/lib/errors";
-import type { UUID, WorkflowRun, WorkflowRunEstado, WorkflowRunPaso } from "@/types/entities";
+import type {
+  UUID,
+  WorkflowMetricas,
+  WorkflowRun,
+  WorkflowRunEstado,
+  WorkflowRunPaso,
+} from "@/types/entities";
 import type { Insert } from "./_types";
 
 export type WorkflowRunPasoInsert = Insert<WorkflowRunPaso, "id" | "run_id" | "created_at">;
@@ -70,6 +76,18 @@ export interface WorkflowRunsRepository {
    */
   fallarSiVivo(runId: UUID, error: string, desdePaso: number): Promise<boolean>;
   findRun(id: UUID): Promise<WorkflowRun | null>;
+  /**
+   * Métricas de corridas por workflow, sólo las iniciadas después de `desde`.
+   * Una llamada para TODOS los workflows a la vez (no una por workflow): es lo
+   * que evita que la pantalla de listado sea un N+1 sobre `workflow_runs`.
+   *
+   * Un `workflowId` sin ninguna corrida en la ventana simplemente no aparece
+   * como clave del resultado -- el caller decide el default (`totalRuns: 0`).
+   */
+  metricasPorWorkflow(
+    workflowIds: readonly UUID[],
+    desde: Date,
+  ): Promise<Record<UUID, WorkflowMetricas>>;
 }
 
 export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
@@ -210,6 +228,51 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
   async findRun(id: UUID): Promise<WorkflowRun | null> {
     const run = this.runs.get(id);
     return run ? clonarRun(run) : null;
+  }
+
+  async metricasPorWorkflow(
+    workflowIds: readonly UUID[],
+    desde: Date,
+  ): Promise<Record<UUID, WorkflowMetricas>> {
+    const buscados = new Set(workflowIds);
+    const acumulado = new Map<
+      UUID,
+      { total: number; exitosos: number; ultimo: WorkflowMetricas["ultimoRun"] }
+    >();
+
+    for (const run of this.runs.values()) {
+      if (run.started_at < desde) continue;
+      // Mismo fallback que el escopeo de "corrida viva" del constructor: sin
+      // resolver, `workflow_version_id` hace de workflow id (sirve para tests
+      // que no le importa la distinción versión/workflow).
+      const workflowId =
+        this.resolverWorkflowId?.(run.workflow_version_id) ?? run.workflow_version_id;
+      if (!buscados.has(workflowId)) continue;
+
+      const actual = acumulado.get(workflowId) ?? { total: 0, exitosos: 0, ultimo: null };
+      const exito = run.estado === "terminado" && run.error === null;
+      actual.total += 1;
+      if (exito) actual.exitosos += 1;
+      // `>=` y no `>`: en un empate (mismo milisegundo, insert-only test o dos
+      // corridas que arrancaron juntas) gana la que se procesa después, en vez
+      // de congelarse en la primera que llegó -- el orden de iteración del
+      // `Map` es el de inserción, así que "después" es "más nueva" en la
+      // práctica.
+      if (!actual.ultimo || run.started_at >= actual.ultimo.at) {
+        actual.ultimo = {
+          at: run.started_at,
+          exito,
+          duracionMs: run.ended_at ? run.ended_at.getTime() - run.started_at.getTime() : null,
+        };
+      }
+      acumulado.set(workflowId, actual);
+    }
+
+    const resultado: Record<UUID, WorkflowMetricas> = {};
+    for (const [id, v] of acumulado) {
+      resultado[id] = { totalRuns: v.total, runsExitosos: v.exitosos, ultimoRun: v.ultimo };
+    }
+    return resultado;
   }
 
   private actualizar(runId: UUID, cambios: Partial<WorkflowRun>): void {

@@ -81,3 +81,85 @@ describe("InMemoryWorkflowRunsRepository — escopeo de 'corrida viva' por workf
     expect(segunda.motivo).toBe("ya_hay_corrida_viva");
   });
 });
+
+describe("InMemoryWorkflowRunsRepository.metricasPorWorkflow", () => {
+  const DESDE = new Date("2020-01-01T00:00:00Z");
+
+  it("cuenta total y exitosos, y agarra el último run por started_at", async () => {
+    const workflowDeVersion = new Map([["v1", "workflow-a"]]);
+    const repo = new InMemoryWorkflowRunsRepository((versionId) =>
+      workflowDeVersion.get(versionId),
+    );
+
+    const { run: r1 } = await repo.arrancar({
+      versionId: "v1",
+      leadId: "lead-1",
+      sessionId: null,
+      contexto: {},
+    });
+    await repo.terminar(r1!.id, 3);
+
+    const { run: r2 } = await repo.arrancar({
+      versionId: "v1",
+      leadId: "lead-2",
+      sessionId: null,
+      contexto: {},
+    });
+    await repo.fallar(r2!.id, "boom", 1);
+
+    const metricas = await repo.metricasPorWorkflow(["workflow-a"], DESDE);
+
+    expect(metricas["workflow-a"]).toEqual({
+      totalRuns: 2,
+      runsExitosos: 1,
+      ultimoRun: expect.objectContaining({ exito: false }),
+    });
+  });
+
+  it("un workflow que no aparece entre los ids buscados queda afuera del resultado", async () => {
+    const workflowDeVersion = new Map([["v1", "workflow-a"]]);
+    const repo = new InMemoryWorkflowRunsRepository((versionId) =>
+      workflowDeVersion.get(versionId),
+    );
+    const { run } = await repo.arrancar({
+      versionId: "v1",
+      leadId: "lead-1",
+      sessionId: null,
+      contexto: {},
+    });
+    await repo.terminar(run!.id, 1);
+
+    expect(await repo.metricasPorWorkflow(["workflow-b"], DESDE)).toEqual({});
+  });
+
+  it("una corrida anterior a 'desde' no se cuenta", async () => {
+    const workflowDeVersion = new Map([["v1", "workflow-a"]]);
+    const repo = new InMemoryWorkflowRunsRepository((versionId) =>
+      workflowDeVersion.get(versionId),
+    );
+    const { run } = await repo.arrancar({
+      versionId: "v1",
+      leadId: "lead-1",
+      sessionId: null,
+      contexto: {},
+    });
+    await repo.terminar(run!.id, 1);
+
+    const futuro = new Date(Date.now() + 60_000);
+    expect(await repo.metricasPorWorkflow(["workflow-a"], futuro)).toEqual({});
+  });
+
+  it("una corrida todavía viva cuenta para el total pero no para exitosos", async () => {
+    const workflowDeVersion = new Map([["v1", "workflow-a"]]);
+    const repo = new InMemoryWorkflowRunsRepository((versionId) =>
+      workflowDeVersion.get(versionId),
+    );
+    await repo.arrancar({ versionId: "v1", leadId: "lead-1", sessionId: null, contexto: {} });
+
+    const metricas = await repo.metricasPorWorkflow(["workflow-a"], DESDE);
+
+    expect(metricas["workflow-a"]?.totalRuns).toBe(1);
+    expect(metricas["workflow-a"]?.runsExitosos).toBe(0);
+    expect(metricas["workflow-a"]?.ultimoRun?.exito).toBe(false);
+  });
+});

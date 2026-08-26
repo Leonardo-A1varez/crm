@@ -50,6 +50,16 @@ export interface WorkflowsRepository {
    * qué corridas arrancar en respuesta a un evento de dominio.
    */
   listarPublicadasPorDisparador(disparador: string): Promise<WorkflowVersion[]>;
+  /** Prender/apagar. No toca versiones ni corridas en vuelo. */
+  setActivo(id: UUID, activo: boolean): Promise<Workflow>;
+  /**
+   * Borra el workflow y sus versiones (`ON DELETE CASCADE`). Si alguna versión
+   * tiene corridas (`workflow_runs.workflow_version_id` es `ON DELETE
+   * RESTRICT`), Postgres rechaza el borrado con 23503 -- `mapPostgrestError` lo
+   * convierte en `ConflictError`, que la action traduce a un mensaje entendible
+   * en vez de dejar pasar el texto crudo de Postgres.
+   */
+  eliminar(id: UUID): Promise<void>;
 }
 
 export class InMemoryWorkflowsRepository implements WorkflowsRepository {
@@ -129,5 +139,20 @@ export class InMemoryWorkflowsRepository implements WorkflowsRepository {
       if (disparadorMatch(v.grafo, disparador)) resultado.push({ ...v });
     }
     return resultado;
+  }
+
+  async setActivo(id: UUID, activo: boolean): Promise<Workflow> {
+    const w = this.workflows.get(id);
+    if (!w) throw new NotFoundError(`workflow no encontrado: ${id}`, "workflow", id);
+    const next: Workflow = { ...w, activo };
+    this.workflows.set(id, next);
+    return { ...next };
+  }
+
+  async eliminar(id: UUID): Promise<void> {
+    this.workflows.delete(id);
+    for (const [versionId, v] of this.versiones) {
+      if (v.workflow_id === id) this.versiones.delete(versionId);
+    }
   }
 }

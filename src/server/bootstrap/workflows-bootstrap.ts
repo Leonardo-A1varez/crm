@@ -1,11 +1,15 @@
 import { createSupabaseServerClient } from "@/server/auth/supabase-ssr";
+import { SupabaseWorkflowRunsRepository } from "@/server/repositories/workflow-runs.supabase.repo";
 import { SupabaseWorkflowsRepository } from "@/server/repositories/workflows.supabase.repo";
 import { DefaultWorkflowsAdminService } from "@/server/services/workflows/workflows-admin.service";
 import type { AppClient } from "@/server/db/client";
 import type { WorkflowsAdminService } from "@/server/services/workflows/workflows-admin.service";
 
 export function makeWorkflowsAdminService(db: AppClient): WorkflowsAdminService {
-  return new DefaultWorkflowsAdminService({ workflows: new SupabaseWorkflowsRepository(db) });
+  return new DefaultWorkflowsAdminService({
+    workflows: new SupabaseWorkflowsRepository(db),
+    workflowRuns: new SupabaseWorkflowRunsRepository(db),
+  });
 }
 
 export async function getWorkflowsAdminServiceForRequest(): Promise<WorkflowsAdminService> {

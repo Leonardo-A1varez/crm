@@ -1,3 +1,12 @@
+import {
+  ACCIONES,
+  DISPARADORES,
+  ETIQUETA_ACCION,
+  ETIQUETA_DISPARADOR,
+  ETIQUETA_NODO,
+  type AccionWorkflow,
+  type DisparadorWorkflow,
+} from "./catalogo";
 import type { Grafo, Nodo, Puerto } from "@/types/workflows";
 
 /**
@@ -81,4 +90,39 @@ export function pasosDelGrafo(grafo: Grafo): LecturaDelGrafo {
     pasos,
     inalcanzables: grafo.nodos.filter((n) => !visitados.has(n.id)),
   };
+}
+
+/**
+ * Los primeros `max` pasos del grafo, en texto -- lo que la card de
+ * `/workflows` muestra como "Mensaje recibido → Clasificar → Responder" sin
+ * dibujar el canvas. Reusa `pasosDelGrafo`: el orden y las complicaciones
+ * (condición con dos salidas, ciclos, nodos rotos) son las mismas de ahí, no
+ * un segundo recorrido con sus propios bugs.
+ */
+export function resumenPasos(grafo: Grafo, max = 4): string[] {
+  return pasosDelGrafo(grafo)
+    .pasos.slice(0, max)
+    .map((p) => etiquetaNodo(p.nodo));
+}
+
+function esDisparadorConocido(v: unknown): v is DisparadorWorkflow {
+  return typeof v === "string" && (DISPARADORES as readonly string[]).includes(v);
+}
+
+function esAccionConocida(v: unknown): v is AccionWorkflow {
+  return typeof v === "string" && (ACCIONES as readonly string[]).includes(v);
+}
+
+function etiquetaNodo(nodo: Nodo): string {
+  if (nodo.tipo === "disparador") {
+    const disparador = nodo.config["disparador"];
+    return esDisparadorConocido(disparador)
+      ? ETIQUETA_DISPARADOR[disparador]
+      : ETIQUETA_NODO.disparador;
+  }
+  if (nodo.tipo === "accion") {
+    const accion = nodo.config["accion"];
+    return esAccionConocida(accion) ? ETIQUETA_ACCION[accion] : ETIQUETA_NODO.accion;
+  }
+  return ETIQUETA_NODO[nodo.tipo] ?? nodo.tipo;
 }
