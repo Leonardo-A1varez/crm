@@ -41,6 +41,7 @@ import { InMemoryReactivationDispatchesRepository } from "@/server/repositories/
 import { InMemorySessionRecordatoriosRepository } from "@/server/repositories/session-recordatorios.repo";
 import { InMemoryRulesRepository } from "@/server/repositories/rules.repo";
 import { InMemoryToolExecutionsRepository } from "@/server/repositories/tool-executions.repo";
+import { InMemoryUsersRepository } from "@/server/repositories/users.repo";
 
 import { InMemoryCostTracker } from "@/lib/observability/cost-tracker";
 import { NoopLogger, type Logger } from "@/lib/observability/logger";
@@ -137,6 +138,7 @@ export function makeSmokeBundle(): SmokeBundle {
   const tags = new InMemoryTagsRepository();
   const workflows = new InMemoryWorkflowsRepository();
   const workflowRuns = new InMemoryWorkflowRunsRepository();
+  const users = new InMemoryUsersRepository();
 
   // ===== Infrastructure =====
   const costTracker = new InMemoryCostTracker({
@@ -194,6 +196,8 @@ export function makeSmokeBundle(): SmokeBundle {
       metaApi,
       conversations: makeConversationsParaEnviarMensaje({ conversations, messages }),
       leads,
+      sessions,
+      users,
       configProvider: configProviderParaEnviarMensaje,
     }),
   });

@@ -1,5 +1,6 @@
 import { estaAbierto, proximaApertura } from "@/lib/agente/horario";
 import { BudgetExceededError, NotFoundError, ValidationError } from "@/lib/errors";
+import { interpolarVariables } from "@/lib/workflows/variables";
 import type { AgenteConfigValores } from "@/types/agente";
 import type { Canal } from "@/types/domain";
 import type { UUID } from "@/types/entities";
@@ -7,6 +8,7 @@ import type { Nodo } from "@/types/workflows";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { MetaApiService } from "@/server/services/meta-api.service";
+import { cargarDatosInterpolacion } from "@/server/services/workflows/acciones/datos-interpolacion";
 import type { AccionHandler, EntornoAccion } from "./registro";
 
 const VEINTICUATRO_HORAS_MS = 24 * 60 * 60 * 1000;
@@ -60,6 +62,8 @@ export interface AccionEnviarMensajeDeps {
   metaApi: Pick<MetaApiService, "sendOutbound">;
   conversations: ConversationsParaEnviarMensaje;
   leads: Pick<LeadsRepository, "findById">;
+  sessions: { findById: (id: UUID) => Promise<unknown> };
+  users: { findById: (id: UUID) => Promise<unknown> };
   configProvider: ConfigProviderParaEnviarMensaje;
 }
 
@@ -104,7 +108,7 @@ function requireLeadSessionId(nodo: Nodo, entorno: EntornoAccion): UUID {
  */
 export function crearAccionEnviarMensaje(deps: AccionEnviarMensajeDeps): AccionHandler {
   return async (nodo, entorno) => {
-    const texto = leerTexto(nodo);
+    const textoRaw = leerTexto(nodo);
     const leadSessionId = requireLeadSessionId(nodo, entorno);
 
     // 1. TOPE.
@@ -147,6 +151,13 @@ export function crearAccionEnviarMensaje(deps: AccionEnviarMensajeDeps): AccionH
       }
       return { puerto: "salida", diferirHasta: cuando, salida: { diferido: true } };
     }
+
+    // Cargar datos para interpolación de variables (solo después de validar horario)
+    const datosInterpolacion = await cargarDatosInterpolacion(
+      { leads: deps.leads, sessions: deps.sessions, users: deps.users },
+      { leadId: entorno.leadId, leadSessionId, contexto: entorno.contexto },
+    );
+    const { texto } = interpolarVariables(textoRaw, datosInterpolacion);
 
     const [conversacion, lead] = await Promise.all([
       deps.conversations.findActivaByLead(entorno.leadId),

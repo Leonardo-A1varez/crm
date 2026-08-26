@@ -64,6 +64,8 @@ function deps(salientesPrevios: number) {
       })),
     },
     leads: { findById: vi.fn(async () => ({ id: "l1", telefono: "+5215550001111" })) },
+    sessions: { findById: vi.fn(async () => ({ id: "s1", current_stage: "considerando" })) },
+    users: { findById: vi.fn(async () => ({ id: "u1", nombre: "Juan" })) },
     configProvider: {
       activa: vi.fn(async () => ({
         max_salientes_automaticos_24h: 3,
@@ -91,7 +93,7 @@ interface DepsOverrides {
   horario?: Horario;
   horarioTimezone?: string;
   conversacion?: { id: string; canal: string; ultimo_entrante_at: Date | null } | null;
-  lead?: { id: string; telefono: string } | null;
+  lead?: { id: string; telefono: string; [key: string]: unknown } | null;
 }
 
 /**
@@ -116,6 +118,8 @@ function construirDeps(overrides: DepsOverrides = {}) {
         overrides.lead === undefined ? { id: "l1", telefono: "+5215550001111" } : overrides.lead,
       ),
     },
+    sessions: { findById: vi.fn(async () => ({ id: "s1", current_stage: "considerando" })) },
+    users: { findById: vi.fn(async () => ({ id: "u1", nombre: "Juan" })) },
     configProvider: {
       activa: vi.fn(async () => ({
         max_salientes_automaticos_24h: overrides.max ?? 3,
@@ -212,5 +216,21 @@ describe("enviar_mensaje", () => {
       ValidationError,
     );
     expect(asMock(d).metaApi.sendOutbound.mock.calls).toHaveLength(0);
+  });
+
+  it("interpola variables en el texto antes de enviar", async () => {
+    const d = construirDeps({
+      lead: { id: "l1", telefono: "+5215550001111", nombre: "María", canal_origen: "whatsapp" },
+    });
+    const nodoConVariables = {
+      ...nodo,
+      config: { accion: "enviar_mensaje", texto: "Hola {{lead.nombre}}" },
+    };
+    const r = await crearAccionEnviarMensaje(d)(nodoConVariables, entorno);
+    expect(r.puerto).toBe("salida");
+    // Verificar que metaApi.sendOutbound recibe el texto interpolado
+    expect(asMock(d).metaApi.sendOutbound.mock.calls[0]![0]).toMatchObject({
+      contenido: "Hola María",
+    });
   });
 });

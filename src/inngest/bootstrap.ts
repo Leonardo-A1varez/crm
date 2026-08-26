@@ -48,6 +48,7 @@ import { SupabaseAgenteConfigRepository } from "@/server/repositories/agente-con
 import { SupabaseLlmUsageRepository } from "@/server/repositories/llm-usage.supabase.repo";
 import { SupabaseWorkflowsRepository } from "@/server/repositories/workflows.supabase.repo";
 import { SupabaseWorkflowRunsRepository } from "@/server/repositories/workflow-runs.supabase.repo";
+import { SupabaseUsersRepository } from "@/server/repositories/users.supabase.repo";
 
 import { makeCostTracker } from "@/lib/observability/upstash-cost-tracker";
 import { PersistingCostTracker } from "@/server/services/llm/persisting-cost-tracker";
@@ -119,6 +120,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   const handoffEvents = new SupabaseHandoffEventsRepository(db, sessions);
   const workflows = new SupabaseWorkflowsRepository(db);
   const workflowRuns = new SupabaseWorkflowRunsRepository(db);
+  const users = new SupabaseUsersRepository(db);
 
   // ===== Infrastructure (cost tracker, LLM bundle) =====
   // Dos responsabilidades distintas, deliberadamente separadas:
@@ -213,6 +215,8 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       metaApi,
       conversations: makeConversationsParaEnviarMensaje({ conversations, messages }),
       leads,
+      sessions,
+      users,
       configProvider: configProviderParaEnviarMensaje,
     }),
   });
