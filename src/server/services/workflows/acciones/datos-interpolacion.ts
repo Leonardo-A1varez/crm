@@ -27,36 +27,21 @@ export async function cargarDatosInterpolacion(
 ): Promise<DatosInterpolacion> {
   const lead = (await deps.leads.findById(entorno.leadId)) as Record<string, unknown> | null;
 
-  const [sesion, vendedor] = await Promise.all([
-    entorno.leadSessionId
-      ? (deps.sessions.findById(entorno.leadSessionId) as Promise<Record<string, unknown> | null>)
-      : Promise.resolve(null),
-    lead?.vendedor_id
-      ? (deps.users.findById(lead.vendedor_id as string) as Promise<Record<string, unknown> | null>)
-      : Promise.resolve(null),
-  ]);
+  const sesion = entorno.leadSessionId
+    ? ((await deps.sessions.findById(entorno.leadSessionId)) as Record<string, unknown> | null)
+    : null;
 
   return {
     lead: lead
       ? {
-          nombre: lead.nombre,
-          telefono: lead.telefono,
-          etapa: lead.etapa,
-          canal: lead.canal,
+          nombre: lead.nombre as string,
+          telefono: lead.telefono as string,
+          canal: lead.canal_origen as string,
         }
       : undefined,
-    sesion: (sesion as Record<string, unknown> | null)
+    sesion: sesion
       ? {
-          auto_marca: (sesion as Record<string, unknown>)?.auto_marca,
-          auto_modelo: (sesion as Record<string, unknown>)?.auto_modelo,
-          auto_anio: (sesion as Record<string, unknown>)?.auto_anio,
-          current_stage: (sesion as Record<string, unknown>)?.current_stage,
-        }
-      : undefined,
-    vendedor: vendedor
-      ? {
-          nombre: (vendedor as Record<string, unknown>).nombre,
-          email: (vendedor as Record<string, unknown>).email,
+          current_stage: sesion.current_stage as string,
         }
       : undefined,
     contexto: entorno.contexto,
