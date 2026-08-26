@@ -1,6 +1,8 @@
 export { CanvasWorkflow } from "./CanvasWorkflow";
 export { CanvasToolbar } from "./CanvasToolbar";
 export { PaletaNodos } from "./PaletaNodos";
+export { CategoriaColapsable } from "./CategoriaColapsable";
+export { NodoDraggable } from "./NodoDraggable";
 export { PanelConfigNodo } from "./PanelConfigNodo";
 export { nodeTypes } from "./nodos";
 export { grafoToFlow, flowToGrafo } from "./tipos";
