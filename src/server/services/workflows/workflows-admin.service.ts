@@ -12,9 +12,18 @@ export interface GuardarVersionInput {
   userId: UUID | null;
 }
 
+/** Lo que se muestra en la pantalla de un workflow. */
+export interface DetalleWorkflow {
+  workflow: Workflow;
+  /** De la versión más nueva a la más vieja. */
+  versiones: WorkflowVersion[];
+}
+
 export interface WorkflowsAdminService {
   crear(input: { nombre: string; descripcion: string | null }): Promise<Workflow>;
   listar(): Promise<Workflow[]>;
+  /** El workflow y todas sus versiones. `null` si el id no existe. */
+  detalle(workflowId: UUID): Promise<DetalleWorkflow | null>;
   /** Valida el grafo y, sólo si está sano, lo guarda como versión nueva. */
   guardarVersion(input: GuardarVersionInput): Promise<WorkflowVersion>;
   publicar(versionId: UUID): Promise<WorkflowVersion>;
@@ -35,6 +44,23 @@ export class DefaultWorkflowsAdminService implements WorkflowsAdminService {
 
   async listar(): Promise<Workflow[]> {
     return this.deps.workflows.listarWorkflows();
+  }
+
+  /**
+   * Todo lo que la pantalla de detalle necesita, en una sola llamada.
+   *
+   * Existe acá y no en la UI porque `app/**` no puede importar
+   * `server/repositories/**` — regla dura de boundaries, y con motivo: la
+   * pantalla no tiene por qué saber que hay un repo del otro lado.
+   */
+  async detalle(workflowId: UUID): Promise<DetalleWorkflow | null> {
+    const workflow = await this.deps.workflows.findWorkflow(workflowId);
+    if (!workflow) return null;
+
+    const versiones = await this.deps.workflows.listarVersiones(workflowId);
+    // La más nueva arriba: es la que se está por publicar, y es la que se mira.
+    const ordenadas = [...versiones].sort((a, b) => b.version - a.version);
+    return { workflow, versiones: ordenadas };
   }
 
   /**

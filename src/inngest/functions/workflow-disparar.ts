@@ -10,7 +10,11 @@ import type {
 import type { WorkflowsRepository } from "@/server/repositories/workflows.repo";
 import type { UUID } from "@/types/entities";
 
-export type DisparadorWorkflow = "etiqueta_asignada" | "mensaje_recibido" | "etapa_cambiada";
+// La lista se mudó a `lib/workflows/catalogo.ts`: la pantalla que arma los
+// flujos necesita ofrecerla y `components/**` no puede importar de `inngest/**`.
+// Se re-exporta acá para no cambiarle la ruta pública a los que ya la importan.
+export type { DisparadorWorkflow } from "@/lib/workflows/catalogo";
+import type { DisparadorWorkflow } from "@/lib/workflows/catalogo";
 
 export interface DispararWorkflowInput {
   disparador: DisparadorWorkflow;

@@ -135,4 +135,50 @@ describe("DefaultWorkflowsAdminService", () => {
     await service.publicar(v.id);
     expect((await service.versionPublicada(w.id))?.id).toBe(v.id);
   });
+
+  /*
+   * Las dos lecturas que necesita la pantalla de detalle. Van en el servicio y
+   * no llamando al repo desde la UI porque `app/**` no puede importar
+   * `server/repositories/**` — es una regla dura de boundaries, y con motivo:
+   * la pantalla no tiene por qué saber que existe un repo.
+   */
+  it("detalle devuelve el workflow con sus versiones, la ultima primero", async () => {
+    const { service } = build();
+    const w = await service.crear({ nombre: "W", descripcion: null });
+    const v1 = await service.guardarVersion({
+      workflowId: w.id,
+      grafo: VALIDO,
+      maxPasos: 10,
+      userId: null,
+    });
+    const v2 = await service.guardarVersion({
+      workflowId: w.id,
+      grafo: VALIDO,
+      maxPasos: 10,
+      userId: null,
+    });
+
+    const d = await service.detalle(w.id);
+
+    expect(d?.workflow.id).toBe(w.id);
+    // La version mas nueva arriba: es la que se esta por publicar.
+    expect(d?.versiones.map((v) => v.id)).toEqual([v2.id, v1.id]);
+    expect(d?.versiones.map((v) => v.version)).toEqual([2, 1]);
+  });
+
+  it("detalle de un workflow que no existe devuelve null", async () => {
+    const { service } = build();
+
+    expect(await service.detalle("00000000-0000-4000-8000-000000000999")).toBeNull();
+  });
+
+  it("detalle de un workflow sin versiones devuelve la lista vacia", async () => {
+    const { service } = build();
+    const w = await service.crear({ nombre: "W", descripcion: null });
+
+    const d = await service.detalle(w.id);
+
+    expect(d?.workflow.nombre).toBe("W");
+    expect(d?.versiones).toEqual([]);
+  });
 });

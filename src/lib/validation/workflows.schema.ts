@@ -45,3 +45,36 @@ export const GrafoSchema = z.object({
   nodos: z.array(NodoSchema).max(NODOS_MAX),
   aristas: z.array(AristaSchema).max(ARISTAS_MAX),
 });
+
+// =========================================================================
+// Entrada de las Server Actions de la pantalla `/workflows`
+// =========================================================================
+
+/**
+ * Toda action `'use server'` parsea con Zod en la primera línea (AGENTS.md
+ * §0.9). Estos schemas son esa primera línea: lo que llega de un formulario es
+ * `unknown` hasta que uno de estos lo dice.
+ */
+
+export const CrearWorkflowSchema = z.object({
+  // Un nombre en blanco deja una fila que no se puede identificar en la lista.
+  nombre: z.string().trim().min(1, "Poné un nombre.").max(80),
+  descripcion: z.string().trim().max(500).nullable().default(null),
+});
+export type CrearWorkflowInput = z.infer<typeof CrearWorkflowSchema>;
+
+/**
+ * `maxPasos` es el freno del motor: cuántos nodos puede recorrer una corrida
+ * antes de que se la corte. Sin tope, un ciclo con espera corre para siempre y
+ * gasta mensajes reales contra un lead real.
+ */
+export const GuardarVersionSchema = z.object({
+  workflowId: z.string().uuid(),
+  grafo: GrafoSchema,
+  maxPasos: z.number().int().min(1).max(500),
+});
+export type GuardarVersionActionInput = z.infer<typeof GuardarVersionSchema>;
+
+export const PublicarVersionSchema = z.object({
+  versionId: z.string().uuid(),
+});

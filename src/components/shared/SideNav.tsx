@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 import {
+  AccountTree,
   BarChartIcon,
   Group,
   InboxIcon,
@@ -24,16 +25,20 @@ interface NavItem {
   Icon: ComponentType<{ className?: string; size?: number; strokeWidth?: number }>;
 }
 
-// Los siete ítems del handoff §1.1, en ese orden. "OpenAI settings" (/agente)
+// Los ítems de la barra. "OpenAI settings" (/agente)
 // es la consola que absorbió la administración de intents y reglas:
 // /intents-reglas ya solo redirige a /agente?tab=reglas, así que no tiene ítem
 // propio. El nombre lo eligió el dueño; nombra al proveedor y no a la función,
 // así que si algún día se cambia de modelo hay que revisarlo.
+//
+// "Flujos" (/workflows) se agregó cuando la pantalla existió: el motor estaba
+// desplegado y andando desde antes, sin nada en la web que lo mostrara.
 const ITEMS: readonly NavItem[] = [
   { href: "/inbox", label: "Inbox", Icon: InboxIcon },
   { href: "/leads", label: "Leads", Icon: Group },
   { href: "/productos", label: "Productos", Icon: Inventory2 },
   { href: "/agente", label: "OpenAI settings", Icon: SmartToy },
+  { href: "/workflows", label: "Flujos", Icon: AccountTree },
   { href: "/metricas", label: "Métricas", Icon: BarChartIcon },
   { href: "/ajustes", label: "Ajustes", Icon: SettingsIcon },
 ];
