@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/shared/PageHeader";
-import { EditorDeGrafo } from "@/components/workflows/EditorDeGrafo";
+import { EditorCanvasWorkflow } from "@/components/workflows/EditorCanvasWorkflow";
 import { VersionesDelWorkflow } from "@/components/workflows/VersionesDelWorkflow";
 import { getCurrentRol } from "@/server/auth/guards";
 import { getTagsAdminServiceForRequest } from "@/server/bootstrap/tags-bootstrap";
@@ -72,7 +72,7 @@ export default async function WorkflowDetallePage({ params }: { params: Promise<
             />
           </section>
 
-          <EditorDeGrafo
+          <EditorCanvasWorkflow
             workflowId={detalle.workflow.id}
             grafoInicial={ultima?.grafo ?? GRAFO_VACIO}
             maxPasosInicial={ultima?.max_pasos ?? 50}
