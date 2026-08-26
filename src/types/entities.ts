@@ -166,7 +166,21 @@ export interface LeadSession {
 
 export interface Producto {
   id: UUID;
+  /** El código que le pone la casa. En el inventario real es la columna `No.Item`. */
   codigo_interno: string;
+  /**
+   * El número de parte del fabricante — la columna `Código` del inventario.
+   *
+   * Es lo que viene grabado en la pieza vieja, así que es con lo que el cliente
+   * llega cuando llega con algo. Medido sobre las 21.009 filas del inventario
+   * del 2026-08-22: el 77,0% tiene un número de fábrica reconocible.
+   */
+  codigo_fabrica: string | null;
+  /**
+   * Códigos alternos. La mayoría son de proveedor y no le dicen nada al
+   * cliente, pero 343 filas tienen el número de fábrica solo acá.
+   */
+  otros_codigos: string[];
   sku_proveedor: string | null;
   nombre: string;
   descripcion: string | null;

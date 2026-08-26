@@ -10,6 +10,8 @@ import type {
   ProductoBulkUpsertItem,
   ProductoInsert,
   ProductoListFilter,
+  ProductoSearchHit,
+  ProductoSearchInput,
   ProductoUpdate,
   ProductsRepository,
 } from "./productos.repo";
@@ -131,6 +133,37 @@ export class SupabaseProductsRepository implements ProductsRepository {
     return (data ?? []).map(mapRow);
   }
 
+  /**
+   * Delega en `public.buscar_productos`, que puntúa dentro de Postgres.
+   *
+   * No usa `list()` a propósito: un `list` sin `limit` no aplica ningún
+   * `range`, así que rige el tope del servidor PostgREST y con 21.009
+   * productos el filtrado veía 1.000 filas alfabéticas. La RPC además usa los
+   * índices —GIN trigram sobre `busqueda`, btree sobre los códigos plegados—
+   * que desde el lado del cliente no los tocaba nadie.
+   */
+  async search(input: ProductoSearchInput): Promise<ProductoSearchHit[]> {
+    const { data, error } = await this.db.rpc("buscar_productos", {
+      p_q: input.q,
+      p_marca: input.marca ?? undefined,
+      p_modelo: input.modelo ?? undefined,
+      p_anio: input.anio ?? undefined,
+      p_tope: input.tope ?? undefined,
+    });
+    if (error) throw mapPostgrestError(error, { resource: "producto" });
+    return (data ?? []).map((row) => ({
+      id: row.id,
+      codigo_interno: row.codigo_interno,
+      codigo_fabrica: row.codigo_fabrica,
+      nombre: row.nombre,
+      categoria: row.categoria,
+      descripcion: row.descripcion,
+      precio: row.precio,
+      stock: row.stock,
+      puntaje: row.puntaje,
+    }));
+  }
+
   async bulkUpsert(items: ProductoBulkUpsertItem[]): Promise<Producto[]> {
     if (items.length === 0) return [];
 
@@ -194,6 +227,12 @@ export class SupabaseProductsRepository implements ProductsRepository {
 function toDbInsert(input: ProductoInsert): ProductoDbInsert {
   return {
     codigo_interno: input.codigo_interno,
+    // Opcionales en `ProductoInsert` porque en la DB son nullable y
+    // `default '{}'`; acá se materializan para que el payload sea explícito.
+    // Esto solo lo usa `create()`: `bulkUpsert` arma su propio payload con las
+    // columnas del CSV, así que un reimport no las pisa.
+    codigo_fabrica: input.codigo_fabrica ?? null,
+    otros_codigos: input.otros_codigos ?? [],
     sku_proveedor: input.sku_proveedor,
     nombre: input.nombre,
     descripcion: input.descripcion,
@@ -209,6 +248,8 @@ function toDbInsert(input: ProductoInsert): ProductoDbInsert {
 interface ProductoRow {
   id: string;
   codigo_interno: string;
+  codigo_fabrica: string | null;
+  otros_codigos: string[] | null;
   sku_proveedor: string | null;
   nombre: string;
   descripcion: string | null;
@@ -227,6 +268,8 @@ function mapRow(row: ProductoRow): Producto {
   return {
     id: row.id,
     codigo_interno: row.codigo_interno,
+    codigo_fabrica: row.codigo_fabrica,
+    otros_codigos: [...(row.otros_codigos ?? [])],
     sku_proveedor: row.sku_proveedor,
     nombre: row.nombre,
     descripcion: row.descripcion,

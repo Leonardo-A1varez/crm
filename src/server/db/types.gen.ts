@@ -7,10 +7,30 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "14.5"
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -931,13 +951,17 @@ export type Database = {
           activo: boolean
           busqueda: string | null
           categoria: string | null
+          codigo_fabrica: string | null
+          codigo_fabrica_plegado: string | null
           codigo_interno: string
+          codigo_interno_plegado: string | null
           compatibilidad: Json
           created_at: string
           descripcion: string | null
           id: string
           imagen_url: string | null
           nombre: string
+          otros_codigos: string[]
           precio: number
           sku_proveedor: string | null
           stock: number
@@ -947,13 +971,17 @@ export type Database = {
           activo?: boolean
           busqueda?: string | null
           categoria?: string | null
+          codigo_fabrica?: string | null
+          codigo_fabrica_plegado?: string | null
           codigo_interno: string
+          codigo_interno_plegado?: string | null
           compatibilidad?: Json
           created_at?: string
           descripcion?: string | null
           id?: string
           imagen_url?: string | null
           nombre: string
+          otros_codigos?: string[]
           precio: number
           sku_proveedor?: string | null
           stock?: number
@@ -963,13 +991,17 @@ export type Database = {
           activo?: boolean
           busqueda?: string | null
           categoria?: string | null
+          codigo_fabrica?: string | null
+          codigo_fabrica_plegado?: string | null
           codigo_interno?: string
+          codigo_interno_plegado?: string | null
           compatibilidad?: Json
           created_at?: string
           descripcion?: string | null
           id?: string
           imagen_url?: string | null
           nombre?: string
+          otros_codigos?: string[]
           precio?: number
           sku_proveedor?: string | null
           stock?: number
@@ -1556,6 +1588,7 @@ export type Database = {
         }
         Returns: {
           categoria: string
+          codigo_fabrica: string
           codigo_interno: string
           descripcion: string
           id: string
@@ -1565,6 +1598,7 @@ export type Database = {
           stock: number
         }[]
       }
+      codigos_a_texto: { Args: { ts: string[] }; Returns: string }
       current_rol: {
         Args: never
         Returns: Database["public"]["Enums"]["rol_usuario_enum"]
@@ -1589,6 +1623,8 @@ export type Database = {
           tipos: string[]
         }[]
       }
+      plegar_codigo: { Args: { t: string }; Returns: string }
+      plegar_codigos: { Args: { ts: string[] }; Returns: string[] }
       plegar_texto: { Args: { t: string }; Returns: string }
       publicar_workflow_version: {
         Args: { p_version_id: string }
@@ -1805,6 +1841,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       canal_enum: ["wa", "ig", "fb"],
@@ -1862,3 +1901,4 @@ export const Constants = {
     },
   },
 } as const
+

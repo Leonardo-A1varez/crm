@@ -227,5 +227,113 @@ export function runProductosContract(makeRepo: () => ProductsRepository) {
       expect(result[0]?.imagen_url).toBe("https://example.com/p.jpg");
       expect(result[0]?.activo).toBe(false);
     });
+
+    /*
+     * `search` es el unico metodo con DOS implementaciones de la regla: la
+     * funcion `public.buscar_productos` en Postgres y su espejo
+     * `src/lib/catalogo/puntaje.ts`, que usa el repo in-memory. Este contrato
+     * es lo que impide que se desincronicen — si divergen, la suite de unidad
+     * queda en verde y el agente ordena distinto contra la base real.
+     *
+     * Los puntajes estan escritos como numeros y no como rangos a proposito:
+     * un rango dejaria pasar justamente la divergencia que hay que atrapar.
+     */
+    describe("search", () => {
+      // Sin palabras en comun entre el codigo y el nombre, el puntaje es solo
+      // el del codigo: asi el numero es verificable y no depende del texto.
+      const conCodigos = (o: Partial<ProductoInsert> = {}): ProductoInsert =>
+        baseInsert({
+          codigo_interno: "PF-1",
+          codigo_fabrica: "96389106",
+          otros_codigos: [],
+          nombre: "Piston Aveo 1.6",
+          categoria: "PISTONES",
+          descripcion: "TEIKIN",
+          compatibilidad: [],
+          ...o,
+        });
+
+      test("el numero de fabrica dictado tal cual da 1000", async () => {
+        const p = await repo.create(conCodigos());
+
+        const hits = await repo.search({ q: "96389106" });
+
+        expect(hits).toHaveLength(1);
+        expect(hits[0]?.id).toBe(p.id);
+        expect(hits[0]?.puntaje).toBe(1000);
+        expect(hits[0]?.codigo_fabrica).toBe("96389106");
+      });
+
+      test("los sufijos de medida y de origen no cambian el resultado", async () => {
+        // La casa escribe `/STD/K` encima del numero; el taller dicta el numero.
+        await repo.create(conCodigos({ codigo_fabrica: "96389106/STD/K" }));
+
+        const pelado = await repo.search({ q: "96389106" });
+        const conSufijos = await repo.search({ q: "96389106/STD/K" });
+
+        expect(pelado).toHaveLength(1);
+        expect(conSufijos.map((h) => h.id)).toEqual(pelado.map((h) => h.id));
+        expect(pelado[0]?.puntaje).toBe(1000);
+      });
+
+      test("los separadores tampoco: el cliente dicta como puede", async () => {
+        const p = await repo.create(conCodigos());
+
+        const hits = await repo.search({ q: "9638-9106" });
+
+        expect(hits[0]?.id).toBe(p.id);
+        expect(hits[0]?.puntaje).toBe(1000);
+      });
+
+      test("el codigo interno machea 900, debajo del de fabrica", async () => {
+        await repo.create(conCodigos());
+
+        const hits = await repo.search({ q: "PF-1" });
+
+        expect(hits).toHaveLength(1);
+        // 900 del codigo interno + 20: la palabra tambien acierta contra la
+        // columna `codigo_interno` y acierta todas, lo que duplica.
+        expect(hits[0]?.puntaje).toBe(920);
+      });
+
+      test("un codigo alterno machea, y queda debajo del de fabrica", async () => {
+        // Medido sobre el catalogo real: 343 filas tienen el numero de fabrica
+        // solo en esta columna. Ignorarlas cuesta 343 ventas.
+        const dueno = await repo.create(conCodigos());
+        const alterno = await repo.create(
+          conCodigos({
+            codigo_interno: "PF-2",
+            codigo_fabrica: "30405",
+            otros_codigos: ["96389106"],
+          }),
+        );
+
+        const hits = await repo.search({ q: "96389106" });
+
+        expect(hits.map((h) => h.id)).toEqual([dueno.id, alterno.id]);
+        expect(hits[1]?.puntaje).toBe(700);
+      });
+
+      test("un producto inactivo no aparece", async () => {
+        await repo.create(conCodigos({ activo: false }));
+
+        expect(await repo.search({ q: "96389106" })).toEqual([]);
+      });
+
+      test("una consulta que no machea nada devuelve vacio", async () => {
+        await repo.create(conCodigos());
+
+        expect(await repo.search({ q: "00000000" })).toEqual([]);
+      });
+
+      test("respeta el tope", async () => {
+        await repo.create(conCodigos({ codigo_interno: "PF-A", codigo_fabrica: "AAA1" }));
+        await repo.create(conCodigos({ codigo_interno: "PF-B", codigo_fabrica: "AAA2" }));
+
+        const hits = await repo.search({ q: "piston", tope: 1 });
+
+        expect(hits).toHaveLength(1);
+      });
+    });
   });
 }
