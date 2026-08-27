@@ -2,6 +2,7 @@
 
 import { memo } from "react";
 import type { Node, NodeProps } from "@xyflow/react";
+import { Zap } from "lucide-react";
 import { NodoBase } from "./NodoBase";
 import { ETIQUETA_DISPARADOR } from "@/lib/workflows/catalogo";
 import type { DisparadorWorkflow } from "@/lib/workflows/catalogo";
@@ -18,13 +19,14 @@ function NodoDisparadorInner({ data, selected }: NodeProps<NodoDisparadorType>) 
 
   return (
     <NodoBase
-      tipo="disparador"
-      titulo="Disparador"
-      color="emerald"
+      nombre="Disparador"
+      icono={Zap}
+      categoria="trigger"
       selected={selected}
-      handles={{ salida: true }}
+      tieneEntrada={false}
+      tieneSalida={true}
     >
-      <p className="text-ink-secondary text-[11px]">{etiqueta}</p>
+      {etiqueta}
     </NodoBase>
   );
 }

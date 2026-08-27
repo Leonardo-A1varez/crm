@@ -1,12 +1,20 @@
 "use client";
 
 import { useCallback, useMemo, useState, useTransition } from "react";
-import { CanvasWorkflow, CanvasToolbar, PaletaNodos, PanelConfigNodo } from "./canvas";
+import {
+  CanvasWorkflow,
+  CanvasToolbar,
+  PaletaNodos,
+  PanelConfigNodo,
+  ProbarDialog,
+} from "./canvas";
 import { ProblemasDelGrafo } from "./ProblemasDelGrafo";
 import { PasosDelGrafo } from "./PasosDelGrafo";
 import { validarGrafo } from "@/lib/workflows/validar-grafo";
-import type { Grafo } from "@/types/workflows";
+import type { WorkflowRunDetalle } from "@/types/entities";
 import type { ActionResult } from "@/types/inbox";
+import type { LeadListItem } from "@/types/leads";
+import type { Grafo } from "@/types/workflows";
 
 interface EditorCanvasWorkflowProps {
   workflowId: string;
@@ -19,6 +27,18 @@ interface EditorCanvasWorkflowProps {
     grafo: Grafo;
     maxPasos: number;
   }) => Promise<ActionResult>;
+  onBuscarLeads: (
+    raw: unknown,
+  ) => Promise<{ ok: true; items: LeadListItem[] } | { ok: false; error: string }>;
+  onProbar: (
+    raw: unknown,
+  ) => Promise<
+    | { ok: true; runId: string; tipo: "completado" | "esperando" | "fallado"; error?: string }
+    | { ok: false; error: string }
+  >;
+  onObtenerDetalleRun: (
+    raw: unknown,
+  ) => Promise<{ ok: true; data: WorkflowRunDetalle | null } | { ok: false; error: string }>;
 }
 
 export function EditorCanvasWorkflow({
@@ -28,12 +48,16 @@ export function EditorCanvasWorkflow({
   tags,
   puedeEditar,
   onGuardar,
+  onBuscarLeads,
+  onProbar,
+  onObtenerDetalleRun,
 }: EditorCanvasWorkflowProps) {
   const [grafo, setGrafo] = useState<Grafo>(grafoInicial);
   const [maxPasos, setMaxPasos] = useState(maxPasosInicial);
   const [nodoSeleccionadoId, setNodoSeleccionadoId] = useState<string | null>(null);
   const [mensaje, setMensaje] = useState<{ ok: boolean; texto: string } | null>(null);
   const [guardando, startGuardar] = useTransition();
+  const [probarAbierto, setProbarAbierto] = useState(false);
 
   const problemas = useMemo(() => validarGrafo(grafo), [grafo]);
   const nodoSeleccionado = useMemo(
@@ -98,7 +122,12 @@ export function EditorCanvasWorkflow({
             </section>
 
             <aside>
-              <PanelConfigNodo nodo={nodoSeleccionado} tags={tags} onChange={handleConfigChange} />
+              <PanelConfigNodo
+                nodo={nodoSeleccionado}
+                tags={tags}
+                onChange={handleConfigChange}
+                onClose={() => setNodoSeleccionadoId(null)}
+              />
             </aside>
           </div>
 
@@ -122,8 +151,20 @@ export function EditorCanvasWorkflow({
               guardando={guardando}
               puedeGuardar={puedeEditar && grafo.nodos.length > 0}
               onGuardar={handleGuardar}
+              onProbar={() => setProbarAbierto(true)}
             />
           </section>
+
+          <ProbarDialog
+            open={probarAbierto}
+            onOpenChange={setProbarAbierto}
+            workflowId={workflowId}
+            grafo={grafo}
+            maxPasos={maxPasos}
+            onBuscarLeads={onBuscarLeads}
+            onProbar={onProbar}
+            onObtenerDetalleRun={onObtenerDetalleRun}
+          />
 
           {mensaje && (
             <p

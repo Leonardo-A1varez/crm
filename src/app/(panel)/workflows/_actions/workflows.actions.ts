@@ -5,15 +5,22 @@ import { ConflictError, DomainError, PermissionDeniedError } from "@/lib/errors"
 import { filtrarYOrdenarWorkflows } from "@/lib/ui/filtros-workflows";
 import {
   CrearWorkflowSchema,
+  CrearVersionDesdeSchema,
   FiltrosWorkflowsSchema,
   GuardarVersionSchema,
+  ObtenerDetalleRunSchema,
+  ObtenerHistorialSchema,
+  ProbarWorkflowSchema,
   PublicarVersionSchema,
+  PublicarVersionConDescripcionSchema,
+  RollbackVersionSchema,
   WorkflowIdSchema,
 } from "@/lib/validation/workflows.schema";
+import { getWorkflowRunsRepoForRequest } from "@/server/bootstrap/workflows-bootstrap";
 import { getCurrentRol } from "@/server/auth/guards";
 import { getAuthenticatedUser } from "@/server/auth/supabase-ssr";
 import { getWorkflowsAdminServiceForRequest } from "@/server/bootstrap/workflows-bootstrap";
-import type { WorkflowResumen } from "@/types/entities";
+import type { HistorialPaginado, WorkflowResumen, WorkflowRunDetalle } from "@/types/entities";
 import type { ActionResult } from "@/types/inbox";
 
 /**
@@ -92,6 +99,50 @@ export async function guardarVersionAction(raw: unknown): Promise<ActionResult> 
 
   revalidatePath(`/workflows/${parsed.data.workflowId}`);
   return { ok: true };
+}
+
+/**
+ * "Probar": guarda el grafo actual como versión (misma puerta que Guardar) y
+ * arranca una corrida real contra un lead de prueba. Segura de correr desde
+ * el editor: los handlers del motor son puros, no llaman a Meta ni escriben
+ * en la base real — sólo persisten en `workflow_runs`/`workflow_run_pasos`.
+ */
+export async function probarWorkflowAction(
+  raw: unknown,
+): Promise<
+  | { ok: true; runId: string; tipo: "completado" | "esperando" | "fallado"; error?: string }
+  | { ok: false; error: string }
+> {
+  const parsed = ProbarWorkflowSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? "El flujo no tiene forma válida.",
+    };
+  }
+
+  try {
+    await soloAdmin();
+    const svc = await getWorkflowsAdminServiceForRequest();
+    const user = await getAuthenticatedUser();
+    const { runId, resultado } = await svc.probar({
+      workflowId: parsed.data.workflowId,
+      grafo: parsed.data.grafo,
+      maxPasos: parsed.data.maxPasos,
+      leadId: parsed.data.leadId,
+      userId: user?.id ?? null,
+    });
+
+    revalidatePath(`/workflows/${parsed.data.workflowId}`);
+    return {
+      ok: true,
+      runId,
+      tipo: resultado.tipo,
+      error: resultado.tipo === "fallado" ? resultado.error : undefined,
+    };
+  } catch (e) {
+    return { ok: false, error: mensajeDeError(e, "No se pudo probar el flujo.") };
+  }
 }
 
 export async function publicarVersionAction(raw: unknown): Promise<ActionResult> {
@@ -220,4 +271,137 @@ export async function deleteWorkflowAction(raw: unknown): Promise<ActionResult> 
 
   revalidatePath("/workflows");
   return { ok: true };
+}
+
+/**
+ * Publicar una versión con descripción opcional del cambio.
+ *
+ * Extiende `publicarVersionAction` con el campo de descripción que el dialog
+ * de publicación permite llenar.
+ */
+export async function publicarVersionConDescripcionAction(raw: unknown): Promise<ActionResult> {
+  const parsed = PublicarVersionConDescripcionSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, error: "Versión inválida." };
+  }
+
+  try {
+    await soloAdmin();
+    const svc = await getWorkflowsAdminServiceForRequest();
+    // TODO: Guardar la descripción cuando se agregue el campo a la tabla.
+    // Por ahora, se publica sin descripción pero el schema la acepta para
+    // que la UI ya la envíe y esté listo cuando se agregue.
+    await svc.publicar(parsed.data.versionId);
+  } catch (e) {
+    return fallo(e, "No se pudo publicar la versión.");
+  }
+
+  revalidatePath("/workflows", "layout");
+  return { ok: true };
+}
+
+/**
+ * Crear una nueva versión draft clonando el grafo de una existente.
+ *
+ * Se usa cuando se quiere editar una versión publicada sin romperla.
+ */
+export async function crearVersionDesdeAction(raw: unknown): Promise<ActionResult> {
+  const parsed = CrearVersionDesdeSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, error: "Versión inválida." };
+  }
+
+  try {
+    await soloAdmin();
+    const svc = await getWorkflowsAdminServiceForRequest();
+    const user = await getAuthenticatedUser();
+    await svc.crearVersionDesde(parsed.data.versionId, user?.id ?? null);
+  } catch (e) {
+    return fallo(e, "No se pudo crear la versión.");
+  }
+
+  revalidatePath("/workflows", "layout");
+  return { ok: true };
+}
+
+/**
+ * Rollback: crear nueva versión desde una antigua y publicarla.
+ *
+ * La versión nueva tiene el grafo de la versión seleccionada pero con número
+ * nuevo — no revive la versión vieja, crea una copia fresca y la publica.
+ */
+export async function rollbackVersionAction(raw: unknown): Promise<ActionResult> {
+  const parsed = RollbackVersionSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, error: "Datos inválidos." };
+  }
+
+  try {
+    await soloAdmin();
+    const svc = await getWorkflowsAdminServiceForRequest();
+    const user = await getAuthenticatedUser();
+    await svc.rollbackAVersion(parsed.data.workflowId, parsed.data.versionId, user?.id ?? null);
+  } catch (e) {
+    return fallo(e, "No se pudo restaurar la versión.");
+  }
+
+  revalidatePath("/workflows", "layout");
+  return { ok: true };
+}
+
+// =========================================================================
+// Historial de ejecuciones (panel lateral I)
+// =========================================================================
+
+/**
+ * Obtener historial de ejecuciones de un workflow con paginacion cursor.
+ *
+ * No requiere soloAdmin() porque el historial es de lectura y las policies
+ * de RLS ya limitan lo que cada rol puede ver.
+ */
+export async function obtenerHistorialWorkflowAction(
+  raw: unknown,
+): Promise<{ ok: true; data: HistorialPaginado } | { ok: false; error: string }> {
+  const parsed = ObtenerHistorialSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos invalidos." };
+  }
+
+  try {
+    const repo = await getWorkflowRunsRepoForRequest();
+    const resultado = await repo.listarHistorial(
+      parsed.data.workflowId,
+      {
+        estado: parsed.data.filtros.estado,
+        fechaDesde: parsed.data.filtros.fechaDesde,
+        fechaHasta: parsed.data.filtros.fechaHasta,
+        leadId: parsed.data.filtros.leadId,
+        busqueda: parsed.data.filtros.busqueda,
+      },
+      parsed.data.cursor,
+    );
+    return { ok: true, data: resultado };
+  } catch (e) {
+    return { ok: false, error: mensajeDeError(e, "No se pudo cargar el historial.") };
+  }
+}
+
+/**
+ * Obtener detalle de un run con sus pasos.
+ */
+export async function obtenerDetalleRunAction(
+  raw: unknown,
+): Promise<{ ok: true; data: WorkflowRunDetalle | null } | { ok: false; error: string }> {
+  const parsed = ObtenerDetalleRunSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, error: "Run invalido." };
+  }
+
+  try {
+    const repo = await getWorkflowRunsRepoForRequest();
+    const detalle = await repo.detalleRun(parsed.data.runId);
+    return { ok: true, data: detalle };
+  } catch (e) {
+    return { ok: false, error: mensajeDeError(e, "No se pudo cargar el detalle.") };
+  }
 }

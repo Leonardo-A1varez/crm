@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { ReactFlowProvider } from "@xyflow/react";
+import { MessageSquare, Send } from "lucide-react";
 import { NodoBase } from "@/components/workflows/canvas/nodos/NodoBase";
 
 function renderWithFlow(ui: React.ReactElement) {
@@ -8,9 +9,15 @@ function renderWithFlow(ui: React.ReactElement) {
 }
 
 describe("NodoBase", () => {
-  it("renderiza el título y el color correcto", () => {
+  it("renderiza el nombre y aplica estilos de categoría", () => {
     renderWithFlow(
-      <NodoBase tipo="disparador" titulo="Mi Nodo" color="emerald" selected={false}>
+      <NodoBase
+        nombre="Mi Nodo"
+        icono={MessageSquare}
+        categoria="trigger"
+        selected={false}
+        tieneEntrada={false}
+      >
         <span data-testid="contenido">Contenido</span>
       </NodoBase>,
     );
@@ -19,9 +26,9 @@ describe("NodoBase", () => {
     expect(screen.getByTestId("contenido")).toBeTruthy();
   });
 
-  it("muestra borde cuando está seleccionado", () => {
+  it("muestra ring cuando está seleccionado", () => {
     const { container } = renderWithFlow(
-      <NodoBase tipo="accion" titulo="Test" color="blue" selected={true}>
+      <NodoBase nombre="Test" icono={Send} categoria="mensajeria" selected={true}>
         <span>X</span>
       </NodoBase>,
     );
@@ -33,11 +40,12 @@ describe("NodoBase", () => {
   it("renderiza handles de entrada y salida", () => {
     const { container } = renderWithFlow(
       <NodoBase
-        tipo="accion"
-        titulo="Test"
-        color="blue"
+        nombre="Test"
+        icono={Send}
+        categoria="mensajeria"
         selected={false}
-        handles={{ entrada: true, salida: true }}
+        tieneEntrada={true}
+        tieneSalida={true}
       >
         <span>X</span>
       </NodoBase>,

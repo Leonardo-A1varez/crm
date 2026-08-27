@@ -63,6 +63,10 @@ function configPorDefecto(tipo: NodoTipo): Record<string, unknown> {
       return { minutos: 60 };
     case "fin":
       return {};
+    default:
+      // Los 57 tipos del catálogo nuevo arrancan sin config: el panel
+      // (canvas/config/*) completa cada campo con su propio default al abrirse.
+      return {};
   }
 }
 

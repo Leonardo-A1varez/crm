@@ -7,6 +7,7 @@ interface CanvasToolbarProps {
   guardando: boolean;
   puedeGuardar: boolean;
   onGuardar: () => void;
+  onProbar?: () => void;
 }
 
 export function CanvasToolbar({
@@ -14,6 +15,7 @@ export function CanvasToolbar({
   guardando,
   puedeGuardar,
   onGuardar,
+  onProbar,
 }: CanvasToolbarProps) {
   const sano = problemas.length === 0;
 
@@ -30,6 +32,17 @@ export function CanvasToolbar({
           </span>
         )}
       </div>
+
+      {onProbar && (
+        <button
+          type="button"
+          onClick={onProbar}
+          disabled={!puedeGuardar || !sano}
+          className="border-line-control text-ink-secondary hover:bg-surface-hover rounded-md border px-4 py-1.5 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Probar
+        </button>
+      )}
 
       <button
         type="button"

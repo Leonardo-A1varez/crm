@@ -598,3 +598,38 @@ export interface WorkflowResumen {
   /** `created_at` de la última versión guardada; si no hay ninguna, el del workflow. */
   ultimaEdicion: Date;
 }
+
+// =========================================================================
+// Historial de ejecuciones (panel lateral I)
+// =========================================================================
+
+/** Filtros para el historial de ejecuciones */
+export interface HistorialFiltros {
+  estado?: WorkflowRunEstado | "todos";
+  fechaDesde?: Date;
+  fechaHasta?: Date;
+  leadId?: string;
+  busqueda?: string;
+}
+
+/** Resultado de la paginacion cursor del historial */
+export interface HistorialPaginado {
+  runs: WorkflowRunConLead[];
+  nextCursor: string | null;
+  total: number;
+}
+
+/** Run con datos del lead para mostrar en la lista */
+export interface WorkflowRunConLead extends WorkflowRun {
+  lead_nombre: string | null;
+  trigger_tipo: string;
+  trigger_datos: Record<string, unknown>;
+  duracion_ms: number | null;
+}
+
+/** Detalle completo de un run con pasos y version */
+export interface WorkflowRunDetalle extends WorkflowRunConLead {
+  pasos: WorkflowRunPaso[];
+  version_numero: number;
+  version_actual: boolean;
+}

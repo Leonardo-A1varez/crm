@@ -1,8 +1,15 @@
-import { NotFoundError, ValidationError } from "@/lib/errors";
+import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { calcularEstadoWorkflow } from "@/lib/ui/workflow-estado";
 import { GrafoSchema } from "@/lib/validation/workflows.schema";
+import {
+  ejecutarWorkflow,
+  serializarVariables,
+  type EjecucionCallbacks,
+  type ResultadoEjecucion,
+} from "@/lib/workflows/engine";
 import { resumenPasos } from "@/lib/workflows/pasos";
 import { validarGrafo } from "@/lib/workflows/validar-grafo";
+import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { WorkflowRunsRepository } from "@/server/repositories/workflow-runs.repo";
 import type { WorkflowsRepository } from "@/server/repositories/workflows.repo";
 import type { UUID, Workflow, WorkflowResumen, WorkflowVersion } from "@/types/entities";
@@ -20,6 +27,20 @@ export interface GuardarVersionInput {
   grafo: Grafo;
   maxPasos: number;
   userId: UUID | null;
+}
+
+export interface ProbarWorkflowInput {
+  workflowId: UUID;
+  grafo: Grafo;
+  maxPasos: number;
+  /** Lead de prueba: el motor necesita una entidad real para interpolar variables. */
+  leadId: UUID;
+  userId: UUID | null;
+}
+
+export interface ProbarWorkflowResult {
+  runId: UUID;
+  resultado: ResultadoEjecucion;
 }
 
 /** Lo que se muestra en la pantalla de un workflow. */
@@ -45,11 +66,30 @@ export interface WorkflowsAdminService {
   pausar(workflowId: UUID): Promise<Workflow>;
   reanudar(workflowId: UUID): Promise<Workflow>;
   eliminar(workflowId: UUID): Promise<void>;
+  /** Crea una nueva versión draft clonando el grafo de una existente. */
+  crearVersionDesde(versionId: UUID, userId: UUID | null): Promise<WorkflowVersion>;
+  /** Crea una nueva versión desde una antigua y la publica (rollback). */
+  rollbackAVersion(
+    workflowId: UUID,
+    versionId: UUID,
+    userId: UUID | null,
+  ): Promise<WorkflowVersion>;
+  /**
+   * Prueba el grafo actual del editor contra un lead real: guarda una versión
+   * nueva (misma puerta que `guardarVersion`, misma validación) y arranca una
+   * corrida de verdad contra el motor — sin wiring a Inngest ni a Meta: los
+   * handlers de mensajería/CRM son puros y sólo devuelven qué habrían hecho.
+   */
+  probar(input: ProbarWorkflowInput): Promise<ProbarWorkflowResult>;
 }
 
 export class DefaultWorkflowsAdminService implements WorkflowsAdminService {
   constructor(
-    private readonly deps: { workflows: WorkflowsRepository; workflowRuns: WorkflowRunsRepository },
+    private readonly deps: {
+      workflows: WorkflowsRepository;
+      workflowRuns: WorkflowRunsRepository;
+      leads: LeadsRepository;
+    },
   ) {}
 
   async crear(input: { nombre: string; descripcion: string | null }): Promise<Workflow> {
@@ -228,5 +268,128 @@ export class DefaultWorkflowsAdminService implements WorkflowsAdminService {
 
   async eliminar(workflowId: UUID): Promise<void> {
     return this.deps.workflows.eliminar(workflowId);
+  }
+
+  /**
+   * Crea una nueva versión draft clonando el grafo de una existente.
+   *
+   * Se usa cuando se quiere editar una versión publicada sin romperla: se clona
+   * a un borrador, se edita el borrador, y cuando esté listo se publica.
+   */
+  async crearVersionDesde(versionId: UUID, userId: UUID | null): Promise<WorkflowVersion> {
+    const versionOrigen = await this.deps.workflows.findVersion(versionId);
+    if (!versionOrigen) {
+      throw new NotFoundError(`versión no encontrada: ${versionId}`, "workflow_version", versionId);
+    }
+
+    const siguienteNumero = await this.deps.workflows.proximaVersion(versionOrigen.workflow_id);
+
+    return this.deps.workflows.crearVersion({
+      workflow_id: versionOrigen.workflow_id,
+      version: siguienteNumero,
+      grafo: versionOrigen.grafo,
+      max_pasos: versionOrigen.max_pasos,
+      created_by: userId,
+    });
+  }
+
+  /**
+   * Rollback: crea una nueva versión desde una antigua y la publica.
+   *
+   * Es un atajo de "crear versión desde + publicar" en una sola operación. La
+   * versión nueva tiene el grafo de la versión seleccionada pero con número
+   * nuevo — no revive la versión vieja, crea una copia fresca.
+   */
+  async rollbackAVersion(
+    workflowId: UUID,
+    versionId: UUID,
+    userId: UUID | null,
+  ): Promise<WorkflowVersion> {
+    // Verificar que la versión pertenece al workflow
+    const versionOrigen = await this.deps.workflows.findVersion(versionId);
+    if (!versionOrigen) {
+      throw new NotFoundError(`versión no encontrada: ${versionId}`, "workflow_version", versionId);
+    }
+    if (versionOrigen.workflow_id !== workflowId) {
+      throw new ValidationError(
+        "La versión no pertenece a este workflow",
+        "version_workflow_mismatch",
+      );
+    }
+
+    // Crear nueva versión con el grafo de la versión seleccionada
+    const nuevaVersion = await this.crearVersionDesde(versionId, userId);
+
+    // Publicarla automáticamente
+    return this.deps.workflows.publicarVersion(nuevaVersion.id);
+  }
+
+  async probar(input: ProbarWorkflowInput): Promise<ProbarWorkflowResult> {
+    // Misma puerta que "Guardar": el grafo que se prueba es el que queda
+    // guardado como borrador, para que "Probar" y "Guardar" nunca diverjan.
+    const version = await this.guardarVersion({
+      workflowId: input.workflowId,
+      grafo: input.grafo,
+      maxPasos: input.maxPasos,
+      userId: input.userId,
+    });
+
+    const lead = await this.deps.leads.findById(input.leadId);
+    if (!lead) {
+      throw new NotFoundError(`lead no encontrado: ${input.leadId}`, "lead", input.leadId);
+    }
+
+    const { run, motivo } = await this.deps.workflowRuns.arrancar({
+      versionId: version.id,
+      leadId: input.leadId,
+      sessionId: null,
+      contexto: {},
+    });
+    if (!run) {
+      if (motivo === "ya_hay_corrida_viva") {
+        throw new ConflictError(
+          "Ya hay una corrida en curso para este lead. Esperá a que termine antes de probar de nuevo.",
+          "ya_hay_corrida_viva",
+        );
+      }
+      throw new NotFoundError(
+        `versión no encontrada: ${version.id}`,
+        "workflow_version",
+        version.id,
+      );
+    }
+
+    const callbacks: EjecucionCallbacks = {
+      persistirEstado: async (ctx) => {
+        const contexto = serializarVariables(ctx.variables);
+        const pasos = ctx.historialPasos.length;
+        if (ctx.estado === "completado") {
+          await this.deps.workflowRuns.terminar(ctx.runId, pasos);
+        } else if (ctx.estado === "error") {
+          await this.deps.workflowRuns.fallar(ctx.runId, ctx.error ?? "error desconocido", pasos);
+        } else if (ctx.estado === "esperando") {
+          await this.deps.workflowRuns.esperar(ctx.runId, ctx.nodoActual, contexto, pasos);
+        } else {
+          await this.deps.workflowRuns.avanzar(ctx.runId, ctx.nodoActual, contexto, pasos);
+        }
+      },
+      persistirPaso: async (runId, paso, orden) => {
+        await this.deps.workflowRuns.registrarPaso(runId, {
+          nodo_id: paso.nodoId,
+          orden,
+          entrada: paso.entrada,
+          salida: paso.salida,
+          error: paso.error ?? null,
+        });
+      },
+    };
+
+    const resultado = await ejecutarWorkflow(
+      version,
+      { runId: run.id, trigger: { tipo: "manual", datos: {} }, lead },
+      callbacks,
+    );
+
+    return { runId: run.id, resultado };
   }
 }

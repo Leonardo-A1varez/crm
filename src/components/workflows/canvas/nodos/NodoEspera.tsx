@@ -2,6 +2,7 @@
 
 import { memo } from "react";
 import type { Node, NodeProps } from "@xyflow/react";
+import { Clock } from "lucide-react";
 import { NodoBase } from "./NodoBase";
 
 interface NodoEsperaData extends Record<string, unknown> {
@@ -16,13 +17,14 @@ function NodoEsperaInner({ data, selected }: NodeProps<NodoEsperaType>) {
 
   return (
     <NodoBase
-      tipo="espera"
-      titulo="Espera"
-      color="gray"
+      nombre="Espera"
+      icono={Clock}
+      categoria="logica"
       selected={selected}
-      handles={{ entrada: true, salida: true }}
+      tieneEntrada={true}
+      tieneSalida={true}
     >
-      <p className="text-ink-secondary text-[11px]">Esperar {texto}</p>
+      Esperar {texto}
     </NodoBase>
   );
 }

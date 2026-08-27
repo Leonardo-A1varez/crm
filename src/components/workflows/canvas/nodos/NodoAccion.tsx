@@ -2,6 +2,7 @@
 
 import { memo } from "react";
 import type { Node, NodeProps } from "@xyflow/react";
+import { Send } from "lucide-react";
 import { NodoBase } from "./NodoBase";
 import { ETIQUETA_ACCION } from "@/lib/workflows/catalogo";
 import type { AccionWorkflow } from "@/lib/workflows/catalogo";
@@ -19,14 +20,15 @@ function NodoAccionInner({ data, selected }: NodeProps<NodoAccionType>) {
 
   return (
     <NodoBase
-      tipo="accion"
-      titulo="Acción"
-      color="blue"
+      nombre="Acción"
+      icono={Send}
+      categoria="mensajeria"
       selected={selected}
-      handles={{ entrada: true, salida: true }}
+      tieneEntrada={true}
+      tieneSalida={true}
     >
-      <p className="text-ink-secondary text-[11px] font-medium">{etiqueta}</p>
-      {texto && <p className="text-ink-faint mt-1 line-clamp-2 text-[10px]">{texto}</p>}
+      <span className="font-medium">{etiqueta}</span>
+      {texto && <span className="mt-1 line-clamp-2 text-[10px] opacity-70">{texto}</span>}
     </NodoBase>
   );
 }

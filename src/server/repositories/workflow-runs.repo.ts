@@ -1,8 +1,12 @@
 import { NotFoundError } from "@/lib/errors";
 import type {
+  HistorialFiltros,
+  HistorialPaginado,
   UUID,
   WorkflowMetricas,
   WorkflowRun,
+  WorkflowRunConLead,
+  WorkflowRunDetalle,
   WorkflowRunEstado,
   WorkflowRunPaso,
 } from "@/types/entities";
@@ -88,6 +92,23 @@ export interface WorkflowRunsRepository {
     workflowIds: readonly UUID[],
     desde: Date,
   ): Promise<Record<UUID, WorkflowMetricas>>;
+
+  // =========================================================================
+  // Historial de ejecuciones (panel lateral I)
+  // =========================================================================
+
+  /** Historial paginado de un workflow con filtros. */
+  listarHistorial(
+    workflowId: UUID,
+    filtros: HistorialFiltros,
+    cursor?: string,
+  ): Promise<HistorialPaginado>;
+
+  /** Detalle de un run con sus pasos. */
+  detalleRun(runId: UUID): Promise<WorkflowRunDetalle | null>;
+
+  /** Pasos de un run en orden de ejecucion. */
+  pasosDeRun(runId: UUID): Promise<WorkflowRunPaso[]>;
 }
 
 export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
@@ -279,6 +300,86 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
     const run = this.runs.get(runId);
     if (!run) throw new NotFoundError(`corrida no encontrada: ${runId}`, "workflow_run", runId);
     this.runs.set(runId, { ...run, ...cambios });
+  }
+
+  // =========================================================================
+  // Historial de ejecuciones (panel lateral I)
+  // =========================================================================
+
+  async listarHistorial(
+    workflowId: UUID,
+    filtros: HistorialFiltros,
+    cursor?: string,
+  ): Promise<HistorialPaginado> {
+    const PAGE_SIZE = 20;
+    let runs = [...this.runs.values()].filter((r) => {
+      const wid = this.resolverWorkflowId?.(r.workflow_version_id) ?? r.workflow_version_id;
+      return wid === workflowId;
+    });
+
+    // Aplicar filtros
+    if (filtros.estado && filtros.estado !== "todos") {
+      runs = runs.filter((r) => r.estado === filtros.estado);
+    }
+    if (filtros.fechaDesde) {
+      runs = runs.filter((r) => r.started_at >= filtros.fechaDesde!);
+    }
+    if (filtros.fechaHasta) {
+      runs = runs.filter((r) => r.started_at <= filtros.fechaHasta!);
+    }
+    if (filtros.leadId) {
+      runs = runs.filter((r) => r.lead_id === filtros.leadId);
+    }
+
+    // Ordenar por fecha descendente
+    runs.sort((a, b) => b.started_at.getTime() - a.started_at.getTime());
+
+    const total = runs.length;
+
+    // Aplicar cursor
+    if (cursor) {
+      const cursorDate = new Date(cursor);
+      runs = runs.filter((r) => r.started_at < cursorDate);
+    }
+
+    // Paginar
+    const paginados = runs.slice(0, PAGE_SIZE);
+    const nextCursor =
+      paginados.length === PAGE_SIZE ? paginados.at(-1)?.started_at.toISOString() : null;
+
+    return {
+      runs: paginados.map((r) => this.mapRunConLead(r)),
+      nextCursor: nextCursor ?? null,
+      total,
+    };
+  }
+
+  async detalleRun(runId: UUID): Promise<WorkflowRunDetalle | null> {
+    const run = this.runs.get(runId);
+    if (!run) return null;
+
+    const pasos = this.pasos.get(runId) ?? [];
+    return {
+      ...this.mapRunConLead(run),
+      pasos: pasos.sort((a, b) => a.orden - b.orden),
+      version_numero: 1,
+      version_actual: true,
+    };
+  }
+
+  async pasosDeRun(runId: UUID): Promise<WorkflowRunPaso[]> {
+    const pasos = this.pasos.get(runId) ?? [];
+    return pasos.sort((a, b) => a.orden - b.orden);
+  }
+
+  private mapRunConLead(run: WorkflowRun): WorkflowRunConLead {
+    return {
+      ...clonarRun(run),
+      lead_nombre: null,
+      trigger_tipo: "manual",
+      trigger_datos: {},
+      duracion_ms: run.ended_at ? run.ended_at.getTime() - run.started_at.getTime() : null,
+    };
   }
 }
 

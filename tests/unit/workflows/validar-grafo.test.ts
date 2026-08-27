@@ -240,6 +240,71 @@ describe("validarGrafo — validos que parecen invalidos", () => {
   });
 });
 
+describe("validarGrafo — catálogo nuevo (57 tipos), no solo el legacy", () => {
+  // El canvas visual (`flowToGrafo`) persiste `Nodo.tipo` tal cual sale de la
+  // paleta nueva: "trigger_manual", "msg_texto", etc. Sin reconocerlos acá,
+  // NINGÚN grafo armado con la paleta nueva podía guardarse — siempre
+  // "no tiene disparador", aunque estuviera perfecto.
+  it("trigger_manual -> msg_texto -> logica_detener es un grafo valido", () => {
+    const g = grafo(
+      [nodo("t", "trigger_manual"), nodo("m", "msg_texto"), nodo("fin", "logica_detener")],
+      [arista("t", "m"), arista("m", "fin")],
+    );
+    expect(validarGrafo(g)).toEqual([]);
+  });
+
+  it("logica_condicion con las dos salidas conectadas es valido", () => {
+    const g = grafo(
+      [
+        nodo("t", "trigger_manual"),
+        nodo("c", "logica_condicion"),
+        nodo("f1", "logica_detener"),
+        nodo("f2", "logica_detener"),
+      ],
+      [arista("t", "c"), arista("c", "f1", "verdadero"), arista("c", "f2", "falso")],
+    );
+    expect(validarGrafo(g)).toEqual([]);
+  });
+
+  it("logica_condicion sin la rama falso reporta condicion_puertos, no salida_sin_conectar", () => {
+    const g = grafo(
+      [nodo("t", "trigger_manual"), nodo("c", "logica_condicion"), nodo("f1", "logica_detener")],
+      [arista("t", "c"), arista("c", "f1", "verdadero")],
+    );
+    const problemas = validarGrafo(g);
+    expect(problemas).toHaveLength(1);
+    expect(problemas[0]?.regla).toBe("condicion_puertos");
+  });
+
+  it("un ciclo con logica_esperar adentro es valido (no ciclo_sin_espera)", () => {
+    const g = grafo(
+      [
+        nodo("t", "trigger_manual"),
+        nodo("e", "logica_esperar"),
+        nodo("m", "msg_texto"),
+        nodo("c", "logica_condicion"),
+        nodo("fin", "logica_detener"),
+      ],
+      [
+        arista("t", "e"),
+        arista("e", "m"),
+        arista("m", "c"),
+        arista("c", "fin", "verdadero"),
+        arista("c", "e", "falso"),
+      ],
+    );
+    expect(validarGrafo(g)).toEqual([]);
+  });
+
+  it("un ciclo sin ninguna espera (tipos nuevos) sigue siendo invalido", () => {
+    const g = grafo(
+      [nodo("t", "trigger_manual"), nodo("m1", "msg_texto"), nodo("m2", "msg_texto")],
+      [arista("t", "m1"), arista("m1", "m2"), arista("m2", "m1")],
+    );
+    expect(reglas(g)).toContain("ciclo_sin_espera");
+  });
+});
+
 describe("validarGrafo — devuelve TODOS los problemas", () => {
   it("dos problemas distintos vienen los dos, no solo el primero", () => {
     // Sin disparador Y con una arista a un nodo que no existe.

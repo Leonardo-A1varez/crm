@@ -32,8 +32,169 @@ export interface Arista {
   puerto: Puerto;
 }
 
-export const NODO_TIPOS = ["disparador", "accion", "condicion", "espera", "fin"] as const;
+// Tipos de nodo legacy (compatibilidad hacia atrás)
+export const NODO_TIPOS_LEGACY = ["disparador", "accion", "condicion", "espera", "fin"] as const;
+
+// Triggers (11 tipos)
+export const NODO_TIPOS_TRIGGER = [
+  "trigger_mensaje",
+  "trigger_webhook",
+  "trigger_cron",
+  "trigger_manual",
+  "trigger_etiqueta",
+  "trigger_etiqueta_removida",
+  "trigger_etapa",
+  "trigger_lead_creado",
+  "trigger_vendedor_asignado",
+  "trigger_inactividad",
+  "trigger_formulario",
+] as const;
+
+// Mensajería (8 tipos)
+export const NODO_TIPOS_MENSAJERIA = [
+  "msg_texto",
+  "msg_botones",
+  "msg_lista",
+  "msg_imagen",
+  "msg_documento",
+  "msg_ubicacion",
+  "msg_plantilla",
+  "msg_reaccion",
+] as const;
+
+// CRM (10 tipos)
+export const NODO_TIPOS_CRM = [
+  "crm_etiqueta_add",
+  "crm_etiqueta_remove",
+  "crm_etapa",
+  "crm_vendedor",
+  "crm_round_robin",
+  "crm_campo",
+  "crm_tarea",
+  "crm_nota",
+  "crm_spam",
+  "crm_archivar",
+] as const;
+
+// Lógica (11 tipos)
+export const NODO_TIPOS_LOGICA = [
+  "logica_condicion",
+  "logica_switch",
+  "logica_validacion",
+  "logica_esperar",
+  "logica_esperar_respuesta",
+  "logica_esperar_evento",
+  "logica_loop",
+  "logica_grupo",
+  "logica_goto",
+  "logica_detener",
+  "logica_error",
+] as const;
+
+// Integraciones (6 tipos)
+export const NODO_TIPOS_INTEGRACION = [
+  "int_http",
+  "int_webhook_out",
+  "int_codigo",
+  "int_email",
+  "int_sheets",
+  "int_db",
+] as const;
+
+// IA (7 tipos)
+export const NODO_TIPOS_IA = [
+  "ia_clasificar",
+  "ia_responder",
+  "ia_extraer",
+  "ia_sentimiento",
+  "ia_resumir",
+  "ia_traducir",
+  "ia_spam",
+] as const;
+
+// Internos (4 tipos)
+export const NODO_TIPOS_INTERNO = [
+  "int_notif_vendedor",
+  "int_notif_grupo",
+  "int_comentario",
+  "int_debug",
+] as const;
+
+// Todos los tipos de nodo (57 + 5 legacy)
+export const NODO_TIPOS = [
+  ...NODO_TIPOS_LEGACY,
+  ...NODO_TIPOS_TRIGGER,
+  ...NODO_TIPOS_MENSAJERIA,
+  ...NODO_TIPOS_CRM,
+  ...NODO_TIPOS_LOGICA,
+  ...NODO_TIPOS_INTEGRACION,
+  ...NODO_TIPOS_IA,
+  ...NODO_TIPOS_INTERNO,
+] as const;
+
 export type NodoTipo = (typeof NODO_TIPOS)[number];
+export type NodoTipoTrigger = (typeof NODO_TIPOS_TRIGGER)[number];
+export type NodoTipoMensajeria = (typeof NODO_TIPOS_MENSAJERIA)[number];
+export type NodoTipoCRM = (typeof NODO_TIPOS_CRM)[number];
+export type NodoTipoLogica = (typeof NODO_TIPOS_LOGICA)[number];
+export type NodoTipoIntegracion = (typeof NODO_TIPOS_INTEGRACION)[number];
+export type NodoTipoIA = (typeof NODO_TIPOS_IA)[number];
+export type NodoTipoInterno = (typeof NODO_TIPOS_INTERNO)[number];
+
+/** Categoría de un nodo, para asignar estilos visuales */
+export type CategoriaVisual =
+  | "trigger"
+  | "mensajeria"
+  | "crm"
+  | "logica"
+  | "integracion"
+  | "ia"
+  | "interno";
+
+/** Devuelve la categoría visual de un tipo de nodo */
+export function categoriaDeTipo(tipo: NodoTipo): CategoriaVisual | null {
+  if ((NODO_TIPOS_TRIGGER as readonly string[]).includes(tipo)) return "trigger";
+  if ((NODO_TIPOS_MENSAJERIA as readonly string[]).includes(tipo)) return "mensajeria";
+  if ((NODO_TIPOS_CRM as readonly string[]).includes(tipo)) return "crm";
+  if ((NODO_TIPOS_LOGICA as readonly string[]).includes(tipo)) return "logica";
+  if ((NODO_TIPOS_INTEGRACION as readonly string[]).includes(tipo)) return "integracion";
+  if ((NODO_TIPOS_IA as readonly string[]).includes(tipo)) return "ia";
+  if ((NODO_TIPOS_INTERNO as readonly string[]).includes(tipo)) return "interno";
+  return null; // Legacy types
+}
+
+/**
+ * Clasificadores de tipo compartidos entre el validador (`validar-grafo.ts`,
+ * `validar-workflow.ts`) y el motor (`engine/ejecutar-workflow.ts`).
+ *
+ * El canvas visual persiste `Nodo.tipo` tal cual sale de la paleta —
+ * "trigger_manual", "logica_condicion", etc. — nunca lo normaliza a los 5
+ * tipos legacy. Comparar contra un solo literal (`tipo === "disparador"`)
+ * reconoce únicamente grafos armados antes del catálogo de 57 tipos.
+ */
+export function esTrigger(tipo: NodoTipo): boolean {
+  return tipo === "disparador" || (NODO_TIPOS_TRIGGER as readonly string[]).includes(tipo);
+}
+
+/** Únicos tipos con dos puertos de salida (`verdadero`/`falso`). */
+export function esCondicion(tipo: NodoTipo): boolean {
+  return tipo === "condicion" || tipo === "logica_condicion";
+}
+
+/** Cortan el segmento y programan una reanudación — cuentan como "espera" para `ciclo_sin_espera`. */
+export function esEspera(tipo: NodoTipo): boolean {
+  return (
+    tipo === "espera" ||
+    tipo === "logica_esperar" ||
+    tipo === "logica_esperar_respuesta" ||
+    tipo === "logica_esperar_evento"
+  );
+}
+
+/** Nodos terminales: no tienen ningún puerto de salida. */
+export function esFinal(tipo: NodoTipo): boolean {
+  return tipo === "fin" || tipo === "logica_detener";
+}
 
 export const PUERTOS = ["salida", "verdadero", "falso"] as const;
 export type Puerto = (typeof PUERTOS)[number];

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { NotFoundError, ValidationError } from "@/lib/errors";
+import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
+import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
 import { InMemoryWorkflowRunsRepository } from "@/server/repositories/workflow-runs.repo";
 import { InMemoryWorkflowsRepository } from "@/server/repositories/workflows.repo";
 import { DefaultWorkflowsAdminService } from "@/server/services/workflows/workflows-admin.service";
@@ -30,10 +31,12 @@ const CICLO_SIN_ESPERA: Grafo = {
 function build() {
   const repo = new InMemoryWorkflowsRepository();
   const runs = new InMemoryWorkflowRunsRepository();
+  const leads = new InMemoryLeadsRepository();
   return {
     repo,
     runs,
-    service: new DefaultWorkflowsAdminService({ workflows: repo, workflowRuns: runs }),
+    leads,
+    service: new DefaultWorkflowsAdminService({ workflows: repo, workflowRuns: runs, leads }),
   };
 }
 
@@ -202,8 +205,9 @@ function buildConRuns() {
   const workflowRuns = new InMemoryWorkflowRunsRepository((versionId) =>
     versionDeWorkflow.get(versionId),
   );
-  const service = new DefaultWorkflowsAdminService({ workflows, workflowRuns });
-  return { workflows, workflowRuns, service, versionDeWorkflow };
+  const leads = new InMemoryLeadsRepository();
+  const service = new DefaultWorkflowsAdminService({ workflows, workflowRuns, leads });
+  return { workflows, workflowRuns, leads, service, versionDeWorkflow };
 }
 
 describe("DefaultWorkflowsAdminService.listarConResumen", () => {
@@ -379,5 +383,144 @@ describe("DefaultWorkflowsAdminService.pausar / reanudar / eliminar", () => {
     await service.eliminar(w.id);
 
     expect(await service.listar()).toEqual([]);
+  });
+});
+
+/** trigger_manual -> msg_texto -> logica_detener: completa en un solo segmento. */
+const GRAFO_PROBAR_SIMPLE: Grafo = {
+  nodos: [
+    { id: "t", tipo: "trigger_manual", config: {}, posicion: { x: 0, y: 0 } },
+    {
+      id: "m",
+      tipo: "msg_texto",
+      config: { mensaje: "hola {{lead.nombre}}" },
+      posicion: { x: 1, y: 0 },
+    },
+    { id: "fin", tipo: "logica_detener", config: {}, posicion: { x: 2, y: 0 } },
+  ],
+  aristas: [
+    { desde: "t", hasta: "m", puerto: "salida" },
+    { desde: "m", hasta: "fin", puerto: "salida" },
+  ],
+};
+
+/**
+ * trigger_manual -> logica_esperar -> logica_detener: el motor corta en la
+ * espera antes de llegar al nodo final, así que la corrida queda viva. El
+ * nodo final sólo está para que `validarGrafo` acepte la salida de "e".
+ */
+const GRAFO_PROBAR_CON_ESPERA: Grafo = {
+  nodos: [
+    { id: "t", tipo: "trigger_manual", config: {}, posicion: { x: 0, y: 0 } },
+    {
+      id: "e",
+      tipo: "logica_esperar",
+      config: { duracion: 10, unidad: "minutos" },
+      posicion: { x: 1, y: 0 },
+    },
+    { id: "fin", tipo: "logica_detener", config: {}, posicion: { x: 2, y: 0 } },
+  ],
+  aristas: [
+    { desde: "t", hasta: "e", puerto: "salida" },
+    { desde: "e", hasta: "fin", puerto: "salida" },
+  ],
+};
+
+async function crearLeadDePrueba(leads: InMemoryLeadsRepository) {
+  return leads.create({
+    nombre: "Lead de prueba",
+    telefono: "+5491100000000",
+    email: null,
+    direccion: null,
+    vehiculo_marca: null,
+    vehiculo_modelo: null,
+    vehiculo_anio: null,
+    vehiculo_motor: null,
+    empresa_id: null,
+    canal_origen: "wa",
+    meta_user_ids: {},
+  });
+}
+
+describe("DefaultWorkflowsAdminService.probar", () => {
+  it("guarda el grafo actual como version y arranca una corrida real hasta terminar", async () => {
+    const { service, workflows, workflowRuns, leads } = buildConRuns();
+    const w = await service.crear({ nombre: "W", descripcion: null });
+    const lead = await crearLeadDePrueba(leads);
+
+    const { runId, resultado } = await service.probar({
+      workflowId: w.id,
+      grafo: GRAFO_PROBAR_SIMPLE,
+      maxPasos: 50,
+      leadId: lead.id,
+      userId: null,
+    });
+
+    expect(resultado.tipo).toBe("completado");
+    expect(await workflows.listarVersiones(w.id)).toHaveLength(1);
+
+    const run = await workflowRuns.findRun(runId);
+    expect(run?.estado).toBe("terminado");
+    expect(run?.pasos_ejecutados).toBe(3);
+    expect(await workflowRuns.pasosDeRun(runId)).toHaveLength(3);
+  });
+
+  it("una corrida de prueba que corta en una espera queda 'esperando'", async () => {
+    const { service, workflowRuns, leads } = buildConRuns();
+    const w = await service.crear({ nombre: "W", descripcion: null });
+    const lead = await crearLeadDePrueba(leads);
+
+    const { runId, resultado } = await service.probar({
+      workflowId: w.id,
+      grafo: GRAFO_PROBAR_CON_ESPERA,
+      maxPasos: 50,
+      leadId: lead.id,
+      userId: null,
+    });
+
+    expect(resultado.tipo).toBe("esperando");
+    const run = await workflowRuns.findRun(runId);
+    expect(run?.estado).toBe("esperando");
+  });
+
+  it("lead inexistente: NotFoundError, sin arrancar ninguna corrida", async () => {
+    const { service, workflowRuns } = buildConRuns();
+    const w = await service.crear({ nombre: "W", descripcion: null });
+
+    await expect(
+      service.probar({
+        workflowId: w.id,
+        grafo: GRAFO_PROBAR_SIMPLE,
+        maxPasos: 50,
+        leadId: "00000000-0000-0000-0000-000000000000",
+        userId: null,
+      }),
+    ).rejects.toThrow(NotFoundError);
+
+    expect(await workflowRuns.metricasPorWorkflow([w.id], new Date(0))).toEqual({});
+  });
+
+  it("ya hay una corrida viva para ese lead: ConflictError, no arranca una segunda", async () => {
+    const { service, leads } = buildConRuns();
+    const w = await service.crear({ nombre: "W", descripcion: null });
+    const lead = await crearLeadDePrueba(leads);
+
+    await service.probar({
+      workflowId: w.id,
+      grafo: GRAFO_PROBAR_CON_ESPERA,
+      maxPasos: 50,
+      leadId: lead.id,
+      userId: null,
+    });
+
+    await expect(
+      service.probar({
+        workflowId: w.id,
+        grafo: GRAFO_PROBAR_CON_ESPERA,
+        maxPasos: 50,
+        leadId: lead.id,
+        userId: null,
+      }),
+    ).rejects.toThrow(ConflictError);
   });
 });

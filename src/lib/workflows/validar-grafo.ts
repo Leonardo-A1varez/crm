@@ -1,16 +1,17 @@
+import { esCondicion, esEspera, esFinal, esTrigger } from "@/types/workflows";
 import type { Arista, Grafo, Nodo, NodoTipo, ProblemaGrafo, Puerto } from "@/types/workflows";
 
 /**
  * Qué puertos de salida tiene cada tipo de nodo. El validador lo usa para la
  * regla `salida_sin_conectar` y el canvas de W5 para dibujar los conectores.
  *
- * `fin` no tiene ninguno: es el único nodo que puede cerrar un camino, y por
- * eso un flujo que se corta en cualquier otro lado es un error y no una
- * decisión de diseño.
+ * Un nodo final (`fin`/`logica_detener`) no tiene ninguno: es el único que
+ * puede cerrar un camino, y por eso un flujo que se corta en cualquier otro
+ * lado es un error y no una decisión de diseño.
  */
 export function puertosDe(tipo: NodoTipo): Puerto[] {
-  if (tipo === "condicion") return ["verdadero", "falso"];
-  if (tipo === "fin") return [];
+  if (esCondicion(tipo)) return ["verdadero", "falso"];
+  if (esFinal(tipo)) return [];
   return ["salida"];
 }
 
@@ -43,7 +44,7 @@ export function validarGrafo(grafo: Grafo): ProblemaGrafo[] {
   }
 
   // --- regla: disparador_unico ------------------------------------------
-  const disparadores = grafo.nodos.filter((n) => n.tipo === "disparador");
+  const disparadores = grafo.nodos.filter((n) => esTrigger(n.tipo));
   if (disparadores.length !== 1) {
     problemas.push({
       regla: "disparador_unico",
@@ -78,10 +79,10 @@ export function validarGrafo(grafo: Grafo): ProblemaGrafo[] {
     else salientesPorNodo.set(a.desde, [a]);
   }
   for (const n of grafo.nodos) {
-    // `condicion` queda afuera: `condicion_puertos` cubre sus dos puertos con
-    // un mensaje específico ("no tiene camino por «falso»"), y reportar acá
-    // también daría dos errores para un solo defecto.
-    if (n.tipo === "condicion") continue;
+    // Las condiciones quedan afuera: `condicion_puertos` cubre sus dos
+    // puertos con un mensaje específico ("no tiene camino por «falso»"), y
+    // reportar acá también daría dos errores para un solo defecto.
+    if (esCondicion(n.tipo)) continue;
     const salientes = salientesPorNodo.get(n.id) ?? [];
     for (const puerto of puertosDe(n.tipo)) {
       if (!salientes.some((a) => a.puerto === puerto)) {
@@ -100,7 +101,7 @@ export function validarGrafo(grafo: Grafo): ProblemaGrafo[] {
   // se salteó estos nodos a propósito porque el mensaje específico de acá
   // ("no tiene camino por «falso»") es más claro que el genérico.
   for (const n of grafo.nodos) {
-    if (n.tipo !== "condicion") continue;
+    if (!esCondicion(n.tipo)) continue;
     const salientes = salientesPorNodo.get(n.id) ?? [];
     for (const puerto of ["verdadero", "falso"] as const) {
       const cuantas = salientes.filter((a) => a.puerto === puerto).length;
@@ -174,7 +175,7 @@ export function validarGrafo(grafo: Grafo): ProblemaGrafo[] {
  * para ocultarlo.
  */
 function ciclosSinEspera(nodos: Nodo[], salientesPorNodo: Map<string, Arista[]>): ProblemaGrafo[] {
-  const sinEspera = nodos.filter((n) => n.tipo !== "espera");
+  const sinEspera = nodos.filter((n) => !esEspera(n.tipo));
   const idsSinEspera = new Set(sinEspera.map((n) => n.id));
   const salientesSubgrafo = new Map<string, Arista[]>();
   for (const id of idsSinEspera) {

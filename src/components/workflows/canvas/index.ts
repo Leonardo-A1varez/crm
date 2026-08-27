@@ -4,6 +4,7 @@ export { PaletaNodos } from "./PaletaNodos";
 export { CategoriaColapsable } from "./CategoriaColapsable";
 export { NodoDraggable } from "./NodoDraggable";
 export { PanelConfigNodo } from "./PanelConfigNodo";
+export { ProbarDialog } from "./ProbarDialog";
 export { nodeTypes } from "./nodos";
 export { grafoToFlow, flowToGrafo } from "./tipos";
 export type { NodoFlow, AristaFlow } from "./tipos";

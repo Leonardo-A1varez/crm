@@ -6,7 +6,13 @@ import { VersionesDelWorkflow } from "@/components/workflows/VersionesDelWorkflo
 import { getCurrentRol } from "@/server/auth/guards";
 import { getTagsAdminServiceForRequest } from "@/server/bootstrap/tags-bootstrap";
 import { getWorkflowsAdminServiceForRequest } from "@/server/bootstrap/workflows-bootstrap";
-import { guardarVersionAction, publicarVersionAction } from "../_actions/workflows.actions";
+import { searchLeadsAction } from "../../leads/_actions/search-leads.action";
+import {
+  guardarVersionAction,
+  obtenerDetalleRunAction,
+  probarWorkflowAction,
+  publicarVersionAction,
+} from "../_actions/workflows.actions";
 import type { Grafo } from "@/types/workflows";
 
 export const dynamic = "force-dynamic";
@@ -79,6 +85,9 @@ export default async function WorkflowDetallePage({ params }: { params: Promise<
             tags={tags.map((t) => ({ id: t.id, nombre: t.nombre }))}
             puedeEditar={isAdmin}
             onGuardar={guardarVersionAction}
+            onBuscarLeads={searchLeadsAction}
+            onProbar={probarWorkflowAction}
+            onObtenerDetalleRun={obtenerDetalleRunAction}
           />
         </div>
       </div>

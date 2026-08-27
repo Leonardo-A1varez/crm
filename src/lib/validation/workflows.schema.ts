@@ -76,6 +76,15 @@ export const GuardarVersionSchema = z.object({
 });
 export type GuardarVersionActionInput = z.infer<typeof GuardarVersionSchema>;
 
+/** "Probar": mismo grafo que Guardar, más el lead de prueba contra el que correr. */
+export const ProbarWorkflowSchema = z.object({
+  workflowId: z.string().uuid(),
+  grafo: GrafoSchema,
+  maxPasos: z.number().int().min(1).max(500),
+  leadId: z.string().uuid(),
+});
+export type ProbarWorkflowActionInput = z.infer<typeof ProbarWorkflowSchema>;
+
 export const PublicarVersionSchema = z.object({
   versionId: z.string().uuid(),
 });
@@ -86,6 +95,28 @@ export const WorkflowIdSchema = z.object({
 });
 export type WorkflowIdInput = z.infer<typeof WorkflowIdSchema>;
 
+/** Publicar con descripción opcional del cambio. */
+export const PublicarVersionConDescripcionSchema = z.object({
+  versionId: z.string().uuid(),
+  descripcion: z.string().trim().max(500).optional(),
+});
+export type PublicarVersionConDescripcionInput = z.infer<
+  typeof PublicarVersionConDescripcionSchema
+>;
+
+/** Crear nueva versión a partir de una existente. */
+export const CrearVersionDesdeSchema = z.object({
+  versionId: z.string().uuid(),
+});
+export type CrearVersionDesdeInput = z.infer<typeof CrearVersionDesdeSchema>;
+
+/** Rollback: crear nueva versión desde una antigua y publicarla. */
+export const RollbackVersionSchema = z.object({
+  workflowId: z.string().uuid(),
+  versionId: z.string().uuid(),
+});
+export type RollbackVersionInput = z.infer<typeof RollbackVersionSchema>;
+
 /** Filtros del listado (`getWorkflowsAction`). Todo opcional: sin filtros llega la lista entera. */
 export const FiltrosWorkflowsSchema = z.object({
   busqueda: z.string().trim().max(200).optional(),
@@ -93,3 +124,39 @@ export const FiltrosWorkflowsSchema = z.object({
   ordenar: z.enum(ORDENAR_WORKFLOWS).optional(),
 });
 export type FiltrosWorkflowsInput = z.infer<typeof FiltrosWorkflowsSchema>;
+
+// =========================================================================
+// Historial de ejecuciones (panel lateral I)
+// =========================================================================
+
+const ESTADOS_RUN = ["corriendo", "esperando", "terminado", "fallado", "cancelado"] as const;
+
+export const FiltrosHistorialSchema = z.object({
+  estado: z
+    .enum([...ESTADOS_RUN, "todos"])
+    .optional()
+    .default("todos"),
+  fechaDesde: z.coerce.date().optional(),
+  fechaHasta: z.coerce.date().optional(),
+  leadId: z.string().uuid().optional(),
+  busqueda: z.string().trim().max(200).optional(),
+});
+export type FiltrosHistorialInput = z.infer<typeof FiltrosHistorialSchema>;
+
+export const ObtenerHistorialSchema = z.object({
+  workflowId: z.string().uuid(),
+  filtros: FiltrosHistorialSchema.optional().default({ estado: "todos" }),
+  cursor: z.string().optional(),
+});
+export type ObtenerHistorialInput = z.infer<typeof ObtenerHistorialSchema>;
+
+export const ObtenerDetalleRunSchema = z.object({
+  runId: z.string().uuid(),
+});
+export type ObtenerDetalleRunInput = z.infer<typeof ObtenerDetalleRunSchema>;
+
+export const ReejecutarDesdeErrorSchema = z.object({
+  runId: z.string().uuid(),
+  nodoId: z.string().min(1).max(64),
+});
+export type ReejecutarDesdeErrorInput = z.infer<typeof ReejecutarDesdeErrorSchema>;

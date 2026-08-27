@@ -2,7 +2,17 @@ import { InfraError, NotFoundError } from "@/lib/errors";
 import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { serverNowIso } from "@/server/db/server-time";
-import type { UUID, WorkflowMetricas, WorkflowRun, WorkflowRunEstado } from "@/types/entities";
+import type {
+  HistorialFiltros,
+  HistorialPaginado,
+  UUID,
+  WorkflowMetricas,
+  WorkflowRun,
+  WorkflowRunConLead,
+  WorkflowRunDetalle,
+  WorkflowRunEstado,
+  WorkflowRunPaso,
+} from "@/types/entities";
 import type {
   ArrancarWorkflowRunInput,
   ArrancarWorkflowRunMotivo,
@@ -267,6 +277,146 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
       throw new NotFoundError(`corrida no encontrada: ${runId}`, "workflow_run", runId);
     }
   }
+
+  // =========================================================================
+  // Historial de ejecuciones (panel lateral I)
+  // =========================================================================
+
+  async listarHistorial(
+    workflowId: UUID,
+    filtros: HistorialFiltros,
+    cursor?: string,
+  ): Promise<HistorialPaginado> {
+    const PAGE_SIZE = 20;
+
+    // Primero contamos el total (sin cursor)
+    let countQuery = this.db
+      .from("workflow_runs")
+      .select("id, workflow_versiones!inner(workflow_id)", { count: "exact", head: true })
+      .eq("workflow_versiones.workflow_id", workflowId);
+
+    if (filtros.estado && filtros.estado !== "todos") {
+      countQuery = countQuery.eq("estado", filtros.estado);
+    }
+    if (filtros.fechaDesde) {
+      countQuery = countQuery.gte("started_at", filtros.fechaDesde.toISOString());
+    }
+    if (filtros.fechaHasta) {
+      countQuery = countQuery.lte("started_at", filtros.fechaHasta.toISOString());
+    }
+    if (filtros.leadId) {
+      countQuery = countQuery.eq("lead_id", filtros.leadId);
+    }
+
+    const { count, error: countError } = await countQuery;
+    if (countError) throw mapPostgrestError(countError, { resource: "workflow_runs" });
+
+    // Ahora la query con los datos
+    let query = this.db
+      .from("workflow_runs")
+      .select(`${COLS_RUN}, workflow_versiones!inner(workflow_id), leads(nombre, nombre_perfil)`)
+      .eq("workflow_versiones.workflow_id", workflowId)
+      .order("started_at", { ascending: false })
+      .limit(PAGE_SIZE);
+
+    if (filtros.estado && filtros.estado !== "todos") {
+      query = query.eq("estado", filtros.estado);
+    }
+    if (filtros.fechaDesde) {
+      query = query.gte("started_at", filtros.fechaDesde.toISOString());
+    }
+    if (filtros.fechaHasta) {
+      query = query.lte("started_at", filtros.fechaHasta.toISOString());
+    }
+    if (filtros.leadId) {
+      query = query.eq("lead_id", filtros.leadId);
+    }
+    if (cursor) {
+      query = query.lt("started_at", cursor);
+    }
+
+    const { data, error } = await query;
+    if (error) throw mapPostgrestError(error, { resource: "workflow_runs" });
+
+    const runs = (data ?? []).map((r) => mapRunConLead(r as unknown as HistorialRunRow));
+    const nextCursor =
+      runs.length === PAGE_SIZE ? (runs.at(-1)?.started_at.toISOString() ?? null) : null;
+
+    return {
+      runs,
+      nextCursor,
+      total: count ?? 0,
+    };
+  }
+
+  async detalleRun(runId: UUID): Promise<WorkflowRunDetalle | null> {
+    const { data, error } = await this.db
+      .from("workflow_runs")
+      .select(
+        `${COLS_RUN}, workflow_versiones!inner(workflow_id, version, publicada), leads(nombre, nombre_perfil)`,
+      )
+      .eq("id", runId)
+      .maybeSingle();
+
+    if (error) throw mapPostgrestError(error, { resource: "workflow_runs" });
+    if (!data) return null;
+
+    const pasos = await this.pasosDeRun(runId);
+    const row = data as unknown as DetalleRunRow;
+
+    return {
+      ...mapRunConLead(row),
+      pasos,
+      version_numero: row.workflow_versiones.version,
+      version_actual: row.workflow_versiones.publicada,
+    };
+  }
+
+  async pasosDeRun(runId: UUID): Promise<WorkflowRunPaso[]> {
+    const { data, error } = await this.db
+      .from("workflow_run_pasos")
+      .select("id, run_id, nodo_id, orden, entrada, salida, error, created_at")
+      .eq("run_id", runId)
+      .order("orden", { ascending: true });
+
+    if (error) throw mapPostgrestError(error, { resource: "workflow_run_pasos" });
+
+    return (data ?? []).map((p) => ({
+      id: p.id,
+      run_id: p.run_id,
+      nodo_id: p.nodo_id,
+      orden: p.orden,
+      entrada: p.entrada as Record<string, unknown> | null,
+      salida: p.salida as Record<string, unknown> | null,
+      error: p.error,
+      created_at: new Date(p.created_at),
+    }));
+  }
+}
+
+interface HistorialRunRow extends WorkflowRunRow {
+  workflow_versiones: { workflow_id: string };
+  leads: { nombre: string | null; nombre_perfil: string | null } | null;
+}
+
+interface DetalleRunRow extends HistorialRunRow {
+  workflow_versiones: {
+    workflow_id: string;
+    version: number;
+    publicada: boolean;
+  };
+}
+
+function mapRunConLead(r: HistorialRunRow): WorkflowRunConLead {
+  const run = mapRun(r);
+  const leadNombre = r.leads?.nombre ?? r.leads?.nombre_perfil ?? null;
+  return {
+    ...run,
+    lead_nombre: leadNombre,
+    trigger_tipo: "manual", // TODO: extraer del contexto cuando se guarde
+    trigger_datos: {},
+    duracion_ms: run.ended_at ? run.ended_at.getTime() - run.started_at.getTime() : null,
+  };
 }
 
 function mapRun(r: WorkflowRunRow): WorkflowRun {

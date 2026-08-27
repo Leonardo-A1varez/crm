@@ -54,11 +54,76 @@ export const ETIQUETA_ACCION: Record<AccionWorkflow, string> = {
 };
 
 export const ETIQUETA_NODO: Record<NodoTipo, string> = {
+  // Legacy (5)
   disparador: "Disparador",
   accion: "Acción",
   condicion: "Condición",
   espera: "Espera",
   fin: "Fin",
+  // Triggers (11)
+  trigger_mensaje: "Mensaje recibido",
+  trigger_webhook: "Webhook",
+  trigger_cron: "Programado",
+  trigger_manual: "Manual",
+  trigger_etiqueta: "Etiqueta asignada",
+  trigger_etiqueta_removida: "Etiqueta removida",
+  trigger_etapa: "Etapa cambiada",
+  trigger_lead_creado: "Lead creado",
+  trigger_vendedor_asignado: "Vendedor asignado",
+  trigger_inactividad: "Inactividad",
+  trigger_formulario: "Formulario",
+  // Mensajería (8)
+  msg_texto: "Enviar mensaje",
+  msg_botones: "Mensaje con botones",
+  msg_lista: "Mensaje de lista",
+  msg_imagen: "Enviar imagen",
+  msg_documento: "Enviar documento",
+  msg_ubicacion: "Enviar ubicación",
+  msg_plantilla: "Plantilla HSM",
+  msg_reaccion: "Reacción",
+  // CRM (10)
+  crm_etiqueta_add: "Asignar etiqueta",
+  crm_etiqueta_remove: "Remover etiqueta",
+  crm_etapa: "Cambiar etapa",
+  crm_vendedor: "Asignar vendedor",
+  crm_round_robin: "Round Robin",
+  crm_campo: "Actualizar campo",
+  crm_tarea: "Crear tarea",
+  crm_nota: "Agregar nota",
+  crm_spam: "Marcar spam",
+  crm_archivar: "Archivar",
+  // Lógica (11)
+  logica_condicion: "Condición (IF)",
+  logica_switch: "Switch",
+  logica_validacion: "Validación",
+  logica_esperar: "Esperar tiempo",
+  logica_esperar_respuesta: "Esperar respuesta",
+  logica_esperar_evento: "Esperar evento",
+  logica_loop: "Loop",
+  logica_grupo: "Agrupar",
+  logica_goto: "Ir a nodo",
+  logica_detener: "Detener",
+  logica_error: "Error handler",
+  // Integraciones (6)
+  int_http: "HTTP Request",
+  int_webhook_out: "Webhook saliente",
+  int_codigo: "Código JS",
+  int_email: "Enviar email",
+  int_sheets: "Google Sheets",
+  int_db: "Base de datos",
+  // IA (7)
+  ia_clasificar: "Clasificar intent",
+  ia_responder: "Generar respuesta",
+  ia_extraer: "Extraer datos",
+  ia_sentimiento: "Sentimiento",
+  ia_resumir: "Resumir",
+  ia_traducir: "Traducir",
+  ia_spam: "Verificar spam",
+  // Internos (4)
+  int_notif_vendedor: "Notificar vendedor",
+  int_notif_grupo: "Notificar grupo",
+  int_comentario: "Comentario interno",
+  int_debug: "Log/Debug",
 };
 
 export const ETIQUETA_PUERTO: Record<string, string> = {
