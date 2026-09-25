@@ -96,7 +96,12 @@ describe("DefaultInboxService write path", () => {
     sendTextSpy = vi.fn(async (_input: MetaSendTextInput) => ({
       meta_message_id: `wamid.${crypto.randomUUID()}`,
     }));
-    client = { sendText: sendTextSpy };
+    client = {
+      sendText: sendTextSpy,
+      sendTemplate: async () => {
+        throw new Error("el inbox no manda plantillas");
+      },
+    };
     svc = new DefaultInboxService({
       leads,
       sessions,

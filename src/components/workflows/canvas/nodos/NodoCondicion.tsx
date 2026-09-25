@@ -22,7 +22,7 @@ function NodoCondicionInner({ data, selected }: NodeProps<NodoCondicionType>) {
       categoria="logica"
       selected={selected}
       tieneEntrada={true}
-      salidasMultiples={[
+      salidas={[
         { id: "si", label: "Sí" },
         { id: "no", label: "No" },
       ]}

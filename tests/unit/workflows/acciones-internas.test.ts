@@ -45,7 +45,8 @@ describe("acciones internas", () => {
       nodo({ accion: "poner_etiqueta", tagId: "t1" }),
       entorno,
     );
-    expect(r.salida).toEqual({ tag_id: "t1", quitada_at: quitadaAt.toISOString() });
+    // No quedó puesta: la salida no puede decir "etiquetado" de algo que no lo está.
+    expect(r.salida).toEqual({ tag_ids: ["t1"], quitadas: ["t1"] });
   });
 
   it("cambiar_etapa escribe current_stage y procedencia por: workflow en la misma operacion", async () => {
@@ -151,6 +152,35 @@ describe("acciones internas", () => {
     expect(r.salida).toEqual({ lead_session_id: "s1", current_stage: "requiere_humano" });
   });
 
+  it("el bloque «Escalar a humano» del canvas puede escalar sin avisarle al cliente", async () => {
+    const handoff = {
+      pause: vi.fn(async () => ({ id: "s1", current_stage: "requiere_humano" })),
+    };
+    const acciones = crearAccionesInternas({ tags: {}, sessions: {}, handoff } as never);
+    await acciones["escalar_a_humano"]!(
+      {
+        id: "n",
+        tipo: "crm_escalar_humano",
+        config: { avisarAlCliente: false },
+        posicion: { x: 0, y: 0 },
+      },
+      entorno,
+    );
+    expect(handoff.pause).toHaveBeenCalledWith(expect.objectContaining({ notifyCustomer: false }));
+  });
+
+  it("el bloque del canvas sin tocar avisa al cliente, igual que el nodo viejo", async () => {
+    const handoff = {
+      pause: vi.fn(async () => ({ id: "s1", current_stage: "requiere_humano" })),
+    };
+    const acciones = crearAccionesInternas({ tags: {}, sessions: {}, handoff } as never);
+    await acciones["escalar_a_humano"]!(
+      { id: "n", tipo: "crm_escalar_humano", config: {}, posicion: { x: 0, y: 0 } },
+      entorno,
+    );
+    expect(handoff.pause).toHaveBeenCalledWith(expect.objectContaining({ notifyCustomer: true }));
+  });
+
   it("escalar_a_humano sin lead_session_id en el entorno es ValidationError", async () => {
     const handoff = { pause: vi.fn(async () => ({})) };
     const acciones = crearAccionesInternas({ tags: {}, sessions: {}, handoff } as never);
@@ -161,6 +191,57 @@ describe("acciones internas", () => {
       }),
     ).rejects.toBeInstanceOf(ValidationError);
     expect(handoff.pause).not.toHaveBeenCalled();
+  });
+
+  // El canvas no escribe la config del nodo legacy: `ConfigCRM.tsx` guarda
+  // `tagIds` (varias) en "Asignar etiqueta" y `etapaId` en "Cambiar etapa".
+  // El handler es el mismo para los dos nodos; si leyera sólo las claves
+  // legacy, todo nodo del canvas fallaría con "no declara tagId".
+  it("crm_etiqueta_add del canvas cuelga cada etiqueta de tagIds", async () => {
+    const tags = { assignToLead: vi.fn(async () => ({ quitada_at: null })) };
+    const acciones = crearAccionesInternas({ tags, sessions: {}, handoff: {} } as never);
+    const r = await acciones["poner_etiqueta"]!(
+      {
+        id: "n",
+        tipo: "crm_etiqueta_add",
+        config: { tagIds: ["t1", "t2"] },
+        posicion: { x: 0, y: 0 },
+      },
+      entorno,
+    );
+    expect(tags.assignToLead).toHaveBeenNthCalledWith(1, "l1", "t1", "workflow", null);
+    expect(tags.assignToLead).toHaveBeenNthCalledWith(2, "l1", "t2", "workflow", null);
+    expect(r.salida).toEqual({ tag_ids: ["t1", "t2"], quitadas: [] });
+  });
+
+  it("crm_etiqueta_add del canvas sin ninguna etiqueta elegida es ValidationError", async () => {
+    const tags = { assignToLead: vi.fn(async () => ({ quitada_at: null })) };
+    const acciones = crearAccionesInternas({ tags, sessions: {}, handoff: {} } as never);
+    await expect(
+      acciones["poner_etiqueta"]!(
+        { id: "n", tipo: "crm_etiqueta_add", config: { tagIds: [] }, posicion: { x: 0, y: 0 } },
+        entorno,
+      ),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(tags.assignToLead).not.toHaveBeenCalled();
+  });
+
+  it("crm_etapa del canvas lee la etapa de etapaId", async () => {
+    const sessions = {
+      findById: vi.fn(async () => ({ current_stage: "nuevo", procedencia: {} })),
+      aplicarExtraccion: vi.fn(async () => ({})),
+    };
+    const acciones = crearAccionesInternas({ tags: {}, sessions, handoff: {} } as never);
+    const r = await acciones["cambiar_etapa"]!(
+      { id: "n", tipo: "crm_etapa", config: { etapaId: "cotizado" }, posicion: { x: 0, y: 0 } },
+      entorno,
+    );
+    expect(sessions.aplicarExtraccion).toHaveBeenCalledWith(
+      "s1",
+      { current_stage: "cotizado" },
+      { current_stage: expect.objectContaining({ por: "workflow", valor_anterior: "nuevo" }) },
+    );
+    expect(r.salida).toEqual({ current_stage: "cotizado" });
   });
 
   it("el sourceEventKey de escalar_a_humano usa runId+orden como idempotencia", async () => {

@@ -9,6 +9,7 @@ import { InMemoryIntentsRepository } from "@/server/repositories/intents.repo";
 import { InMemoryRulesRepository } from "@/server/repositories/rules.repo";
 import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
 import { InMemoryLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
+import { InMemoryDifusionSupresionesRepository } from "@/server/repositories/difusion-supresiones.repo";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
 import { DefaultIntentClassifierService } from "@/server/services/intent-classifier.service";
 import { DefaultRuleEngineService } from "@/server/services/rule-engine.service";
@@ -94,6 +95,7 @@ function makeDeps() {
     tags: new InMemoryTagsRepository(),
     intents,
     identificadores: new InMemoryLeadIdentificadoresRepository(),
+    supresiones: new InMemoryDifusionSupresionesRepository(),
     configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
     emit,
   };
@@ -128,6 +130,11 @@ describe("onMessageReceivedHandler granular steps", () => {
       "resolve-session",
       "record-inbound",
       "cancelar-recordatorios",
+      // Lead nuevo: dispara "Lead creado" ya con la sesión abierta.
+      "emit-workflow-lead-creado",
+      // Todo mensaje nuevo dispara los flujos "Mensaje recibido", conteste
+      // quien conteste después.
+      "emit-workflow-mensaje",
       "classify",
       "etiquetar-por-reglas",
       "build-turn",
@@ -191,6 +198,11 @@ describe("onMessageReceivedHandler granular steps", () => {
       "resolve-session",
       "record-inbound",
       "cancelar-recordatorios",
+      // Lead nuevo: dispara "Lead creado" ya con la sesión abierta.
+      "emit-workflow-lead-creado",
+      // Todo mensaje nuevo dispara los flujos "Mensaje recibido", conteste
+      // quien conteste después.
+      "emit-workflow-mensaje",
       "classify",
       "etiquetar-por-reglas",
       "build-turn",

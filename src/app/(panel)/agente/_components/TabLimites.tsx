@@ -172,6 +172,26 @@ export function TabLimites({
             />
           </FilaLimite>
 
+          {/* Tope de seguridad de los flujos (PRD workflows §6.6). Existía en la
+              config y ninguna pantalla lo dejaba cambiar. Min/max = los de
+              `agente.schema.ts`. */}
+          <FilaLimite
+            label="Mensajes automáticos por lead"
+            subtitulo="Máximo que los flujos le mandan a un lead en 24 h. El siguiente se salta."
+          >
+            <input
+              type="number"
+              min={1}
+              max={20}
+              step={1}
+              value={valores.max_salientes_automaticos_24h}
+              onChange={(e) => onChange({ max_salientes_automaticos_24h: Number(e.target.value) })}
+              disabled={disabled}
+              aria-label="Mensajes automáticos por lead cada 24 horas"
+              className={inputNumeroClase}
+            />
+          </FilaLimite>
+
           {esGpt5 ? (
             <p className="text-danger mt-3 flex items-start gap-1.5 text-[10.5px]">
               <Warning size={13} className="mt-0.5 shrink-0" />

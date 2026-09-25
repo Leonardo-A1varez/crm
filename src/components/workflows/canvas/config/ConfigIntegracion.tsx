@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -12,6 +11,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2 } from "lucide-react";
+import { editorDeConfig, type ConfigDeTipo } from "@/lib/workflows/config-nodos";
 import { TextareaConVariables } from "./TextareaConVariables";
 
 interface ConfigIntegracionProps {
@@ -21,33 +21,32 @@ interface ConfigIntegracionProps {
   readonly?: boolean;
 }
 
-interface Header {
-  key: string;
-  value: string;
-}
+type Header = ConfigDeTipo<"int_http">["headers"][number];
 
+/**
+ * Formularios de los bloques de integración.
+ *
+ * Qué clave escribe cada campo, y con qué valor arranca uno que nadie tocó,
+ * sale del contrato de config (`editorDeConfig`, `lib/workflows/config-nodos.ts`):
+ * el mismo schema que revisa el validador. Una clave que el contrato no conoce
+ * no compila.
+ */
 export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIntegracionProps) {
-  const handleChange = useCallback(
-    (campo: string, valor: unknown) => {
-      onChange({ ...config, [campo]: valor });
-    },
-    [config, onChange],
-  );
-
   const labelClass = "text-ink-secondary mb-1 block text-[11px]";
   const selectClass = "border-line-control bg-surface-root text-ink-primary w-full text-[12px]";
   const inputClass = "border-line-control bg-surface-root text-ink-primary w-full text-[12px] h-8";
 
   switch (tipo) {
     case "int_http": {
-      const headers = (config.headers as Header[]) ?? [];
+      const c = editorDeConfig("int_http", config);
+      const headers = Array.isArray(c.valores.headers) ? (c.valores.headers as Header[]) : [];
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Metodo</span>
             <Select
-              value={String(config.metodo ?? "GET")}
-              onValueChange={(v) => handleChange("metodo", v)}
+              value={String(c.valores.metodo)}
+              onValueChange={(v) => onChange(c.con("metodo", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -66,9 +65,9 @@ export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIn
           <label className="block">
             <span className={labelClass}>URL</span>
             <TextareaConVariables
-              value={String(config.url ?? "")}
-              onChange={(v) => handleChange("url", v)}
-              placeholder="https://api.example.com/endpoint?id={{lead.id}}"
+              value={String(c.valores.url ?? "")}
+              onChange={(v) => onChange(c.con("url", v))}
+              placeholder="https://api.example.com/endpoint?tel={{lead.telefono}}"
               rows={2}
               className={`${inputClass} h-auto min-h-[50px] resize-y font-mono text-[11px]`}
             />
@@ -83,7 +82,7 @@ export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIn
                   variant="ghost"
                   size="sm"
                   className="h-6 px-2 text-[10px]"
-                  onClick={() => handleChange("headers", [...headers, { key: "", value: "" }])}
+                  onClick={() => onChange(c.con("headers", [...headers, { key: "", value: "" }]))}
                 >
                   <Plus className="mr-1 h-3 w-3" />
                   Agregar
@@ -100,7 +99,7 @@ export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIn
                     onChange={(e) => {
                       const newHeaders = [...headers];
                       newHeaders[idx] = { ...header, key: e.target.value };
-                      handleChange("headers", newHeaders);
+                      onChange(c.con("headers", newHeaders));
                     }}
                     placeholder="Content-Type"
                     disabled={readonly}
@@ -111,7 +110,7 @@ export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIn
                     onChange={(e) => {
                       const newHeaders = [...headers];
                       newHeaders[idx] = { ...header, value: e.target.value };
-                      handleChange("headers", newHeaders);
+                      onChange(c.con("headers", newHeaders));
                     }}
                     placeholder="application/json"
                     disabled={readonly}
@@ -123,9 +122,11 @@ export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIn
                       size="sm"
                       className="h-8 w-8 p-0 text-red-500"
                       onClick={() =>
-                        handleChange(
-                          "headers",
-                          headers.filter((_, i) => i !== idx),
+                        onChange(
+                          c.con(
+                            "headers",
+                            headers.filter((_, i) => i !== idx),
+                          ),
                         )
                       }
                     >
@@ -137,15 +138,15 @@ export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIn
             </div>
           </div>
 
-          {["POST", "PUT", "PATCH"].includes(String(config.metodo ?? "GET")) && (
+          {["POST", "PUT", "PATCH"].includes(String(c.valores.metodo)) && (
             <label className="block">
               <span className={labelClass}>Body (JSON)</span>
               <Textarea
                 className={`${inputClass} h-auto min-h-[120px] resize-y font-mono text-[11px]`}
-                value={String(config.body ?? "{}")}
-                onChange={(e) => handleChange("body", e.target.value)}
+                value={String(c.valores.body)}
+                onChange={(e) => onChange(c.con("body", e.target.value))}
                 placeholder={`{
-  "leadId": "{{lead.id}}",
+  "telefono": "{{lead.telefono}}",
   "nombre": "{{lead.nombre}}"
 }`}
                 disabled={readonly}
@@ -160,8 +161,8 @@ export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIn
             <span className={labelClass}>Guardar respuesta en</span>
             <Input
               className={`${inputClass} font-mono text-[11px]`}
-              value={String(config.variableRespuesta ?? "respuesta_http")}
-              onChange={(e) => handleChange("variableRespuesta", e.target.value)}
+              value={String(c.valores.variableRespuesta)}
+              onChange={(e) => onChange(c.con("variableRespuesta", e.target.value))}
               placeholder="respuesta_http"
               disabled={readonly}
             />
@@ -174,8 +175,8 @@ export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIn
               min={1}
               max={60}
               className={inputClass}
-              value={Number(config.timeout ?? 30)}
-              onChange={(e) => handleChange("timeout", Number(e.target.value))}
+              value={Number(c.valores.timeout)}
+              onChange={(e) => onChange(c.con("timeout", Number(e.target.value)))}
               disabled={readonly}
             />
           </label>
@@ -184,15 +185,16 @@ export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIn
     }
 
     case "int_webhook_out": {
-      const headers = (config.headers as Header[]) ?? [];
+      const c = editorDeConfig("int_webhook_out", config);
+      const headers = Array.isArray(c.valores.headers) ? (c.valores.headers as Header[]) : [];
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>URL del webhook</span>
             <Input
               className={`${inputClass} font-mono text-[11px]`}
-              value={String(config.url ?? "")}
-              onChange={(e) => handleChange("url", e.target.value)}
+              value={String(c.valores.url ?? "")}
+              onChange={(e) => onChange(c.con("url", e.target.value))}
               placeholder="https://webhook.site/..."
               disabled={readonly}
             />
@@ -207,7 +209,7 @@ export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIn
                   variant="ghost"
                   size="sm"
                   className="h-6 px-2 text-[10px]"
-                  onClick={() => handleChange("headers", [...headers, { key: "", value: "" }])}
+                  onClick={() => onChange(c.con("headers", [...headers, { key: "", value: "" }]))}
                 >
                   <Plus className="mr-1 h-3 w-3" />
                   Agregar
@@ -224,7 +226,7 @@ export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIn
                     onChange={(e) => {
                       const newHeaders = [...headers];
                       newHeaders[idx] = { ...header, key: e.target.value };
-                      handleChange("headers", newHeaders);
+                      onChange(c.con("headers", newHeaders));
                     }}
                     placeholder="Key"
                     disabled={readonly}
@@ -235,7 +237,7 @@ export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIn
                     onChange={(e) => {
                       const newHeaders = [...headers];
                       newHeaders[idx] = { ...header, value: e.target.value };
-                      handleChange("headers", newHeaders);
+                      onChange(c.con("headers", newHeaders));
                     }}
                     placeholder="Value"
                     disabled={readonly}
@@ -247,9 +249,11 @@ export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIn
                       size="sm"
                       className="h-8 w-8 p-0 text-red-500"
                       onClick={() =>
-                        handleChange(
-                          "headers",
-                          headers.filter((_, i) => i !== idx),
+                        onChange(
+                          c.con(
+                            "headers",
+                            headers.filter((_, i) => i !== idx),
+                          ),
                         )
                       }
                     >
@@ -264,8 +268,8 @@ export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIn
           <label className="block">
             <span className={labelClass}>Payload</span>
             <Select
-              value={String(config.payloadTipo ?? "completo")}
-              onValueChange={(v) => handleChange("payloadTipo", v)}
+              value={String(c.valores.payloadTipo)}
+              onValueChange={(v) => onChange(c.con("payloadTipo", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -279,13 +283,13 @@ export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIn
             </Select>
           </label>
 
-          {config.payloadTipo === "custom" && (
+          {c.valores.payloadTipo === "custom" && (
             <label className="block">
               <span className={labelClass}>Payload personalizado (JSON)</span>
               <Textarea
                 className={`${inputClass} h-auto min-h-[100px] resize-y font-mono text-[11px]`}
-                value={String(config.payloadCustom ?? "{}")}
-                onChange={(e) => handleChange("payloadCustom", e.target.value)}
+                value={String(c.valores.payloadCustom)}
+                onChange={(e) => onChange(c.con("payloadCustom", e.target.value))}
                 placeholder={`{
   "event": "lead_update",
   "data": { ... }
@@ -298,7 +302,8 @@ export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIn
       );
     }
 
-    case "int_codigo":
+    case "int_codigo": {
+      const c = editorDeConfig("int_codigo", config);
       return (
         <div className="flex flex-col gap-3">
           <div className="text-ink-faint bg-surface-hover rounded-md p-2 text-[10px]">
@@ -309,8 +314,8 @@ export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIn
             <span className={labelClass}>Codigo JavaScript</span>
             <Textarea
               className={`${inputClass} h-auto min-h-[200px] resize-y font-mono text-[11px]`}
-              value={String(config.codigo ?? "")}
-              onChange={(e) => handleChange("codigo", e.target.value)}
+              value={String(c.valores.codigo ?? "")}
+              onChange={(e) => onChange(c.con("codigo", e.target.value))}
               placeholder={`// Ejemplo: transformar datos
 const resultado = {
   nombreCompleto: lead.nombre,
@@ -326,8 +331,8 @@ return resultado;`}
             <span className={labelClass}>Guardar resultado en</span>
             <Input
               className={`${inputClass} font-mono text-[11px]`}
-              value={String(config.variableSalida ?? "resultado_codigo")}
-              onChange={(e) => handleChange("variableSalida", e.target.value)}
+              value={String(c.valores.variableSalida)}
+              onChange={(e) => onChange(c.con("variableSalida", e.target.value))}
               placeholder="resultado_codigo"
               disabled={readonly}
             />
@@ -340,22 +345,24 @@ return resultado;`}
               min={100}
               max={10000}
               className={inputClass}
-              value={Number(config.timeout ?? 5000)}
-              onChange={(e) => handleChange("timeout", Number(e.target.value))}
+              value={Number(c.valores.timeout)}
+              onChange={(e) => onChange(c.con("timeout", Number(e.target.value)))}
               disabled={readonly}
             />
           </label>
         </div>
       );
+    }
 
-    case "int_email":
+    case "int_email": {
+      const c = editorDeConfig("int_email", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Para</span>
             <TextareaConVariables
-              value={String(config.para ?? "")}
-              onChange={(v) => handleChange("para", v)}
+              value={String(c.valores.para ?? "")}
+              onChange={(v) => onChange(c.con("para", v))}
               placeholder="{{lead.email}} o email@ejemplo.com"
               rows={1}
               className={`${inputClass} h-auto`}
@@ -365,8 +372,8 @@ return resultado;`}
           <label className="block">
             <span className={labelClass}>Asunto</span>
             <TextareaConVariables
-              value={String(config.asunto ?? "")}
-              onChange={(v) => handleChange("asunto", v)}
+              value={String(c.valores.asunto ?? "")}
+              onChange={(v) => onChange(c.con("asunto", v))}
               placeholder="Cotizacion para {{lead.nombre}}"
               rows={1}
               className={`${inputClass} h-auto`}
@@ -376,8 +383,8 @@ return resultado;`}
           <label className="block">
             <span className={labelClass}>Cuerpo</span>
             <TextareaConVariables
-              value={String(config.cuerpo ?? "")}
-              onChange={(v) => handleChange("cuerpo", v)}
+              value={String(c.valores.cuerpo ?? "")}
+              onChange={(v) => onChange(c.con("cuerpo", v))}
               placeholder="Hola {{lead.nombre}}..."
               rows={6}
               className={`${inputClass} h-auto min-h-[150px] resize-y`}
@@ -388,24 +395,26 @@ return resultado;`}
             <span className={labelClass}>CC (opcional)</span>
             <Input
               className={inputClass}
-              value={String(config.cc ?? "")}
-              onChange={(e) => handleChange("cc", e.target.value)}
+              value={String(c.valores.cc ?? "")}
+              onChange={(e) => onChange(c.con("cc", e.target.value))}
               placeholder="copia@empresa.com"
               disabled={readonly}
             />
           </label>
         </div>
       );
+    }
 
-    case "int_sheets":
+    case "int_sheets": {
+      const c = editorDeConfig("int_sheets", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>ID de la hoja</span>
             <Input
               className={`${inputClass} font-mono text-[11px]`}
-              value={String(config.sheetId ?? "")}
-              onChange={(e) => handleChange("sheetId", e.target.value)}
+              value={String(c.valores.sheetId ?? "")}
+              onChange={(e) => onChange(c.con("sheetId", e.target.value))}
               placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
               disabled={readonly}
             />
@@ -415,8 +424,8 @@ return resultado;`}
             <span className={labelClass}>Nombre de la pestana</span>
             <Input
               className={inputClass}
-              value={String(config.pestana ?? "")}
-              onChange={(e) => handleChange("pestana", e.target.value)}
+              value={String(c.valores.pestana ?? "")}
+              onChange={(e) => onChange(c.con("pestana", e.target.value))}
               placeholder="Leads"
               disabled={readonly}
             />
@@ -425,8 +434,8 @@ return resultado;`}
           <label className="block">
             <span className={labelClass}>Operacion</span>
             <Select
-              value={String(config.operacion ?? "append")}
-              onValueChange={(v) => handleChange("operacion", v)}
+              value={String(c.valores.operacion)}
+              onValueChange={(v) => onChange(c.con("operacion", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -440,14 +449,14 @@ return resultado;`}
             </Select>
           </label>
 
-          {config.operacion === "append" && (
+          {c.valores.operacion === "append" && (
             <label className="block">
               <span className={labelClass}>Columnas a escribir</span>
               <Input
                 className={inputClass}
-                value={String(config.columnas ?? "")}
-                onChange={(e) => handleChange("columnas", e.target.value)}
-                placeholder="{{lead.nombre}}, {{lead.telefono}}, {{sesion.pieza_buscada}}"
+                value={String(c.valores.columnas ?? "")}
+                onChange={(e) => onChange(c.con("columnas", e.target.value))}
+                placeholder="{{lead.nombre}}, {{lead.telefono}}, {{lead.etapa}}"
                 disabled={readonly}
               />
               <span className="text-ink-faint mt-1 block text-[10px]">
@@ -456,13 +465,13 @@ return resultado;`}
             </label>
           )}
 
-          {config.operacion === "read" && (
+          {c.valores.operacion === "read" && (
             <label className="block">
               <span className={labelClass}>Rango</span>
               <Input
                 className={inputClass}
-                value={String(config.rango ?? "")}
-                onChange={(e) => handleChange("rango", e.target.value)}
+                value={String(c.valores.rango ?? "")}
+                onChange={(e) => onChange(c.con("rango", e.target.value))}
                 placeholder="A1:D100"
                 disabled={readonly}
               />
@@ -470,16 +479,18 @@ return resultado;`}
           )}
         </div>
       );
+    }
 
-    case "int_db":
+    case "int_db": {
+      const c = editorDeConfig("int_db", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Consulta SQL</span>
             <Textarea
               className={`${inputClass} h-auto min-h-[120px] resize-y font-mono text-[11px]`}
-              value={String(config.query ?? "")}
-              onChange={(e) => handleChange("query", e.target.value)}
+              value={String(c.valores.query ?? "")}
+              onChange={(e) => onChange(c.con("query", e.target.value))}
               placeholder={`SELECT * FROM productos
 WHERE codigo = $1`}
               disabled={readonly}
@@ -490,9 +501,9 @@ WHERE codigo = $1`}
             <span className={labelClass}>Parametros (JSON array)</span>
             <Input
               className={`${inputClass} font-mono text-[11px]`}
-              value={String(config.params ?? "[]")}
-              onChange={(e) => handleChange("params", e.target.value)}
-              placeholder='["{{contexto.codigo}}"]'
+              value={String(c.valores.params)}
+              onChange={(e) => onChange(c.con("params", e.target.value))}
+              placeholder='["{{lead.telefono}}"]'
               disabled={readonly}
             />
           </label>
@@ -501,8 +512,8 @@ WHERE codigo = $1`}
             <span className={labelClass}>Guardar resultado en</span>
             <Input
               className={`${inputClass} font-mono text-[11px]`}
-              value={String(config.variableResultado ?? "resultado_db")}
-              onChange={(e) => handleChange("variableResultado", e.target.value)}
+              value={String(c.valores.variableResultado)}
+              onChange={(e) => onChange(c.con("variableResultado", e.target.value))}
               placeholder="resultado_db"
               disabled={readonly}
             />
@@ -515,6 +526,7 @@ WHERE codigo = $1`}
           </div>
         </div>
       );
+    }
 
     default:
       return (

@@ -1,10 +1,17 @@
 import { NonRetriableError } from "inngest";
 import { inngest } from "@/inngest/client";
-import { workflowSegmentoPendiente } from "@/inngest/events";
-import { ConflictError, InfraError, isNonRetriable } from "@/lib/errors";
+import { workflowDisparoRecibido, workflowSegmentoPendiente } from "@/inngest/events";
+import { ConflictError, InfraError, ValidationError, isNonRetriable } from "@/lib/errors";
 import { NoopLogger, type Logger } from "@/lib/observability/logger";
-import { disparadorDe } from "@/lib/workflows/recorrer";
-import { ejecutarSegmento, type PasoEjecutado } from "@/server/services/workflows/ejecutor.service";
+import { disparadorDe, nodoPorId } from "@/lib/workflows/recorrer";
+import {
+  conRespondio,
+  ejecutarSegmento,
+  eventoQueEspera,
+  type EventoEsperado,
+  type PasoEjecutado,
+} from "@/server/services/workflows/ejecutor.service";
+import type { ConversationsParaEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
 import type { RegistroDeAcciones } from "@/server/services/workflows/acciones/registro";
 import type { WorkflowRunsRepository } from "@/server/repositories/workflow-runs.repo";
 import type { WorkflowsRepository } from "@/server/repositories/workflows.repo";
@@ -14,6 +21,12 @@ import type { MotivoFallo } from "@/types/workflows";
 export interface WorkflowSegmentoInput {
   runId: UUID;
   desdePaso: number;
+  /**
+   * Sólo al reanudar después de "Esperar respuesta": el lead contestó antes
+   * del tiempo máximo. El segmento anterior guardó "no respondió" (lo que queda
+   * si vence), y esto lo da vuelta antes de seguir.
+   */
+  respondio?: boolean;
 }
 
 export interface WorkflowSegmentoDeps {
@@ -25,18 +38,55 @@ export interface WorkflowSegmentoDeps {
   registro: RegistroDeAcciones;
   /** Inyectado para tests/simulación con reloj virtual. Default: reloj real. */
   ahora?: () => Date;
+  /**
+   * Para confirmar, cuando "Esperar respuesta" vence, que el lead no contestó
+   * en el hueco entre que el segmento cortó y la espera quedó registrada en
+   * Inngest (`step.waitForEvent` sólo ve los eventos que llegan después).
+   * Opcional: sin él, ese hueco cuenta como "no respondió".
+   */
+  conversaciones?: Pick<ConversationsParaEnviarMensaje, "findActivaByLead">;
   logger?: Logger;
 }
 
 export type WorkflowSegmentoResultado =
   | { tipo: "no-op" }
-  | { tipo: "espera"; nodoId: string; hasta: string; desdePaso: number }
+  | {
+      tipo: "espera";
+      nodoId: string;
+      hasta: string;
+      desdePaso: number;
+      /** Sólo en "Esperar respuesta"/"Esperar evento": qué la despierta antes de `hasta`. */
+      esperaEvento?: EsperaEvento;
+    }
   | { tipo: "fin" }
   | {
       tipo: "fallado";
       nodoId: string | null;
       motivo: MotivoFallo | "version_ausente" | "grafo_sin_disparador";
     };
+
+/** Lo que necesita `step.waitForEvent`: qué evento, de qué lead, desde cuándo. */
+export type EsperaEvento = EventoEsperado & {
+  leadId: UUID;
+  /** ISO. Cuándo cortó el segmento: lo que llegue después cuenta como respuesta. */
+  desde: string;
+};
+
+/**
+ * La expresión `if` de `step.waitForEvent`: un `workflow/disparo.recibido` del
+ * mismo lead con el disparador esperado.
+ *
+ * El id va literal en la expresión (el evento que arrancó esta función es el
+ * del segmento y no trae el lead), así que se exige que no pueda romper las
+ * comillas. `leads.id` es uuid: fallar acá es un bug de datos.
+ */
+export function filtroDeEspera(leadId: string, disparador: string): string {
+  const seguro = /^[A-Za-z0-9_-]{1,64}$/;
+  if (!seguro.test(leadId) || !seguro.test(disparador)) {
+    throw new ValidationError(`id de lead o disparador inválido para una espera: ${leadId}`);
+  }
+  return `async.data.leadId == '${leadId}' && async.data.disparador == '${disparador}'`;
+}
 
 async function fallarConMensaje(
   deps: WorkflowSegmentoDeps,
@@ -148,18 +198,20 @@ export async function segmentoHandler(
     }
   };
 
+  const ahora = deps.ahora ?? (() => new Date());
   const resultado = await ejecutarSegmento(
     {
       grafo: version.grafo,
       desdeNodo,
-      contexto: run.contexto,
+      // El lead contestó durante "Esperar respuesta": ver `input.respondio`.
+      contexto: input.respondio ? conRespondio(run.contexto, true) : run.contexto,
       leadId: run.lead_id,
       leadSessionId: run.lead_session_id,
       runId: run.id,
       pasosPrevios: run.pasos_ejecutados,
       maxPasos: version.max_pasos,
     },
-    { registro: deps.registro, ahora: deps.ahora ?? (() => new Date()), onPaso },
+    { registro: deps.registro, ahora, onPaso },
   );
 
   if (resultado.tipo === "espera") {
@@ -168,11 +220,16 @@ export async function segmentoHandler(
       nodo_id: resultado.nodoId,
       hasta: resultado.hasta.toISOString(),
     });
+    const nodo = nodoPorId(version.grafo, resultado.nodoId);
+    const evento = nodo ? eventoQueEspera(nodo) : null;
     return {
       tipo: "espera",
       nodoId: resultado.nodoId,
       hasta: resultado.hasta.toISOString(),
       desdePaso: ultimoOrden,
+      ...(evento
+        ? { esperaEvento: { ...evento, leadId: run.lead_id, desde: ahora().toISOString() } }
+        : {}),
     };
   }
 
@@ -279,11 +336,11 @@ export function makeWorkflowSegmentoFn(deps: WorkflowSegmentoDeps) {
       },
     },
     async ({ event, step }) => {
-      const { runId, desdePaso } = event.data;
+      const { runId, desdePaso, respondio } = event.data;
 
       const resultado = await step.run(`workflow-segmento-${runId}-${desdePaso}`, async () => {
         try {
-          return await segmentoHandler({ runId, desdePaso }, deps);
+          return await segmentoHandler({ runId, desdePaso, respondio }, deps);
         } catch (error) {
           if (isNonRetriable(error)) {
             throw new NonRetriableError((error as Error).message, { cause: error });
@@ -302,11 +359,42 @@ export function makeWorkflowSegmentoFn(deps: WorkflowSegmentoDeps) {
       // patrón que `recordatorio-seguimiento.ts` (`sleepUntil` + step de
       // marcar avisado), aplicado acá para encadenar el próximo segmento en
       // vez de marcar una fila.
+      //
+      // "Esperar respuesta"/"Esperar evento" esperan un evento y no el reloj,
+      // con `hasta` como tiempo máximo **siempre**: ninguna espera es
+      // indefinida. El resultado viaja en el evento del segmento siguiente
+      // (`respondio`), que es el que decide por dónde sigue la corrida.
       if (resultado.tipo === "espera") {
-        await step.sleepUntil(`esperar-${runId}-${resultado.desdePaso}`, new Date(resultado.hasta));
-        await step.sendEvent(`emitir-siguiente-segmento-${runId}-${resultado.desdePaso}`, {
+        const base = `${runId}-${resultado.desdePaso}`;
+        let respondioAntes = false;
+        const espera = resultado.esperaEvento;
+        if (espera) {
+          const llego = await step.waitForEvent(`esperar-evento-${base}`, {
+            event: workflowDisparoRecibido,
+            timeout: new Date(resultado.hasta),
+            if: filtroDeEspera(espera.leadId, espera.disparador),
+          });
+          respondioAntes = espera.tipo === "respuesta" && llego !== null;
+          // Venció: puede que el lead haya escrito en el hueco antes de que la
+          // espera quedara registrada. Se mira la conversación una vez.
+          const conversaciones = deps.conversaciones;
+          if (espera.tipo === "respuesta" && llego === null && conversaciones) {
+            respondioAntes = await step.run(`verificar-respuesta-${base}`, async () => {
+              const conv = await conversaciones.findActivaByLead(espera.leadId);
+              const ultimo = conv?.ultimo_entrante_at;
+              return ultimo !== null && ultimo !== undefined && ultimo > new Date(espera.desde);
+            });
+          }
+        } else {
+          await step.sleepUntil(`esperar-${base}`, new Date(resultado.hasta));
+        }
+        await step.sendEvent(`emitir-siguiente-segmento-${base}`, {
           name: workflowSegmentoPendiente.name,
-          data: { runId, desdePaso: resultado.desdePaso },
+          data: {
+            runId,
+            desdePaso: resultado.desdePaso,
+            ...(respondioAntes ? { respondio: true } : {}),
+          },
           id: `workflow-segmento-pendiente:${runId}:${resultado.desdePaso}`,
         });
       }

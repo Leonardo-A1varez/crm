@@ -12,10 +12,21 @@ export type WorkflowInsert = Insert<Workflow, "id" | "created_at">;
 // ("ignorar") vive en un solo lugar por impl (acá en `crearVersion` y en
 // `COLS_VERSION` de la impl Supabase, que lo deja en manos del DEFAULT de
 // la columna), no repetido en cada call site.
+// `nota` tampoco: una versión nace sin nota. La escribe quien publica
+// (`publicarVersion`) o quien restaura (`clonarVersion`).
 export type WorkflowVersionInsert = Insert<
   WorkflowVersion,
-  "id" | "created_at" | "publicada" | "politica_concurrencia"
+  "id" | "created_at" | "publicada" | "politica_concurrencia" | "nota"
 >;
+
+/** Copiar una versión a una nueva. Ver `WorkflowsRepository.clonarVersion`. */
+export interface ClonarVersionInput {
+  versionId: UUID;
+  /** Publicar la copia en la misma operación: restaurar una versión vieja. */
+  publicar: boolean;
+  nota: string | null;
+  createdBy: UUID | null;
+}
 
 /**
  * Lectura y escritura de la definición de workflows.
@@ -40,8 +51,20 @@ export interface WorkflowsRepository {
    * vieja puede estar corriendo sobre una versión que ya no es la publicada.
    */
   findVersion(id: UUID): Promise<WorkflowVersion | null>;
-  /** Publica una y despublica la que estuviera publicada de ese workflow. */
-  publicarVersion(versionId: UUID): Promise<WorkflowVersion>;
+  /**
+   * Publica una y despublica la que estuviera publicada de ese workflow. Con
+   * `nota` la escribe en la versión que se publica; sin nota —o en blanco— la
+   * que ya tuviera queda como estaba. No toca corridas: las que están en curso
+   * terminan en la versión con la que arrancaron.
+   */
+  publicarVersion(versionId: UUID, nota?: string | null): Promise<WorkflowVersion>;
+  /**
+   * Copia una versión —grafo, tope de pasos, política de concurrencia— a una
+   * versión NUEVA con el próximo número, y con `publicar` la publica en la
+   * misma operación. Nunca revive la fila vieja: "crear versión desde" y
+   * "restaurar" son esto. `NotFoundError` si la versión no existe.
+   */
+  clonarVersion(input: ClonarVersionInput): Promise<WorkflowVersion>;
   /** Qué número le toca a la próxima versión. 1 si no hay ninguna. */
   proximaVersion(workflowId: UUID): Promise<number>;
   /**
@@ -60,6 +83,12 @@ export interface WorkflowsRepository {
    * en vez de dejar pasar el texto crudo de Postgres.
    */
   eliminar(id: UUID): Promise<void>;
+}
+
+/** Una nota en blanco es ninguna nota: lo mismo que `nullif(btrim(...), '')` en Postgres. */
+function notaLimpia(nota: string | null | undefined): string | null {
+  const limpia = nota?.trim();
+  return limpia ? limpia : null;
 }
 
 export class InMemoryWorkflowsRepository implements WorkflowsRepository {
@@ -88,6 +117,7 @@ export class InMemoryWorkflowsRepository implements WorkflowsRepository {
       created_at: new Date(),
       publicada: false,
       politica_concurrencia: "ignorar",
+      nota: null,
     };
     this.versiones.set(v.id, v);
     return { ...v };
@@ -109,7 +139,7 @@ export class InMemoryWorkflowsRepository implements WorkflowsRepository {
     return v ? { ...v } : null;
   }
 
-  async publicarVersion(versionId: UUID): Promise<WorkflowVersion> {
+  async publicarVersion(versionId: UUID, nota?: string | null): Promise<WorkflowVersion> {
     const v = this.versiones.get(versionId);
     if (!v)
       throw new NotFoundError(`versión no encontrada: ${versionId}`, "workflow_version", versionId);
@@ -120,9 +150,32 @@ export class InMemoryWorkflowsRepository implements WorkflowsRepository {
         this.versiones.set(otra.id, { ...otra, publicada: false });
       }
     }
-    const next: WorkflowVersion = { ...v, publicada: true };
+    const next: WorkflowVersion = { ...v, publicada: true, nota: notaLimpia(nota) ?? v.nota };
     this.versiones.set(versionId, next);
     return { ...next };
+  }
+
+  async clonarVersion(input: ClonarVersionInput): Promise<WorkflowVersion> {
+    const origen = this.versiones.get(input.versionId);
+    if (!origen) {
+      throw new NotFoundError(
+        `versión no encontrada: ${input.versionId}`,
+        "workflow_version",
+        input.versionId,
+      );
+    }
+    const copia: WorkflowVersion = {
+      ...origen,
+      id: crypto.randomUUID(),
+      version: await this.proximaVersion(origen.workflow_id),
+      grafo: structuredClone(origen.grafo),
+      publicada: false,
+      created_at: new Date(),
+      created_by: input.createdBy,
+      nota: notaLimpia(input.nota),
+    };
+    this.versiones.set(copia.id, copia);
+    return input.publicar ? this.publicarVersion(copia.id) : { ...copia };
   }
 
   async proximaVersion(workflowId: UUID): Promise<number> {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useId } from "react";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -10,8 +10,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { X } from "lucide-react";
+import { editorDeConfig } from "@/lib/workflows/config-nodos";
+import { ETAPAS_EMBUDO } from "@/types/domain";
 import { TextareaConVariables } from "./TextareaConVariables";
 import { Badge } from "@/components/ui/badge";
+
+/**
+ * Un flujo sólo mueve entre los pasos del embudo: `perdido` lo decide una
+ * persona y `requiere_humano` es el bloque de escalado. El contrato los rechaza
+ * igual (`config-nodos.ts`); acá ni se ofrecen.
+ */
+function esPasoDelEmbudo(id: string): boolean {
+  return (ETAPAS_EMBUDO as readonly string[]).includes(id);
+}
 
 interface ConfigCRMProps {
   tipo: string;
@@ -24,6 +35,15 @@ interface ConfigCRMProps {
   readonly?: boolean;
 }
 
+/**
+ * Formularios de los bloques de CRM.
+ *
+ * Qué clave escribe cada campo, y con qué valor arranca uno que nadie tocó,
+ * sale del contrato de config (`editorDeConfig`, `lib/workflows/config-nodos.ts`):
+ * el mismo schema que revisa el validador y que leen las acciones
+ * `poner_etiqueta` y `cambiar_etapa`. Una clave que el contrato no conoce no
+ * compila.
+ */
 export function ConfigCRM({
   tipo,
   config,
@@ -34,13 +54,7 @@ export function ConfigCRM({
   campos,
   readonly,
 }: ConfigCRMProps) {
-  const handleChange = useCallback(
-    (campo: string, valor: unknown) => {
-      onChange({ ...config, [campo]: valor });
-    },
-    [config, onChange],
-  );
-
+  const idTope = useId();
   const labelClass = "text-ink-secondary mb-1 block text-[11px]";
   const selectClass = "border-line-control bg-surface-root text-ink-primary w-full text-[12px]";
   const inputClass = "border-line-control bg-surface-root text-ink-primary w-full text-[12px] h-8";
@@ -48,7 +62,8 @@ export function ConfigCRM({
   switch (tipo) {
     case "crm_etiqueta_add":
     case "crm_etiqueta_remove": {
-      const selectedTags = (config.tagIds as string[]) ?? [];
+      const c = editorDeConfig(tipo, config);
+      const selectedTags = Array.isArray(c.valores.tagIds) ? (c.valores.tagIds as string[]) : [];
       const isAdd = tipo === "crm_etiqueta_add";
       return (
         <div className="flex flex-col gap-3">
@@ -76,9 +91,11 @@ export function ConfigCRM({
                       <button
                         type="button"
                         onClick={() =>
-                          handleChange(
-                            "tagIds",
-                            selectedTags.filter((id) => id !== tagId),
+                          onChange(
+                            c.con(
+                              "tagIds",
+                              selectedTags.filter((id) => id !== tagId),
+                            ),
                           )
                         }
                         className="hover:bg-surface-hover rounded"
@@ -95,7 +112,7 @@ export function ConfigCRM({
               value=""
               onValueChange={(v) => {
                 if (v && !selectedTags.includes(v)) {
-                  handleChange("tagIds", [...selectedTags, v]);
+                  onChange(c.con("tagIds", [...selectedTags, v]));
                 }
               }}
               disabled={readonly}
@@ -118,39 +135,44 @@ export function ConfigCRM({
       );
     }
 
-    case "crm_etapa":
+    case "crm_etapa": {
+      const c = editorDeConfig("crm_etapa", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Mover a etapa</span>
             <Select
-              value={String(config.etapaId ?? "")}
-              onValueChange={(v) => handleChange("etapaId", v)}
+              value={String(c.valores.etapaId ?? "")}
+              onValueChange={(v) => onChange(c.con("etapaId", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
                 <SelectValue placeholder="Seleccionar etapa" />
               </SelectTrigger>
               <SelectContent>
-                {etapas.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>
-                    {e.nombre}
-                  </SelectItem>
-                ))}
+                {etapas
+                  .filter((e) => esPasoDelEmbudo(e.id))
+                  .map((e) => (
+                    <SelectItem key={e.id} value={e.id}>
+                      {e.nombre}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </label>
         </div>
       );
+    }
 
-    case "crm_vendedor":
+    case "crm_vendedor": {
+      const c = editorDeConfig("crm_vendedor", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Asignar a vendedor</span>
             <Select
-              value={String(config.vendedorId ?? "")}
-              onValueChange={(v) => handleChange("vendedorId", v)}
+              value={String(c.valores.vendedorId ?? "")}
+              onValueChange={(v) => onChange(c.con("vendedorId", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -167,9 +189,17 @@ export function ConfigCRM({
           </label>
         </div>
       );
+    }
 
     case "crm_round_robin": {
-      const selectedVendedores = (config.vendedorIds as string[]) ?? [];
+      // Sin selector de modo: el reparto de `lib/round-robin.ts` es uno solo.
+      // El tope cuenta sesiones abiertas a la vez por vendedor (decisión del
+      // dueño). Vacío = `null` = sin tope. Un 0 o un decimal se guardan tal
+      // cual para que el validador los marque en vez de perderlos en silencio.
+      const c = editorDeConfig("crm_round_robin", config);
+      const selectedVendedores = Array.isArray(c.valores.candidatos)
+        ? (c.valores.candidatos as string[])
+        : [];
       return (
         <div className="flex flex-col gap-3">
           <div>
@@ -190,9 +220,11 @@ export function ConfigCRM({
                       <button
                         type="button"
                         onClick={() =>
-                          handleChange(
-                            "vendedorIds",
-                            selectedVendedores.filter((id) => id !== vendedorId),
+                          onChange(
+                            c.con(
+                              "candidatos",
+                              selectedVendedores.filter((id) => id !== vendedorId),
+                            ),
                           )
                         }
                         className="hover:bg-surface-hover rounded"
@@ -209,7 +241,7 @@ export function ConfigCRM({
               value=""
               onValueChange={(v) => {
                 if (v && !selectedVendedores.includes(v)) {
-                  handleChange("vendedorIds", [...selectedVendedores, v]);
+                  onChange(c.con("candidatos", [...selectedVendedores, v]));
                 }
               }}
               disabled={readonly}
@@ -229,44 +261,85 @@ export function ConfigCRM({
             </Select>
           </div>
 
-          <label className="block">
-            <span className={labelClass}>Modo de asignacion</span>
-            <Select
-              value={String(config.modo ?? "secuencial")}
-              onValueChange={(v) => handleChange("modo", v)}
+          <div>
+            <label htmlFor={`${idTope}-campo`} className={labelClass}>
+              Tope de sesiones abiertas por vendedor
+            </label>
+            <Input
+              id={`${idTope}-campo`}
+              type="number"
+              min={1}
+              step={1}
+              inputMode="numeric"
+              placeholder="Sin tope"
+              aria-describedby={`${idTope}-ayuda`}
+              className={`${inputClass} w-24`}
+              value={
+                typeof c.valores.topeSesionesAbiertasPorVendedor === "number"
+                  ? String(c.valores.topeSesionesAbiertasPorVendedor)
+                  : ""
+              }
+              onChange={(e) =>
+                onChange(
+                  c.con(
+                    "topeSesionesAbiertasPorVendedor",
+                    e.target.value === "" ? null : Number(e.target.value),
+                  ),
+                )
+              }
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="secuencial">Secuencial</SelectItem>
-                <SelectItem value="aleatorio">Aleatorio</SelectItem>
-                <SelectItem value="por_carga">Por carga</SelectItem>
-              </SelectContent>
-            </Select>
+            />
+            <p id={`${idTope}-ayuda`} className="text-ink-secondary mt-1 text-[11px]">
+              Cuántas sesiones abiertas a la vez puede tener cada vendedor antes de que la rotación
+              lo saltee. Vacío: sin tope.
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    case "crm_escalar_humano": {
+      const c = editorDeConfig("crm_escalar_humano", config);
+      return (
+        <div className="flex flex-col gap-3">
+          <p className="text-ink-secondary text-[11px] leading-relaxed">
+            Pausa la IA en esta conversación y la deja en «requiere humano» para que la tome una
+            persona.
+          </p>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={c.valores.avisarAlCliente !== false}
+              onChange={(e) => onChange(c.con("avisarAlCliente", e.target.checked))}
+              disabled={readonly}
+              className="h-4 w-4 rounded"
+            />
+            <span className="text-ink-secondary text-[11px]">
+              Avisarle al cliente que lo va a atender una persona
+            </span>
           </label>
         </div>
       );
     }
 
-    case "crm_campo":
+    case "crm_campo": {
+      const c = editorDeConfig("crm_campo", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Campo a actualizar</span>
             <Select
-              value={String(config.campo ?? "")}
-              onValueChange={(v) => handleChange("campo", v)}
+              value={String(c.valores.campo ?? "")}
+              onValueChange={(v) => onChange(c.con("campo", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
                 <SelectValue placeholder="Seleccionar campo" />
               </SelectTrigger>
               <SelectContent>
-                {campos.map((c) => (
-                  <SelectItem key={c.key} value={c.key}>
-                    {c.label}
+                {campos.map((campo) => (
+                  <SelectItem key={campo.key} value={campo.key}>
+                    {campo.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -276,8 +349,8 @@ export function ConfigCRM({
           <label className="block">
             <span className={labelClass}>Nuevo valor</span>
             <TextareaConVariables
-              value={String(config.valor ?? "")}
-              onChange={(v) => handleChange("valor", v)}
+              value={String(c.valores.valor ?? "")}
+              onChange={(v) => onChange(c.con("valor", v))}
               placeholder="Valor o variable {{lead.nombre}}"
               rows={2}
               className={`${inputClass} h-auto min-h-[60px] resize-y`}
@@ -285,15 +358,17 @@ export function ConfigCRM({
           </label>
         </div>
       );
+    }
 
-    case "crm_tarea":
+    case "crm_tarea": {
+      const c = editorDeConfig("crm_tarea", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Titulo de la tarea</span>
             <TextareaConVariables
-              value={String(config.titulo ?? "")}
-              onChange={(v) => handleChange("titulo", v)}
+              value={String(c.valores.titulo ?? "")}
+              onChange={(v) => onChange(c.con("titulo", v))}
               placeholder="Seguimiento con {{lead.nombre}}"
               rows={1}
               className={`${inputClass} h-auto`}
@@ -303,8 +378,8 @@ export function ConfigCRM({
           <label className="block">
             <span className={labelClass}>Descripcion</span>
             <TextareaConVariables
-              value={String(config.descripcion ?? "")}
-              onChange={(v) => handleChange("descripcion", v)}
+              value={String(c.valores.descripcion ?? "")}
+              onChange={(v) => onChange(c.con("descripcion", v))}
               placeholder="Notas adicionales..."
               rows={2}
               className={`${inputClass} h-auto min-h-[60px] resize-y`}
@@ -318,13 +393,13 @@ export function ConfigCRM({
                 type="number"
                 min={1}
                 className={`${inputClass} w-20`}
-                value={Number(config.vencimiento ?? 24)}
-                onChange={(e) => handleChange("vencimiento", Number(e.target.value))}
+                value={Number(c.valores.vencimiento)}
+                onChange={(e) => onChange(c.con("vencimiento", Number(e.target.value)))}
                 disabled={readonly}
               />
               <Select
-                value={String(config.unidadVencimiento ?? "horas")}
-                onValueChange={(v) => handleChange("unidadVencimiento", v)}
+                value={String(c.valores.unidadVencimiento)}
+                onValueChange={(v) => onChange(c.con("unidadVencimiento", v))}
                 disabled={readonly}
               >
                 <SelectTrigger className={`${selectClass} flex-1`}>
@@ -342,8 +417,8 @@ export function ConfigCRM({
           <label className="block">
             <span className={labelClass}>Asignar a</span>
             <Select
-              value={String(config.asignarA ?? "vendedor_actual")}
-              onValueChange={(v) => handleChange("asignarA", v)}
+              value={String(c.valores.asignarA)}
+              onValueChange={(v) => onChange(c.con("asignarA", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -361,15 +436,17 @@ export function ConfigCRM({
           </label>
         </div>
       );
+    }
 
-    case "crm_nota":
+    case "crm_nota": {
+      const c = editorDeConfig("crm_nota", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Contenido de la nota</span>
             <TextareaConVariables
-              value={String(config.contenido ?? "")}
-              onChange={(v) => handleChange("contenido", v)}
+              value={String(c.valores.contenido ?? "")}
+              onChange={(v) => onChange(c.con("contenido", v))}
               placeholder="Nota interna sobre {{lead.nombre}}"
               rows={3}
               className={`${inputClass} h-auto min-h-[80px] resize-y`}
@@ -377,16 +454,18 @@ export function ConfigCRM({
           </label>
         </div>
       );
+    }
 
-    case "crm_spam":
+    case "crm_spam": {
+      const c = editorDeConfig("crm_spam", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Razon (opcional)</span>
             <Input
               className={inputClass}
-              value={String(config.razon ?? "")}
-              onChange={(e) => handleChange("razon", e.target.value)}
+              value={String(c.valores.razon ?? "")}
+              onChange={(e) => onChange(c.con("razon", e.target.value))}
               placeholder="Ej: Mensaje promocional"
               disabled={readonly}
             />
@@ -395,8 +474,8 @@ export function ConfigCRM({
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
-              checked={Boolean(config.bloquear ?? false)}
-              onChange={(e) => handleChange("bloquear", e.target.checked)}
+              checked={Boolean(c.valores.bloquear)}
+              onChange={(e) => onChange(c.con("bloquear", e.target.checked))}
               disabled={readonly}
               className="h-4 w-4 rounded"
             />
@@ -404,15 +483,17 @@ export function ConfigCRM({
           </label>
         </div>
       );
+    }
 
-    case "crm_archivar":
+    case "crm_archivar": {
+      const c = editorDeConfig("crm_archivar", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Motivo de archivo</span>
             <Select
-              value={String(config.motivo ?? "sin_interes")}
-              onValueChange={(v) => handleChange("motivo", v)}
+              value={String(c.valores.motivo)}
+              onValueChange={(v) => onChange(c.con("motivo", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -429,6 +510,7 @@ export function ConfigCRM({
           </label>
         </div>
       );
+    }
 
     default:
       return (

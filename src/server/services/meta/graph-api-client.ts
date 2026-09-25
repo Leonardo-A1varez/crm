@@ -3,6 +3,7 @@ import { withSpan } from "@/lib/observability/tracing";
 import type {
   MetaApiClient,
   MetaSendResult,
+  MetaSendTemplateInput,
   MetaSendTextInput,
 } from "@/server/services/meta-api.service";
 
@@ -88,15 +89,57 @@ export class GraphApiMetaClient implements MetaApiClient {
     });
   }
 
+  /**
+   * Plantilla aprobada por WhatsApp: `type: "template"` al mismo endpoint que
+   * el texto. Las variables del cuerpo van en orden, sin `parameter_name`: ese
+   * campo es sólo para plantillas de parámetros con nombre, que el panel no
+   * ofrece. Formato verificado el 2026-09-25 contra la documentación de Meta
+   * (business-messaging/whatsapp/templates/overview y messages/send-messages).
+   */
+  async sendTemplate(input: MetaSendTemplateInput): Promise<MetaSendResult> {
+    return withSpan("meta.sendTemplate", { canal: "wa" }, async () => {
+      const { nombre, idioma, parametrosCuerpo } = input.plantilla;
+      return this.postWa(
+        {
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: input.to,
+          type: "template",
+          template: {
+            name: nombre,
+            language: { code: idioma },
+            ...(parametrosCuerpo.length > 0
+              ? {
+                  components: [
+                    {
+                      type: "body",
+                      parameters: parametrosCuerpo.map((text) => ({ type: "text", text })),
+                    },
+                  ],
+                }
+              : {}),
+          },
+        },
+        "wa.sendTemplate",
+      );
+    });
+  }
+
   private async sendWa(input: MetaSendTextInput): Promise<MetaSendResult> {
+    return this.postWa(
+      {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: input.to,
+        type: "text",
+        text: { body: input.text, preview_url: false },
+      },
+      "wa.sendText",
+    );
+  }
+
+  private async postWa(body: Record<string, unknown>, operation: string): Promise<MetaSendResult> {
     const url = `${this.baseUrl}/${this.cfg.graphApiVersion}/${this.cfg.whatsappPhoneNumberId}/messages`;
-    const body = {
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to: input.to,
-      type: "text",
-      text: { body: input.text, preview_url: false },
-    };
 
     const res = await fetchOrInfra(
       this.fetchImpl,
@@ -109,17 +152,17 @@ export class GraphApiMetaClient implements MetaApiClient {
         },
         body: JSON.stringify(body),
       },
-      "wa.sendText",
+      operation,
     );
 
     if (!res.ok) {
-      await throwMappedGraphError(res, "wa.sendText");
+      await throwMappedGraphError(res, operation);
     }
 
     const parsed = (await res.json()) as WaSendTextResponse;
     const id = parsed.messages?.[0]?.id;
     if (!id) {
-      throw new ValidationError("Meta WA sendText: response sin messages[0].id", {
+      throw new ValidationError(`Meta ${operation}: response sin messages[0].id`, {
         raw: parsed as unknown as Record<string, unknown>,
       });
     }

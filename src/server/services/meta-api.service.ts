@@ -42,8 +42,34 @@ export interface MetaSendResult {
   meta_message_id: string;
 }
 
+/**
+ * Una plantilla aprobada de WhatsApp, tal como la manda Meta. Es lo único que
+ * Meta deja mandar fuera de la ventana de 24 h.
+ *
+ * Genérica a propósito: la usa un paso de un flujo y la va a usar el motor de
+ * difusión. Nada de acá sabe de workflows.
+ */
+export interface PlantillaMeta {
+  /** El nombre con que se aprobó en el WhatsApp Manager. */
+  nombre: string;
+  /** El código de idioma con que se aprobó (`es`, `es_AR`, `pt_BR`…). */
+  idioma: string;
+  /**
+   * Los valores de las variables del cuerpo (`{{1}}`, `{{2}}`…), en orden.
+   * Vacío = la plantilla no tiene variables.
+   */
+  parametrosCuerpo: readonly string[];
+}
+
+export interface MetaSendTemplateInput {
+  to: string;
+  plantilla: PlantillaMeta;
+}
+
 export interface MetaApiClient {
   sendText(input: MetaSendTextInput): Promise<MetaSendResult>;
+  /** Sólo WhatsApp: Instagram y Messenger no tienen plantillas aprobadas. */
+  sendTemplate(input: MetaSendTemplateInput): Promise<MetaSendResult>;
 }
 
 export interface SendOutboundInput {
@@ -63,6 +89,27 @@ export interface SendOutboundInput {
    * para decir quién resolvió el turno.
    */
   plantilla?: PlantillaSaliente;
+}
+
+/**
+ * Una plantilla aprobada, por WhatsApp. Mismo contrato de idempotencia y de
+ * reserva que `SendOutboundInput`. No lleva canal: las plantillas son sólo de
+ * WhatsApp, y quien llama tiene que haberlo chequeado contra la conversación.
+ */
+export interface SendTemplateInput {
+  conversacionId: UUID;
+  leadSessionId: UUID;
+  to: string;
+  plantilla: PlantillaMeta;
+  sender: Extract<Sender, "ia" | "humano" | "sistema">;
+  senderUserId?: UUID;
+  idempotencyKey?: string;
+}
+
+/** Lo que el hilo muestra de una plantilla: cuál salió y con qué valores. */
+export function contenidoDePlantilla(plantilla: PlantillaMeta): string {
+  const valores = plantilla.parametrosCuerpo.join(", ");
+  return `Plantilla «${plantilla.nombre}»${valores ? `: ${valores}` : ""}`;
 }
 
 export interface RecordInboundInput {
@@ -87,7 +134,22 @@ function mensajeDeError(error: unknown): string {
 
 export interface MetaApiService {
   sendOutbound(input: SendOutboundInput): Promise<Mensaje>;
+  /** Una plantilla aprobada de WhatsApp. La única salida fuera de la ventana de 24 h. */
+  sendTemplate(input: SendTemplateInput): Promise<Mensaje>;
   recordInbound(input: RecordInboundInput): Promise<Mensaje>;
+}
+
+/** Lo que cambia entre un texto y una plantilla; la reserva y el envío son iguales. */
+interface Saliente {
+  conversacionId: UUID;
+  leadSessionId: UUID;
+  sender: SendOutboundInput["sender"];
+  senderUserId?: UUID;
+  idempotencyKey?: string;
+  tipo: "text" | "template";
+  contenido: string;
+  metadata: MensajeMetadata;
+  llamarAMeta: () => Promise<MetaSendResult>;
 }
 
 export class DefaultMetaApiService implements MetaApiService {
@@ -98,6 +160,40 @@ export class DefaultMetaApiService implements MetaApiService {
   ) {}
 
   async sendOutbound(input: SendOutboundInput): Promise<Mensaje> {
+    return this.enviar({
+      conversacionId: input.conversacionId,
+      leadSessionId: input.leadSessionId,
+      sender: input.sender,
+      senderUserId: input.senderUserId,
+      idempotencyKey: input.idempotencyKey,
+      tipo: "text",
+      contenido: input.contenido,
+      metadata: metadataDelSaliente(input.plantilla),
+      llamarAMeta: () =>
+        this.client.sendText({ canal: input.canal, to: input.to, text: input.contenido }),
+    });
+  }
+
+  async sendTemplate(input: SendTemplateInput): Promise<Mensaje> {
+    const { nombre, idioma, parametrosCuerpo } = input.plantilla;
+    return this.enviar({
+      conversacionId: input.conversacionId,
+      leadSessionId: input.leadSessionId,
+      sender: input.sender,
+      senderUserId: input.senderUserId,
+      idempotencyKey: input.idempotencyKey,
+      tipo: "template",
+      contenido: contenidoDePlantilla(input.plantilla),
+      // `plantilla_meta` y no `plantilla`: esa clave es la marca de las
+      // respuestas fijas del pipeline (`PlantillaSaliente`), otra cosa.
+      metadata: {
+        plantilla_meta: { nombre, idioma, parametros_cuerpo: [...parametrosCuerpo] },
+      },
+      llamarAMeta: () => this.client.sendTemplate({ to: input.to, plantilla: input.plantilla }),
+    });
+  }
+
+  private async enviar(input: Saliente): Promise<Mensaje> {
     // Una reserva sin `meta_message_id` significa "ya se intentó, desenlace
     // desconocido". No se reenvía: un WhatsApp duplicado no se puede retirar,
     // y esta fila sí se ve en el hilo marcada como fallida.
@@ -115,22 +211,18 @@ export class DefaultMetaApiService implements MetaApiService {
       direction: "out",
       sender: input.sender,
       sender_user_id: input.senderUserId ?? null,
-      tipo: "text",
+      tipo: input.tipo,
       contenido: input.contenido,
       media_url: null,
       meta_message_id: null,
       idempotency_key: input.idempotencyKey ?? null,
-      metadata: metadataDelSaliente(input.plantilla),
+      metadata: input.metadata,
       platform_created_at: null,
     });
 
     let result: MetaSendResult;
     try {
-      result = await this.client.sendText({
-        canal: input.canal,
-        to: input.to,
-        text: input.contenido,
-      });
+      result = await input.llamarAMeta();
     } catch (error) {
       // 429: Meta rechazó explícitamente, no llegó nada. Se libera la clave
       // para que el reintento pueda volver a intentar de verdad.

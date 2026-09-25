@@ -34,6 +34,9 @@ describe("editarCampoTwin", () => {
       messages,
       vehiculos: new InMemoryLeadVehiculosRepository(),
       metaApi: new DefaultMetaApiService(convs, messages, {
+        sendTemplate: async () => {
+          throw new Error("sendTemplate no debe invocarse acá");
+        },
         sendText: async () => {
           throw new Error("no debe enviarse nada acá");
         },

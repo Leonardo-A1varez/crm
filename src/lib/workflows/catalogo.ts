@@ -11,39 +11,133 @@
  * en producción con un `accion_desconocida`.
  */
 
-import type { NodoTipo } from "@/types/workflows";
+import type { NodoTipo, NodoTipoTrigger } from "@/types/workflows";
 
 /**
  * Los eventos de dominio que arrancan una corrida.
  *
- * Los emite `workflow-disparar`, que busca las versiones publicadas cuyo nodo
- * disparador matchea. Agregar uno acá no lo hace existir: hay que emitirlo.
+ * Los consume `workflow-disparar`, que busca las versiones publicadas cuyo
+ * nodo disparador matchea. Agregar uno acá no lo hace existir: hay que
+ * emitirlo, y recién entonces mapearlo en `DISPARADOR_DE_TIPO`. Quién emite
+ * cada uno lo dice el doc de `workflowDisparoRecibido` (`inngest/events.ts`).
  */
-export const DISPARADORES = ["mensaje_recibido", "etiqueta_asignada", "etapa_cambiada"] as const;
+export const DISPARADORES = [
+  "mensaje_recibido",
+  "etiqueta_asignada",
+  "etapa_cambiada",
+  "etiqueta_removida",
+  "lead_creado",
+  "programado",
+  "inactividad",
+  "manual",
+  "vendedor_asignado",
+] as const;
 export type DisparadorWorkflow = (typeof DISPARADORES)[number];
+
+/**
+ * Los disparos que nombran su flujo (`workflowId`). Quien los emite ya eligió
+ * cuál corre —el cron que calculó el horario de ESE flujo, el escaneo que midió
+ * SU tiempo de inactividad, la persona que apretó SU botón—, así que escuchar el
+ * evento no alcanza: sin `workflowId`, `workflow-disparar` no arranca nada. Un
+ * "manual" sin destino arrancaría todos los flujos manuales del lead.
+ */
+export const DISPARADORES_DIRIGIDOS: readonly DisparadorWorkflow[] = [
+  "programado",
+  "inactividad",
+  "manual",
+];
+
+/**
+ * Qué evento de dominio escucha cada trigger del canvas.
+ *
+ * Los que no están no tienen emisor: un flujo publicado con uno de ellos no
+ * arranca nunca. Se dejan afuera a propósito en vez de mapearlos a lo más
+ * parecido — un trigger que arranca con el evento equivocado le escribe a leads
+ * que nadie eligió. Mapear uno es afirmar que su emisor existe.
+ */
+export const DISPARADOR_DE_TIPO: Partial<Record<NodoTipoTrigger, DisparadorWorkflow>> = {
+  trigger_mensaje: "mensaje_recibido",
+  trigger_etiqueta: "etiqueta_asignada",
+  trigger_etapa: "etapa_cambiada",
+  // `on-message-received`, con el primer mensaje del lead.
+  trigger_lead_creado: "lead_creado",
+  // `quitar-etiqueta.action.ts` (inbox): una persona saca la etiqueta a mano.
+  trigger_etiqueta_removida: "etiqueta_removida",
+  // `workflow-programados` (cron cada 5 minutos).
+  trigger_cron: "programado",
+  // `workflow-inactividad` (escaneo cada 10 minutos).
+  trigger_inactividad: "inactividad",
+  // `dispararWorkflowManualAction` (`app/(panel)/workflows/_actions/`).
+  trigger_manual: "manual",
+  // Las acciones "Asignar vendedor" y "Round Robin" de un flujo
+  // (`acciones/asignacion.ts`), cuando la sesión cambia de vendedor.
+  trigger_vendedor_asignado: "vendedor_asignado",
+};
+
+/**
+ * Los eventos que "Esperar evento" puede esperar de verdad: los que alguien
+ * emite. El panel ofrece también `comprobante_subido`, que no tiene emisor:
+ * esperarlo vencería siempre por tiempo, y el validador lo rechaza.
+ */
+export const EVENTOS_ESPERABLES = [
+  "etiqueta_asignada",
+  "etapa_cambiada",
+  "vendedor_asignado",
+] as const satisfies readonly DisparadorWorkflow[];
+export type EventoEsperable = (typeof EVENTOS_ESPERABLES)[number];
 
 /**
  * Las acciones que el motor sabe ejecutar.
  *
- * **El registro real se arma en `src/inngest/bootstrap.ts`** con
- * `crearRegistro({...crearAccionesInternas(...), enviar_mensaje: ...})`. Esta
- * lista es la que ve la UI. Si se agrega un handler allá y no acá, la pantalla
- * no lo ofrece; si se agrega acá y no allá, el motor tira `accion_desconocida`
- * en la corrida. Las dos tienen que moverse juntas.
+ * **El registro es uno solo: `crearRegistroDeAcciones` en
+ * `server/services/workflows/acciones/registro.ts`.** Lo usan producción
+ * (`inngest/bootstrap.ts`) y "Probar" (con los efectos interceptados). Esta
+ * lista es la que ve la UI; `tests/unit/workflows/registro-unico.test.ts`
+ * falla si deja de coincidir con los handlers del registro.
  */
 export const ACCIONES = [
   "enviar_mensaje",
   "poner_etiqueta",
   "cambiar_etapa",
   "escalar_a_humano",
+  "asignar_vendedor",
+  "repartir_round_robin",
+  "enviar_plantilla",
 ] as const;
 export type AccionWorkflow = (typeof ACCIONES)[number];
+
+/**
+ * Qué acción ejecuta cada tipo de nodo del canvas.
+ *
+ * El nodo legacy `accion` la declara en `config.accion`; los del canvas la
+ * llevan en el tipo. Los tipos que no están acá no tienen handler: el registro
+ * los rechaza con un error que nombra el tipo, en producción y en "Probar" por
+ * igual. Mapear uno sin handler real sería volver al simulador que "ejecutaba"
+ * nodos que producción no conocía.
+ */
+export const ACCION_DE_TIPO: Partial<Record<NodoTipo, AccionWorkflow>> = {
+  msg_texto: "enviar_mensaje",
+  crm_etiqueta_add: "poner_etiqueta",
+  crm_etapa: "cambiar_etapa",
+  // El nodo legacy `accion` con `escalar_a_humano` sigue funcionando: los dos
+  // caen en la misma acción y leen la config con el mismo schema.
+  crm_escalar_humano: "escalar_a_humano",
+  crm_vendedor: "asignar_vendedor",
+  crm_round_robin: "repartir_round_robin",
+  msg_plantilla: "enviar_plantilla",
+};
 
 /** Cómo se nombra cada cosa en pantalla. */
 export const ETIQUETA_DISPARADOR: Record<DisparadorWorkflow, string> = {
   mensaje_recibido: "Llega un mensaje",
   etiqueta_asignada: "Se le pone una etiqueta",
   etapa_cambiada: "Cambia de etapa",
+  etiqueta_removida: "Se le quita una etiqueta",
+  lead_creado: "Aparece un lead nuevo",
+  programado: "Llega la hora programada",
+  inactividad: "Pasa un tiempo sin respuesta",
+  manual: "Alguien lo dispara a mano",
+  vendedor_asignado: "Se le asigna un vendedor",
 };
 
 export const ETIQUETA_ACCION: Record<AccionWorkflow, string> = {
@@ -51,6 +145,9 @@ export const ETIQUETA_ACCION: Record<AccionWorkflow, string> = {
   poner_etiqueta: "Poner una etiqueta",
   cambiar_etapa: "Cambiar la etapa",
   escalar_a_humano: "Pasar a un vendedor",
+  asignar_vendedor: "Asignar un vendedor",
+  repartir_round_robin: "Repartir entre vendedores",
+  enviar_plantilla: "Enviar una plantilla de WhatsApp",
 };
 
 export const ETIQUETA_NODO: Record<NodoTipo, string> = {
@@ -81,7 +178,7 @@ export const ETIQUETA_NODO: Record<NodoTipo, string> = {
   msg_ubicacion: "Enviar ubicación",
   msg_plantilla: "Plantilla HSM",
   msg_reaccion: "Reacción",
-  // CRM (10)
+  // CRM (11)
   crm_etiqueta_add: "Asignar etiqueta",
   crm_etiqueta_remove: "Remover etiqueta",
   crm_etapa: "Cambiar etapa",
@@ -92,6 +189,7 @@ export const ETIQUETA_NODO: Record<NodoTipo, string> = {
   crm_nota: "Agregar nota",
   crm_spam: "Marcar spam",
   crm_archivar: "Archivar",
+  crm_escalar_humano: "Escalar a humano",
   // Lógica (11)
   logica_condicion: "Condición (IF)",
   logica_switch: "Switch",
@@ -111,7 +209,7 @@ export const ETIQUETA_NODO: Record<NodoTipo, string> = {
   int_email: "Enviar email",
   int_sheets: "Google Sheets",
   int_db: "Base de datos",
-  // IA (7)
+  // IA (8)
   ia_clasificar: "Clasificar intent",
   ia_responder: "Generar respuesta",
   ia_extraer: "Extraer datos",
@@ -119,6 +217,7 @@ export const ETIQUETA_NODO: Record<NodoTipo, string> = {
   ia_resumir: "Resumir",
   ia_traducir: "Traducir",
   ia_spam: "Verificar spam",
+  ia_delegar: "Delegar al agente",
   // Internos (4)
   int_notif_vendedor: "Notificar vendedor",
   int_notif_grupo: "Notificar grupo",

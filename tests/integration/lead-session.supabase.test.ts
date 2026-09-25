@@ -59,5 +59,23 @@ async function seedFixtures(c: TestClient): Promise<LeadSessionContractFixtures>
   const { error } = await c.from("leads").insert(leadsRows);
   if (error) throw new Error(`seed leads: ${error.message}`);
 
-  return { leadIds };
+  // `vendedor_asignado_id` tiene FK a `usuarios`: los ids tienen que existir.
+  const vendedorIds = {
+    A: crypto.randomUUID(),
+    B: crypto.randomUUID(),
+    C: crypto.randomUUID(),
+  };
+  const usuariosRows = (Object.entries(vendedorIds) as [keyof typeof vendedorIds, string][]).map(
+    ([key, id]) => ({
+      id,
+      nombre: `Vendedor Fixture ${key}`,
+      email: `vendedor-${id}@fixture.local`,
+      rol: "vendedor" as const,
+      activo: true,
+    }),
+  );
+  const { error: errorUsuarios } = await c.from("usuarios").insert(usuariosRows);
+  if (errorUsuarios) throw new Error(`seed usuarios: ${errorUsuarios.message}`);
+
+  return { leadIds, vendedorIds };
 }

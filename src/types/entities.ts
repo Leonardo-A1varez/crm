@@ -18,7 +18,7 @@ import type {
   TipoMensaje,
   Urgencia,
 } from "./domain";
-import type { Grafo } from "@/types/workflows";
+import type { Grafo, MotivoSalto } from "@/types/workflows";
 
 export type UUID = string;
 
@@ -154,6 +154,15 @@ export interface LeadSession {
   ia_pausada: boolean;
   /** Etapa de negocio previa al desvío administrativo; ausente en fixtures legacy. */
   stage_before_handoff?: CurrentStage | null;
+  /**
+   * Quién atiende este intento de venta; `null` = sin asignar. Si el usuario se
+   * borra, la sesión queda sin asignar (FK `on delete set null`), no se borra.
+   * Opcional solo por los literales armados a mano (tests, sesión simulada del
+   * editor de workflows): toda fila leída de la base lo trae.
+   */
+  vendedor_asignado_id?: UUID | null;
+  /** Cuándo se asignó al vendedor actual. Lo sella la base; `null` sin vendedor. */
+  asignado_at?: Date | null;
   extras: Record<string, unknown>;
   context_summary: string | null;
   /** Quién escribió cada campo del Twin; ausente = nadie lo escribió todavía. */
@@ -530,6 +539,11 @@ export interface WorkflowVersion {
   created_by: UUID | null;
   /** Qué hacer si llega un disparo con una corrida viva de este workflow. */
   politica_concurrencia: PoliticaConcurrencia;
+  /**
+   * Por qué existe esta versión, en prosa: la escribe quien publica o
+   * restaura. `null` si nadie la escribió. El motor no la lee.
+   */
+  nota: string | null;
 }
 
 export type WorkflowRunEstado = "corriendo" | "esperando" | "terminado" | "fallado" | "cancelado";
@@ -575,13 +589,35 @@ export interface WorkflowMetricas {
 }
 
 /**
- * Los cuatro estados que ve alguien mirando la lista. NO es una columna: se
- * deriva en `calcularEstadoWorkflow` (`lib/ui/workflow-estado.ts`) a partir de
- * `workflows.activo`, si hay versión publicada y si la corrida más reciente
- * falló -- la tabla no tiene ninguna columna "estado" y agregar una
- * duplicaría una verdad que ya vive en otro lado.
+ * Los cinco estados que ve alguien mirando la lista. NO es una columna: se
+ * deriva en `derivarEstadoWorkflow` (`lib/ui/workflow-estado.ts`) a partir de
+ * `workflows.activo`, si hay versión publicada, si hay una versión más nueva
+ * que la publicada y si la corrida más reciente falló -- la tabla no tiene
+ * ninguna columna "estado" y agregar una duplicaría una verdad que ya vive en
+ * otro lado.
+ *
+ * Eran cuatro hasta el 2026-09-03. `con-cambios` viajaba aparte, en el booleano
+ * `WorkflowResumen.tieneVersionBorrador`, y la lista lo pintaba como un chip
+ * suelto al lado del badge de estado: dos marcas para un solo hecho se leen
+ * como dos hechos. Ahora el estado es uno solo y cada valor responde una
+ * pregunta distinta, sin que dos respuestas se solapen:
+ *
+ *   borrador     ¿llegó a publicarse alguna vez?          no, nunca
+ *   activo       ¿está publicado y disparándose?           sí, y sin novedad
+ *   con-cambios  ¿lo que corre es lo último que escribí?   no, hay borrador nuevo
+ *   pausado      ¿está publicado pero apagado?             sí, por decisión de alguien
+ *   con-errores  ¿las últimas corridas terminaron mal?     sí
+ *
+ * El orden del array es el del ciclo de vida, no alfabético: así salen los
+ * chips del filtro y la leyenda de la pantalla.
  */
-export const WORKFLOW_ESTADOS = ["activo", "borrador", "pausado", "error"] as const;
+export const WORKFLOW_ESTADOS = [
+  "borrador",
+  "activo",
+  "con-cambios",
+  "pausado",
+  "con-errores",
+] as const;
 export type WorkflowEstado = (typeof WORKFLOW_ESTADOS)[number];
 
 /** Lo que pinta una card de `/workflows`. Lo arma `WorkflowsAdminService.listarConResumen`. */
@@ -621,6 +657,15 @@ export interface HistorialPaginado {
 
 /** Run con datos del lead para mostrar en la lista */
 export interface WorkflowRunConLead extends WorkflowRun {
+  /**
+   * Por qué terminó antes de tiempo: un tope de seguridad saltó un mensaje y
+   * el lead salió del flujo (PRD §6.6). `null` si no saltó nada. Una corrida
+   * saltada está `terminado`, nunca `fallado`: no es un error.
+   *
+   * Vive en el read model y no en `WorkflowRun` porque el motor no la lee: la
+   * escribe la base (`workflow_runs.motivo_salto`, por trigger desde el paso).
+   */
+  motivo_salto: MotivoSalto | null;
   lead_nombre: string | null;
   trigger_tipo: string;
   trigger_datos: Record<string, unknown>;

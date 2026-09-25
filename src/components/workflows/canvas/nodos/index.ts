@@ -19,7 +19,10 @@ export { NodoEspera } from "./NodoEspera";
 export { NodoFin } from "./NodoFin";
 
 // Re-export nuevos componentes
-export { NodoBase, ESTILOS_CATEGORIA, type NodoBaseProps, type SalidaMultiple } from "./NodoBase";
+// `ESTILOS_CATEGORIA` ya no existe: los colores por categoría salen de
+// `src/lib/ui/workflow-nodos.ts`, que los deriva de los tokens reales del
+// sistema en vez de hardcodear hex de la paleta de Tailwind.
+export { NodoBase, Dato, type NodoBaseProps, type SalidaNodo, type IconoNodo } from "./NodoBase";
 export { NodoTrigger } from "./NodoTrigger";
 export { NodoMensajeria } from "./NodoMensajeria";
 export { NodoCRM } from "./NodoCRM";

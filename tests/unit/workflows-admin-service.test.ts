@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
+import { NotFoundError, ValidationError } from "@/lib/errors";
+import { InMemoryDifusionSupresionesRepository } from "@/server/repositories/difusion-supresiones.repo";
+import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
 import { InMemoryWorkflowRunsRepository } from "@/server/repositories/workflow-runs.repo";
 import { InMemoryWorkflowsRepository } from "@/server/repositories/workflows.repo";
@@ -260,7 +262,7 @@ describe("DefaultWorkflowsAdminService.listarConResumen", () => {
     expect(resumen?.estado).toBe("pausado");
   });
 
-  it("prendido con la corrida más reciente fallada: 'error'", async () => {
+  it("prendido con la corrida más reciente fallada: 'con-errores'", async () => {
     const { service, workflowRuns, versionDeWorkflow } = buildConRuns();
     const w = await service.crear({ nombre: "W", descripcion: null });
     const v = await service.guardarVersion({
@@ -283,10 +285,46 @@ describe("DefaultWorkflowsAdminService.listarConResumen", () => {
 
     const [resumen] = await service.listarConResumen();
 
-    expect(resumen?.estado).toBe("error");
+    expect(resumen?.estado).toBe("con-errores");
     expect(resumen?.metricas.totalRuns).toBe(1);
     expect(resumen?.metricas.runsExitosos).toBe(0);
     expect(resumen?.metricas.ultimoRun?.exito).toBe(false);
+  });
+
+  // PRD §6.6: un tope que salta un mensaje no es un fallo. Si contara, un
+  // flujo sano gritaría "Con errores" cada vez que protege a un lead.
+  it("la corrida más reciente saltada por un tope NO pone el flujo 'con-errores'", async () => {
+    const { service, workflowRuns, versionDeWorkflow } = buildConRuns();
+    const w = await service.crear({ nombre: "W", descripcion: null });
+    const v = await service.guardarVersion({
+      workflowId: w.id,
+      grafo: VALIDO,
+      maxPasos: 500,
+      userId: null,
+    });
+    await service.publicar(v.id);
+    await service.reanudar(w.id);
+
+    versionDeWorkflow.set(v.id, w.id);
+    const { run } = await workflowRuns.arrancar({
+      versionId: v.id,
+      leadId: "lead-1",
+      sessionId: null,
+      contexto: {},
+    });
+    await workflowRuns.registrarPaso(run!.id, {
+      nodo_id: "m",
+      orden: 1,
+      entrada: null,
+      salida: { saltado: true, motivo_salto: "tope_frecuencia" },
+      error: null,
+    });
+    await workflowRuns.terminar(run!.id, 1);
+
+    const [resumen] = await service.listarConResumen();
+
+    expect(resumen?.estado).toBe("activo");
+    expect(resumen?.metricas.ultimoRun?.exito).toBe(true);
   });
 
   it("una version nueva sin publicar sobre una publicada: tieneVersionBorrador true", async () => {
@@ -443,7 +481,7 @@ async function crearLeadDePrueba(leads: InMemoryLeadsRepository) {
 }
 
 describe("DefaultWorkflowsAdminService.probar", () => {
-  it("guarda el grafo actual como version y arranca una corrida real hasta terminar", async () => {
+  it("guarda el grafo actual como version y corre el motor de producción hasta terminar", async () => {
     const { service, workflows, workflowRuns, leads } = buildConRuns();
     const w = await service.crear({ nombre: "W", descripcion: null });
     const lead = await crearLeadDePrueba(leads);
@@ -465,7 +503,34 @@ describe("DefaultWorkflowsAdminService.probar", () => {
     expect(await workflowRuns.pasosDeRun(runId)).toHaveLength(3);
   });
 
-  it("una corrida de prueba que corta en una espera queda 'esperando'", async () => {
+  it("el mensaje no sale: el paso guarda cómo se habría visto, marcado como simulado", async () => {
+    const { service, workflowRuns, leads } = buildConRuns();
+    const w = await service.crear({ nombre: "W", descripcion: null });
+    const lead = await crearLeadDePrueba(leads);
+
+    const { runId } = await service.probar({
+      workflowId: w.id,
+      grafo: GRAFO_PROBAR_SIMPLE,
+      maxPasos: 50,
+      leadId: lead.id,
+      userId: null,
+    });
+
+    const paso = (await workflowRuns.pasosDeRun(runId)).find((p) => p.nodo_id === "m");
+    expect(paso?.salida?.["simulado"]).toEqual([
+      expect.objectContaining({
+        accion: "enviar_mensaje",
+        detalle: expect.objectContaining({ texto: "hola Lead de prueba" }),
+      }),
+    ]);
+  });
+
+  // Antes la prueba cortaba en la espera y dejaba la corrida `esperando` para
+  // siempre: nadie la reanuda, y `arrancar_workflow_run` cuenta como viva
+  // cualquier corrida de CUALQUIER versión del workflow para ese lead. Con la
+  // política por defecto (`ignorar`), ese flujo ya no arrancaba en producción
+  // para el lead con el que se probó.
+  it("una espera se saltea con el reloj virtual: la corrida de prueba termina y no queda viva", async () => {
     const { service, workflowRuns, leads } = buildConRuns();
     const w = await service.crear({ nombre: "W", descripcion: null });
     const lead = await crearLeadDePrueba(leads);
@@ -478,9 +543,93 @@ describe("DefaultWorkflowsAdminService.probar", () => {
       userId: null,
     });
 
-    expect(resultado.tipo).toBe("esperando");
+    expect(resultado.tipo).toBe("completado");
     const run = await workflowRuns.findRun(runId);
-    expect(run?.estado).toBe("esperando");
+    expect(run?.estado).toBe("terminado");
+  });
+
+  it("un nodo que producción no sabe ejecutar falla igual en Probar", async () => {
+    const { service, workflowRuns, leads } = buildConRuns();
+    const w = await service.crear({ nombre: "W", descripcion: null });
+    const lead = await crearLeadDePrueba(leads);
+
+    const { runId, resultado } = await service.probar({
+      workflowId: w.id,
+      grafo: {
+        nodos: [
+          { id: "t", tipo: "trigger_manual", config: {}, posicion: { x: 0, y: 0 } },
+          { id: "b", tipo: "msg_botones", config: {}, posicion: { x: 1, y: 0 } },
+          { id: "fin", tipo: "logica_detener", config: {}, posicion: { x: 2, y: 0 } },
+        ],
+        aristas: [
+          { desde: "t", hasta: "b", puerto: "salida" },
+          { desde: "b", hasta: "fin", puerto: "salida" },
+        ],
+      },
+      maxPasos: 50,
+      leadId: lead.id,
+      userId: null,
+    });
+
+    expect(resultado).toMatchObject({ tipo: "fallado", nodoId: "b" });
+    expect(resultado.tipo === "fallado" ? resultado.error : "").toContain("msg_botones");
+    expect((await workflowRuns.findRun(runId))?.estado).toBe("fallado");
+  });
+
+  it("con la sesión activa real del lead, las condiciones ven su etapa", async () => {
+    const workflows = new InMemoryWorkflowsRepository();
+    const workflowRuns = new InMemoryWorkflowRunsRepository();
+    const leads = new InMemoryLeadsRepository();
+    const sessions = new InMemoryLeadSessionRepository();
+    const service = new DefaultWorkflowsAdminService({ workflows, workflowRuns, leads, sessions });
+    const w = await service.crear({ nombre: "W", descripcion: null });
+    const lead = await crearLeadDePrueba(leads);
+    const sesion = await sessions.create({
+      lead_id: lead.id,
+      current_stage: "cotizado",
+      urgencia: "media",
+      consulta: "",
+      producto_cotizado_id: null,
+      codigo_interno: null,
+      precio_cotizado: null,
+      cantidad: null,
+      bloqueador: null,
+      comprobante_pago_url: null,
+      metodo_pago: null,
+      resultado: null,
+      motivo_perdida: null,
+      ia_pausada: false,
+    });
+
+    const { runId } = await service.probar({
+      workflowId: w.id,
+      grafo: {
+        nodos: [
+          { id: "t", tipo: "trigger_manual", config: {}, posicion: { x: 0, y: 0 } },
+          {
+            id: "c",
+            tipo: "logica_condicion",
+            config: { campo: "lead.etapa", operador: "es", valor: "cotizado" },
+            posicion: { x: 1, y: 0 },
+          },
+          { id: "si", tipo: "logica_detener", config: {}, posicion: { x: 2, y: 0 } },
+          { id: "no", tipo: "fin", config: {}, posicion: { x: 2, y: 1 } },
+        ],
+        aristas: [
+          { desde: "t", hasta: "c", puerto: "salida" },
+          { desde: "c", hasta: "si", puerto: "verdadero" },
+          { desde: "c", hasta: "no", puerto: "falso" },
+        ],
+      },
+      maxPasos: 50,
+      leadId: lead.id,
+      userId: null,
+    });
+
+    const run = await workflowRuns.findRun(runId);
+    expect(run?.lead_session_id).toBe(sesion.id);
+    const nodos = (await workflowRuns.pasosDeRun(runId)).map((p) => p.nodo_id);
+    expect(nodos).toEqual(["t", "c", "si"]);
   });
 
   it("lead inexistente: NotFoundError, sin arrancar ninguna corrida", async () => {
@@ -500,12 +649,21 @@ describe("DefaultWorkflowsAdminService.probar", () => {
     expect(await workflowRuns.metricasPorWorkflow([w.id], new Date(0))).toEqual({});
   });
 
-  it("ya hay una corrida viva para ese lead: ConflictError, no arranca una segunda", async () => {
-    const { service, leads } = buildConRuns();
+  it("ya hay una corrida viva de producción para ese lead: Probar corre igual y no la toca", async () => {
+    const { service, leads, workflowRuns } = buildConRuns();
     const w = await service.crear({ nombre: "W", descripcion: null });
     const lead = await crearLeadDePrueba(leads);
+    // Una corrida de producción en vuelo para este lead (el mapa de versiones
+    // de `buildConRuns` está vacío: todas las versiones cuentan como del mismo
+    // workflow, que es lo que hace el RPC de Postgres para uno solo).
+    const { run: produccion } = await workflowRuns.arrancar({
+      versionId: "version-publicada",
+      leadId: lead.id,
+      sessionId: null,
+      contexto: {},
+    });
 
-    await service.probar({
+    const r = await service.probar({
       workflowId: w.id,
       grafo: GRAFO_PROBAR_CON_ESPERA,
       maxPasos: 50,
@@ -513,14 +671,119 @@ describe("DefaultWorkflowsAdminService.probar", () => {
       userId: null,
     });
 
-    await expect(
-      service.probar({
-        workflowId: w.id,
-        grafo: GRAFO_PROBAR_CON_ESPERA,
-        maxPasos: 50,
-        leadId: lead.id,
-        userId: null,
-      }),
-    ).rejects.toThrow(ConflictError);
+    expect(r.resultado.tipo).toBe("completado");
+    expect((await workflowRuns.findRun(produccion!.id))?.estado).toBe("corriendo");
+  });
+});
+
+describe("DefaultWorkflowsAdminService.probar: topes de seguridad", () => {
+  async function escenario(opciones: { etapa?: "requiere_humano" | "nuevo"; baja?: boolean }) {
+    const workflows = new InMemoryWorkflowsRepository();
+    const workflowRuns = new InMemoryWorkflowRunsRepository();
+    const leads = new InMemoryLeadsRepository();
+    const sessions = new InMemoryLeadSessionRepository();
+    const supresiones = new InMemoryDifusionSupresionesRepository();
+    const service = new DefaultWorkflowsAdminService({
+      workflows,
+      workflowRuns,
+      leads,
+      sessions,
+      supresiones,
+    });
+    const w = await service.crear({ nombre: "W", descripcion: null });
+    const lead = await crearLeadDePrueba(leads);
+    await sessions.create({
+      lead_id: lead.id,
+      current_stage: opciones.etapa ?? "nuevo",
+      urgencia: "media",
+      consulta: "",
+      producto_cotizado_id: null,
+      codigo_interno: null,
+      precio_cotizado: null,
+      cantidad: null,
+      bloqueador: null,
+      comprobante_pago_url: null,
+      metodo_pago: null,
+      resultado: null,
+      motivo_perdida: null,
+      ia_pausada: false,
+    });
+    if (opciones.baja) await supresiones.registrar({ telefono: lead.telefono, origen: "manual" });
+    const r = await service.probar({
+      workflowId: w.id,
+      grafo: GRAFO_PROBAR_SIMPLE,
+      maxPasos: 50,
+      leadId: lead.id,
+      userId: null,
+    });
+    return { ...r, workflowRuns };
+  }
+
+  it("requiere_humano: el mensaje se salta, la corrida TERMINA (no falla) y guarda el motivo", async () => {
+    const { runId, resultado, salientes, workflowRuns } = await escenario({
+      etapa: "requiere_humano",
+    });
+    expect(resultado).toMatchObject({
+      tipo: "completado",
+      salto: { nodoId: "m", motivo: "requiere_humano" },
+    });
+    expect(salientes).toBe(0);
+    const run = await workflowRuns.detalleRun(runId);
+    expect(run?.estado).toBe("terminado");
+    expect(run?.error).toBeNull();
+    expect(run?.motivo_salto).toBe("requiere_humano");
+    // El lead salió del flujo: el "detener" que seguía no corrió.
+    expect(run?.pasos.map((p) => p.nodo_id)).toEqual(["t", "m"]);
+  });
+
+  it("dado_de_baja: lee la lista de bajas real y salta el mensaje", async () => {
+    const { resultado, salientes, runId, workflowRuns } = await escenario({ baja: true });
+    expect(resultado).toMatchObject({ tipo: "completado", salto: { motivo: "dado_de_baja" } });
+    expect(salientes).toBe(0);
+    expect((await workflowRuns.detalleRun(runId))?.motivo_salto).toBe("dado_de_baja");
+  });
+
+  it("sin ningún tope, la corrida no tiene motivo de salto", async () => {
+    const { resultado, runId, workflowRuns } = await escenario({});
+    expect(resultado).toEqual({ tipo: "completado", pasos: 3 });
+    expect((await workflowRuns.detalleRun(runId))?.motivo_salto).toBeNull();
+  });
+});
+
+describe("DefaultWorkflowsAdminService.saltosRecientes", () => {
+  it("cuenta los saltos de la ventana pedida, por motivo, y deja afuera los de Probar", async () => {
+    const { service, runs: workflowRuns } = build();
+    const ahora = new Date();
+    const correr = async (contexto: Record<string, unknown>, motivo: string) => {
+      const { run } = await workflowRuns.arrancar({
+        versionId: "v1",
+        leadId: crypto.randomUUID(),
+        sessionId: null,
+        contexto,
+      });
+      await workflowRuns.registrarPaso(run!.id, {
+        nodo_id: "m",
+        orden: 1,
+        entrada: null,
+        salida: { saltado: true, motivo_salto: motivo },
+        error: null,
+      });
+      await workflowRuns.terminar(run!.id, 1);
+    };
+    await correr({}, "tope_frecuencia");
+    await correr({}, "tope_frecuencia");
+    await correr({}, "dado_de_baja");
+    await correr({ $prueba: true }, "requiere_humano");
+
+    const r = await service.saltosRecientes(7, ahora);
+
+    expect(r.desde).toEqual(new Date(ahora.getTime() - 7 * 24 * 60 * 60 * 1000));
+    expect(r.porMotivo).toEqual({
+      tope_frecuencia: 2,
+      dado_de_baja: 1,
+      sin_ventana: 0,
+      conversacion_activa: 0,
+      requiere_humano: 0,
+    });
   });
 });

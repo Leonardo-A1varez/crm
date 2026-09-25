@@ -1,7 +1,16 @@
 "use client";
 
 import type { NodeProps, Node } from "@xyflow/react";
-import { Brain, Bot, FileSearch, Smile, FileText, Languages, ShieldAlert } from "lucide-react";
+import {
+  Brain,
+  Bot,
+  FileSearch,
+  Smile,
+  FileText,
+  Handshake,
+  Languages,
+  ShieldAlert,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { NodoBase } from "./NodoBase";
 import type { NodoTipoIA } from "@/types/workflows";
@@ -34,6 +43,7 @@ const IA_META: Record<NodoTipoIA, { nombre: string; icono: LucideIcon }> = {
   ia_resumir: { nombre: "Resumir", icono: FileText },
   ia_traducir: { nombre: "Traducir", icono: Languages },
   ia_spam: { nombre: "Verificar spam", icono: ShieldAlert },
+  ia_delegar: { nombre: "Delegar al agente", icono: Handshake },
 };
 
 /** Genera el texto de preview según la config de IA */

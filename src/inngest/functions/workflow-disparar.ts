@@ -3,6 +3,8 @@ import { inngest } from "@/inngest/client";
 import { workflowDisparoRecibido } from "@/inngest/events";
 import { isNonRetriable } from "@/lib/errors";
 import { NoopLogger, type Logger } from "@/lib/observability/logger";
+import { DISPARADORES_DIRIGIDOS } from "@/lib/workflows/catalogo";
+import { disparoCoincide } from "@/lib/workflows/recorrer";
 import type {
   ArrancarWorkflowRunInput,
   WorkflowRunsRepository,
@@ -10,18 +12,13 @@ import type {
 import type { WorkflowsRepository } from "@/server/repositories/workflows.repo";
 import type { UUID } from "@/types/entities";
 
-// La lista se mudó a `lib/workflows/catalogo.ts`: la pantalla que arma los
-// flujos necesita ofrecerla y `components/**` no puede importar de `inngest/**`.
-// Se re-exporta acá para no cambiarle la ruta pública a los que ya la importan.
+// La lista y la forma del disparo viven en `lib/workflows/`: la pantalla que
+// arma los flujos y las Server Actions que disparan a mano los necesitan, y
+// `app/**`/`components/**` no pueden importar de `inngest/**`. Se re-exportan
+// acá para no cambiarle la ruta pública a los que ya los importan.
 export type { DisparadorWorkflow } from "@/lib/workflows/catalogo";
-import type { DisparadorWorkflow } from "@/lib/workflows/catalogo";
-
-export interface DispararWorkflowInput {
-  disparador: DisparadorWorkflow;
-  leadId: UUID;
-  leadSessionId?: UUID;
-  contexto: Record<string, unknown>;
-}
+export type { DispararWorkflowInput, DisparoWorkflow } from "@/lib/workflows/disparos";
+import type { DispararWorkflowInput } from "@/lib/workflows/disparos";
 
 /**
  * Lo que hace falta para emitir el primer segmento de una corrida recién
@@ -76,7 +73,22 @@ export async function arrancarPorDisparador(
     disparador: input.disparador,
   });
 
-  const versiones = await deps.workflows.listarPublicadasPorDisparador(input.disparador);
+  // Un dirigido sin destino falla cerrado: un "manual" o un "programado" que no
+  // dice cuál flujo arrancaría todos los que escuchan ese evento para el lead.
+  if (DISPARADORES_DIRIGIDOS.includes(input.disparador) && input.workflowId === undefined) {
+    logger.warn("disparo-dirigido-sin-workflow");
+    return [];
+  }
+
+  // El repo filtra grueso (qué versiones escuchan este evento); acá se aplica
+  // el destino, si el disparo nombra uno, y la configuración del trigger.
+  // "Cuando se le pone la etiqueta X" escucha `etiqueta_asignada` con
+  // cualquier etiqueta: sin este filtro, arrancaría con todas.
+  const versiones = (await deps.workflows.listarPublicadasPorDisparador(input.disparador)).filter(
+    (v) =>
+      (input.workflowId === undefined || v.workflow_id === input.workflowId) &&
+      disparoCoincide(v.grafo, input.disparador, input.datos ?? {}),
+  );
   const iniciadas: EmitirSegmentoPendienteInput[] = [];
 
   for (const version of versiones) {

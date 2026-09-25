@@ -1,5 +1,6 @@
 import { ConflictError, IllegalStateError, NotFoundError } from "@/lib/errors";
 import { etapaAlcanzada } from "@/lib/ui/stage";
+import type { HistorialVendedor } from "@/lib/round-robin";
 import type {
   CampoTwinEditable,
   CurrentStage,
@@ -12,6 +13,8 @@ import type { Update } from "./_types";
 
 // `extras` opcional en insert (default `{}`). `context_summary` opcional (default null).
 // DB tiene DEFAULTs equivalentes, mirrored aquí.
+// La asignación no entra: una sesión nace sin vendedor y se asigna con
+// `asignarVendedor`, la única puerta que la escribe.
 export type LeadSessionInsert = Omit<
   LeadSession,
   | "id"
@@ -22,6 +25,8 @@ export type LeadSessionInsert = Omit<
   | "context_summary"
   | "procedencia"
   | "etapa_alcanzada"
+  | "vendedor_asignado_id"
+  | "asignado_at"
 > & {
   extras?: Record<string, unknown>;
   context_summary?: string | null;
@@ -30,6 +35,8 @@ export type LeadSessionInsert = Omit<
 // permitiría anotar una edición con una fecha que no es la de la edición.
 // `etapa_alcanzada` tampoco: la deriva el repo de `current_stage` en cada
 // update, y dejarla escribible permitiría hacer retroceder el rail del Twin.
+// La asignación tampoco: va por `asignarVendedor`, que es donde se decide si
+// hubo cambio y cuándo.
 export type LeadSessionUpdate = Update<
   LeadSession,
   | "id"
@@ -40,6 +47,8 @@ export type LeadSessionUpdate = Update<
   | "resultado"
   | "motivo_perdida"
   | "etapa_alcanzada"
+  | "vendedor_asignado_id"
+  | "asignado_at"
 >;
 
 /**
@@ -180,6 +189,39 @@ export interface LeadSessionRepository {
     patch: LeadSessionUpdate,
     marcas: MarcasProcedencia,
   ): Promise<LeadSession>;
+
+  /**
+   * Deja la sesión asignada a `vendedorId`, o sin asignar con `null`.
+   *
+   * `asignado_at` no se pasa: es la hora del cambio de vendedor y en Supabase
+   * la sella la base (trigger `lead_session_sellar_asignacion`), así que ningún
+   * reloj de proceso la puede correr.
+   *
+   * El vendedor que ya tenía es un no-op: no escribe ni mueve `asignado_at`.
+   * Repetir una asignación —un retry de Inngest— no puede contar como una
+   * recepción nueva para el round robin.
+   *
+   * No mira si la sesión está cerrada ni si el vendedor está activo: eso es
+   * regla de negocio y vive en `AsignacionService`.
+   */
+  asignarVendedor(id: UUID, vendedorId: UUID | null): Promise<LeadSession>;
+
+  /**
+   * Por cada vendedor pedido que tenga sesiones asignadas: su asignación más
+   * reciente y cuántas de esas sesiones siguen abiertas. Es el historial del que
+   * sale el turno del round robin.
+   *
+   * Un vendedor sin sesiones no aparece (= nunca recibió). Sin orden garantizado.
+   * Se agrega en la base y no trayendo filas: con más de 1.000 sesiones
+   * asignadas PostgREST cortaría la lista sin avisar y el turno saldría de un
+   * historial incompleto.
+   *
+   * Mira lo asignado **hoy**: una sesión reasignada cuenta solo para su vendedor
+   * actual, y la purga de 29 días se lleva las cerradas viejas. Las dos cosas
+   * empujan para el mismo lado —quien perdió una sesión o no recibe hace mucho
+   * figura como que espera más—, que es lo que el reparto quiere.
+   */
+  resumenAsignaciones(vendedorIds: UUID[]): Promise<HistorialVendedor[]>;
 }
 
 /**
@@ -223,6 +265,8 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
       stage_before_handoff: input.stage_before_handoff ?? null,
       procedencia: {},
       etapa_alcanzada: etapaAlcanzada("nuevo", input.current_stage),
+      vendedor_asignado_id: null,
+      asignado_at: null,
       id: crypto.randomUUID(),
       started_at: new Date(),
       updated_at: new Date(),
@@ -283,6 +327,10 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
       closed_at: current.closed_at,
       resultado: current.resultado,
       motivo_perdida: current.motivo_perdida,
+      // Espeja el trigger `lead_session_sellar_asignacion`: un update que no
+      // pasa por `asignarVendedor` deja la asignación como estaba.
+      vendedor_asignado_id: current.vendedor_asignado_id ?? null,
+      asignado_at: current.asignado_at ?? null,
       etapa_alcanzada:
         patch.current_stage !== undefined
           ? etapaAlcanzada(current.etapa_alcanzada, patch.current_stage)
@@ -466,6 +514,42 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
     };
     this.store.set(id, next);
     return cloneSession(next);
+  }
+
+  async asignarVendedor(id: UUID, vendedorId: UUID | null): Promise<LeadSession> {
+    const current = this.store.get(id);
+    if (!current) throw new NotFoundError(`sesión no encontrada: ${id}`, "lead_session", id);
+    if ((current.vendedor_asignado_id ?? null) === vendedorId) return cloneSession(current);
+    const ahora = new Date();
+    const next: LeadSession = {
+      ...current,
+      vendedor_asignado_id: vendedorId,
+      // Espeja el trigger `lead_session_sellar_asignacion`: la fecha es la del
+      // cambio de vendedor, y sin vendedor no hay fecha.
+      asignado_at: vendedorId === null ? null : ahora,
+      updated_at: ahora,
+    };
+    this.store.set(id, next);
+    return cloneSession(next);
+  }
+
+  async resumenAsignaciones(vendedorIds: UUID[]): Promise<HistorialVendedor[]> {
+    const pedidos = new Set(vendedorIds);
+    const porVendedor = new Map<UUID, HistorialVendedor>();
+    for (const s of this.store.values()) {
+      const vendedorId = s.vendedor_asignado_id ?? null;
+      if (vendedorId === null || !pedidos.has(vendedorId) || !s.asignado_at) continue;
+      const previo = porVendedor.get(vendedorId);
+      porVendedor.set(vendedorId, {
+        vendedorId,
+        ultimaAsignacionAt:
+          previo && previo.ultimaAsignacionAt >= s.asignado_at
+            ? previo.ultimaAsignacionAt
+            : s.asignado_at,
+        sesionesAbiertas: (previo?.sesionesAbiertas ?? 0) + (s.resultado === null ? 1 : 0),
+      });
+    }
+    return Array.from(porVendedor.values());
   }
 
   async reassignLead(fromLeadId: UUID, toLeadId: UUID): Promise<number> {

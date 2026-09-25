@@ -260,3 +260,62 @@ describe("ejecutarSegmento", () => {
     });
   });
 });
+
+describe("ejecutarSegmento — un tope salta el mensaje (PRD §6.6)", () => {
+  const saltaPorTope = () =>
+    crearRegistro({
+      marcar: async () => ({
+        puerto: "salida" as const,
+        salto: { motivo: "tope_frecuencia" as const, detalle: "tope de 3 en 24 h" },
+      }),
+    });
+
+  it("el lead sale del flujo: no avanza al paso siguiente y el segmento termina en fin", async () => {
+    const d = deps(saltaPorTope());
+    const r = await ejecutarSegmento(
+      {
+        grafo: grafoLineal(),
+        desdeNodo: "d",
+        contexto: {},
+        leadId: "l1",
+        runId: "r1",
+        pasosPrevios: 0,
+        maxPasos: 500,
+      },
+      d,
+    );
+    expect(r).toEqual({
+      tipo: "fin",
+      salto: { nodoId: "a", motivo: "tope_frecuencia", detalle: "tope de 3 en 24 h" },
+    });
+    // d y a. La espera `w` que seguía NO se ejecuta: el lead ya salió.
+    expect(d.onPaso.mock.calls.map((c) => c[0].nodoId)).toEqual(["d", "a"]);
+  });
+
+  it("el paso saltado queda registrado con su motivo en la salida y sin error", async () => {
+    const d = deps(saltaPorTope());
+    await ejecutarSegmento(
+      {
+        grafo: grafoLineal(),
+        desdeNodo: "d",
+        contexto: {},
+        leadId: "l1",
+        runId: "r1",
+        pasosPrevios: 0,
+        maxPasos: 500,
+      },
+      d,
+    );
+    const paso = d.onPaso.mock.calls[1]![0];
+    expect(paso).toEqual({
+      nodoId: "a",
+      orden: 2,
+      salida: {
+        saltado: true,
+        motivo_salto: "tope_frecuencia",
+        detalle_salto: "tope de 3 en 24 h",
+      },
+      error: null,
+    });
+  });
+});

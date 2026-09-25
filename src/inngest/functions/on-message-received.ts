@@ -1,14 +1,22 @@
 import { NonRetriableError } from "inngest";
 import { inngest } from "@/inngest/client";
 import { messageReceived } from "@/inngest/events";
-import { isNonRetriable } from "@/lib/errors";
+import { isNonRetriable, ValidationError } from "@/lib/errors";
 import { excedeDescuento } from "@/lib/agente/descuento";
+import {
+  CONFIRMACION_BAJA,
+  palabraDeBaja,
+  type PalabraDeBaja,
+} from "@/lib/difusion/baja-por-palabra";
 import { estaAbierto } from "@/lib/agente/horario";
 import { NoopLogger, type Logger } from "@/lib/observability/logger";
+import { contextoDeDisparo } from "@/lib/workflows/contexto";
+import type { DispararWorkflowInput } from "@/inngest/functions/workflow-disparar";
 import { claveSaliente } from "@/server/services/meta-api.service";
 import type { ParsedMessage } from "@/lib/meta/parse-webhook";
 import type { IntentClassification } from "@/lib/validation/ai";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
+import type { DifusionSupresionesRepository } from "@/server/repositories/difusion-supresiones.repo";
 import type { IntentsRepository } from "@/server/repositories/intents.repo";
 import {
   normalizarIdentificador,
@@ -33,6 +41,10 @@ import type { HandoffService } from "@/server/services/handoff.service";
 import type { Canal } from "@/types/domain";
 import type { Lead, LeadSession, MetaUserIds, UUID } from "@/types/entities";
 
+// La frase vive en `lib/difusion/baja-por-palabra.ts`; se re-exporta para los
+// tests del pipeline.
+export { CONFIRMACION_BAJA };
+
 export type EmittedEvent =
   | {
       name: "lead-session/turn.completed";
@@ -45,6 +57,12 @@ export type EmittedEvent =
   | {
       name: "lead/created";
       data: { leadId: UUID; canal: Canal };
+    }
+  | {
+      name: "workflow/disparo.recibido";
+      data: DispararWorkflowInput;
+      /** Deduplicación de Inngest: la reentrega del step no arranca dos corridas. */
+      id: string;
     };
 
 export interface OnMessageReceivedDeps {
@@ -78,6 +96,14 @@ export interface OnMessageReceivedDeps {
    * olvide reproduce en silencio el bug que esta dependencia arregla.
    */
   identificadores: LeadIdentificadoresRepository;
+  /**
+   * Dónde queda la baja propia de quien escribe "BAJA", "SALIR", "PARAR" o
+   * "SAIR" solos (`palabraDeBaja`). Obligatoria por el mismo motivo que
+   * `identificadores`: con un default no-op, un caller que la olvide deja de
+   * registrar bajas sin que falle nada, y una baja perdida es marketing a
+   * alguien que pidió no recibirlo.
+   */
+  supresiones: Pick<DifusionSupresionesRepository, "registrar" | "activasPorTelefonos">;
   /**
    * Para apagar el seguimiento cuando el cliente vuelve solo. Opcional con
    * default Noop —mismo criterio que `dispatches` en el cron de reactivación—
@@ -221,6 +247,90 @@ export async function onMessageReceivedHandler(
       };
     }
 
+    // Baja propia: el mensaje es "BAJA", "SALIR", "PARAR" o "SAIR" solos. Va
+    // antes de avisarle a los flujos —ninguno tiene que poder reaccionar a este
+    // mensaje sin que la baja ya esté escrita— y antes del horario: una baja a
+    // las 3 de la mañana cuenta igual. Sólo texto: el pie de foto de un
+    // adjunto no es alguien escribiendo "BAJA".
+    //
+    // Una baja nueva se confirma con `CONFIRMACION_BAJA` (decisión del dueño),
+    // en un step aparte: si mandar falla, el reintento no vuelve a registrar.
+    // La clave `baja:<entrante>` hace que un reintento de ese step no la mande
+    // dos veces, y no choca con la de la respuesta del agente (`out:`).
+    const baja = parsed.tipo === "text" ? palabraDeBaja(parsed.contenido) : null;
+    if (baja !== null) {
+      const nueva = await step.run("registrar-baja", () =>
+        registrarBaja(parsed, lead.id, baja, deps.supresiones, logger),
+      );
+      if (nueva) {
+        await step.run("confirmar-baja", () =>
+          deps.metaApi.sendOutbound({
+            conversacionId: conv.id,
+            leadSessionId: session.id,
+            canal: parsed.canal,
+            to: parsed.meta_user_id,
+            contenido: CONFIRMACION_BAJA,
+            sender: "sistema",
+            idempotencyKey: `baja:${parsed.meta_message_id}`,
+          }),
+        );
+      }
+    }
+
+    // Los flujos con trigger "Mensaje recibido" (Corte 3 de la Fase 0: el
+    // evento tenía consumidor y ningún emisor). Va antes del horario, del
+    // clasificador y del agente: el flujo decide qué hacer con el mensaje, no
+    // lo que haya pasado con la respuesta de la IA — como el recordatorio de
+    // arriba, un mensaje a las 3 de la mañana dispara igual. El duplicado ya
+    // salió: la reentrega de Meta no dispara dos veces, y el `id` cubre la
+    // reentrega de este step.
+    // Los flujos con trigger "Lead creado". Acá y no junto a `emit-lead-created`
+    // (que corre apenas nace el lead): recién ahora hay sesión, y un flujo de
+    // bienvenida que mueve la etapa o escala la necesita. Va antes del disparo
+    // del mensaje para que la bienvenida no dependa del orden en que Inngest
+    // procese los dos. `leadCreated` viene memoizado del step `resolve-lead`,
+    // así que el reintento de este turno no lo recalcula; el `id` cubre la
+    // reentrega de este step y cualquier otra: un lead nace una sola vez.
+    if (leadCreated) {
+      await step.run("emit-workflow-lead-creado", () =>
+        deps.emit({
+          name: "workflow/disparo.recibido",
+          id: `workflow-disparo:lead-creado:${lead.id}`,
+          data: {
+            disparador: "lead_creado",
+            leadId: lead.id,
+            leadSessionId: session.id,
+            contexto: contextoDeDisparo({
+              lead,
+              sesion: session,
+              canal: parsed.canal,
+              respondio: true,
+            }),
+            datos: { canal: parsed.canal },
+          },
+        }),
+      );
+    }
+
+    await step.run("emit-workflow-mensaje", () =>
+      deps.emit({
+        name: "workflow/disparo.recibido",
+        id: `workflow-disparo:mensaje:${inbound.id}`,
+        data: {
+          disparador: "mensaje_recibido",
+          leadId: lead.id,
+          leadSessionId: session.id,
+          contexto: contextoDeDisparo({
+            lead,
+            sesion: session,
+            canal: parsed.canal,
+            respondio: true,
+          }),
+          datos: { canal: parsed.canal, tipoMensaje: parsed.tipo, texto: parsed.contenido },
+        },
+      }),
+    );
+
     const config = await deps.configProvider.get();
 
     // Fuera de horario: no se invoca ningun LLM (ni classifier ni agente).
@@ -282,7 +392,7 @@ export async function onMessageReceivedHandler(
     // una respuesta, y separarlo garantiza que ocurra igual conteste una regla
     // enlatada —que devuelve temprano— o conteste el LLM. Justo los turnos que
     // alguien se tomó el trabajo de automatizar son los que más señal tienen.
-    await step.run("etiquetar-por-reglas", () =>
+    const etiquetasNuevas = await step.run("etiquetar-por-reglas", () =>
       etiquetarPorReglas(
         lead.id,
         classification.intent_nombre,
@@ -291,6 +401,27 @@ export async function onMessageReceivedHandler(
         logger,
       ),
     );
+
+    // Los flujos con trigger "Etiqueta asignada": una por etiqueta que quedó
+    // puesta de verdad en este turno. Step aparte del etiquetado para que un
+    // fallo al mandar el evento no repita las escrituras.
+    if (etiquetasNuevas.length > 0) {
+      await step.run("emit-workflow-etiquetas", async () => {
+        for (const tagId of etiquetasNuevas) {
+          await deps.emit({
+            name: "workflow/disparo.recibido",
+            id: `workflow-disparo:etiqueta:${lead.id}:${tagId}:${inbound.id}`,
+            data: {
+              disparador: "etiqueta_asignada",
+              leadId: lead.id,
+              leadSessionId: session.id,
+              contexto: contextoDeDisparo({ lead, sesion: session, canal: parsed.canal }),
+              datos: { tagId },
+            },
+          });
+        }
+      });
+    }
 
     const conversationTurn = await step.run("build-turn", () =>
       buildConversationTurn(
@@ -484,6 +615,11 @@ async function resolveLead(
  * igual y la etiqueta es una anotación. Se traga adentro del step para que
  * Inngest no reintente el turno entero —y con él la llamada al LLM— por una
  * fila de `lead_tags`; el próximo mensaje del cliente vuelve a intentarlo.
+ *
+ * Devuelve las que quedaron puestas **en este turno**: las que el lead ya
+ * tenía no cuentan —re-colgarlas no es ponerle una etiqueta, y dispararía el
+ * flujo "Etiqueta asignada" en cada mensaje— y las que una persona sacó
+ * tampoco, porque la regla no las revive.
  */
 async function etiquetarPorReglas(
   leadId: UUID,
@@ -491,21 +627,81 @@ async function etiquetarPorReglas(
   contexto: Record<string, unknown>,
   deps: OnMessageReceivedDeps,
   logger: Logger,
-): Promise<void> {
+): Promise<UUID[]> {
+  const nuevas: UUID[] = [];
   try {
     const tagIds = await deps.ruleEngine.etiquetasPara({
       intent_nombre: intentNombre,
       context: contexto,
     });
+    if (tagIds.length === 0) return nuevas;
+
+    const yaPuestas = new Set((await deps.tags.listByLead(leadId)).map((t) => t.id));
     for (const tagId of tagIds) {
-      await deps.tags.assignToLead(leadId, tagId, "workflow");
+      const fila = await deps.tags.assignToLead(leadId, tagId, "workflow");
+      if (!yaPuestas.has(tagId) && fila.quitada_at === null) nuevas.push(tagId);
+      yaPuestas.add(tagId);
     }
-    if (tagIds.length > 0) logger.info("etiquetas-por-regla", { cantidad: tagIds.length });
+    logger.info("etiquetas-por-regla", { cantidad: tagIds.length });
   } catch (e) {
     logger.warn("etiquetado-por-regla-fallo", {
       lead_id: leadId,
       error_name: (e as Error).name,
     });
+  }
+  return nuevas;
+}
+
+/**
+ * Anota la baja en `difusion_supresiones` como propia (`palabra_clave`), con la
+ * palabra en `detalle` y nunca el texto del cliente.
+ *
+ * Sólo WhatsApp: la lista de bajas es de teléfonos, e Instagram y Messenger no
+ * exponen uno (`leads.telefono` guarda `ig:<id>` de relleno). Se usa el número
+ * que escribió (`meta_user_id`), no el del lead: si el lead se fusionó, la baja
+ * es de quien la pidió.
+ *
+ * Devuelve si la baja es **nueva**: un número que ya estaba dado de baja no
+ * se vuelve a confirmar. `registrar` es idempotente y no dice si creó, así que
+ * se mira antes; el pipeline serializa por `meta_user_id` (`concurrency`), así
+ * que dos mensajes del mismo número no compiten entre la lectura y la escritura.
+ *
+ * Un número que la lista no acepta (`ValidationError`) no tumba el turno: no hay
+ * forma de registrarlo y reintentar repetiría lo mismo. Cualquier otro error sí
+ * se propaga, a diferencia de `etiquetarPorReglas`: una baja perdida es peor que
+ * un turno que Inngest reintenta —si falla del todo, el cliente que pidió la baja
+ * se queda sin respuesta del agente, y eso es aceptable; recibir marketing
+ * después, no—.
+ */
+async function registrarBaja(
+  parsed: ParsedMessage,
+  leadId: UUID,
+  palabra: PalabraDeBaja,
+  supresiones: OnMessageReceivedDeps["supresiones"],
+  logger: Logger,
+): Promise<boolean> {
+  if (parsed.canal !== "wa") {
+    logger.info("baja-sin-telefono", { lead_id: leadId, palabra });
+    return false;
+  }
+  try {
+    const previas = await supresiones.activasPorTelefonos([parsed.meta_user_id]);
+    if (previas.length > 0) {
+      logger.info("baja-repetida", { lead_id: leadId, palabra });
+      return false;
+    }
+    await supresiones.registrar({
+      telefono: parsed.meta_user_id,
+      origen: "palabra_clave",
+      detalle: palabra,
+      lead_id: leadId,
+    });
+    logger.info("baja-registrada", { lead_id: leadId, palabra });
+    return true;
+  } catch (e) {
+    if (!(e instanceof ValidationError)) throw e;
+    logger.warn("baja-telefono-invalido", { lead_id: leadId, error_name: e.name });
+    return false;
   }
 }
 

@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -9,6 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { editorDeConfig } from "@/lib/workflows/config-nodos";
 import { TextareaConVariables } from "./TextareaConVariables";
 
 interface ConfigInternoProps {
@@ -20,6 +20,14 @@ interface ConfigInternoProps {
   readonly?: boolean;
 }
 
+/**
+ * Formularios de los bloques internos.
+ *
+ * Qué clave escribe cada campo, y con qué valor arranca uno que nadie tocó,
+ * sale del contrato de config (`editorDeConfig`, `lib/workflows/config-nodos.ts`):
+ * el mismo schema que revisa el validador. Una clave que el contrato no conoce
+ * no compila.
+ */
 export function ConfigInterno({
   tipo,
   config,
@@ -28,26 +36,20 @@ export function ConfigInterno({
   canales,
   readonly,
 }: ConfigInternoProps) {
-  const handleChange = useCallback(
-    (campo: string, valor: unknown) => {
-      onChange({ ...config, [campo]: valor });
-    },
-    [config, onChange],
-  );
-
   const labelClass = "text-ink-secondary mb-1 block text-[11px]";
   const selectClass = "border-line-control bg-surface-root text-ink-primary w-full text-[12px]";
   const inputClass = "border-line-control bg-surface-root text-ink-primary w-full text-[12px] h-8";
 
   switch (tipo) {
-    case "int_notif_vendedor":
+    case "int_notif_vendedor": {
+      const c = editorDeConfig("int_notif_vendedor", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Notificar a</span>
             <Select
-              value={String(config.destinatario ?? "vendedor_asignado")}
-              onValueChange={(v) => handleChange("destinatario", v)}
+              value={String(c.valores.destinatario)}
+              onValueChange={(v) => onChange(c.con("destinatario", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -67,8 +69,8 @@ export function ConfigInterno({
           <label className="block">
             <span className={labelClass}>Titulo</span>
             <TextareaConVariables
-              value={String(config.titulo ?? "")}
-              onChange={(v) => handleChange("titulo", v)}
+              value={String(c.valores.titulo ?? "")}
+              onChange={(v) => onChange(c.con("titulo", v))}
               placeholder="Nuevo lead: {{lead.nombre}}"
               rows={1}
               className={`${inputClass} h-auto`}
@@ -78,9 +80,9 @@ export function ConfigInterno({
           <label className="block">
             <span className={labelClass}>Mensaje</span>
             <TextareaConVariables
-              value={String(config.mensaje ?? "")}
-              onChange={(v) => handleChange("mensaje", v)}
-              placeholder="{{lead.nombre}} busca {{sesion.pieza_buscada}}"
+              value={String(c.valores.mensaje ?? "")}
+              onChange={(v) => onChange(c.con("mensaje", v))}
+              placeholder="{{lead.nombre}} está en la etapa {{lead.etapa}}"
               rows={3}
               className={`${inputClass} h-auto min-h-[80px] resize-y`}
             />
@@ -89,8 +91,8 @@ export function ConfigInterno({
           <label className="block">
             <span className={labelClass}>Urgencia</span>
             <Select
-              value={String(config.urgencia ?? "normal")}
-              onValueChange={(v) => handleChange("urgencia", v)}
+              value={String(c.valores.urgencia)}
+              onValueChange={(v) => onChange(c.con("urgencia", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -108,8 +110,8 @@ export function ConfigInterno({
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
-              checked={Boolean(config.enviarPush ?? true)}
-              onChange={(e) => handleChange("enviarPush", e.target.checked)}
+              checked={Boolean(c.valores.enviarPush)}
+              onChange={(e) => onChange(c.con("enviarPush", e.target.checked))}
               disabled={readonly}
               className="h-4 w-4 rounded"
             />
@@ -119,8 +121,8 @@ export function ConfigInterno({
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
-              checked={Boolean(config.enviarEmail ?? false)}
-              onChange={(e) => handleChange("enviarEmail", e.target.checked)}
+              checked={Boolean(c.valores.enviarEmail)}
+              onChange={(e) => onChange(c.con("enviarEmail", e.target.checked))}
               disabled={readonly}
               className="h-4 w-4 rounded"
             />
@@ -128,15 +130,17 @@ export function ConfigInterno({
           </label>
         </div>
       );
+    }
 
-    case "int_notif_grupo":
+    case "int_notif_grupo": {
+      const c = editorDeConfig("int_notif_grupo", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Canal/Grupo</span>
             <Select
-              value={String(config.canalId ?? "")}
-              onValueChange={(v) => handleChange("canalId", v)}
+              value={String(c.valores.canalId ?? "")}
+              onValueChange={(v) => onChange(c.con("canalId", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -148,9 +152,9 @@ export function ConfigInterno({
                     No hay canales configurados
                   </SelectItem>
                 ) : (
-                  canales.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nombre}
+                  canales.map((canal) => (
+                    <SelectItem key={canal.id} value={canal.id}>
+                      {canal.nombre}
                     </SelectItem>
                   ))
                 )}
@@ -161,8 +165,8 @@ export function ConfigInterno({
           <label className="block">
             <span className={labelClass}>Mensaje</span>
             <TextareaConVariables
-              value={String(config.mensaje ?? "")}
-              onChange={(v) => handleChange("mensaje", v)}
+              value={String(c.valores.mensaje ?? "")}
+              onChange={(v) => onChange(c.con("mensaje", v))}
               placeholder="Notificacion para el equipo..."
               rows={3}
               className={`${inputClass} h-auto min-h-[80px] resize-y`}
@@ -172,8 +176,8 @@ export function ConfigInterno({
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
-              checked={Boolean(config.mencionarTodos ?? false)}
-              onChange={(e) => handleChange("mencionarTodos", e.target.checked)}
+              checked={Boolean(c.valores.mencionarTodos)}
+              onChange={(e) => onChange(c.con("mencionarTodos", e.target.checked))}
               disabled={readonly}
               className="h-4 w-4 rounded"
             />
@@ -181,15 +185,17 @@ export function ConfigInterno({
           </label>
         </div>
       );
+    }
 
-    case "int_comentario":
+    case "int_comentario": {
+      const c = editorDeConfig("int_comentario", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Comentario interno</span>
             <TextareaConVariables
-              value={String(config.comentario ?? "")}
-              onChange={(v) => handleChange("comentario", v)}
+              value={String(c.valores.comentario ?? "")}
+              onChange={(v) => onChange(c.con("comentario", v))}
               placeholder="Nota interna visible solo para el equipo..."
               rows={4}
               className={`${inputClass} h-auto min-h-[100px] resize-y`}
@@ -199,8 +205,8 @@ export function ConfigInterno({
           <label className="block">
             <span className={labelClass}>Autor</span>
             <Select
-              value={String(config.autor ?? "sistema")}
-              onValueChange={(v) => handleChange("autor", v)}
+              value={String(c.valores.autor)}
+              onValueChange={(v) => onChange(c.con("autor", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -218,15 +224,17 @@ export function ConfigInterno({
           </div>
         </div>
       );
+    }
 
-    case "int_debug":
+    case "int_debug": {
+      const c = editorDeConfig("int_debug", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Nivel de log</span>
             <Select
-              value={String(config.nivel ?? "info")}
-              onValueChange={(v) => handleChange("nivel", v)}
+              value={String(c.valores.nivel)}
+              onValueChange={(v) => onChange(c.con("nivel", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -244,9 +252,9 @@ export function ConfigInterno({
           <label className="block">
             <span className={labelClass}>Mensaje</span>
             <TextareaConVariables
-              value={String(config.mensaje ?? "")}
-              onChange={(v) => handleChange("mensaje", v)}
-              placeholder="Lead {{lead.id}} en etapa {{sesion.current_stage}}"
+              value={String(c.valores.mensaje ?? "")}
+              onChange={(v) => onChange(c.con("mensaje", v))}
+              placeholder="Lead {{lead.nombre}} en etapa {{sesion.current_stage}}"
               rows={2}
               className={`${inputClass} h-auto min-h-[60px] resize-y`}
             />
@@ -256,8 +264,8 @@ export function ConfigInterno({
             <span className={labelClass}>Variables a loggear</span>
             <Input
               className={`${inputClass} font-mono text-[11px]`}
-              value={String(config.variables ?? "")}
-              onChange={(e) => handleChange("variables", e.target.value)}
+              value={String(c.valores.variables ?? "")}
+              onChange={(e) => onChange(c.con("variables", e.target.value))}
               placeholder="lead, sesion.pieza_buscada"
               disabled={readonly}
             />
@@ -269,8 +277,8 @@ export function ConfigInterno({
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
-              checked={Boolean(config.pausar ?? false)}
-              onChange={(e) => handleChange("pausar", e.target.checked)}
+              checked={Boolean(c.valores.pausar)}
+              onChange={(e) => onChange(c.con("pausar", e.target.checked))}
               disabled={readonly}
               className="h-4 w-4 rounded"
             />
@@ -280,6 +288,7 @@ export function ConfigInterno({
           </label>
         </div>
       );
+    }
 
     default:
       return (

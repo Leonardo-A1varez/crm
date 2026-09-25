@@ -2,6 +2,7 @@ import { describe, expect, test, beforeEach } from "vitest";
 import type {
   LeadSessionInsert,
   LeadSessionRepository,
+  LeadSessionUpdate,
 } from "@/server/repositories/lead-session.repo";
 import type { UUID } from "@/types/entities";
 
@@ -15,6 +16,12 @@ export interface LeadSessionContractFixtures {
     three: UUID;
     none: UUID;
   };
+  /** En Supabase tienen que existir: `vendedor_asignado_id` es FK a `usuarios`. */
+  vendedorIds: {
+    A: UUID;
+    B: UUID;
+    C: UUID;
+  };
 }
 
 const DEFAULT_FIXTURES: LeadSessionContractFixtures = {
@@ -27,7 +34,21 @@ const DEFAULT_FIXTURES: LeadSessionContractFixtures = {
     three: "lead-3",
     none: "lead-none",
   },
+  vendedorIds: {
+    A: "vendedor-A",
+    B: "vendedor-B",
+    C: "vendedor-C",
+  },
 };
+
+function esperar(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function msDe(fecha: Date | null | undefined): number {
+  if (!fecha) throw new Error("se esperaba una fecha");
+  return fecha.getTime();
+}
 
 export type LeadSessionContractFixturesArg =
   | LeadSessionContractFixtures
@@ -400,6 +421,125 @@ export function runLeadSessionContract(
       expect(ganada.procedencia.current_stage?.por).toBe("humano");
 
       expect((await repo.resolver(s.id, { resultado: "exito" }, null)).id).toBe(s.id);
+    });
+
+    test("una sesión nace sin vendedor asignado", async () => {
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
+      expect(s.vendedor_asignado_id).toBeNull();
+      expect(s.asignado_at).toBeNull();
+    });
+
+    test("asignarVendedor deja el vendedor y la fecha en que se asignó", async () => {
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
+
+      const asignada = await repo.asignarVendedor(s.id, fixtures.vendedorIds.A);
+
+      expect(asignada.vendedor_asignado_id).toBe(fixtures.vendedorIds.A);
+      expect(asignada.asignado_at).toBeInstanceOf(Date);
+      expect(await repo.findById(s.id)).toEqual(asignada);
+    });
+
+    test("asignarVendedor al vendedor que ya tiene no escribe (replay-safe)", async () => {
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
+      const primera = await repo.asignarVendedor(s.id, fixtures.vendedorIds.A);
+      await esperar(5);
+
+      const segunda = await repo.asignarVendedor(s.id, fixtures.vendedorIds.A);
+
+      // "Cuándo recibió" es lo que ordena el round robin: repetir la misma
+      // asignación no puede contar como una recepción nueva.
+      expect(segunda.asignado_at).toEqual(primera.asignado_at);
+      expect(segunda.updated_at).toEqual(primera.updated_at);
+    });
+
+    test("reasignar a otro vendedor mueve la fecha de asignación", async () => {
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
+      const primera = await repo.asignarVendedor(s.id, fixtures.vendedorIds.A);
+      await esperar(5);
+
+      const otra = await repo.asignarVendedor(s.id, fixtures.vendedorIds.B);
+
+      expect(otra.vendedor_asignado_id).toBe(fixtures.vendedorIds.B);
+      expect(msDe(otra.asignado_at)).toBeGreaterThan(msDe(primera.asignado_at));
+    });
+
+    test("asignarVendedor con null deja la sesión sin asignar y sin fecha", async () => {
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
+      await repo.asignarVendedor(s.id, fixtures.vendedorIds.A);
+
+      const libre = await repo.asignarVendedor(s.id, null);
+
+      expect(libre.vendedor_asignado_id).toBeNull();
+      expect(libre.asignado_at).toBeNull();
+    });
+
+    test("asignarVendedor sobre una sesión que no existe lanza NotFound", async () => {
+      await expect(
+        repo.asignarVendedor(crypto.randomUUID(), fixtures.vendedorIds.A),
+      ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    });
+
+    test("update no escribe la asignación, ni aunque venga colada en el patch", async () => {
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
+      const asignada = await repo.asignarVendedor(s.id, fixtures.vendedorIds.A);
+      const colado = {
+        urgencia: "alta",
+        vendedor_asignado_id: fixtures.vendedorIds.B,
+        asignado_at: new Date(0),
+      } as unknown as LeadSessionUpdate;
+
+      const despues = await repo.update(s.id, colado);
+
+      expect(despues.urgencia).toBe("alta");
+      expect(despues.vendedor_asignado_id).toBe(fixtures.vendedorIds.A);
+      expect(despues.asignado_at).toEqual(asignada.asignado_at);
+    });
+
+    test("resumenAsignaciones: por vendedor, su asignación más reciente y cuántas siguen abiertas", async () => {
+      const { A, B, C } = fixtures.vendedorIds;
+      const cerrada = await repo.create(baseInsert(fixtures.leadIds.one));
+      await repo.asignarVendedor(cerrada.id, A);
+      await repo.close(cerrada.id, { resultado: "exito" });
+      await esperar(5);
+      const deA = await repo.create(baseInsert(fixtures.leadIds.two));
+      const abiertaA = await repo.asignarVendedor(deA.id, A);
+      const deB = await repo.create(baseInsert(fixtures.leadIds.three));
+      const abiertaB = await repo.asignarVendedor(deB.id, B);
+      await repo.create(baseInsert(fixtures.leadIds.X)); // sin asignar: no es de nadie
+
+      const resumen = await repo.resumenAsignaciones([A, B, C]);
+
+      const porVendedor = new Map(resumen.map((r) => [r.vendedorId, r]));
+      // C no tiene ninguna sesión: no aparece, y el round robin lo lee como
+      // "nunca recibió".
+      expect([...porVendedor.keys()].sort()).toEqual([A, B].sort());
+      expect(porVendedor.get(A)).toEqual({
+        vendedorId: A,
+        ultimaAsignacionAt: abiertaA.asignado_at,
+        sesionesAbiertas: 1,
+      });
+      expect(porVendedor.get(B)).toEqual({
+        vendedorId: B,
+        ultimaAsignacionAt: abiertaB.asignado_at,
+        sesionesAbiertas: 1,
+      });
+    });
+
+    test("resumenAsignaciones solo mira a los vendedores pedidos", async () => {
+      const { A, B } = fixtures.vendedorIds;
+      await repo.asignarVendedor((await repo.create(baseInsert(fixtures.leadIds.one))).id, A);
+      await repo.asignarVendedor((await repo.create(baseInsert(fixtures.leadIds.two))).id, B);
+
+      const resumen = await repo.resumenAsignaciones([B]);
+
+      expect(resumen.map((r) => r.vendedorId)).toEqual([B]);
+    });
+
+    test("resumenAsignaciones sin vendedores devuelve vacío", async () => {
+      const s = await repo.create(baseInsert(fixtures.leadIds.one));
+      await repo.asignarVendedor(s.id, fixtures.vendedorIds.A);
+
+      expect(await repo.resumenAsignaciones([])).toEqual([]);
     });
   });
 }

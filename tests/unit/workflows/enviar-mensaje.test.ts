@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { crearAccionEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
-import { BudgetExceededError, NotFoundError, ValidationError } from "@/lib/errors";
+import { IllegalStateError, NotFoundError, ValidationError } from "@/lib/errors";
 import type { Horario } from "@/types/agente";
 
 const entorno = { leadId: "l1", leadSessionId: "s1", runId: "r1", orden: 7, contexto: {} };
@@ -64,7 +64,11 @@ function deps(salientesPrevios: number) {
       })),
     },
     leads: { findById: vi.fn(async () => ({ id: "l1", telefono: "+5215550001111" })) },
-    sessions: { findById: vi.fn(async () => ({ id: "s1", current_stage: "considerando" })) },
+    sessions: {
+      findById: vi.fn(async () => ({ id: "s1", current_stage: "considerando" })),
+      findActiveByLeadId: vi.fn(async () => ({ id: "s1", current_stage: "considerando" })),
+    },
+    supresiones: { activasPorTelefonos: vi.fn(async () => []) },
     users: { findById: vi.fn(async () => ({ id: "u1", nombre: "Juan" })) },
     configProvider: {
       activa: vi.fn(async () => ({
@@ -77,6 +81,7 @@ function deps(salientesPrevios: number) {
 }
 
 type MockDeps = {
+  supresiones: { activasPorTelefonos: { mock: { calls: unknown[][] } } };
   messages: { contarSalientesAutomaticos: { mock: { calls: unknown[][] } } };
   metaApi: { sendOutbound: { mock: { calls: unknown[][] } } };
   conversations: { findActivaByLead: { mock: { calls: unknown[][] } } };
@@ -94,6 +99,12 @@ interface DepsOverrides {
   horarioTimezone?: string;
   conversacion?: { id: string; canal: string; ultimo_entrante_at: Date | null } | null;
   lead?: { id: string; telefono: string; [key: string]: unknown } | null;
+  /** Etapa de la sesión activa del lead. `null` = no tiene sesión activa. */
+  etapaActiva?: string | null;
+  /** Teléfonos (normalizados) con una baja activa. */
+  bajas?: string[];
+  /** `false` = el puerto de bajas no está cableado. */
+  conSupresiones?: boolean;
 }
 
 /**
@@ -118,7 +129,25 @@ function construirDeps(overrides: DepsOverrides = {}) {
         overrides.lead === undefined ? { id: "l1", telefono: "+5215550001111" } : overrides.lead,
       ),
     },
-    sessions: { findById: vi.fn(async () => ({ id: "s1", current_stage: "considerando" })) },
+    sessions: {
+      findById: vi.fn(async () => ({ id: "s1", current_stage: "considerando" })),
+      findActiveByLeadId: vi.fn(async () =>
+        overrides.etapaActiva === null
+          ? null
+          : { id: "s1", current_stage: overrides.etapaActiva ?? "considerando" },
+      ),
+    },
+    ...(overrides.conSupresiones === false
+      ? {}
+      : {
+          supresiones: {
+            activasPorTelefonos: vi.fn(async (tels: readonly string[]) =>
+              (overrides.bajas ?? [])
+                .filter((b) => tels.includes(b))
+                .map((telefono) => ({ id: `baja-${telefono}`, telefono })),
+            ),
+          },
+        }),
     users: { findById: vi.fn(async () => ({ id: "u1", nombre: "Juan" })) },
     configProvider: {
       activa: vi.fn(async () => ({
@@ -140,14 +169,6 @@ describe("enviar_mensaje", () => {
       idempotencyKey: "wf:r1:7",
       sender: "sistema",
     });
-  });
-
-  it("al topar NO manda, y falla en voz alta", async () => {
-    const d = deps(3);
-    await expect(crearAccionEnviarMensaje(d)(nodo, entorno)).rejects.toBeInstanceOf(
-      BudgetExceededError,
-    );
-    expect(asMock(d).metaApi.sendOutbound.mock.calls).toHaveLength(0);
   });
 
   it("la idempotency key sale de runId/orden de la corrida, no esta hardcodeada", async () => {
@@ -172,25 +193,14 @@ describe("enviar_mensaje", () => {
     expect(r.diferirHasta).toBeInstanceOf(Date);
     expect(r.salida).toEqual({ diferido: true });
     expect(asMock(d).metaApi.sendOutbound.mock.calls).toHaveLength(0);
-    // El horario se chequea antes de buscar conversación/lead: cerrado, ni
-    // siquiera llega a mirarlos.
+    // El horario se chequea antes de buscar la conversación: cerrado, ni
+    // siquiera llega a mirarla. El lead sí se lee antes: un dado de baja no
+    // queda diferido horas para saltarse recién al despertar.
     expect(asMock(d).conversations.findActivaByLead.mock.calls).toHaveLength(0);
-    expect(asMock(d).leads.findById.mock.calls).toHaveLength(0);
   });
 
   it("horario sin ningun rango es ValidationError, no un diferir infinito", async () => {
     const d = construirDeps({ horario: horarioSinRangos() });
-    await expect(crearAccionEnviarMensaje(d)(nodo, entorno)).rejects.toBeInstanceOf(
-      ValidationError,
-    );
-    expect(asMock(d).metaApi.sendOutbound.mock.calls).toHaveLength(0);
-  });
-
-  it("fuera de la ventana de 24h de Meta es ValidationError y no degrada a plantilla", async () => {
-    const haceDosDias = new Date(Date.now() - 48 * 60 * 60 * 1000);
-    const d = construirDeps({
-      conversacion: { id: "c1", canal: "whatsapp", ultimo_entrante_at: haceDosDias },
-    });
     await expect(crearAccionEnviarMensaje(d)(nodo, entorno)).rejects.toBeInstanceOf(
       ValidationError,
     );
@@ -218,6 +228,68 @@ describe("enviar_mensaje", () => {
     expect(asMock(d).metaApi.sendOutbound.mock.calls).toHaveLength(0);
   });
 
+  // El canvas escribe el texto en `mensaje` (`ConfigMensajeria.tsx`), no en
+  // `texto` como el nodo legacy. Mismo handler para los dos.
+  it("msg_texto del canvas manda el texto de config.mensaje, interpolado", async () => {
+    const d = construirDeps({
+      lead: { id: "l1", telefono: "+5215550001111", nombre: "María", canal_origen: "wa" },
+    });
+    const nodoCanvas = {
+      id: "m",
+      tipo: "msg_texto" as const,
+      config: { mensaje: "Hola {{lead.nombre}}" },
+      posicion: { x: 0, y: 0 },
+    };
+    await crearAccionEnviarMensaje(d)(nodoCanvas, entorno);
+    expect(asMock(d).metaApi.sendOutbound.mock.calls[0]![0]).toMatchObject({
+      contenido: "Hola María",
+    });
+  });
+
+  it("un canal elegido en el nodo que no es el de la conversación activa falla y NO manda", async () => {
+    const d = construirDeps({
+      conversacion: { id: "c1", canal: "wa", ultimo_entrante_at: new Date() },
+    });
+    const nodoInstagram = {
+      id: "m",
+      tipo: "msg_texto" as const,
+      config: { mensaje: "hola", canal: "instagram" },
+      posicion: { x: 0, y: 0 },
+    };
+    await expect(crearAccionEnviarMensaje(d)(nodoInstagram, entorno)).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+    expect(asMock(d).metaApi.sendOutbound.mock.calls).toHaveLength(0);
+  });
+
+  it("el canal 'whatsapp' elegido en el nodo coincide con una conversación de WhatsApp", async () => {
+    const d = construirDeps({
+      conversacion: { id: "c1", canal: "wa", ultimo_entrante_at: new Date() },
+    });
+    const nodoWa = {
+      id: "m",
+      tipo: "msg_texto" as const,
+      config: { mensaje: "hola", canal: "whatsapp" },
+      posicion: { x: 0, y: 0 },
+    };
+    await crearAccionEnviarMensaje(d)(nodoWa, entorno);
+    expect(asMock(d).metaApi.sendOutbound.mock.calls).toHaveLength(1);
+  });
+
+  it("el horario y el tope se miden con el reloj del entorno, no con el reloj real", async () => {
+    // Abierto sólo los lunes. El reloj del entorno cae un domingo: tiene que
+    // diferir aunque el test corra un lunes. Es lo que deja que "Probar" y el
+    // simulador salteen esperas con un reloj virtual.
+    const soloLunes: Horario = { ...horarioSinRangos(), lun: [RANGO_TODO_EL_DIA] };
+    const domingo = new Date("2026-09-13T15:00:00Z");
+    const d = construirDeps({ horario: soloLunes });
+    const r = await crearAccionEnviarMensaje(d)(nodo, { ...entorno, ahora: domingo });
+    expect(r.diferirHasta?.toISOString()).toBe("2026-09-14T00:00:00.000Z");
+    expect(asMock(d).messages.contarSalientesAutomaticos.mock.calls[0]![1]).toEqual(
+      new Date(domingo.getTime() - 24 * 60 * 60 * 1000),
+    );
+  });
+
   it("interpola variables en el texto antes de enviar", async () => {
     const d = construirDeps({
       lead: { id: "l1", telefono: "+5215550001111", nombre: "María", canal_origen: "whatsapp" },
@@ -232,5 +304,98 @@ describe("enviar_mensaje", () => {
     expect(asMock(d).metaApi.sendOutbound.mock.calls[0]![0]).toMatchObject({
       contenido: "Hola María",
     });
+  });
+});
+
+/**
+ * PRD §6.6: un tope que salta un mensaje NO es un fallo. La acción devuelve
+ * `salto` con el motivo, no manda nada y no tira: el ejecutor saca al lead del
+ * flujo y la corrida termina con ese motivo.
+ */
+describe("enviar_mensaje — topes de seguridad (PRD §6.6)", () => {
+  it("tope_frecuencia: con el cupo de 24 h gastado salta, no manda y no tira", async () => {
+    const d = construirDeps({ salientesPrevios: 3, max: 3 });
+    const r = await crearAccionEnviarMensaje(d)(nodo, entorno);
+    expect(r.salto?.motivo).toBe("tope_frecuencia");
+    expect(r.diferirHasta).toBeUndefined();
+    expect(asMock(d).metaApi.sendOutbound.mock.calls).toHaveLength(0);
+  });
+
+  it("sin_ventana: con la ventana de 24 h de Meta cerrada salta y no degrada a plantilla", async () => {
+    const haceDosDias = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    const d = construirDeps({
+      conversacion: { id: "c1", canal: "whatsapp", ultimo_entrante_at: haceDosDias },
+    });
+    const r = await crearAccionEnviarMensaje(d)(nodo, entorno);
+    expect(r.salto?.motivo).toBe("sin_ventana");
+    expect(asMock(d).metaApi.sendOutbound.mock.calls).toHaveLength(0);
+  });
+
+  it("sin_ventana: una conversación sin ningún entrante también salta", async () => {
+    const d = construirDeps({
+      conversacion: { id: "c1", canal: "whatsapp", ultimo_entrante_at: null },
+    });
+    const r = await crearAccionEnviarMensaje(d)(nodo, entorno);
+    expect(r.salto?.motivo).toBe("sin_ventana");
+    expect(asMock(d).metaApi.sendOutbound.mock.calls).toHaveLength(0);
+  });
+
+  it("requiere_humano: con la sesión activa en requiere_humano salta antes de todo", async () => {
+    const d = construirDeps({ etapaActiva: "requiere_humano" });
+    const r = await crearAccionEnviarMensaje(d)(nodo, entorno);
+    expect(r.salto?.motivo).toBe("requiere_humano");
+    expect(asMock(d).metaApi.sendOutbound.mock.calls).toHaveLength(0);
+    // Ni gasta una lectura del tope: una persona está a cargo y punto.
+    expect(asMock(d).messages.contarSalientesAutomaticos.mock.calls).toHaveLength(0);
+  });
+
+  it("un lead sin sesión activa no cuenta como requiere_humano", async () => {
+    const d = construirDeps({ etapaActiva: null });
+    const r = await crearAccionEnviarMensaje(d)(nodo, entorno);
+    expect(r.salto).toBeUndefined();
+    expect(asMock(d).metaApi.sendOutbound.mock.calls).toHaveLength(1);
+  });
+
+  it("dado_de_baja: busca la baja por el teléfono normalizado, salta y no manda", async () => {
+    const d = construirDeps({
+      lead: { id: "l1", telefono: "+52 1 555 000 1111" },
+      bajas: ["5215550001111"],
+    });
+    const r = await crearAccionEnviarMensaje(d)(nodo, entorno);
+    expect(r.salto?.motivo).toBe("dado_de_baja");
+    expect(asMock(d).supresiones.activasPorTelefonos.mock.calls[0]![0]).toEqual(["5215550001111"]);
+    expect(asMock(d).metaApi.sendOutbound.mock.calls).toHaveLength(0);
+  });
+
+  it("dado_de_baja le gana al tope: se registra el motivo más permanente", async () => {
+    const d = construirDeps({ bajas: ["5215550001111"], salientesPrevios: 9 });
+    const r = await crearAccionEnviarMensaje(d)(nodo, entorno);
+    expect(r.salto?.motivo).toBe("dado_de_baja");
+  });
+
+  it("un lead de Instagram (sin teléfono de WhatsApp) no se consulta en bajas y manda", async () => {
+    const d = construirDeps({
+      lead: { id: "l1", telefono: "ig:17841400000000000" },
+      conversacion: { id: "c1", canal: "ig", ultimo_entrante_at: new Date() },
+    });
+    const r = await crearAccionEnviarMensaje(d)(nodo, entorno);
+    expect(r.salto).toBeUndefined();
+    expect(asMock(d).supresiones.activasPorTelefonos.mock.calls).toHaveLength(0);
+    expect(asMock(d).metaApi.sendOutbound.mock.calls).toHaveLength(1);
+  });
+
+  it("sin el puerto de bajas cableado falla cerrado: IllegalStateError y no manda", async () => {
+    const d = construirDeps({ conSupresiones: false });
+    await expect(crearAccionEnviarMensaje(d)(nodo, entorno)).rejects.toBeInstanceOf(
+      IllegalStateError,
+    );
+    expect(asMock(d).metaApi.sendOutbound.mock.calls).toHaveLength(0);
+  });
+
+  it("el salto trae un detalle legible, sin el teléfono del lead", async () => {
+    const d = construirDeps({ bajas: ["5215550001111"] });
+    const r = await crearAccionEnviarMensaje(d)(nodo, entorno);
+    expect(r.salto?.detalle).toMatch(/baja/i);
+    expect(r.salto?.detalle).not.toContain("5550001111");
   });
 });

@@ -12,6 +12,7 @@ import {
   StickyNote,
   Ban,
   Archive,
+  Headset,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { NodoBase } from "./NodoBase";
@@ -53,6 +54,7 @@ const CRM_META: Record<NodoTipoCRM, { nombre: string; icono: LucideIcon }> = {
   crm_nota: { nombre: "Agregar nota", icono: StickyNote },
   crm_spam: { nombre: "Marcar spam", icono: Ban },
   crm_archivar: { nombre: "Archivar", icono: Archive },
+  crm_escalar_humano: { nombre: "Escalar a humano", icono: Headset },
 };
 
 /** Trunca un string a maxLen caracteres */

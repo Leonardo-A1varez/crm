@@ -120,6 +120,78 @@ describe("MetaApiService", () => {
     });
   });
 
+  describe("sendTemplate", () => {
+    const plantilla = { nombre: "seguimiento", idioma: "es", parametrosCuerpo: ["Ana"] };
+
+    test("manda la plantilla por el cliente y la guarda como saliente de tipo template", async () => {
+      const conv = await seedConv(conversations);
+      const sessionId = crypto.randomUUID();
+
+      const msg = await svc.sendTemplate({
+        conversacionId: conv.id,
+        leadSessionId: sessionId,
+        to: "549110",
+        plantilla,
+        sender: "sistema",
+        idempotencyKey: "wf:r:1",
+      });
+
+      expect(client.templateCalls).toEqual([{ to: "549110", plantilla }]);
+      expect(client.calls).toEqual([]);
+      expect(msg).toMatchObject({
+        direction: "out",
+        sender: "sistema",
+        tipo: "template",
+        conversacion_id: conv.id,
+        lead_session_id: sessionId,
+        meta_message_id: "wamid.fake-1",
+        idempotency_key: "wf:r:1",
+      });
+      // Lo que ve el hilo: qué plantilla salió y con qué valores.
+      expect(msg.contenido).toBe("Plantilla «seguimiento»: Ana");
+      expect(msg.metadata).toEqual({
+        plantilla_meta: { nombre: "seguimiento", idioma: "es", parametros_cuerpo: ["Ana"] },
+      });
+    });
+
+    test("la misma idempotencyKey no vuelve a llamar a Meta", async () => {
+      const conv = await seedConv(conversations);
+      const input = {
+        conversacionId: conv.id,
+        leadSessionId: crypto.randomUUID(),
+        to: "549110",
+        plantilla,
+        sender: "sistema" as const,
+        idempotencyKey: "wf:r:2",
+      };
+
+      const primero = await svc.sendTemplate(input);
+      const segundo = await svc.sendTemplate(input);
+
+      expect(segundo.id).toBe(primero.id);
+      expect(client.templateCalls).toHaveLength(1);
+    });
+
+    test("un rechazo de Meta queda marcado en el hilo y se relanza", async () => {
+      const conv = await seedConv(conversations);
+      client.failWith = new Error("template not found");
+
+      await expect(
+        svc.sendTemplate({
+          conversacionId: conv.id,
+          leadSessionId: crypto.randomUUID(),
+          to: "549110",
+          plantilla,
+          sender: "sistema",
+          idempotencyKey: "wf:r:3",
+        }),
+      ).rejects.toThrow("template not found");
+
+      const fila = await messages.findByIdempotencyKey("wf:r:3");
+      expect(fila?.estado_entrega).toBe("fallido");
+    });
+  });
+
   describe("recordInbound", () => {
     test("persiste mensaje direction=in sender=lead con datos del parsed", async () => {
       const conv = await seedConv(conversations);

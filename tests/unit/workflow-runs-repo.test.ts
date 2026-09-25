@@ -1,12 +1,127 @@
 import { describe, expect, it } from "vitest";
 import { InMemoryWorkflowRunsRepository } from "@/server/repositories/workflow-runs.repo";
+import { MARCA_CORRIDA_DE_PRUEBA } from "@/types/workflows";
 import { runWorkflowRunsContract } from "../repositories/workflow-runs.contract";
 
 runWorkflowRunsContract(async () => ({
-  repo: new InMemoryWorkflowRunsRepository(),
+  repo: new InMemoryWorkflowRunsRepository((versionId) =>
+    versionId === "version-1" ? "workflow-1" : undefined,
+  ),
   versionId: "version-1",
   leadId: "lead-1",
+  workflowId: "workflow-1",
 }));
+
+describe("InMemoryWorkflowRunsRepository.reanudar — lo que en Postgres sale de la versión", () => {
+  async function falladaEn(repo: InMemoryWorkflowRunsRepository, orden: number) {
+    const { run } = await repo.arrancar({
+      versionId: "v1",
+      leadId: "lead-1",
+      sessionId: null,
+      contexto: {},
+    });
+    await repo.registrarPaso(run!.id, {
+      nodo_id: "m",
+      orden,
+      entrada: null,
+      salida: null,
+      error: "boom",
+    });
+    await repo.fallar(run!.id, "boom", orden);
+    return run!;
+  }
+
+  it("un paso fallado en el tope de la versión no se reanuda: volvería a cortarse", async () => {
+    const repo = new InMemoryWorkflowRunsRepository(
+      () => "workflow-a",
+      () => ({ maxPasos: 3, politica: "ignorar" }),
+    );
+    const run = await falladaEn(repo, 3);
+    expect(await repo.reanudar(run.id)).toEqual({ ok: false, motivo: "tope_pasos" });
+  });
+
+  it("un paso fallado antes del tope se reanuda", async () => {
+    const repo = new InMemoryWorkflowRunsRepository(
+      () => "workflow-a",
+      () => ({ maxPasos: 3, politica: "ignorar" }),
+    );
+    const run = await falladaEn(repo, 2);
+    expect(await repo.reanudar(run.id)).toEqual({ ok: true, desdePaso: 2, nodoId: "m" });
+  });
+
+  it("con política 'permitir', otra corrida viva del mismo lead no la frena", async () => {
+    const repo = new InMemoryWorkflowRunsRepository(
+      () => "workflow-a",
+      () => ({ maxPasos: 500, politica: "permitir" }),
+    );
+    const run = await falladaEn(repo, 2);
+    // Con `permitir`, `arrancar` también deja una segunda viva.
+    await repo.arrancar({ versionId: "v1", leadId: "lead-1", sessionId: null, contexto: {} });
+    expect(await repo.reanudar(run.id)).toMatchObject({ ok: true });
+  });
+});
+
+describe("InMemoryWorkflowRunsRepository — Probar y la política 'reiniciar'", () => {
+  const prueba = { [MARCA_CORRIDA_DE_PRUEBA]: true };
+  const conReiniciar = () =>
+    new InMemoryWorkflowRunsRepository(
+      () => "workflow-a",
+      () => ({ maxPasos: 500, politica: "reiniciar" }),
+    );
+
+  it("probar un flujo 'reiniciar' no cancela la corrida de producción viva del lead", async () => {
+    const repo = conReiniciar();
+    const { run: produccion } = await repo.arrancar({
+      versionId: "v1",
+      leadId: "lead-1",
+      sessionId: null,
+      contexto: {},
+    });
+    const probada = await repo.arrancar({
+      versionId: "v1",
+      leadId: "lead-1",
+      sessionId: null,
+      contexto: prueba,
+    });
+    expect(probada.run).not.toBeNull();
+    const despues = await repo.findRun(produccion!.id);
+    expect(despues?.estado).toBe("corriendo");
+    expect(despues?.ended_at).toBeNull();
+  });
+
+  it("un disparo de producción 'reiniciar' cancela sólo corridas de producción", async () => {
+    const repo = conReiniciar();
+    const base = { versionId: "v1", leadId: "lead-1", sessionId: null };
+    const { run: probada } = await repo.arrancar({ ...base, contexto: prueba });
+    const { run: vieja } = await repo.arrancar({ ...base, contexto: {} });
+    await repo.arrancar({ ...base, contexto: {} });
+    expect((await repo.findRun(vieja!.id))?.estado).toBe("cancelado");
+    expect((await repo.findRun(probada!.id))?.estado).toBe("corriendo");
+  });
+
+  it("una corrida de Probar viva no frena reanudar una de producción", async () => {
+    const repo = new InMemoryWorkflowRunsRepository(
+      () => "workflow-a",
+      () => ({ maxPasos: 500, politica: "ignorar" }),
+    );
+    const { run } = await repo.arrancar({
+      versionId: "v1",
+      leadId: "lead-1",
+      sessionId: null,
+      contexto: {},
+    });
+    await repo.registrarPaso(run!.id, {
+      nodo_id: "m",
+      orden: 2,
+      entrada: null,
+      salida: null,
+      error: "boom",
+    });
+    await repo.fallar(run!.id, "boom", 2);
+    await repo.arrancar({ versionId: "v1", leadId: "lead-1", sessionId: null, contexto: prueba });
+    expect(await repo.reanudar(run!.id)).toMatchObject({ ok: true });
+  });
+});
 
 describe("InMemoryWorkflowRunsRepository — escopeo de 'corrida viva' por workflow", () => {
   it("con lookup versionId->workflowId, dos workflows distintos corren en paralelo para el mismo lead", async () => {

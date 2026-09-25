@@ -5,11 +5,25 @@ import { isUuid } from "@/server/db/uuid";
 import type { AppClient } from "@/server/db/client";
 import type { PoliticaConcurrencia, UUID, Workflow, WorkflowVersion } from "@/types/entities";
 import type { Grafo } from "@/types/workflows";
-import type { WorkflowInsert, WorkflowVersionInsert, WorkflowsRepository } from "./workflows.repo";
+import type {
+  ClonarVersionInput,
+  WorkflowInsert,
+  WorkflowVersionInsert,
+  WorkflowsRepository,
+} from "./workflows.repo";
 
 const COLS_WORKFLOW = "id, nombre, descripcion, activo, created_at";
-const COLS_VERSION =
-  "id, workflow_id, version, grafo, max_pasos, publicada, created_at, created_by, politica_concurrencia";
+
+/**
+ * `*` y no la lista de columnas. `nota` la agrega la migración
+ * `20260913232000_workflow_versiones_nota.sql`, que puede aplicarse después de
+ * que este código ya esté corriendo: el dev server comparte el árbol con quien
+ * la aplica. Con la lista explícita, cada lectura de versiones —el listado, el
+ * editor, el disparo de producción— fallaría con "column nota does not exist"
+ * hasta aplicarla; con `*` la columna todavía no viene y `mapVersion` la lee
+ * como null. La lista de antes ya era todas las columnas de la tabla.
+ */
+const COLS_VERSION = "*";
 
 /**
  * Tope de la consulta de `listarPublicadasPorDisparador`, no de `productos`
@@ -25,11 +39,27 @@ const COLS_VERSION =
  */
 const MAX_WORKFLOWS_ACTIVOS = 5000;
 
-type PublicarVersionErrorCode = "version_not_found";
-
-interface PublicarVersionRow {
+/** Lo que devuelven `publicar_workflow_version_con_nota` y `clonar_workflow_version`. */
+interface VersionRpcRow {
   version_id: string | null;
-  error_code: PublicarVersionErrorCode | null;
+  error_code: "version_not_found" | null;
+}
+
+/**
+ * La fila tal como llega. `nota` es opcional acá y no en la entidad: una base
+ * que todavía no tiene la migración no la trae (ver `COLS_VERSION`).
+ */
+interface VersionRow {
+  id: string;
+  workflow_id: string;
+  version: number;
+  grafo: unknown;
+  max_pasos: number;
+  publicada: boolean;
+  created_at: string;
+  created_by: string | null;
+  politica_concurrencia: PoliticaConcurrencia;
+  nota?: string | null;
 }
 
 export class SupabaseWorkflowsRepository implements WorkflowsRepository {
@@ -125,36 +155,68 @@ export class SupabaseWorkflowsRepository implements WorkflowsRepository {
     return data ? mapVersion(data) : null;
   }
 
-  async publicarVersion(versionId: UUID): Promise<WorkflowVersion> {
+  async publicarVersion(versionId: UUID, nota?: string | null): Promise<WorkflowVersion> {
     // Despublicar la anterior y publicar ésta son una sola transacción
-    // Postgres (`publicar_workflow_version`), no dos UPDATE sueltos desde
-    // acá: si el proceso muriera entre medio, el workflow quedaría con cero
-    // versiones publicadas sin que nadie se enterara. Mismo patrón que
+    // Postgres (`publicar_workflow_version_con_nota`), no dos UPDATE sueltos
+    // desde acá: si el proceso muriera entre medio, el workflow quedaría con
+    // cero versiones publicadas sin que nadie se enterara. Mismo patrón que
     // `approve_lead_merge` para fusionar leads.
-    const { data, error } = await this.db.rpc("publicar_workflow_version", {
-      p_version_id: versionId,
+    //
+    // No `publicar_workflow_version`: esa queda sin tocar para el código ya
+    // desplegado y se borra después del próximo deploy (expand/contract, ver
+    // 20260913232000_workflow_versiones_nota.sql). Por eso este código se
+    // despliega con esa migración ya aplicada: sin ella, Publicar falla.
+    //
+    // `p_nota` sólo cuando hay nota: la firma generada no acepta null en un
+    // argumento con default, y omitido vale null igual.
+    const limpia = nota?.trim();
+    const { data, error } = await this.db.rpc(
+      "publicar_workflow_version_con_nota",
+      limpia ? { p_version_id: versionId, p_nota: limpia } : { p_version_id: versionId },
+    );
+    if (error) throw mapPostgrestError(error, { resource: "workflow_versiones" });
+    return this.releerVersionDeRpc(data, "publicar_workflow_version_con_nota", versionId);
+  }
+
+  async clonarVersion(input: ClonarVersionInput): Promise<WorkflowVersion> {
+    // Una sola transacción (`clonar_workflow_version`). Numerar y publicar
+    // desde acá serían dos carreras: dos clonaciones que calculan el mismo
+    // número, o una restauración creada y nunca publicada si lo segundo falla.
+    const nota = input.nota?.trim();
+    const { data, error } = await this.db.rpc("clonar_workflow_version", {
+      p_version_id: input.versionId,
+      p_publicar: input.publicar,
+      // Los opcionales se omiten en vez de mandar null: la firma generada no
+      // acepta null en un argumento con default, y omitidos valen null igual.
+      ...(nota ? { p_nota: nota } : {}),
+      ...(input.createdBy ? { p_created_by: input.createdBy } : {}),
     });
     if (error) throw mapPostgrestError(error, { resource: "workflow_versiones" });
+    return this.releerVersionDeRpc(data, "clonar_workflow_version", input.versionId);
+  }
 
-    const row = (data as PublicarVersionRow[] | null)?.[0];
-    if (!row) {
-      throw new InfraError("publicar_workflow_version no devolvió resultado", "postgrest");
-    }
+  /** La versión que devolvió una de las dos RPC, releída entera. */
+  private async releerVersionDeRpc(
+    data: unknown,
+    rpc: string,
+    versionId: UUID,
+  ): Promise<WorkflowVersion> {
+    const row = (data as VersionRpcRow[] | null)?.[0];
+    if (!row) throw new InfraError(`${rpc} no devolvió resultado`, "postgrest");
     if (row.error_code === "version_not_found") {
       throw new NotFoundError(`versión no encontrada: ${versionId}`, "workflow_version", versionId);
     }
     if (row.version_id === null) {
-      throw new InfraError("publicar_workflow_version devolvió version_id nulo", "postgrest");
+      throw new InfraError(`${rpc} devolvió version_id nulo`, "postgrest");
     }
 
-    const publicada = await this.db
+    const { data: fila, error } = await this.db
       .from("workflow_versiones")
       .select(COLS_VERSION)
       .eq("id", row.version_id)
       .single();
-    if (publicada.error)
-      throw mapPostgrestError(publicada.error, { resource: "workflow_versiones" });
-    return mapVersion(publicada.data);
+    if (error) throw mapPostgrestError(error, { resource: "workflow_versiones" });
+    return mapVersion(fila);
   }
 
   async proximaVersion(workflowId: UUID): Promise<number> {
@@ -255,17 +317,7 @@ function mapWorkflow(r: {
   };
 }
 
-function mapVersion(r: {
-  id: string;
-  workflow_id: string;
-  version: number;
-  grafo: unknown;
-  max_pasos: number;
-  publicada: boolean;
-  created_at: string;
-  created_by: string | null;
-  politica_concurrencia: PoliticaConcurrencia;
-}): WorkflowVersion {
+function mapVersion(r: VersionRow): WorkflowVersion {
   return {
     id: r.id,
     workflow_id: r.workflow_id,
@@ -277,5 +329,6 @@ function mapVersion(r: {
     created_at: new Date(r.created_at),
     created_by: r.created_by,
     politica_concurrencia: r.politica_concurrencia,
+    nota: r.nota ?? null,
   };
 }

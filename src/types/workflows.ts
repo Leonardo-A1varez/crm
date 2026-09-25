@@ -1,3 +1,5 @@
+import type { Canal, CurrentStage, TipoMensaje } from "./domain";
+
 /**
  * El grafo de un workflow. Vive en `workflow_versiones.grafo` como jsonb.
  *
@@ -62,7 +64,7 @@ export const NODO_TIPOS_MENSAJERIA = [
   "msg_reaccion",
 ] as const;
 
-// CRM (10 tipos)
+// CRM (11 tipos)
 export const NODO_TIPOS_CRM = [
   "crm_etiqueta_add",
   "crm_etiqueta_remove",
@@ -74,6 +76,7 @@ export const NODO_TIPOS_CRM = [
   "crm_nota",
   "crm_spam",
   "crm_archivar",
+  "crm_escalar_humano",
 ] as const;
 
 // Lógica (11 tipos)
@@ -101,7 +104,7 @@ export const NODO_TIPOS_INTEGRACION = [
   "int_db",
 ] as const;
 
-// IA (7 tipos)
+// IA (8 tipos)
 export const NODO_TIPOS_IA = [
   "ia_clasificar",
   "ia_responder",
@@ -110,6 +113,7 @@ export const NODO_TIPOS_IA = [
   "ia_resumir",
   "ia_traducir",
   "ia_spam",
+  "ia_delegar",
 ] as const;
 
 // Internos (4 tipos)
@@ -230,6 +234,51 @@ export const MOTIVOS_FALLO = [
 ] as const;
 export type MotivoFallo = (typeof MOTIVOS_FALLO)[number];
 
+/**
+ * Por qué un tope de seguridad saltó un mensaje (PRD §6.6). Un salto NO es un
+ * fallo: el flujo se comportó como debía. El lead sale del flujo —no avanza en
+ * silencio al paso siguiente— y la corrida termina con este motivo.
+ *
+ * Los cinco son los que lista el PRD, y los mismos que admite el CHECK de
+ * `workflow_runs.motivo_salto`. `conversacion_activa` no lo produce ninguna
+ * acción todavía: el PRD lo nombra pero no define qué es una conversación
+ * activa para un flujo (sí para Difusión), y no se inventa.
+ */
+export const MOTIVOS_SALTO = [
+  "tope_frecuencia",
+  "dado_de_baja",
+  "sin_ventana",
+  "conversacion_activa",
+  "requiere_humano",
+] as const;
+export type MotivoSalto = (typeof MOTIVOS_SALTO)[number];
+
+export function esMotivoSalto(v: unknown): v is MotivoSalto {
+  return typeof v === "string" && (MOTIVOS_SALTO as readonly string[]).includes(v);
+}
+
+/**
+ * La clave con que un paso saltado deja su motivo en `workflow_run_pasos.salida`.
+ * La base la lee de ahí (columna generada `motivo_salto`), así que es contrato
+ * con la migración `20260925033000_workflow_saltos`: no se renombra sola.
+ */
+export const CLAVE_MOTIVO_SALTO = "motivo_salto";
+
+/** El motivo de salto de un paso, leído de su salida. `null` si el paso no saltó. */
+export function motivoSaltoDeSalida(
+  salida: Record<string, unknown> | null | undefined,
+): MotivoSalto | null {
+  const v = salida?.[CLAVE_MOTIVO_SALTO];
+  return esMotivoSalto(v) ? v : null;
+}
+
+/** Un mensaje que un tope saltó: dónde y por qué. */
+export interface SaltoDeTope {
+  motivo: MotivoSalto;
+  /** Para una persona. Sin datos del lead: se persiste y se muestra. */
+  detalle: string;
+}
+
 /** Lo que el ejecutor le devuelve a quien lo llamó al terminar un segmento. */
 export type ResultadoSegmento =
   | {
@@ -256,7 +305,16 @@ export type ResultadoSegmento =
        */
       contexto: ContextoRun;
     }
-  | { tipo: "fin" }
+  | {
+      tipo: "fin";
+      /**
+       * Presente cuando la corrida terminó porque un tope saltó un mensaje: el
+       * lead salió del flujo en `nodoId`. Viaja dentro de `fin` y no como un
+       * `tipo` aparte a propósito: para quien persiste es una corrida que
+       * terminó (`runs.terminar`), no una que falló.
+       */
+      salto?: SaltoDeTope & { nodoId: string };
+    }
   | {
       tipo: "fallado";
       nodoId: string;
@@ -277,6 +335,39 @@ export type ResultadoSegmento =
 /** El estado que viaja entre nodos y se persiste en `workflow_runs.contexto`. */
 export type ContextoRun = Record<string, unknown>;
 
+/**
+ * La marca de una corrida de "Probar" en su contexto. Esas corridas corren con
+ * los efectos interceptados (`simulador.service.ts`); reanudarlas o relanzarlas
+ * con el motor de producción mandaría efectos reales a un lead que sólo se usó
+ * para probar. La miran el repo y, en Postgres, `reanudar_workflow_run` y
+ * `relanzar_workflow_run`. Clave con `$` para que no la alcance ninguna
+ * variable de texto ni ningún campo de condición.
+ */
+export const MARCA_CORRIDA_DE_PRUEBA = "$prueba";
+
+export function esContextoDePrueba(contexto: ContextoRun): boolean {
+  return contexto[MARCA_CORRIDA_DE_PRUEBA] === true;
+}
+
+/**
+ * Lo que trae un evento de disparo para que el trigger decida si le
+ * corresponde (`disparoCoincide`, `lib/workflows/recorrer.ts`): qué etiqueta se
+ * puso, a qué etapa se pasó, por qué canal y qué dijo el mensaje.
+ *
+ * Viaja en `workflow/disparo.recibido` y NO se persiste. Lo que queda en
+ * `workflow_runs.contexto` es el `contexto` del evento, no esto: por eso el
+ * texto del mensaje puede venir acá —lo necesita el filtro "contiene"— sin
+ * terminar copiado en otra tabla que la purga de 29 días no alcanza.
+ */
+export interface DatosDisparo {
+  canal?: Canal;
+  tipoMensaje?: TipoMensaje;
+  texto?: string | null;
+  tagId?: string;
+  etapaAnterior?: CurrentStage | null;
+  etapaNueva?: CurrentStage;
+}
+
 /** Lo que devuelve una acción: por dónde seguir y qué agregar al contexto. */
 export interface ResultadoAccion {
   /** Sólo `condicion` usa `verdadero`/`falso`. El resto devuelve `salida`. */
@@ -292,4 +383,9 @@ export interface ResultadoAccion {
    * una hora razonable, en vez de descartarse en silencio.
    */
   diferirHasta?: Date;
+  /**
+   * Un tope de seguridad saltó la acción (PRD §6.6): NO se ejecutó, y el
+   * ejecutor saca al lead del flujo en vez de seguir por `puerto`.
+   */
+  salto?: SaltoDeTope;
 }

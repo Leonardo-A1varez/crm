@@ -24,6 +24,7 @@ import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultIntentClassifierService } from "@/server/services/intent-classifier.service";
 import { DefaultLeadMergeDetectorService } from "@/server/services/lead-merge-detector.service";
 import { InMemoryLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
+import { InMemoryDifusionSupresionesRepository } from "@/server/repositories/difusion-supresiones.repo";
 import { InMemoryLeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
 import { DefaultRuleEngineService } from "@/server/services/rule-engine.service";
@@ -58,18 +59,26 @@ import type {
   MetaSendTextInput,
 } from "@/server/services/meta-api.service";
 
-import { makeEmitForOnMessageReceived, makeInngestEmitForOutbox } from "@/inngest/callbacks/emit";
+import {
+  makeEmitForOnMessageReceived,
+  makeEmitirDisparoWorkflow,
+  makeInngestEmitForOutbox,
+} from "@/inngest/callbacks/emit";
 import { makePurgeSession } from "@/inngest/callbacks/purge-session";
 import { makeSendReactivation } from "@/inngest/callbacks/send-reactivation";
-import { makeConversationsParaEnviarMensaje } from "@/inngest/callbacks/workflow-adapters";
+import {
+  makeAvisosDeAsignacion,
+  makeConversationsParaEnviarMensaje,
+} from "@/inngest/callbacks/workflow-adapters";
 import { InMemoryReglasEtiquetaRepository } from "@/server/repositories/reglas-etiqueta.repo";
 import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
 import { InMemoryWorkflowRunsRepository } from "@/server/repositories/workflow-runs.repo";
 import { InMemoryWorkflowsRepository } from "@/server/repositories/workflows.repo";
-import { crearAccionesInternas } from "@/server/services/workflows/acciones/internas";
-import { crearAccionEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
 import type { ConfigProviderParaEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
-import { crearRegistro } from "@/server/services/workflows/acciones/registro";
+import { crearRegistroDeAcciones } from "@/server/services/workflows/acciones/registro";
+import { InMemorySessionLock } from "@/server/lock/session-lock";
+import { DefaultAsignacionService } from "@/server/services/asignacion/asignacion.service";
+import { DefaultUsuariosService } from "@/server/services/usuarios/usuarios.service";
 import { InMemoryMetaOperationalEventsRepository } from "@/server/repositories/meta-operational-events.repo";
 
 export interface SmokeBundle {
@@ -100,7 +109,12 @@ function makeMockMetaClient(): { client: MetaApiClient; send: ReturnType<typeof 
     return { meta_message_id: `mock.outbound.${Date.now()}.${Math.random()}` };
   });
   return {
-    client: { sendText: send },
+    client: {
+      sendText: send,
+      sendTemplate: async () => {
+        throw new Error("el smoke no manda plantillas");
+      },
+    },
     send,
   };
 }
@@ -189,17 +203,26 @@ export function makeSmokeBundle(): SmokeBundle {
   const configProviderParaEnviarMensaje: ConfigProviderParaEnviarMensaje = {
     activa: () => Promise.resolve(CONFIG_DE_FABRICA),
   };
-  const registroDeAcciones = crearRegistro({
-    ...crearAccionesInternas({ tags, sessions, handoff }),
-    enviar_mensaje: crearAccionEnviarMensaje({
-      messages,
-      metaApi,
-      conversations: makeConversationsParaEnviarMensaje({ conversations, messages }),
-      leads,
+  // La misma lista de bajas para la baja por palabra y para `enviar_mensaje`,
+  // como en producción (`inngest/bootstrap.ts`).
+  const supresiones = new InMemoryDifusionSupresionesRepository();
+  const registroDeAcciones = crearRegistroDeAcciones({
+    tags,
+    sessions,
+    handoff,
+    messages,
+    metaApi,
+    conversations: makeConversationsParaEnviarMensaje({ conversations, messages }),
+    leads,
+    users,
+    configProvider: configProviderParaEnviarMensaje,
+    supresiones,
+    asignacion: new DefaultAsignacionService({
       sessions,
-      users,
-      configProvider: configProviderParaEnviarMensaje,
+      usuarios: new DefaultUsuariosService({ users }),
     }),
+    avisos: makeAvisosDeAsignacion(makeEmitirDisparoWorkflow(inngestClient)),
+    candadoReparto: new InMemorySessionLock(),
   });
 
   // ===== Callbacks =====
@@ -235,6 +258,7 @@ export function makeSmokeBundle(): SmokeBundle {
       tags,
       intents,
       identificadores,
+      supresiones,
       recordatorios,
       configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
       emit,
@@ -242,7 +266,11 @@ export function makeSmokeBundle(): SmokeBundle {
     },
     onStatusReceived: { messages },
     onOperationalReceived: { eventos: new InMemoryMetaOperationalEventsRepository() },
-    updateLeadTwin: { twinExtractor },
+    updateLeadTwin: {
+      twinExtractor,
+      sessions,
+      emitirDisparo: makeEmitirDisparoWorkflow(inngestClient),
+    },
     detectIntentsBatch: {
       sessions,
       conversations,
@@ -285,6 +313,8 @@ export function makeSmokeBundle(): SmokeBundle {
       registro: registroDeAcciones,
       logger,
     },
+    workflowProgramados: { workflows, sessions, leads, logger },
+    workflowInactividad: { workflows, sessions, conversations, messages, leads, logger },
   };
 
   return {

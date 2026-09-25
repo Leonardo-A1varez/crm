@@ -7,8 +7,10 @@
  * archivo) la responsabilidad de conectarlos.
  */
 
+import { disparoVendedorAsignado, type DisparoWorkflow } from "@/lib/workflows/disparos";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
+import type { AvisosDeAsignacion } from "@/server/services/workflows/acciones/asignacion";
 import type { ConversationsParaEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
 import type { Conversacion, UUID } from "@/types/entities";
 
@@ -44,6 +46,33 @@ export function makeConversationsParaEnviarMensaje(
       if (!conversacion) return null;
       const ultimo_entrante_at = await deps.messages.findUltimoEntranteAt(conversacion.id);
       return { id: conversacion.id, canal: conversacion.canal, ultimo_entrante_at };
+    },
+  };
+}
+
+/**
+ * Las acciones de asignación de un flujo (`acciones/asignacion.ts`) avisan por
+ * acá. Sale como `workflow/disparo.recibido` con disparador `vendedor_asignado`:
+ * despierta los "Esperar evento: vendedor asignado" del lead y arranca los
+ * flujos "Vendedor asignado".
+ *
+ * La marca del disparo es la hora con que la base selló la asignación; sin ella
+ * (una sesión leída antes de la migración), el paso de la corrida, que también
+ * es estable entre reintentos.
+ */
+export function makeAvisosDeAsignacion(
+  emitirDisparo: (disparo: DisparoWorkflow) => Promise<void>,
+): AvisosDeAsignacion {
+  return {
+    vendedorAsignado: async (aviso) => {
+      await emitirDisparo(
+        disparoVendedorAsignado({
+          leadId: aviso.leadId,
+          sesion: aviso.sesion,
+          vendedorId: aviso.vendedorId,
+          marca: aviso.sesion.asignado_at?.toISOString() ?? `${aviso.runId}:${aviso.orden}`,
+        }),
+      );
     },
   };
 }

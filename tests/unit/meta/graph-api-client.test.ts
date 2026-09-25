@@ -361,3 +361,85 @@ describe("GraphApiMetaClient — FB Messenger send", () => {
     ).rejects.toBeInstanceOf(InfraError);
   });
 });
+
+// ============================================================================
+// WA — plantillas aprobadas
+// ============================================================================
+describe("GraphApiMetaClient — plantilla WA", () => {
+  test("manda type=template con nombre, idioma y los parámetros del cuerpo en orden", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        makeOkResponse({ messaging_product: "whatsapp", messages: [{ id: "wamid.TPL1" }] }),
+      );
+
+    const r = await makeWaClient(fetchMock).sendTemplate({
+      to: "+5491100000",
+      plantilla: { nombre: "seguimiento", idioma: "es_AR", parametrosCuerpo: ["Ana", "filtro"] },
+    });
+
+    expect(r.meta_message_id).toBe("wamid.TPL1");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("https://graph.example.test/v21.0/12345/messages");
+    expect(init.headers.Authorization).toBe("Bearer wa-token");
+    expect(JSON.parse(init.body)).toEqual({
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: "+5491100000",
+      type: "template",
+      template: {
+        name: "seguimiento",
+        language: { code: "es_AR" },
+        components: [
+          {
+            type: "body",
+            parameters: [
+              { type: "text", text: "Ana" },
+              { type: "text", text: "filtro" },
+            ],
+          },
+        ],
+      },
+    });
+  });
+
+  test("sin parámetros no manda components: una plantilla sin variables no los lleva", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(makeOkResponse({ messages: [{ id: "wamid.X" }] }));
+
+    await makeWaClient(fetchMock).sendTemplate({
+      to: "+1",
+      plantilla: { nombre: "hello_world", idioma: "en_US", parametrosCuerpo: [] },
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
+    expect(body.template).toEqual({ name: "hello_world", language: { code: "en_US" } });
+  });
+
+  test("un 400 de Meta (plantilla inexistente, parámetros de más) es ValidationError", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(makeErrorResponse({ error: { message: "template not found" } }, 400));
+    await expect(
+      makeWaClient(fetchMock).sendTemplate({
+        to: "+1",
+        plantilla: { nombre: "x", idioma: "es", parametrosCuerpo: [] },
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  test("429 es RateLimitError y 5xx InfraError, igual que el texto", async () => {
+    const plantilla = { nombre: "x", idioma: "es", parametrosCuerpo: [] };
+    await expect(
+      makeWaClient(vi.fn().mockResolvedValue(makeErrorResponse({}, 429))).sendTemplate({
+        to: "+1",
+        plantilla,
+      }),
+    ).rejects.toBeInstanceOf(RateLimitError);
+    await expect(
+      makeWaClient(vi.fn().mockResolvedValue(makeErrorResponse({}, 503))).sendTemplate({
+        to: "+1",
+        plantilla,
+      }),
+    ).rejects.toBeInstanceOf(InfraError);
+  });
+});

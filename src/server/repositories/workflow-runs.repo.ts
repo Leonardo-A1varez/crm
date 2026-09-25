@@ -1,7 +1,14 @@
 import { NotFoundError } from "@/lib/errors";
+import {
+  MOTIVOS_SALTO,
+  esContextoDePrueba,
+  motivoSaltoDeSalida,
+  type MotivoSalto,
+} from "@/types/workflows";
 import type {
   HistorialFiltros,
   HistorialPaginado,
+  PoliticaConcurrencia,
   UUID,
   WorkflowMetricas,
   WorkflowRun,
@@ -28,6 +35,46 @@ export interface ArrancarWorkflowRunResult {
   run: WorkflowRun | null;
   /** Sólo presente cuando `run` es null: por qué no arrancó. */
   motivo?: ArrancarWorkflowRunMotivo;
+}
+
+/** Por qué `reanudar` no reanudó. Los mismos códigos que devuelve `reanudar_workflow_run`. */
+export type ReanudarWorkflowRunMotivo =
+  | "corrida_no_encontrada"
+  | "corrida_no_fallada"
+  | "corrida_de_prueba"
+  | "sin_paso_fallado"
+  | "tope_pasos"
+  | "ya_hay_corrida_viva";
+
+export type ReanudarWorkflowRunResult =
+  | { ok: true; desdePaso: number; nodoId: string }
+  | { ok: false; motivo: ReanudarWorkflowRunMotivo };
+
+/** Por qué `relanzar` no arrancó otra corrida: los suyos más los de `arrancar`. */
+export type RelanzarWorkflowRunMotivo =
+  | "corrida_no_encontrada"
+  | "corrida_no_fallada"
+  | "corrida_de_prueba"
+  | ArrancarWorkflowRunMotivo;
+
+export interface RelanzarWorkflowRunResult {
+  run: WorkflowRun | null;
+  /** Sólo presente cuando `run` es null. */
+  motivo?: RelanzarWorkflowRunMotivo;
+}
+
+export interface CorridasVivasDeVersion {
+  versionId: UUID;
+  cantidad: number;
+}
+
+/**
+ * Lo que Postgres lee de la versión de una corrida para decidir. El repo
+ * InMemory no tiene versiones: lo recibe inyectado (ver su constructor).
+ */
+export interface ReglasDeVersion {
+  maxPasos: number;
+  politica: PoliticaConcurrencia;
 }
 
 /** Estados en los que una corrida puede seguir avanzando. */
@@ -79,6 +126,23 @@ export interface WorkflowRunsRepository {
    * aplica. Devuelve si efectivamente la marcó.
    */
   fallarSiVivo(runId: UUID, error: string, desdePaso: number): Promise<boolean>;
+  /**
+   * "Reanudar desde el fallo": deja una corrida `fallado` esperando en el nodo
+   * de su último paso —el que falló—, con `pasos_ejecutados` = el orden de ese
+   * paso, lista para que el segmento que se encole con ese `desdePaso` la
+   * tome. Nunca desde el disparador. El nodo fallado vuelve a correr con un
+   * orden nuevo: su paso fallado queda como historia, y la clave de
+   * idempotencia de un envío cambia —con la misma, `sendOutbound` daría por
+   * enviado un mensaje que Meta rechazó—. No encola nada: eso es de quien
+   * llama. Ver la migración de `reanudar_workflow_run`.
+   */
+  reanudar(runId: UUID): Promise<ReanudarWorkflowRunResult>;
+  /**
+   * "Ejecutar de nuevo desde el principio": una corrida NUEVA de la misma
+   * versión, lead y contexto que una fallada, con la política de concurrencia
+   * de `arrancar`. La fallada queda como estaba. No encola nada.
+   */
+  relanzar(runId: UUID): Promise<RelanzarWorkflowRunResult>;
   findRun(id: UUID): Promise<WorkflowRun | null>;
   /**
    * Métricas de corridas por workflow, sólo las iniciadas después de `desde`.
@@ -92,6 +156,12 @@ export interface WorkflowRunsRepository {
     workflowIds: readonly UUID[],
     desde: Date,
   ): Promise<Record<UUID, WorkflowMetricas>>;
+  /**
+   * Corridas vivas (`corriendo`/`esperando`) de un workflow, por versión. Una
+   * versión sin vivas no aparece. Es lo que dice la pantalla de publicación:
+   * cuántas corridas siguen en marcha, y en qué versión terminan.
+   */
+  contarVivasPorVersion(workflowId: UUID): Promise<CorridasVivasDeVersion[]>;
 
   // =========================================================================
   // Historial de ejecuciones (panel lateral I)
@@ -109,11 +179,27 @@ export interface WorkflowRunsRepository {
 
   /** Pasos de un run en orden de ejecucion. */
   pasosDeRun(runId: UUID): Promise<WorkflowRunPaso[]>;
+
+  /**
+   * Cuántos mensajes saltó cada tope de seguridad desde `desde` (PRD §6.6),
+   * contados en la base (`contar_saltos_workflow`): traer las filas para
+   * contarlas acá chocaría con el corte de 1.000 de PostgREST. Todos los
+   * motivos vienen en el resultado, en 0 si no saltó ninguno. Las corridas de
+   * "Probar" no cuentan: no se le iba a mandar nada a nadie.
+   */
+  contarSaltosPorMotivo(desde: Date): Promise<Record<MotivoSalto, number>>;
+}
+
+/** Todos los motivos en 0: el punto de partida de un conteo. */
+export function saltosEnCero(): Record<MotivoSalto, number> {
+  return Object.fromEntries(MOTIVOS_SALTO.map((m) => [m, 0])) as Record<MotivoSalto, number>;
 }
 
 export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
   private readonly runs = new Map<UUID, WorkflowRun>();
   private readonly pasos = new Map<UUID, WorkflowRunPaso[]>();
+  /** Lo que en Postgres escribe el trigger `workflow_run_pasos_marca_salto`. */
+  private readonly saltos = new Map<UUID, MotivoSalto>();
 
   /**
    * En Postgres, "corrida viva" se escopea por (workflow, lead): el join de
@@ -130,19 +216,37 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
    * workflows distintos sobre el mismo lead tiene que inyectar la función
    * que resuelve `versionId -> workflowId` para que el escopeo matchee el
    * de Postgres.
+   *
+   * `resolverVersion`, igual de opcional, da lo que Postgres lee de la versión:
+   * el tope de pasos (para no reanudar una corrida que volvería a cortarse) y
+   * la política de concurrencia. Sin él: sin tope, y política 'ignorar', que es
+   * el default de la columna.
    */
-  constructor(private readonly resolverWorkflowId?: (versionId: UUID) => UUID | undefined) {}
+  constructor(
+    private readonly resolverWorkflowId?: (versionId: UUID) => UUID | undefined,
+    private readonly resolverVersion?: (versionId: UUID) => ReglasDeVersion | undefined,
+  ) {}
 
   async arrancar(input: ArrancarWorkflowRunInput): Promise<ArrancarWorkflowRunResult> {
-    const workflowId = this.resolverWorkflowId?.(input.versionId);
-    const viva = [...this.runs.values()].find((r) => {
-      if (r.lead_id !== input.leadId) return false;
-      if (!ESTADOS_VIVOS.includes(r.estado)) return false;
-      // Sin lookup inyectado: fallback histórico, escopea sólo por lead.
-      if (this.resolverWorkflowId === undefined) return true;
-      return this.resolverWorkflowId(r.workflow_version_id) === workflowId;
-    });
-    if (viva) return { run: null, motivo: "ya_hay_corrida_viva" };
+    // Igual que `arrancar_workflow_run`: la política se aplica sólo entre
+    // corridas de producción, y una de Probar no pasa por ella.
+    const vivas = esContextoDePrueba(input.contexto)
+      ? []
+      : this.vivasDelMismoWorkflow(input.versionId, input.leadId);
+    if (vivas.length > 0) {
+      const { politica } = this.reglasDe(input.versionId);
+      if (politica === "ignorar") return { run: null, motivo: "ya_hay_corrida_viva" };
+      if (politica === "reiniciar") {
+        // Todas, igual que el UPDATE set-based de `arrancar_workflow_run`.
+        for (const viva of vivas) {
+          this.actualizar(viva.id, {
+            estado: "cancelado",
+            ended_at: new Date(),
+            error: "reiniciado por un disparo nuevo",
+          });
+        }
+      }
+    }
 
     const run: WorkflowRun = {
       id: crypto.randomUUID(),
@@ -187,6 +291,9 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
     const lista = this.pasos.get(runId) ?? [];
     lista.push(fila);
     this.pasos.set(runId, lista);
+    // Mismo efecto que el trigger de Postgres: el paso saltado marca la corrida.
+    const motivo = motivoSaltoDeSalida(fila.salida);
+    if (motivo !== null) this.saltos.set(runId, motivo);
   }
 
   async avanzar(
@@ -246,6 +353,53 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
     return true;
   }
 
+  async reanudar(runId: UUID): Promise<ReanudarWorkflowRunResult> {
+    // Mismas preguntas y en el mismo orden que `reanudar_workflow_run`.
+    const run = this.runs.get(runId);
+    if (!run) return { ok: false, motivo: "corrida_no_encontrada" };
+    if (run.estado !== "fallado") return { ok: false, motivo: "corrida_no_fallada" };
+    if (esContextoDePrueba(run.contexto)) return { ok: false, motivo: "corrida_de_prueba" };
+
+    const ultimo = (this.pasos.get(runId) ?? []).reduce<WorkflowRunPaso | null>(
+      (max, p) => (max === null || p.orden > max.orden ? p : max),
+      null,
+    );
+    if (ultimo === null || ultimo.error === null) return { ok: false, motivo: "sin_paso_fallado" };
+
+    const reglas = this.reglasDe(run.workflow_version_id);
+    if (ultimo.orden >= reglas.maxPasos) return { ok: false, motivo: "tope_pasos" };
+    if (
+      reglas.politica !== "permitir" &&
+      this.vivasDelMismoWorkflow(run.workflow_version_id, run.lead_id, run.id).length > 0
+    ) {
+      return { ok: false, motivo: "ya_hay_corrida_viva" };
+    }
+
+    this.actualizar(runId, {
+      estado: "esperando",
+      nodo_actual: ultimo.nodo_id,
+      pasos_ejecutados: ultimo.orden,
+      error: null,
+      ended_at: null,
+    });
+    return { ok: true, desdePaso: ultimo.orden, nodoId: ultimo.nodo_id };
+  }
+
+  async relanzar(runId: UUID): Promise<RelanzarWorkflowRunResult> {
+    const run = this.runs.get(runId);
+    if (!run) return { run: null, motivo: "corrida_no_encontrada" };
+    if (run.estado !== "fallado") return { run: null, motivo: "corrida_no_fallada" };
+    if (esContextoDePrueba(run.contexto)) return { run: null, motivo: "corrida_de_prueba" };
+    // Postgres elige la sesión abierta del lead; acá no hay sesiones y se
+    // reusa la de la corrida.
+    return this.arrancar({
+      versionId: run.workflow_version_id,
+      leadId: run.lead_id,
+      sessionId: run.lead_session_id,
+      contexto: run.contexto,
+    });
+  }
+
   async findRun(id: UUID): Promise<WorkflowRun | null> {
     const run = this.runs.get(id);
     return run ? clonarRun(run) : null;
@@ -294,6 +448,45 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
       resultado[id] = { totalRuns: v.total, runsExitosos: v.exitosos, ultimoRun: v.ultimo };
     }
     return resultado;
+  }
+
+  async contarVivasPorVersion(workflowId: UUID): Promise<CorridasVivasDeVersion[]> {
+    const porVersion = new Map<UUID, number>();
+    for (const run of this.runs.values()) {
+      if (!ESTADOS_VIVOS.includes(run.estado)) continue;
+      // Mismo fallback que `metricasPorWorkflow`.
+      const wid = this.resolverWorkflowId?.(run.workflow_version_id) ?? run.workflow_version_id;
+      if (wid !== workflowId) continue;
+      porVersion.set(run.workflow_version_id, (porVersion.get(run.workflow_version_id) ?? 0) + 1);
+    }
+    return [...porVersion].map(([versionId, cantidad]) => ({ versionId, cantidad }));
+  }
+
+  /**
+   * Las corridas vivas del lead en el mismo workflow que `versionId`. Con el
+   * lookup inyectado escopea por workflow, como el join de Postgres; sin él,
+   * por lead a secas (el fallback histórico del constructor).
+   */
+  /** Corridas de producción vivas: las de Probar no cuentan para la política. */
+  private vivasDelMismoWorkflow(versionId: UUID, leadId: UUID, exceptoRunId?: UUID): WorkflowRun[] {
+    const workflowId = this.resolverWorkflowId?.(versionId);
+    return [...this.runs.values()].filter((r) => {
+      if (r.id === exceptoRunId) return false;
+      if (r.lead_id !== leadId) return false;
+      if (esContextoDePrueba(r.contexto)) return false;
+      if (!ESTADOS_VIVOS.includes(r.estado)) return false;
+      if (this.resolverWorkflowId === undefined) return true;
+      return this.resolverWorkflowId(r.workflow_version_id) === workflowId;
+    });
+  }
+
+  private reglasDe(versionId: UUID): ReglasDeVersion {
+    return (
+      this.resolverVersion?.(versionId) ?? {
+        maxPasos: Number.POSITIVE_INFINITY,
+        politica: "ignorar",
+      }
+    );
   }
 
   private actualizar(runId: UUID, cambios: Partial<WorkflowRun>): void {
@@ -372,9 +565,23 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
     return pasos.sort((a, b) => a.orden - b.orden);
   }
 
+  async contarSaltosPorMotivo(desde: Date): Promise<Record<MotivoSalto, number>> {
+    const conteo = saltosEnCero();
+    for (const [runId, lista] of this.pasos) {
+      const run = this.runs.get(runId);
+      if (!run || esContextoDePrueba(run.contexto)) continue;
+      for (const paso of lista) {
+        const motivo = motivoSaltoDeSalida(paso.salida);
+        if (motivo !== null && paso.created_at >= desde) conteo[motivo] += 1;
+      }
+    }
+    return conteo;
+  }
+
   private mapRunConLead(run: WorkflowRun): WorkflowRunConLead {
     return {
       ...clonarRun(run),
+      motivo_salto: this.saltos.get(run.id) ?? null,
       lead_nombre: null,
       trigger_tipo: "manual",
       trigger_datos: {},

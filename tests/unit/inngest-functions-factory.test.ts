@@ -16,6 +16,7 @@ import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultIntentClassifierService } from "@/server/services/intent-classifier.service";
 import { DefaultLeadMergeDetectorService } from "@/server/services/lead-merge-detector.service";
 import { InMemoryLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
+import { InMemoryDifusionSupresionesRepository } from "@/server/repositories/difusion-supresiones.repo";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
 import { DefaultRuleEngineService } from "@/server/services/rule-engine.service";
 import { DefaultTwinExtractorService } from "@/server/services/twin-extractor.service";
@@ -40,7 +41,7 @@ import { crearRegistro } from "@/server/services/workflows/acciones/registro";
 import { InMemoryMetaOperationalEventsRepository } from "@/server/repositories/meta-operational-events.repo";
 
 describe("makeCrmInngestFunctions", () => {
-  test("produce 15 InngestFunction con IDs esperados", () => {
+  test("produce 17 InngestFunction con IDs esperados", () => {
     const leads = new InMemoryLeadsRepository();
     const conversations = new InMemoryConversationsRepository();
     const sessions = new InMemoryLeadSessionRepository();
@@ -95,12 +96,13 @@ describe("makeCrmInngestFunctions", () => {
         tags,
         intents,
         identificadores,
+        supresiones: new InMemoryDifusionSupresionesRepository(),
         configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
         emit: async () => {},
       },
       onStatusReceived: { messages },
       onOperationalReceived: { eventos: new InMemoryMetaOperationalEventsRepository() },
-      updateLeadTwin: { twinExtractor },
+      updateLeadTwin: { twinExtractor, sessions, emitirDisparo: async () => {} },
       detectIntentsBatch: {
         sessions,
         conversations,
@@ -123,9 +125,11 @@ describe("makeCrmInngestFunctions", () => {
       dispatchOutboxEvents: { outbox, inngestEmit: async () => {} },
       workflowDisparar: { workflows, runs: workflowRuns, emitir: async () => {} },
       workflowSegmento: { runs: workflowRuns, workflows, registro },
+      workflowProgramados: { workflows, sessions, leads },
+      workflowInactividad: { workflows, sessions, conversations, messages, leads },
     });
 
-    expect(fns).toHaveLength(15);
+    expect(fns).toHaveLength(17);
     const ids = fns.map((f) => f.id());
     expect(ids).toEqual(
       expect.arrayContaining([
@@ -144,6 +148,8 @@ describe("makeCrmInngestFunctions", () => {
         expect.stringContaining("handoff-notification"),
         expect.stringContaining("workflow-disparar"),
         expect.stringContaining("workflow-segmento"),
+        expect.stringContaining("workflow-programados"),
+        expect.stringContaining("workflow-inactividad"),
       ]),
     );
   });

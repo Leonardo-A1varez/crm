@@ -15,7 +15,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { NodoBase, type SalidaMultiple } from "./NodoBase";
+import { NodoBase, type SalidaNodo } from "./NodoBase";
 import type { NodoTipoLogica } from "@/types/workflows";
 
 interface LogicaConfig {
@@ -67,12 +67,12 @@ const LOGICA_META: Record<NodoTipoLogica, { nombre: string; icono: LucideIcon }>
 };
 
 /** Determina las salidas múltiples según el tipo */
-function getSalidas(tipo: NodoTipoLogica, config: LogicaConfig): SalidaMultiple[] | undefined {
+function getSalidas(tipo: NodoTipoLogica, config: LogicaConfig): SalidaNodo[] | undefined {
   switch (tipo) {
     case "logica_condicion":
       return [
-        { id: "si", label: "Sí", color: "!bg-emerald-500" },
-        { id: "no", label: "No", color: "!bg-red-500" },
+        { id: "si", label: "Sí" },
+        { id: "no", label: "No" },
       ];
     case "logica_switch":
       // Genera salidas dinámicas según los casos configurados
@@ -80,34 +80,33 @@ function getSalidas(tipo: NodoTipoLogica, config: LogicaConfig): SalidaMultiple[
         return config.casos.map((caso, i) => ({
           id: `caso_${i}`,
           label: caso.nombre ?? caso.valor,
-          color: "!bg-amber-500",
         }));
       }
       // Default: 2 casos de ejemplo
       return [
-        { id: "caso_0", label: "Caso 1", color: "!bg-amber-500" },
-        { id: "caso_1", label: "Caso 2", color: "!bg-amber-500" },
-        { id: "default", label: "Default", color: "!bg-gray-500" },
+        { id: "caso_0", label: "Caso 1" },
+        { id: "caso_1", label: "Caso 2" },
+        { id: "default", label: "Default" },
       ];
     case "logica_validacion":
       return [
-        { id: "ok", label: "Ok", color: "!bg-emerald-500" },
-        { id: "error", label: "Error", color: "!bg-red-500" },
+        { id: "ok", label: "Ok" },
+        { id: "error", label: "Error" },
       ];
     case "logica_esperar_respuesta":
       return [
-        { id: "respuesta", label: "Resp", color: "!bg-emerald-500" },
-        { id: "timeout", label: "Timeout", color: "!bg-red-500" },
+        { id: "respuesta", label: "Resp" },
+        { id: "timeout", label: "Timeout" },
       ];
     case "logica_esperar_evento":
       return [
-        { id: "evento", label: "Evento", color: "!bg-emerald-500" },
-        { id: "timeout", label: "Timeout", color: "!bg-red-500" },
+        { id: "evento", label: "Evento" },
+        { id: "timeout", label: "Timeout" },
       ];
     case "logica_error":
       return [
-        { id: "ok", label: "Ok", color: "!bg-emerald-500" },
-        { id: "error", label: "Error", color: "!bg-red-500" },
+        { id: "ok", label: "Ok" },
+        { id: "error", label: "Error" },
       ];
     case "logica_goto":
     case "logica_detener":
@@ -179,7 +178,7 @@ export function NodoLogica({ data, selected, type }: NodeProps<LogicaNode>) {
       selected={selected ?? false}
       tieneEntrada={true}
       tieneSalida={tieneSalida}
-      salidasMultiples={salidas}
+      salidas={salidas}
     >
       {preview}
     </NodoBase>

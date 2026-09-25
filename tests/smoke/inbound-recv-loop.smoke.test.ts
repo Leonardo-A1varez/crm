@@ -52,14 +52,34 @@ describe("E2E smoke — bootstrap wireup with InMemory repos", () => {
     expect(bundle.repos.leads.constructor.name).toBe("InMemoryLeadsRepository");
   });
 
-  test("makeCrmInngestFunctions(smokeDeps) retorna 15 functions", () => {
+  test("makeCrmInngestFunctions(smokeDeps) registra las 17 functions, una por una", () => {
     const bundle = makeSmokeBundle();
     const functions = makeCrmInngestFunctions(bundle.deps);
-    expect(functions).toHaveLength(15);
-    // Verifica que cada function tiene shape Inngest válido (id + trigger).
-    for (const fn of functions) {
-      expect(fn).toBeDefined();
-    }
+    // La lista entera y no la cantidad: una function que se cae del registro
+    // y otra que entra dejan el mismo número.
+    expect(functions.map((fn) => fn.id()).sort()).toEqual(
+      [
+        "auto-handoff",
+        "detect-intents.batch",
+        "detect-merge-candidates-global",
+        "detect-merge-candidates-per-lead",
+        "dispatch-outbox-events",
+        "handoff-notification",
+        "on-message-received",
+        "on-operational-received",
+        "on-status-received",
+        "purge-old-sessions",
+        "reactivation-predictor",
+        "recordatorio-seguimiento",
+        "update-lead-twin",
+        "workflow-disparar",
+        // Emisor del trigger "Inactividad" (escaneo cada 10 minutos).
+        "workflow-inactividad",
+        // Emisor del trigger "Programado" (cron cada 5 minutos).
+        "workflow-programados",
+        "workflow-segmento",
+      ].sort(),
+    );
   });
 
   test("smokeDeps LLMs son InMemory* (LLM_MODE=mock)", () => {

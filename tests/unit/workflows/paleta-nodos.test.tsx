@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { PaletaNodos } from "@/components/workflows/canvas/PaletaNodos";
 import { CATEGORIAS_NODOS } from "@/lib/workflows/nodos-catalogo";
+import { NODO_TIPOS, NODO_TIPOS_LEGACY } from "@/types/workflows";
 
 function crearDataTransfer() {
   const data: Record<string, string> = {};
@@ -24,9 +25,11 @@ describe("PaletaNodos", () => {
       expect(header.textContent).toContain(String(categoria.nodos.length));
     }
 
+    // Todo tipo del dominio salvo los cinco legacy está en la paleta.
+    const esperado = NODO_TIPOS.length - NODO_TIPOS_LEGACY.length;
     const total = CATEGORIAS_NODOS.reduce((acc, c) => acc + c.nodos.length, 0);
-    expect(total).toBe(57);
-    expect(container.querySelectorAll("[data-tipo]").length).toBe(57);
+    expect(total).toBe(esperado);
+    expect(container.querySelectorAll("[data-tipo]").length).toBe(esperado);
   });
 
   it("Triggers está expandida por defecto y las demás colapsadas", () => {

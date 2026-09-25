@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Plus, Trash2 } from "lucide-react";
 import { TextareaConVariables } from "./TextareaConVariables";
 import { CAMPOS_CONDICION, OPERADORES } from "@/lib/workflows/condiciones";
+import { editorDeConfig, type ConfigDeTipo } from "@/lib/workflows/config-nodos";
 
 interface ConfigLogicaProps {
   tipo: string;
@@ -21,12 +22,22 @@ interface ConfigLogicaProps {
   readonly?: boolean;
 }
 
-interface CasoSwitch {
-  valor: string;
-  id: string;
-}
+type CasoSwitch = ConfigDeTipo<"logica_switch">["casos"][number];
 
+/**
+ * Formularios de los bloques de lógica.
+ *
+ * Todos menos la condición escriben con el contrato de config
+ * (`editorDeConfig`, `lib/workflows/config-nodos.ts`): el mismo schema que
+ * revisa el validador y, en la espera, el que respeta el motor. Una clave que
+ * el contrato no conoce no compila.
+ *
+ * La condición (`logica_condicion`) queda afuera: su config es el árbol Y/O
+ * que define otro stream. Hasta que llegue, conserva su formulario y su
+ * `handleChange` tal como estaban.
+ */
 export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaProps) {
+  // Sólo lo usa la condición, que está fuera del contrato de config.
   const handleChange = useCallback(
     (campo: string, valor: unknown) => {
       onChange({ ...config, [campo]: valor });
@@ -123,23 +134,24 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
       );
 
     case "logica_switch": {
-      const casos = (config.casos as CasoSwitch[]) ?? [];
+      const c = editorDeConfig("logica_switch", config);
+      const casos = Array.isArray(c.valores.casos) ? (c.valores.casos as CasoSwitch[]) : [];
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Campo a evaluar</span>
             <Select
-              value={String(config.campo ?? "")}
-              onValueChange={(v) => handleChange("campo", v)}
+              value={String(c.valores.campo ?? "")}
+              onValueChange={(v) => onChange(c.con("campo", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
                 <SelectValue placeholder="Seleccionar campo" />
               </SelectTrigger>
               <SelectContent>
-                {CAMPOS_CONDICION.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
+                {CAMPOS_CONDICION.map((campo) => (
+                  <SelectItem key={campo} value={campo}>
+                    {campo}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -156,7 +168,7 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
                   size="sm"
                   className="h-6 px-2 text-[10px]"
                   onClick={() =>
-                    handleChange("casos", [...casos, { valor: "", id: `caso_${Date.now()}` }])
+                    onChange(c.con("casos", [...casos, { valor: "", id: `caso_${Date.now()}` }]))
                   }
                 >
                   <Plus className="mr-1 h-3 w-3" />
@@ -175,7 +187,7 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
                     onChange={(e) => {
                       const newCasos = [...casos];
                       newCasos[idx] = { ...caso, valor: e.target.value };
-                      handleChange("casos", newCasos);
+                      onChange(c.con("casos", newCasos));
                     }}
                     placeholder={`Valor caso ${idx + 1}`}
                     disabled={readonly}
@@ -187,9 +199,11 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
                       size="sm"
                       className="h-8 w-8 p-0 text-red-500"
                       onClick={() =>
-                        handleChange(
-                          "casos",
-                          casos.filter((_, i) => i !== idx),
+                        onChange(
+                          c.con(
+                            "casos",
+                            casos.filter((_, i) => i !== idx),
+                          ),
                         )
                       }
                     >
@@ -208,23 +222,24 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
       );
     }
 
-    case "logica_validacion":
+    case "logica_validacion": {
+      const c = editorDeConfig("logica_validacion", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Campo a validar</span>
             <Select
-              value={String(config.campo ?? "")}
-              onValueChange={(v) => handleChange("campo", v)}
+              value={String(c.valores.campo ?? "")}
+              onValueChange={(v) => onChange(c.con("campo", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
                 <SelectValue placeholder="Seleccionar campo" />
               </SelectTrigger>
               <SelectContent>
-                {CAMPOS_CONDICION.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
+                {CAMPOS_CONDICION.map((campo) => (
+                  <SelectItem key={campo} value={campo}>
+                    {campo}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -234,8 +249,8 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
           <label className="block">
             <span className={labelClass}>Tipo de validacion</span>
             <Select
-              value={String(config.validacion ?? "requerido")}
-              onValueChange={(v) => handleChange("validacion", v)}
+              value={String(c.valores.validacion)}
+              onValueChange={(v) => onChange(c.con("validacion", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -251,13 +266,13 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
             </Select>
           </label>
 
-          {config.validacion === "regex" && (
+          {c.valores.validacion === "regex" && (
             <label className="block">
               <span className={labelClass}>Expresion regular</span>
               <Input
                 className={`${inputClass} font-mono`}
-                value={String(config.regex ?? "")}
-                onChange={(e) => handleChange("regex", e.target.value)}
+                value={String(c.valores.regex ?? "")}
+                onChange={(e) => onChange(c.con("regex", e.target.value))}
                 placeholder="^[A-Z]{2,4}$"
                 disabled={readonly}
               />
@@ -268,16 +283,18 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
             <span className={labelClass}>Mensaje de error</span>
             <Input
               className={inputClass}
-              value={String(config.mensajeError ?? "")}
-              onChange={(e) => handleChange("mensajeError", e.target.value)}
+              value={String(c.valores.mensajeError ?? "")}
+              onChange={(e) => onChange(c.con("mensajeError", e.target.value))}
               placeholder="El campo no es valido"
               disabled={readonly}
             />
           </label>
         </div>
       );
+    }
 
-    case "logica_esperar":
+    case "logica_esperar": {
+      const c = editorDeConfig("logica_esperar", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
@@ -287,13 +304,13 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
                 type="number"
                 min={1}
                 className={`${inputClass} w-20`}
-                value={Number(config.duracion ?? 1)}
-                onChange={(e) => handleChange("duracion", Number(e.target.value))}
+                value={Number(c.valores.duracion)}
+                onChange={(e) => onChange(c.con("duracion", Number(e.target.value)))}
                 disabled={readonly}
               />
               <Select
-                value={String(config.unidad ?? "horas")}
-                onValueChange={(v) => handleChange("unidad", v)}
+                value={String(c.valores.unidad)}
+                onValueChange={(v) => onChange(c.con("unidad", v))}
                 disabled={readonly}
               >
                 <SelectTrigger className={`${selectClass} flex-1`}>
@@ -310,8 +327,10 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
           </label>
         </div>
       );
+    }
 
-    case "logica_esperar_respuesta":
+    case "logica_esperar_respuesta": {
+      const c = editorDeConfig("logica_esperar_respuesta", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
@@ -321,13 +340,13 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
                 type="number"
                 min={1}
                 className={`${inputClass} w-20`}
-                value={Number(config.timeout ?? 24)}
-                onChange={(e) => handleChange("timeout", Number(e.target.value))}
+                value={Number(c.valores.timeout)}
+                onChange={(e) => onChange(c.con("timeout", Number(e.target.value)))}
                 disabled={readonly}
               />
               <Select
-                value={String(config.unidadTimeout ?? "horas")}
-                onValueChange={(v) => handleChange("unidadTimeout", v)}
+                value={String(c.valores.unidadTimeout)}
+                onValueChange={(v) => onChange(c.con("unidadTimeout", v))}
                 disabled={readonly}
               >
                 <SelectTrigger className={`${selectClass} flex-1`}>
@@ -345,8 +364,8 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
           <label className="block">
             <span className={labelClass}>Mensaje si no responde (opcional)</span>
             <TextareaConVariables
-              value={String(config.mensajeTimeout ?? "")}
-              onChange={(v) => handleChange("mensajeTimeout", v)}
+              value={String(c.valores.mensajeTimeout ?? "")}
+              onChange={(v) => onChange(c.con("mensajeTimeout", v))}
               placeholder="Ej: Hola {{lead.nombre}}, notamos que no respondiste..."
               rows={3}
               className={`${inputClass} h-auto min-h-[80px] resize-y`}
@@ -358,15 +377,17 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
           </div>
         </div>
       );
+    }
 
-    case "logica_esperar_evento":
+    case "logica_esperar_evento": {
+      const c = editorDeConfig("logica_esperar_evento", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Evento a esperar</span>
             <Select
-              value={String(config.evento ?? "")}
-              onValueChange={(v) => handleChange("evento", v)}
+              value={String(c.valores.evento ?? "")}
+              onValueChange={(v) => onChange(c.con("evento", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -388,13 +409,13 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
                 type="number"
                 min={1}
                 className={`${inputClass} w-20`}
-                value={Number(config.timeoutMax ?? 7)}
-                onChange={(e) => handleChange("timeoutMax", Number(e.target.value))}
+                value={Number(c.valores.timeoutMax)}
+                onChange={(e) => onChange(c.con("timeoutMax", Number(e.target.value)))}
                 disabled={readonly}
               />
               <Select
-                value={String(config.unidadTimeoutMax ?? "dias")}
-                onValueChange={(v) => handleChange("unidadTimeoutMax", v)}
+                value={String(c.valores.unidadTimeoutMax)}
+                onValueChange={(v) => onChange(c.con("unidadTimeoutMax", v))}
                 disabled={readonly}
               >
                 <SelectTrigger className={`${selectClass} flex-1`}>
@@ -409,16 +430,18 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
           </label>
         </div>
       );
+    }
 
-    case "logica_loop":
+    case "logica_loop": {
+      const c = editorDeConfig("logica_loop", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Campo a iterar (array)</span>
             <Input
               className={inputClass}
-              value={String(config.campo ?? "")}
-              onChange={(e) => handleChange("campo", e.target.value)}
+              value={String(c.valores.campo ?? "")}
+              onChange={(e) => onChange(c.con("campo", e.target.value))}
               placeholder="Ej: contexto.productos"
               disabled={readonly}
             />
@@ -428,8 +451,8 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
             <span className={labelClass}>Variable del item</span>
             <Input
               className={inputClass}
-              value={String(config.variableItem ?? "item")}
-              onChange={(e) => handleChange("variableItem", e.target.value)}
+              value={String(c.valores.variableItem)}
+              onChange={(e) => onChange(c.con("variableItem", e.target.value))}
               placeholder="item"
               disabled={readonly}
             />
@@ -442,23 +465,25 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
               min={1}
               max={100}
               className={inputClass}
-              value={Number(config.maxIteraciones ?? 10)}
-              onChange={(e) => handleChange("maxIteraciones", Number(e.target.value))}
+              value={Number(c.valores.maxIteraciones)}
+              onChange={(e) => onChange(c.con("maxIteraciones", Number(e.target.value)))}
               disabled={readonly}
             />
           </label>
         </div>
       );
+    }
 
-    case "logica_goto":
+    case "logica_goto": {
+      const c = editorDeConfig("logica_goto", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Ir al nodo</span>
             <Input
               className={inputClass}
-              value={String(config.nodoDestino ?? "")}
-              onChange={(e) => handleChange("nodoDestino", e.target.value)}
+              value={String(c.valores.nodoDestino ?? "")}
+              onChange={(e) => onChange(c.con("nodoDestino", e.target.value))}
               placeholder="ID del nodo destino"
               disabled={readonly}
             />
@@ -469,15 +494,17 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
           </div>
         </div>
       );
+    }
 
-    case "logica_detener":
+    case "logica_detener": {
+      const c = editorDeConfig("logica_detener", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Resultado</span>
             <Select
-              value={String(config.resultado ?? "exito")}
-              onValueChange={(v) => handleChange("resultado", v)}
+              value={String(c.valores.resultado)}
+              onValueChange={(v) => onChange(c.con("resultado", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -495,23 +522,25 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
             <span className={labelClass}>Mensaje final (opcional)</span>
             <Input
               className={inputClass}
-              value={String(config.mensaje ?? "")}
-              onChange={(e) => handleChange("mensaje", e.target.value)}
+              value={String(c.valores.mensaje ?? "")}
+              onChange={(e) => onChange(c.con("mensaje", e.target.value))}
               placeholder="Workflow completado"
               disabled={readonly}
             />
           </label>
         </div>
       );
+    }
 
-    case "logica_error":
+    case "logica_error": {
+      const c = editorDeConfig("logica_error", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Accion en caso de error</span>
             <Select
-              value={String(config.accion ?? "continuar")}
-              onValueChange={(v) => handleChange("accion", v)}
+              value={String(c.valores.accion)}
+              onValueChange={(v) => onChange(c.con("accion", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -526,7 +555,7 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
             </Select>
           </label>
 
-          {config.accion === "reintentar" && (
+          {c.valores.accion === "reintentar" && (
             <label className="block">
               <span className={labelClass}>Reintentos maximos</span>
               <Input
@@ -534,14 +563,15 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
                 min={1}
                 max={5}
                 className={inputClass}
-                value={Number(config.reintentos ?? 3)}
-                onChange={(e) => handleChange("reintentos", Number(e.target.value))}
+                value={Number(c.valores.reintentos)}
+                onChange={(e) => onChange(c.con("reintentos", Number(e.target.value)))}
                 disabled={readonly}
               />
             </label>
           )}
         </div>
       );
+    }
 
     default:
       return (

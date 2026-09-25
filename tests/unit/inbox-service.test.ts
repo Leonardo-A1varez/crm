@@ -36,6 +36,9 @@ function makeReadOnlyDeps(
     convs,
     messages,
     metaApi: new DefaultMetaApiService(convs, messages, {
+      sendTemplate: async () => {
+        throw new Error("sendTemplate no debe invocarse acá");
+      },
       sendText: async () => {
         throw new Error("sendText no debe invocarse en read path");
       },

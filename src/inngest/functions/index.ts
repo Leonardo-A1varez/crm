@@ -30,6 +30,10 @@ import type { UpdateLeadTwinDeps } from "@/inngest/functions/update-lead-twin";
 import { makeUpdateLeadTwinFn } from "@/inngest/functions/update-lead-twin";
 import type { DispararWorkflowDeps } from "@/inngest/functions/workflow-disparar";
 import { makeWorkflowDispararFn } from "@/inngest/functions/workflow-disparar";
+import type { WorkflowInactividadDeps } from "@/inngest/functions/workflow-inactividad";
+import { makeWorkflowInactividadFn } from "@/inngest/functions/workflow-inactividad";
+import type { WorkflowProgramadosDeps } from "@/inngest/functions/workflow-programados";
+import { makeWorkflowProgramadosFn } from "@/inngest/functions/workflow-programados";
 import type { WorkflowSegmentoDeps } from "@/inngest/functions/workflow-segmento";
 import { makeWorkflowSegmentoFn } from "@/inngest/functions/workflow-segmento";
 
@@ -49,6 +53,8 @@ export interface CrmInngestDeps {
   dispatchOutboxEvents: DispatchOutboxEventsDeps;
   workflowDisparar: DispararWorkflowDeps;
   workflowSegmento: WorkflowSegmentoDeps;
+  workflowProgramados: WorkflowProgramadosDeps;
+  workflowInactividad: WorkflowInactividadDeps;
 }
 
 export function makeCrmInngestFunctions(deps: CrmInngestDeps) {
@@ -68,5 +74,7 @@ export function makeCrmInngestFunctions(deps: CrmInngestDeps) {
     makeDispatchOutboxEventsFn(deps.dispatchOutboxEvents),
     makeWorkflowDispararFn(deps.workflowDisparar),
     makeWorkflowSegmentoFn(deps.workflowSegmento),
+    makeWorkflowProgramadosFn(deps.workflowProgramados),
+    makeWorkflowInactividadFn(deps.workflowInactividad),
   ];
 }

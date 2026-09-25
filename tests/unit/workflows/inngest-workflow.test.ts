@@ -2,10 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { ConflictError, InfraError, ValidationError, isNonRetriable } from "@/lib/errors";
 import { arrancarPorDisparador, dispararHandler } from "@/inngest/functions/workflow-disparar";
 import type { EmitirSegmentoPendienteInput } from "@/inngest/functions/workflow-disparar";
-import { segmentoFalloHandler, segmentoHandler } from "@/inngest/functions/workflow-segmento";
+import {
+  filtroDeEspera,
+  segmentoFalloHandler,
+  segmentoHandler,
+} from "@/inngest/functions/workflow-segmento";
 import { crearRegistro } from "@/server/services/workflows/acciones/registro";
 import type { WorkflowRun } from "@/types/entities";
-import type { Grafo } from "@/types/workflows";
+import type { Grafo, NodoTipo } from "@/types/workflows";
 
 const AHORA = new Date("2026-08-22T10:00:00Z");
 
@@ -47,13 +51,38 @@ function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
   };
 }
 
+/** Una versión publicada como la devuelve el repo: lo que importa acá es su grafo. */
+function version(id: string, grafo: Grafo) {
+  return { id, max_pasos: 500, grafo };
+}
+
+function grafoLegacy(disparador: string): Grafo {
+  return {
+    nodos: [
+      { id: "d", tipo: "disparador", config: { disparador }, posicion: { x: 0, y: 0 } },
+      { id: "f", tipo: "fin", config: {}, posicion: { x: 0, y: 0 } },
+    ],
+    aristas: [{ desde: "d", hasta: "f", puerto: "salida" }],
+  };
+}
+
+function grafoCanvas(tipo: NodoTipo, config: Record<string, unknown> = {}): Grafo {
+  return {
+    nodos: [
+      { id: "t", tipo, config, posicion: { x: 0, y: 0 } },
+      { id: "fin", tipo: "logica_detener", config: {}, posicion: { x: 0, y: 0 } },
+    ],
+    aristas: [{ desde: "t", hasta: "fin", puerto: "salida" }],
+  };
+}
+
 describe("dispararHandler", () => {
   it("no arranca nada cuando la politica dice ignorar y ya hay una corrida viva", async () => {
     const runs = {
       arrancar: vi.fn(async () => ({ run: null, motivo: "ya_hay_corrida_viva" as const })),
     };
     const workflows = {
-      listarPublicadasPorDisparador: vi.fn(async () => [{ id: "v1", max_pasos: 500 }]),
+      listarPublicadasPorDisparador: vi.fn(async (d: string) => [version("v1", grafoLegacy(d))]),
     };
     const emitir = vi.fn(async () => {});
     const r = await dispararHandler(
@@ -72,9 +101,9 @@ describe("dispararHandler", () => {
         .mockResolvedValueOnce({ run: makeRun({ id: "run-b", workflow_version_id: "v2" }) }),
     };
     const workflows = {
-      listarPublicadasPorDisparador: vi.fn(async () => [
-        { id: "v1", max_pasos: 500 },
-        { id: "v2", max_pasos: 500 },
+      listarPublicadasPorDisparador: vi.fn(async (d: string) => [
+        version("v1", grafoLegacy(d)),
+        version("v2", grafoLegacy(d)),
       ]),
     };
     const emitir = vi.fn(async () => {});
@@ -102,9 +131,9 @@ describe("dispararHandler", () => {
         .mockResolvedValueOnce({ run: null, motivo: "ya_hay_corrida_viva" as const }),
     };
     const workflows = {
-      listarPublicadasPorDisparador: vi.fn(async () => [
-        { id: "v1", max_pasos: 500 },
-        { id: "v2", max_pasos: 500 },
+      listarPublicadasPorDisparador: vi.fn(async (d: string) => [
+        version("v1", grafoLegacy(d)),
+        version("v2", grafoLegacy(d)),
       ]),
     };
     const emitir = vi.fn(async () => {});
@@ -149,9 +178,9 @@ describe("dispararHandler", () => {
         .mockResolvedValueOnce({ run: makeRun({ id: "run-b" }) }),
     };
     const workflows = {
-      listarPublicadasPorDisparador: vi.fn(async () => [
-        { id: "v1", max_pasos: 500 },
-        { id: "v2", max_pasos: 500 },
+      listarPublicadasPorDisparador: vi.fn(async (d: string) => [
+        version("v1", grafoLegacy(d)),
+        version("v2", grafoLegacy(d)),
       ]),
     };
 
@@ -177,6 +206,105 @@ describe("dispararHandler", () => {
     // El seam que importa: la fase 2 no volvio a tocar arrancar.
     expect(runs.arrancar).toHaveBeenCalledTimes(2);
     expect(workflows.listarPublicadasPorDisparador).toHaveBeenCalledTimes(1);
+  });
+
+  // Corte 2 + filtros: el repo trae las versiones que escuchan el evento
+  // (chequeo grueso); el despacho aplica la configuración del trigger.
+  it("sólo arranca el flujo cuya etiqueta es la que se puso", async () => {
+    const runs = {
+      arrancar: vi.fn(async () => ({ run: makeRun({ id: "run-t1" }) })),
+    };
+    const workflows = {
+      listarPublicadasPorDisparador: vi.fn(async () => [
+        version("v-t1", grafoCanvas("trigger_etiqueta", { tagId: "t1" })),
+        version("v-t2", grafoCanvas("trigger_etiqueta", { tagId: "t2" })),
+      ]),
+    };
+    const emitir = vi.fn(async () => {});
+    const r = await dispararHandler(
+      { disparador: "etiqueta_asignada", leadId: "l1", contexto: {}, datos: { tagId: "t1" } },
+      { runs, workflows, emitir } as never,
+    );
+    expect(r.arrancadas).toBe(1);
+    expect(runs.arrancar).toHaveBeenCalledTimes(1);
+    expect(runs.arrancar).toHaveBeenCalledWith(expect.objectContaining({ versionId: "v-t1" }));
+  });
+
+  it("un flujo armado en el canvas arranca con el evento de su trigger", async () => {
+    const runs = { arrancar: vi.fn(async () => ({ run: makeRun({ id: "run-m" }) })) };
+    const workflows = {
+      listarPublicadasPorDisparador: vi.fn(async () => [
+        version("v-m", grafoCanvas("trigger_mensaje", { canal: "whatsapp" })),
+      ]),
+    };
+    const emitir = vi.fn(async () => {});
+    const r = await dispararHandler(
+      {
+        disparador: "mensaje_recibido",
+        leadId: "l1",
+        leadSessionId: "s1",
+        contexto: {},
+        datos: { canal: "wa", tipoMensaje: "text", texto: "hola" },
+      },
+      { runs, workflows, emitir } as never,
+    );
+    expect(r.arrancadas).toBe(1);
+    expect(emitir).toHaveBeenCalledWith({ runId: "run-m", desdePaso: 0 });
+  });
+
+  it("un evento sin datos no satisface un trigger con filtro (falla cerrado)", async () => {
+    const runs = { arrancar: vi.fn() };
+    const workflows = {
+      listarPublicadasPorDisparador: vi.fn(async () => [
+        version("v-t1", grafoCanvas("trigger_etiqueta", { tagId: "t1" })),
+      ]),
+    };
+    const r = await dispararHandler(
+      { disparador: "etiqueta_asignada", leadId: "l1", contexto: {} },
+      {
+        runs,
+        workflows,
+        emitir: vi.fn(),
+      } as never,
+    );
+    expect(r.arrancadas).toBe(0);
+    expect(runs.arrancar).not.toHaveBeenCalled();
+  });
+
+  // Programado, inactividad y manual los emite alguien que ya eligió el flujo:
+  // el disparo lo nombra y sólo ése arranca.
+  it("un disparo dirigido sólo arranca el workflow que nombra", async () => {
+    const runs = { arrancar: vi.fn(async () => ({ run: makeRun({ id: "run-w1" }) })) };
+    const workflows = {
+      listarPublicadasPorDisparador: vi.fn(async () => [
+        { ...version("v-w1", grafoCanvas("trigger_manual")), workflow_id: "w1" },
+        { ...version("v-w2", grafoCanvas("trigger_manual")), workflow_id: "w2" },
+      ]),
+    };
+    const emitir = vi.fn(async () => {});
+    const r = await dispararHandler(
+      { disparador: "manual", workflowId: "w1", leadId: "l1", contexto: {} },
+      { runs, workflows, emitir } as never,
+    );
+    expect(r.arrancadas).toBe(1);
+    expect(runs.arrancar).toHaveBeenCalledTimes(1);
+    expect(runs.arrancar).toHaveBeenCalledWith(expect.objectContaining({ versionId: "v-w1" }));
+  });
+
+  it("un disparo dirigido sin workflowId no arranca nada (falla cerrado)", async () => {
+    const runs = { arrancar: vi.fn() };
+    const workflows = {
+      listarPublicadasPorDisparador: vi.fn(async () => [
+        { ...version("v-w1", grafoCanvas("trigger_manual")), workflow_id: "w1" },
+      ]),
+    };
+    const r = await dispararHandler({ disparador: "manual", leadId: "l1", contexto: {} }, {
+      runs,
+      workflows,
+      emitir: vi.fn(),
+    } as never);
+    expect(r.arrancadas).toBe(0);
+    expect(runs.arrancar).not.toHaveBeenCalled();
   });
 });
 
@@ -456,6 +584,146 @@ describe("segmentoHandler", () => {
     // termina normalmente en la espera -- el conflicto se ignora.
     expect(r).toMatchObject({ tipo: "espera", nodoId: "w" });
     expect(runs.esperar).toHaveBeenCalledWith(run.id, "f", {}, 3);
+  });
+});
+
+describe("segmentoHandler — esperas de evento", () => {
+  const LEAD = "8de416bf-f7a8-4c77-aa2e-8ba5fd3ea42e";
+
+  function runsQueDevuelven(run: WorkflowRun) {
+    return {
+      tomarSegmento: vi.fn(async () => run),
+      registrarPaso: vi.fn(async () => {}),
+      esperar: vi.fn(async () => {}),
+      terminar: vi.fn(async () => {}),
+      fallar: vi.fn(async () => {}),
+    };
+  }
+
+  function workflowsCon(grafo: Grafo) {
+    return {
+      findVersion: vi.fn(async () => ({
+        id: "v1",
+        workflow_id: "w1",
+        version: 1,
+        grafo,
+        max_pasos: 500,
+        publicada: true,
+        created_at: AHORA,
+        created_by: null,
+        politica_concurrencia: "ignorar" as const,
+      })),
+    };
+  }
+
+  const grafoRespuesta: Grafo = {
+    nodos: [
+      { id: "t", tipo: "trigger_mensaje", config: {}, posicion: { x: 0, y: 0 } },
+      {
+        id: "w",
+        tipo: "logica_esperar_respuesta",
+        config: { timeout: 1, unidadTimeout: "horas" },
+        posicion: { x: 0, y: 0 },
+      },
+      {
+        id: "c",
+        tipo: "logica_condicion",
+        config: { campo: "sesion.respondio", operador: "es_verdadero", valor: null },
+        posicion: { x: 0, y: 0 },
+      },
+      { id: "a", tipo: "accion", config: { accion: "marcar" }, posicion: { x: 0, y: 0 } },
+      { id: "f", tipo: "fin", config: {}, posicion: { x: 0, y: 0 } },
+    ],
+    aristas: [
+      { desde: "t", hasta: "w", puerto: "salida" },
+      { desde: "w", hasta: "c", puerto: "salida" },
+      { desde: "c", hasta: "a", puerto: "verdadero" },
+      { desde: "c", hasta: "f", puerto: "falso" },
+      { desde: "a", hasta: "f", puerto: "salida" },
+    ],
+  };
+
+  it("una espera de respuesta dice qué evento la despierta y de qué lead", async () => {
+    const run = makeRun({ lead_id: LEAD });
+    const runs = runsQueDevuelven(run);
+    const r = await segmentoHandler({ runId: run.id, desdePaso: 0 }, {
+      runs,
+      workflows: workflowsCon(grafoRespuesta),
+      registro: crearRegistro({ marcar: async () => ({ puerto: "salida" }) }),
+      ahora: () => AHORA,
+    } as never);
+
+    expect(r).toEqual({
+      tipo: "espera",
+      nodoId: "w",
+      hasta: new Date(AHORA.getTime() + 60 * 60_000).toISOString(),
+      desdePaso: 2,
+      esperaEvento: {
+        tipo: "respuesta",
+        disparador: "mensaje_recibido",
+        leadId: LEAD,
+        desde: AHORA.toISOString(),
+      },
+    });
+    // Se guarda "no respondió": lo que queda si vence el tiempo.
+    expect(runs.esperar).toHaveBeenCalledWith(run.id, "c", { sesion: { respondio: false } }, 2);
+  });
+
+  it("al reanudar porque el lead contestó, el contexto dice que respondió", async () => {
+    const run = makeRun({
+      lead_id: LEAD,
+      nodo_actual: "c",
+      pasos_ejecutados: 2,
+      contexto: { sesion: { respondio: false } },
+    });
+    const marcar = vi.fn(async () => ({ puerto: "salida" as const }));
+    await segmentoHandler({ runId: run.id, desdePaso: 2, respondio: true }, {
+      runs: runsQueDevuelven(run),
+      workflows: workflowsCon(grafoRespuesta),
+      registro: crearRegistro({ marcar }),
+      ahora: () => AHORA,
+    } as never);
+    expect(marcar).toHaveBeenCalledTimes(1);
+  });
+
+  it("al reanudar por tiempo vencido, sigue diciendo que no respondió", async () => {
+    const run = makeRun({
+      lead_id: LEAD,
+      nodo_actual: "c",
+      pasos_ejecutados: 2,
+      contexto: { sesion: { respondio: false } },
+    });
+    const marcar = vi.fn(async () => ({ puerto: "salida" as const }));
+    await segmentoHandler({ runId: run.id, desdePaso: 2 }, {
+      runs: runsQueDevuelven(run),
+      workflows: workflowsCon(grafoRespuesta),
+      registro: crearRegistro({ marcar }),
+      ahora: () => AHORA,
+    } as never);
+    expect(marcar).not.toHaveBeenCalled();
+  });
+
+  it("una espera de tiempo no espera ningún evento", async () => {
+    const run = makeRun();
+    const r = await segmentoHandler({ runId: run.id, desdePaso: 0 }, {
+      runs: runsQueDevuelven(run),
+      workflows: workflowsCon(grafoLineal()),
+      registro: crearRegistro({ marcar: async () => ({ puerto: "salida" }) }),
+      ahora: () => AHORA,
+    } as never);
+    expect(r).not.toHaveProperty("esperaEvento");
+  });
+});
+
+describe("filtroDeEspera", () => {
+  it("sólo el evento de ese lead y de ese disparador despierta la espera", () => {
+    expect(filtroDeEspera("8de416bf-f7a8-4c77-aa2e-8ba5fd3ea42e", "mensaje_recibido")).toBe(
+      "async.data.leadId == '8de416bf-f7a8-4c77-aa2e-8ba5fd3ea42e' && async.data.disparador == 'mensaje_recibido'",
+    );
+  });
+
+  it("un id con comillas no entra en la expresión", () => {
+    expect(() => filtroDeEspera("x' || true || '", "mensaje_recibido")).toThrow(ValidationError);
   });
 });
 

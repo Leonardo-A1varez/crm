@@ -1,6 +1,7 @@
 import { eventType, staticSchema } from "inngest";
 import type { ParsedMessage } from "@/lib/meta/parse-webhook";
 import type { IntentClassification } from "@/lib/validation/ai";
+import type { DispararWorkflowInput } from "@/lib/workflows/disparos";
 import type { Canal, EstadoEntrega } from "@/types/domain";
 import type { UUID } from "@/types/entities";
 
@@ -131,22 +132,43 @@ export const outboxDispatchRequested = eventType("outbox/dispatch.requested", {
 });
 
 /**
- * Dispara el motor de workflows (W2). Quien lo emite NO es responsabilidad de
- * esta task -- etiquetado, el pipeline de mensajes y el cambio de etapa son
- * candidatos naturales, pero conectarlos es trabajo de quien integre cada
- * disparador con su fuente real. `workflow-disparar` sólo consume esto.
+ * Dispara el motor de workflows. Lo consume `workflow-disparar`.
+ *
+ * Emisores:
+ * - `on-message-received`: `mensaje_recibido`, y `etiqueta_asignada` por cada
+ *   etiqueta que una regla pone nueva.
+ * - `update-lead-twin`: `etapa_cambiada` cuando el extractor mueve la etapa.
+ * - `dispararWorkflowManualAction` (panel): `manual`, dirigido a un flujo.
+ *
+ * Todos con `id` determinístico: Inngest deduplica la reentrega. Los cambios que
+ * hace un flujo con sus propias acciones NO emiten: así un flujo no se dispara a
+ * sí mismo en bucle.
+ *
+ * `datos` alimenta los filtros del trigger y no se persiste; `contexto` es lo
+ * que queda en `workflow_runs.contexto`; `workflowId` restringe a un flujo y es
+ * obligatorio en los dirigidos (`DISPARADORES_DIRIGIDOS`).
  */
 export const workflowDisparoRecibido = eventType("workflow/disparo.recibido", {
-  schema: staticSchema<{
-    disparador: "etiqueta_asignada" | "mensaje_recibido" | "etapa_cambiada";
-    leadId: UUID;
-    leadSessionId?: UUID;
-    contexto: Record<string, unknown>;
-  }>(),
+  schema: staticSchema<DispararWorkflowInput>(),
 });
 
 // `desdePaso` es el compare-and-swap: si no coincide con pasos_ejecutados, este
 // segmento ya corrio y la reentrega no lo reejecuta.
+// `respondio` sólo viaja al reanudar después de "Esperar respuesta" cuando el
+// lead contestó antes del tiempo máximo (ver `workflow-segmento.ts`).
 export const workflowSegmentoPendiente = eventType("workflow/segmento.pendiente", {
-  schema: staticSchema<{ runId: UUID; desdePaso: number }>(),
+  schema: staticSchema<{ runId: UUID; desdePaso: number; respondio?: boolean }>(),
+});
+
+/**
+ * Revisa a mano los flujos "Programado" (además del cron de cada 5 minutos).
+ * Sin datos: la hora que cuenta es la del evento.
+ */
+export const workflowProgramadosRevisar = eventType("workflow/programados.revisar", {
+  schema: staticSchema<Record<string, never>>(),
+});
+
+/** Revisa a mano los flujos "Inactividad" (además del escaneo de cada 10 minutos). */
+export const workflowInactividadRevisar = eventType("workflow/inactividad.revisar", {
+  schema: staticSchema<Record<string, never>>(),
 });

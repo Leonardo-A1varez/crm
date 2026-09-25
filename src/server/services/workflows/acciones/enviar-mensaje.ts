@@ -1,15 +1,18 @@
-import { estaAbierto, proximaApertura } from "@/lib/agente/horario";
-import { BudgetExceededError, NotFoundError, ValidationError } from "@/lib/errors";
+import { NotFoundError, ValidationError } from "@/lib/errors";
+import { configDeAccion, type CanalDeEnvio } from "@/lib/workflows/config-nodos";
 import { interpolarVariables } from "@/lib/workflows/variables";
 import type { AgenteConfigValores } from "@/types/agente";
 import type { Canal } from "@/types/domain";
 import type { UUID } from "@/types/entities";
-import type { Nodo } from "@/types/workflows";
+import type { Nodo, ResultadoAccion, SaltoDeTope } from "@/types/workflows";
+import type { DifusionSupresionesRepository } from "@/server/repositories/difusion-supresiones.repo";
+import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { MetaApiService } from "@/server/services/meta-api.service";
 import { cargarDatosInterpolacion } from "@/server/services/workflows/acciones/datos-interpolacion";
 import type { AccionHandler, EntornoAccion } from "./registro";
+import { revisarTopesDeEnvio } from "./topes-de-envio";
 
 const VEINTICUATRO_HORAS_MS = 24 * 60 * 60 * 1000;
 
@@ -62,19 +65,43 @@ export interface AccionEnviarMensajeDeps {
   metaApi: Pick<MetaApiService, "sendOutbound">;
   conversations: ConversationsParaEnviarMensaje;
   leads: Pick<LeadsRepository, "findById">;
-  sessions: { findById: (id: UUID) => Promise<unknown> };
+  /**
+   * `findActiveByLeadId` es para el tope "requiere humano": se mira la sesión
+   * ACTIVA del lead, no la de la corrida, que puede haber cerrado mientras la
+   * corrida dormía.
+   */
+  sessions: { findById: (id: UUID) => Promise<unknown> } & Pick<
+    LeadSessionRepository,
+    "findActiveByLeadId"
+  >;
   users: { findById: (id: UUID) => Promise<unknown> };
   configProvider: ConfigProviderParaEnviarMensaje;
+  /**
+   * La lista de bajas de Difusión (`difusion_supresiones`), por teléfono.
+   *
+   * Opcional en el TIPO sólo para no romper a quien arma el registro sin él
+   * todavía (`inngest/bootstrap.ts`); en runtime falla CERRADO: sin este
+   * puerto la acción tira `IllegalStateError` y no manda. Mandarle a alguien
+   * que se dio de baja porque un puerto no se cableó es exactamente lo que el
+   * PRD §6.6 dice que no pasa "nunca".
+   */
+  supresiones?: Pick<DifusionSupresionesRepository, "activasPorTelefonos">;
 }
 
-function leerTexto(nodo: Nodo): string {
-  const valor = nodo.config["texto"];
-  if (typeof valor === "string" && valor.length > 0) return valor;
-  throw new ValidationError(
-    `el nodo "${nodo.id}" (enviar_mensaje) no declara "texto"`,
-    "texto_ausente",
-  );
-}
+/**
+ * El canal que exige cada opción del selector del nodo, o `null` si deja que
+ * lo decida la conversación ("Inferir del trigger", el default del panel). La
+ * acción no sabe abrir una conversación en otro canal: si el nodo pide uno
+ * distinto del de la conversación activa, falla en voz alta en vez de mandar
+ * por otro lado. Las opciones salen del contrato (`CANALES_DE_ENVIO`): una
+ * opción nueva sin su canal acá no compila.
+ */
+const CANAL_DEL_NODO: Readonly<Record<CanalDeEnvio, Canal | null>> = {
+  inferir: null,
+  whatsapp: "wa",
+  instagram: "ig",
+  messenger: "fb",
+};
 
 /**
  * Mismo criterio que `requireLeadSessionId` en `acciones/internas.ts`: sin
@@ -92,65 +119,57 @@ function requireLeadSessionId(nodo: Nodo, entorno: EntornoAccion): UUID {
   );
 }
 
+/** La acción no se ejecuta: un tope la saltó y el lead sale del flujo. */
+function saltar(salto: SaltoDeTope): ResultadoAccion {
+  return { puerto: "salida", salto };
+}
+
 /**
  * La acción de riesgo del motor: es la única que llama a Meta. Orden
- * obligatorio y no reordenable -- **tope → horario → mandar**:
+ * obligatorio y no reordenable:
  *
- *   1. El tope se chequea ANTES que nada más. Chequearlo después de mandar es
+ *   1. **Topes del lead (PRD §6.6)**: requiere humano, dado de baja. Van
+ *      primero porque son los más permanentes: un lead dado de baja no tiene
+ *      que quedar diferido horas por el horario para saltarse recién al
+ *      despertar, y el motivo que se registra tiene que ser el que explica de
+ *      verdad por qué no recibió.
+ *   2. **Tope de frecuencia**, ANTES de mandar. Chequearlo después es
  *      enterarse de que ya se había pasado con el mensaje 4 entregado.
- *   2. El horario se chequea después del tope y antes de mandar. Si se
- *      chequeara antes, un mensaje que igual se iba a diferir habría gastado
- *      presupuesto que nunca se usó.
- *   3. Mandar es lo último, y pasa por `MetaApiService.sendOutbound`, que ya
+ *   3. **Horario**: difiere, no salta. Va después del tope: si se chequeara
+ *      antes, un mensaje que igual se iba a saltar esperaría horas para nada.
+ *   4. **Ventana de 24 h de Meta**: salta (`sin_ventana`).
+ *   5. Mandar es lo último, y pasa por `MetaApiService.sendOutbound`, que ya
  *      deduplica por `idempotencyKey` -- ver su doc comment. La key
  *      `wf:<runId>:<orden>` es lo que hace que un reintento del step de
  *      Inngest no mande el mismo WhatsApp dos veces.
+ *
+ * Un tope que salta NO tira: devuelve `salto` con el motivo y el ejecutor
+ * termina la corrida con él. Un tope no es un fallo —el flujo hizo lo que
+ * tenía que hacer— y pintarlo como error haría que el listado grite "Con
+ * errores" por un flujo sano. Al despertar de una espera la acción vuelve a
+ * correr entera, así que los topes se revalidan solos (PRD §6.4).
  */
 export function crearAccionEnviarMensaje(deps: AccionEnviarMensajeDeps): AccionHandler {
   return async (nodo, entorno) => {
-    const textoRaw = leerTexto(nodo);
+    // El texto y el canal, con las claves y el default con que los escribe el
+    // panel (`config-nodos.ts`). El nodo legacy guarda el texto con su clave
+    // de antes y se lee igual.
+    const { mensaje: textoRaw, canal: canalDelNodo } = configDeAccion("enviar_mensaje", nodo);
+    const canal = CANAL_DEL_NODO[canalDelNodo];
     const leadSessionId = requireLeadSessionId(nodo, entorno);
+    // El reloj del motor, no el de la máquina: en "Probar" y en el simulador
+    // es virtual, y un envío diferido tiene que ver abrir el horario en ESE
+    // reloj. En producción son la misma hora.
+    const ahora = entorno.ahora ?? new Date();
 
-    // 1. TOPE.
-    const cfg = await deps.configProvider.activa();
-    const desde = new Date(Date.now() - VEINTICUATRO_HORAS_MS);
-    const usados = await deps.messages.contarSalientesAutomaticos(entorno.leadId, desde);
-    if (usados >= cfg.max_salientes_automaticos_24h) {
-      throw new BudgetExceededError(
-        `tope de ${cfg.max_salientes_automaticos_24h} salientes automáticos en 24 h alcanzado para este lead`,
-        "salientes_24h",
-      );
+    // 1-3. TOPES DEL LEAD, DE FRECUENCIA Y HORARIO: los mismos que una
+    // plantilla (`topes-de-envio.ts`), en el mismo orden.
+    const topes = await revisarTopesDeEnvio(deps, entorno, ahora, "enviar_mensaje");
+    if (topes.tipo === "salto") return saltar(topes.salto);
+    if (topes.tipo === "diferir") {
+      return { puerto: "salida", diferirHasta: topes.hasta, salida: { diferido: true } };
     }
-
-    // 2. HORARIO. `cfg.horario`/`cfg.horario_timezone` son obligatorios en el
-    // tipo, pero un adaptador real puede llegar a devolverlos vacíos (bug de
-    // integración, config parcial). Fix-round-1: la primera versión los leía
-    // con un `&&` que, si faltaban, saltaba el chequeo entero en silencio --
-    // el mensaje se mandaba igual sin importar la hora. Eso es exactamente
-    // lo que la regla "fallar en voz alta" de este proyecto prohíbe: acá NO
-    // aplica el fail-open documentado en `estaAbierto` (ese es para una
-    // *timezone* que no se puede interpretar, no para una config ausente).
-    if (!cfg.horario || !cfg.horario_timezone) {
-      throw new ValidationError(
-        "la config del agente no trae horario de atención: no se puede decidir si está abierto",
-        "horario_config_ausente",
-      );
-    }
-
-    const ahora = new Date();
-    if (!estaAbierto(cfg.horario, cfg.horario_timezone, ahora)) {
-      const cuando = proximaApertura(cfg.horario, cfg.horario_timezone, ahora);
-      // Sin un solo rango válido no hay hora hábil a la que diferir. Mandar
-      // igual sería ignorar la decisión del dueño; diferir para siempre sería
-      // un flujo mudo que nunca termina.
-      if (!cuando) {
-        throw new ValidationError(
-          "el horario de atención no tiene ningún rango: no hay hora hábil a la que diferir",
-          "horario_vacio",
-        );
-      }
-      return { puerto: "salida", diferirHasta: cuando, salida: { diferido: true } };
-    }
+    const { lead } = topes;
 
     // Cargar datos para interpolación de variables (solo después de validar horario)
     const datosInterpolacion = await cargarDatosInterpolacion(
@@ -159,10 +178,7 @@ export function crearAccionEnviarMensaje(deps: AccionEnviarMensajeDeps): AccionH
     );
     const { texto } = interpolarVariables(textoRaw, datosInterpolacion);
 
-    const [conversacion, lead] = await Promise.all([
-      deps.conversations.findActivaByLead(entorno.leadId),
-      deps.leads.findById(entorno.leadId),
-    ]);
+    const conversacion = await deps.conversations.findActivaByLead(entorno.leadId);
     if (!conversacion) {
       throw new NotFoundError(
         `el lead ${entorno.leadId} no tiene conversación activa`,
@@ -170,25 +186,29 @@ export function crearAccionEnviarMensaje(deps: AccionEnviarMensajeDeps): AccionH
         entorno.leadId,
       );
     }
-    if (!lead) {
-      throw new NotFoundError(`lead no encontrado: ${entorno.leadId}`, "lead", entorno.leadId);
+    if (canal !== null && conversacion.canal !== canal) {
+      throw new ValidationError(
+        `el nodo "${nodo.id}" (enviar_mensaje) pide mandar por ${canal} y la conversación activa es de ${conversacion.canal}`,
+        "canal_distinto",
+      );
     }
 
-    // Ventana de 24 h de Meta: fuera de ella, Meta rechaza texto libre y solo
-    // deja pasar plantillas aprobadas. Fallar en voz alta y NO degradar a una
+    // 4. VENTANA DE 24 H DE META: fuera de ella, Meta rechaza texto libre y
+    // solo deja pasar plantillas aprobadas. Se salta y NO se degrada a una
     // plantilla -- elegir cuál le llega a un cliente no es decisión del
-    // motor, es decisión de negocio (ver brief de esta task).
+    // motor, es decisión de negocio.
     if (
       !conversacion.ultimo_entrante_at ||
       ahora.getTime() - conversacion.ultimo_entrante_at.getTime() > VEINTICUATRO_HORAS_MS
     ) {
-      throw new ValidationError(
-        "la ventana de 24 h de Meta está cerrada: hace falta una plantilla aprobada, no texto libre",
-        "ventana_24h_meta_cerrada",
-      );
+      return saltar({
+        motivo: "sin_ventana",
+        detalle:
+          "La ventana de 24 h de Meta está cerrada: hace falta una plantilla aprobada, no texto libre.",
+      });
     }
 
-    // 3. MANDAR.
+    // 5. MANDAR.
     const mensaje = await deps.metaApi.sendOutbound({
       conversacionId: conversacion.id,
       leadSessionId,

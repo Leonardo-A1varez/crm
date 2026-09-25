@@ -1,11 +1,19 @@
+import { ESTADOS_WORKFLOW, ESTADO_WORKFLOW_LABEL } from "./workflow-estado";
 import type { ValorParam } from "./filtros-leads";
 import type { WorkflowEstado, WorkflowResumen } from "@/types/entities";
 
 /** Nombre de cada filtro en la URL de `/workflows`. */
 export const PARAM = { busqueda: "q", estado: "estado", ordenar: "orden" } as const;
 
-/** `"todos"` no es un `WorkflowEstado`: es la ausencia de filtro por estado. */
-export const ESTADOS_WORKFLOW_FILTRO = ["todos", "activo", "borrador", "pausado", "error"] as const;
+/**
+ * `"todos"` no es un `WorkflowEstado`: es la ausencia de filtro por estado.
+ *
+ * El resto sale de `ESTADOS_WORKFLOW` en vez de repetirse acá. La lista estaba
+ * escrita a mano y quedó desfasada cuando el estado pasó de cuatro valores a
+ * cinco: el filtro seguía ofreciendo "error" (que ya no existe) y no ofrecía
+ * "Con cambios". Derivarla es lo que hace imposible que se vuelva a desfasar.
+ */
+export const ESTADOS_WORKFLOW_FILTRO = ["todos", ...ESTADOS_WORKFLOW] as const;
 export type EstadoWorkflowFiltro = (typeof ESTADOS_WORKFLOW_FILTRO)[number];
 
 export const ORDENAR_WORKFLOWS = ["editado", "nombre", "runs", "reciente"] as const;
@@ -20,10 +28,7 @@ export const ORDENAR_WORKFLOWS_LABEL: Record<OrdenarWorkflows, string> = {
 
 export const ESTADO_WORKFLOW_FILTRO_LABEL: Record<EstadoWorkflowFiltro, string> = {
   todos: "Todos",
-  activo: "Activo",
-  borrador: "Borrador",
-  pausado: "Pausado",
-  error: "Error",
+  ...ESTADO_WORKFLOW_LABEL,
 };
 
 export interface FiltrosWorkflowsValores {
@@ -33,7 +38,7 @@ export interface FiltrosWorkflowsValores {
 }
 
 function esEstadoWorkflow(v: string): v is WorkflowEstado {
-  return v === "activo" || v === "borrador" || v === "pausado" || v === "error";
+  return (ESTADOS_WORKFLOW as readonly string[]).includes(v);
 }
 
 function texto(valor: ValorParam): string | undefined {

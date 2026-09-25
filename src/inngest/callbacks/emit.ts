@@ -7,18 +7,38 @@
  */
 
 import type { CrmInngestClient } from "@/inngest/client";
+import { workflowDisparoRecibido } from "@/inngest/events";
 import type { EmittedEvent } from "@/inngest/functions/on-message-received";
+import type { DisparoWorkflow } from "@/inngest/functions/workflow-disparar";
 import type { PublishedEvent, InngestEmitFn } from "@/server/services/event-bus.service";
 
 /**
- * Para `OnMessageReceivedDeps.emit` — union de 3 events específicos
- * (turn.completed, auto-handoff.evaluate, lead/created).
+ * Para `OnMessageReceivedDeps.emit` — union de los eventos del pipeline
+ * (turn.completed, auto-handoff.evaluate, lead/created, workflow/disparo.recibido).
+ * El `id` viaja cuando el evento lo trae: es la deduplicación de Inngest.
  */
 export function makeEmitForOnMessageReceived(
   client: CrmInngestClient,
 ): (event: EmittedEvent) => Promise<void> {
   return async (event) => {
-    await client.send({ name: event.name, data: event.data });
+    await client.send({
+      name: event.name,
+      data: event.data,
+      ...("id" in event ? { id: event.id } : {}),
+    });
+  };
+}
+
+/** Para `UpdateLeadTwinDeps.emitirDisparo`: manda `workflow/disparo.recibido` con su `id`. */
+export function makeEmitirDisparoWorkflow(
+  client: CrmInngestClient,
+): (disparo: DisparoWorkflow) => Promise<void> {
+  return async (disparo) => {
+    await client.send({
+      name: workflowDisparoRecibido.name,
+      data: disparo.data,
+      id: disparo.id,
+    });
   };
 }
 

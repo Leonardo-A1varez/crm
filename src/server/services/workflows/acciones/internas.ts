@@ -1,5 +1,5 @@
 import { NotFoundError, ValidationError } from "@/lib/errors";
-import { ETAPAS_EMBUDO, type EtapaEmbudo } from "@/types/domain";
+import { configDeAccion } from "@/lib/workflows/config-nodos";
 import type { HandoffService } from "@/server/services/handoff.service";
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { TagsRepository } from "@/server/repositories/tags.repo";
@@ -11,6 +11,10 @@ import type { AccionHandler, EntornoAccion } from "./registro";
  * (Task 9) manda un WhatsApp real y por eso llega despues: estas tres no
  * tienen efecto externo, asi que un grafo mal armado nunca puede spamear a
  * un lead - como mucho le cuelga una etiqueta de mas o mueve una etapa.
+ *
+ * Lo que cada una lee de `nodo.config` sale de `configDeAccion`
+ * (`lib/workflows/config-nodos.ts`): el mismo schema con que escribe el
+ * panel y con que revisa el validador. Ninguna nombra una clave por su cuenta.
  */
 export interface AccionesInternasDeps {
   tags: Pick<TagsRepository, "assignToLead">;
@@ -23,12 +27,6 @@ export interface AccionesInternasDeps {
   handoff: Pick<HandoffService, "pause">;
 }
 
-/** `config[campo]` como string no vacio, o `undefined` si falta o es de otro tipo. */
-function leerStringConfig(nodo: Nodo, campo: string): string | undefined {
-  const valor = nodo.config[campo];
-  return typeof valor === "string" && valor.length > 0 ? valor : undefined;
-}
-
 /**
  * `leadSessionId` es opcional en `EntornoAccion` porque no todo disparador de
  * workflow nace de un mensaje (W3 puede agregar disparadores por cron o por
@@ -36,41 +34,38 @@ function leerStringConfig(nodo: Nodo, campo: string): string | undefined {
  * sesion -- no hay `current_stage` ni handoff sin una -- asi que la ausencia
  * es un ValidationError y no un `undefined` que explota tres capas mas abajo.
  */
-function requireLeadSessionId(nodo: Nodo, entorno: EntornoAccion): string {
+function requireLeadSessionId(nodo: Nodo, entorno: EntornoAccion, accion: string): string {
   if (entorno.leadSessionId) return entorno.leadSessionId;
   throw new ValidationError(
-    `el nodo "${nodo.id}" (${String(nodo.config["accion"])}) necesita una sesion activa y la corrida no tiene una`,
+    `el nodo "${nodo.id}" (${accion}) necesita una sesion activa y la corrida no tiene una`,
     "lead_session_id_ausente",
   );
 }
 
 /**
- * Cuelga una etiqueta con `source: "workflow"`. Ese valor es lo que hace que
+ * Cuelga las etiquetas con `source: "workflow"`. Ese valor es lo que hace que
  * `assignToLead` no revive una etiqueta que una persona saco a mano -- ver el
  * doc comment de `TagsRepository.assignToLead`. `assignedBy: null` porque
  * quien asigna es una regla, no un usuario.
+ *
+ * Las etiquetas son las que eligió el nodo "Asignar etiqueta" del panel. El
+ * nodo legacy guarda una sola, con su clave de antes, y se lee igual: esa
+ * traducción vive en el contrato, no acá.
+ *
+ * `quitadas` en la salida: las que una persona había sacado y por eso NO
+ * quedaron puestas. Sin eso, la salida diría "etiquetado" de algo que no lo
+ * está.
  */
 function crearPonerEtiqueta(tags: AccionesInternasDeps["tags"]): AccionHandler {
   return async (nodo, entorno) => {
-    const tagId = leerStringConfig(nodo, "tagId");
-    if (!tagId) {
-      throw new ValidationError(
-        `el nodo "${nodo.id}" (poner_etiqueta) no declara "tagId"`,
-        "tag_id_ausente",
-      );
+    const { tagIds } = configDeAccion("poner_etiqueta", nodo);
+    const quitadas: string[] = [];
+    for (const tagId of tagIds) {
+      const leadTag = await tags.assignToLead(entorno.leadId, tagId, "workflow", null);
+      if (leadTag.quitada_at) quitadas.push(tagId);
     }
-    const leadTag = await tags.assignToLead(entorno.leadId, tagId, "workflow", null);
-    return {
-      puerto: "salida",
-      salida: { tag_id: tagId, quitada_at: leadTag.quitada_at?.toISOString() ?? null },
-    };
+    return { puerto: "salida", salida: { tag_ids: tagIds, quitadas } };
   };
-}
-
-const ETAPAS_VALIDAS = new Set<string>(ETAPAS_EMBUDO);
-
-function esEtapaEmbudo(valor: string): valor is EtapaEmbudo {
-  return ETAPAS_VALIDAS.has(valor);
 }
 
 /**
@@ -111,17 +106,13 @@ function esEtapaEmbudo(valor: string): valor is EtapaEmbudo {
  * Solo acepta `EtapaEmbudo` (las 6 posiciones del embudo): `perdido` y
  * `requiere_humano` son desvios que decide el pipeline, no destinos de un
  * nodo `cambiar_etapa` -- mismo limite que ya impone `moverEtapa` en el repo.
+ * Lo hace cumplir el schema de `cambiar_etapa` en `config-nodos.ts`, el mismo
+ * que revisa el validador antes de publicar.
  */
 function crearCambiarEtapa(sessions: AccionesInternasDeps["sessions"]): AccionHandler {
   return async (nodo, entorno) => {
-    const etapa = leerStringConfig(nodo, "etapa");
-    if (!etapa || !esEtapaEmbudo(etapa)) {
-      throw new ValidationError(
-        `el nodo "${nodo.id}" (cambiar_etapa) tiene "etapa" invalida: ${JSON.stringify(nodo.config["etapa"])}`,
-        "etapa_invalida",
-      );
-    }
-    const leadSessionId = requireLeadSessionId(nodo, entorno);
+    const { etapaId: etapa } = configDeAccion("cambiar_etapa", nodo);
+    const leadSessionId = requireLeadSessionId(nodo, entorno, "cambiar_etapa");
     const actual = await sessions.findById(leadSessionId);
     if (!actual) {
       throw new NotFoundError(
@@ -136,7 +127,7 @@ function crearCambiarEtapa(sessions: AccionesInternasDeps["sessions"]): AccionHa
       {
         current_stage: {
           por: "workflow",
-          at: new Date().toISOString(),
+          at: (entorno.ahora ?? new Date()).toISOString(),
           user_id: null,
           mensaje_origen_id: null,
           valor_anterior: actual.current_stage,
@@ -164,18 +155,20 @@ function crearCambiarEtapa(sessions: AccionesInternasDeps["sessions"]): AccionHa
  * (ver doc comment de `EntornoAccion.orden`): reintentar el mismo paso no
  * dispara un segundo evento de handoff. `notifyCustomer: true` porque es el
  * default que ya usan los dos llamadores existentes de `pause` con
- * `source: "rule"`/`"agent_guard"`: un `false` aca seria la IA callandose
- * sin avisarle al cliente, un caso especial que nadie pidio para esta task.
+ * `source: "rule"`/`"agent_guard"`. El bloque del canvas lo deja elegir
+ * (`avisarAlCliente`), con ese mismo default: el nodo legacy no guarda la clave
+ * y se sigue comportando igual.
  */
 function crearEscalarAHumano(handoff: AccionesInternasDeps["handoff"]): AccionHandler {
   return async (nodo, entorno) => {
-    const leadSessionId = requireLeadSessionId(nodo, entorno);
+    const { avisarAlCliente } = configDeAccion("escalar_a_humano", nodo);
+    const leadSessionId = requireLeadSessionId(nodo, entorno, "escalar_a_humano");
     const session = await handoff.pause({
       sessionId: leadSessionId,
       reasonCode: "rule_handoff",
       source: "rule",
       sourceEventKey: `workflow:${entorno.runId}:${entorno.orden}`,
-      notifyCustomer: true,
+      notifyCustomer: avisarAlCliente,
     });
     return {
       puerto: "salida",
@@ -184,7 +177,17 @@ function crearEscalarAHumano(handoff: AccionesInternasDeps["handoff"]): AccionHa
   };
 }
 
-export function crearAccionesInternas(deps: AccionesInternasDeps): Record<string, AccionHandler> {
+/**
+ * `Record` y no `interface`: un alias de tipo es asignable a
+ * `Record<string, AccionHandler>` (lo que recibe `crearRegistro`) y una
+ * interface no, porque no tiene firma de índice.
+ */
+export type AccionesInternas = Record<
+  "poner_etiqueta" | "cambiar_etapa" | "escalar_a_humano",
+  AccionHandler
+>;
+
+export function crearAccionesInternas(deps: AccionesInternasDeps): AccionesInternas {
   return {
     poner_etiqueta: crearPonerEtiqueta(deps.tags),
     cambiar_etapa: crearCambiarEtapa(deps.sessions),

@@ -11,6 +11,7 @@ import { InMemoryRulesRepository } from "@/server/repositories/rules.repo";
 import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
 import { InMemorySessionRecordatoriosRepository } from "@/server/repositories/session-recordatorios.repo";
 import { InMemoryLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
+import { InMemoryDifusionSupresionesRepository } from "@/server/repositories/difusion-supresiones.repo";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
 import { DefaultIntentClassifierService } from "@/server/services/intent-classifier.service";
 import { DefaultRuleEngineService } from "@/server/services/rule-engine.service";
@@ -123,6 +124,7 @@ function makeDeps(
     tags,
     intents,
     identificadores,
+    supresiones: new InMemoryDifusionSupresionesRepository(),
     recordatorios,
     cancelarAvisoRecordatorio: async (input) => {
       cancelacionesRecordatorio.push(input);

@@ -3,6 +3,11 @@
 import { useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  LISTA_VARIABLES_DE_TEXTO,
+  type VARIABLES_DE_TEXTO,
+  type VariableDeTexto,
+} from "@/lib/workflows/config-nodos";
 
 export interface Variable {
   key: string;
@@ -11,49 +16,33 @@ export interface Variable {
   ejemplo?: string;
 }
 
-export const VARIABLES_DISPONIBLES: Variable[] = [
-  // Lead
-  { key: "lead.nombre", label: "Nombre del lead", tipo: "string", ejemplo: "Juan Perez" },
-  { key: "lead.telefono", label: "Telefono", tipo: "string", ejemplo: "+521234567890" },
-  { key: "lead.email", label: "Email", tipo: "string", ejemplo: "juan@example.com" },
-  { key: "lead.etapa", label: "Etapa actual", tipo: "string", ejemplo: "contacto" },
-  { key: "lead.canal", label: "Canal", tipo: "string", ejemplo: "whatsapp" },
-  { key: "lead.created_at", label: "Fecha de creacion", tipo: "date" },
+/**
+ * Cómo se presenta cada variable. Cuáles hay NO se decide acá: son las que el
+ * motor carga (`VARIABLES_DE_TEXTO` en `lib/workflows/config-nodos.ts`).
+ *
+ * Una variable que el motor no carga no falla: sale como un hueco en el
+ * mensaje ("Hola , tu  está lista"). Por eso el panel no puede ofrecerla, y
+ * por eso esto es un `Record` y no una lista: una variable nueva del motor
+ * sin su etiqueta acá no compila, y una que el motor no conoce tampoco.
+ */
+const PRESENTACION: Readonly<Record<VariableDeTexto, Omit<Variable, "key">>> = {
+  "lead.nombre": { label: "Nombre del lead", tipo: "string", ejemplo: "Juan Perez" },
+  "lead.telefono": { label: "Telefono", tipo: "string", ejemplo: "+521234567890" },
+  // El canal de origen tal como lo guarda el lead: "wa", "ig" o "fb".
+  "lead.canal": { label: "Canal", tipo: "string", ejemplo: "wa" },
+  "lead.email": { label: "Email", tipo: "string", ejemplo: "juan@example.com" },
+  // La etapa de la sesión activa: el lead no tiene etapa propia.
+  "lead.etapa": { label: "Etapa actual", tipo: "string", ejemplo: "cotizado" },
+  "sesion.current_stage": { label: "Etapa de la sesion", tipo: "string", ejemplo: "cotizado" },
+  // El vendedor asignado a la sesión. Vacío si no hay uno.
+  "vendedor.nombre": { label: "Nombre del vendedor", tipo: "string", ejemplo: "Maria Lopez" },
+  "vendedor.email": { label: "Email del vendedor", tipo: "string", ejemplo: "maria@empresa.com" },
+};
 
-  // Sesion
-  { key: "sesion.auto_marca", label: "Marca del auto", tipo: "string", ejemplo: "Chevrolet" },
-  { key: "sesion.auto_modelo", label: "Modelo del auto", tipo: "string", ejemplo: "Aveo" },
-  { key: "sesion.auto_anio", label: "Anio del auto", tipo: "number", ejemplo: "2015" },
-  {
-    key: "sesion.current_stage",
-    label: "Etapa de la sesion",
-    tipo: "string",
-    ejemplo: "cotizacion",
-  },
-  {
-    key: "sesion.pieza_buscada",
-    label: "Pieza buscada",
-    tipo: "string",
-    ejemplo: "Filtro de aceite",
-  },
-  { key: "sesion.cotizacion_total", label: "Total cotizado", tipo: "number", ejemplo: "1500" },
-
-  // Vendedor
-  { key: "vendedor.nombre", label: "Nombre del vendedor", tipo: "string", ejemplo: "Maria Lopez" },
-  {
-    key: "vendedor.email",
-    label: "Email del vendedor",
-    tipo: "string",
-    ejemplo: "maria@empresa.com",
-  },
-  { key: "vendedor.telefono", label: "Telefono del vendedor", tipo: "string" },
-
-  // Contexto (runtime)
-  { key: "contexto.mensaje", label: "Ultimo mensaje", tipo: "string" },
-  { key: "contexto.intent", label: "Intent detectado", tipo: "string", ejemplo: "buscar_repuesto" },
-  { key: "contexto.fecha", label: "Fecha actual", tipo: "date" },
-  { key: "contexto.hora", label: "Hora actual", tipo: "string" },
-];
+export const VARIABLES_DISPONIBLES: Variable[] = LISTA_VARIABLES_DE_TEXTO.map((key) => ({
+  key,
+  ...PRESENTACION[key],
+}));
 
 interface VariableSelectorProps {
   onSelect: (variable: string) => void;
@@ -97,9 +86,8 @@ export function VariableSelector({ onSelect, filter, compact }: VariableSelector
   const namespaceLabels: Record<string, string> = {
     lead: "Lead",
     sesion: "Sesion",
-    vendedor: "Vendedor",
-    contexto: "Contexto",
-  };
+    vendedor: "Vendedor asignado",
+  } satisfies Record<keyof typeof VARIABLES_DE_TEXTO, string>;
 
   if (compact) {
     return (

@@ -13,10 +13,17 @@ import type {
   WorkflowRunEstado,
   WorkflowRunPaso,
 } from "@/types/entities";
+import { esMotivoSalto, type MotivoSalto } from "@/types/workflows";
+import { saltosEnCero } from "./workflow-runs.repo";
 import type {
   ArrancarWorkflowRunInput,
   ArrancarWorkflowRunMotivo,
   ArrancarWorkflowRunResult,
+  CorridasVivasDeVersion,
+  ReanudarWorkflowRunMotivo,
+  ReanudarWorkflowRunResult,
+  RelanzarWorkflowRunMotivo,
+  RelanzarWorkflowRunResult,
   WorkflowRunPasoInsert,
   WorkflowRunsRepository,
 } from "./workflow-runs.repo";
@@ -46,6 +53,29 @@ interface RunMetricaRow {
 interface ArrancarWorkflowRunRow {
   run_id: string | null;
   error_code: ArrancarWorkflowRunMotivo | null;
+}
+
+interface ReanudarWorkflowRunRow {
+  desde_paso: number | null;
+  nodo_id: string | null;
+  error_code: ReanudarWorkflowRunMotivo | null;
+}
+
+interface RelanzarWorkflowRunRow {
+  run_id: string | null;
+  error_code: RelanzarWorkflowRunMotivo | null;
+}
+
+interface SaltosPorMotivoRow {
+  motivo: string;
+  // `bigint` en Postgres: PostgREST lo manda como número, `Number()` cubre texto.
+  cantidad: number | string;
+}
+
+interface CorridasVivasRow {
+  version_id: string;
+  // `bigint` en Postgres: PostgREST lo manda como número, `Number()` cubre texto.
+  cantidad: number | string;
 }
 
 interface WorkflowRunRow {
@@ -202,6 +232,43 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
     return data !== null;
   }
 
+  async reanudar(runId: UUID): Promise<ReanudarWorkflowRunResult> {
+    // Una sola función con el mismo advisory lock que `arrancar_workflow_run`:
+    // decidir acá "¿está fallada, hay otra viva?" y después escribir sería la
+    // misma carrera que ese RPC existe para cerrar.
+    const { data, error } = await this.db.rpc("reanudar_workflow_run", { p_run_id: runId });
+    if (error) throw mapPostgrestError(error, { resource: "workflow_runs" });
+
+    const row = (data as ReanudarWorkflowRunRow[] | null)?.[0];
+    if (!row) throw new InfraError("reanudar_workflow_run no devolvió resultado", "postgrest");
+    if (row.error_code !== null) return { ok: false, motivo: row.error_code };
+    if (row.desde_paso === null || row.nodo_id === null) {
+      throw new InfraError("reanudar_workflow_run no devolvió desde dónde sigue", "postgrest");
+    }
+    return { ok: true, desdePaso: row.desde_paso, nodoId: row.nodo_id };
+  }
+
+  async relanzar(runId: UUID): Promise<RelanzarWorkflowRunResult> {
+    const { data, error } = await this.db.rpc("relanzar_workflow_run", { p_run_id: runId });
+    if (error) throw mapPostgrestError(error, { resource: "workflow_runs" });
+
+    const row = (data as RelanzarWorkflowRunRow[] | null)?.[0];
+    if (!row) throw new InfraError("relanzar_workflow_run no devolvió resultado", "postgrest");
+    if (row.error_code !== null) return { run: null, motivo: row.error_code };
+    if (row.run_id === null) {
+      throw new InfraError("relanzar_workflow_run devolvió run_id nulo", "postgrest");
+    }
+
+    const run = await this.findRun(row.run_id);
+    if (!run) {
+      throw new InfraError(
+        "relanzar_workflow_run creó una corrida que no se puede leer de vuelta",
+        "postgrest",
+      );
+    }
+    return { run };
+  }
+
   async findRun(id: UUID): Promise<WorkflowRun | null> {
     const { data, error } = await this.db
       .from("workflow_runs")
@@ -265,6 +332,38 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
     return resultado;
   }
 
+  async contarVivasPorVersion(workflowId: UUID): Promise<CorridasVivasDeVersion[]> {
+    // El GROUP BY en Postgres (`contar_corridas_vivas`): traer las filas para
+    // contarlas acá chocaría con el corte de 1.000 de PostgREST.
+    const { data, error } = await this.db.rpc("contar_corridas_vivas", {
+      p_workflow_id: workflowId,
+    });
+    if (error) throw mapPostgrestError(error, { resource: "workflow_runs" });
+    return ((data ?? []) as CorridasVivasRow[]).map((r) => ({
+      versionId: r.version_id,
+      cantidad: Number(r.cantidad),
+    }));
+  }
+
+  async contarSaltosPorMotivo(desde: Date): Promise<Record<MotivoSalto, number>> {
+    // El GROUP BY en Postgres (`contar_saltos_workflow`), por el mismo motivo
+    // que `contar_corridas_vivas`: PostgREST corta en 1.000 filas sin avisar.
+    const { data, error } = await this.db.rpc("contar_saltos_workflow", {
+      p_desde: desde.toISOString(),
+    });
+    if (error) throw mapPostgrestError(error, { resource: "workflow_run_pasos" });
+    const conteo = saltosEnCero();
+    for (const fila of (data ?? []) as SaltosPorMotivoRow[]) {
+      // La base admite sólo los motivos del CHECK; uno que la app no conoce es
+      // un contrato roto entre los dos, y se dice en vez de perderlo.
+      if (!esMotivoSalto(fila.motivo)) {
+        throw new InfraError(`motivo de salto desconocido: ${fila.motivo}`, "postgrest");
+      }
+      conteo[fila.motivo] = Number(fila.cantidad);
+    }
+    return conteo;
+  }
+
   private async actualizar(runId: UUID, cambios: Record<string, unknown>): Promise<void> {
     const { data, error } = await this.db
       .from("workflow_runs")
@@ -314,7 +413,9 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
     // Ahora la query con los datos
     let query = this.db
       .from("workflow_runs")
-      .select(`${COLS_RUN}, workflow_versiones!inner(workflow_id), leads(nombre, nombre_perfil)`)
+      .select(
+        `${COLS_RUN}, motivo_salto, workflow_versiones!inner(workflow_id), leads(nombre, nombre_perfil)`,
+      )
       .eq("workflow_versiones.workflow_id", workflowId)
       .order("started_at", { ascending: false })
       .limit(PAGE_SIZE);
@@ -353,7 +454,7 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
     const { data, error } = await this.db
       .from("workflow_runs")
       .select(
-        `${COLS_RUN}, workflow_versiones!inner(workflow_id, version, publicada), leads(nombre, nombre_perfil)`,
+        `${COLS_RUN}, motivo_salto, workflow_versiones!inner(workflow_id, version, publicada), leads(nombre, nombre_perfil)`,
       )
       .eq("id", runId)
       .maybeSingle();
@@ -395,6 +496,7 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
 }
 
 interface HistorialRunRow extends WorkflowRunRow {
+  motivo_salto: string | null;
   workflow_versiones: { workflow_id: string };
   leads: { nombre: string | null; nombre_perfil: string | null } | null;
 }
@@ -412,6 +514,9 @@ function mapRunConLead(r: HistorialRunRow): WorkflowRunConLead {
   const leadNombre = r.leads?.nombre ?? r.leads?.nombre_perfil ?? null;
   return {
     ...run,
+    // El CHECK de la columna sólo admite los motivos conocidos; el guard es
+    // para no castear a ciegas lo que viene de un jsonb/texto.
+    motivo_salto: esMotivoSalto(r.motivo_salto) ? r.motivo_salto : null,
     lead_nombre: leadNombre,
     trigger_tipo: "manual", // TODO: extraer del contexto cuando se guarde
     trigger_datos: {},

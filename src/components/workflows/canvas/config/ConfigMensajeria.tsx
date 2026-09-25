@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -11,6 +10,12 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2, GripVertical } from "lucide-react";
+import {
+  CANALES_DE_ENVIO,
+  editorDeConfig,
+  type CanalDeEnvio,
+  type ConfigDeTipo,
+} from "@/lib/workflows/config-nodos";
 import { TextareaConVariables } from "./TextareaConVariables";
 import { VariableSelector } from "./VariableSelector";
 
@@ -21,56 +26,52 @@ interface ConfigMensajeriaProps {
   readonly?: boolean;
 }
 
-interface Boton {
-  texto: string;
-  accion: "responder" | "url" | "llamar";
-  valor: string;
-}
+type Boton = ConfigDeTipo<"msg_botones">["botones"][number];
+type SeccionLista = ConfigDeTipo<"msg_lista">["secciones"][number];
 
-interface SeccionLista {
-  titulo: string;
-  items: Array<{ titulo: string; descripcion: string }>;
-}
+/** Cómo se llama en pantalla cada canal que `msg_texto` puede exigir. */
+const ETIQUETA_CANAL_DE_ENVIO: Readonly<Record<CanalDeEnvio, string>> = {
+  inferir: "Inferir del trigger",
+  whatsapp: "WhatsApp",
+  instagram: "Instagram",
+  messenger: "Messenger",
+};
 
+/**
+ * Formularios de los bloques de mensajería.
+ *
+ * Qué clave escribe cada campo, y con qué valor arranca uno que nadie tocó,
+ * sale del contrato de config (`editorDeConfig`, `lib/workflows/config-nodos.ts`):
+ * el mismo schema que revisa el validador y que lee la acción `enviar_mensaje`.
+ * Una clave que el contrato no conoce no compila.
+ */
 export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMensajeriaProps) {
-  const handleChange = useCallback(
-    (campo: string, valor: unknown) => {
-      onChange({ ...config, [campo]: valor });
-    },
-    [config, onChange],
-  );
-
   const labelClass = "text-ink-secondary mb-1 block text-[11px]";
   const selectClass = "border-line-control bg-surface-root text-ink-primary w-full text-[12px]";
   const inputClass = "border-line-control bg-surface-root text-ink-primary w-full text-[12px] h-8";
 
-  const insertVariable = useCallback(
-    (variable: string) => {
-      const currentMensaje = String(config.mensaje ?? "");
-      handleChange("mensaje", currentMensaje + variable);
-    },
-    [config.mensaje, handleChange],
-  );
-
   switch (tipo) {
-    case "msg_texto":
+    case "msg_texto": {
+      const c = editorDeConfig("msg_texto", config);
+      const mensaje = String(c.valores.mensaje ?? "");
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Canal de envio</span>
             <Select
-              value={String(config.canal ?? "inferir")}
-              onValueChange={(v) => handleChange("canal", v)}
+              value={String(c.valores.canal)}
+              onValueChange={(v) => onChange(c.con("canal", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="inferir">Inferir del trigger</SelectItem>
-                <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                <SelectItem value="instagram">Instagram</SelectItem>
-                <SelectItem value="messenger">Messenger</SelectItem>
+                {CANALES_DE_ENVIO.map((canal) => (
+                  <SelectItem key={canal} value={canal}>
+                    {ETIQUETA_CANAL_DE_ENVIO[canal]}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </label>
@@ -78,8 +79,8 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
           <label className="block">
             <span className={labelClass}>Mensaje</span>
             <TextareaConVariables
-              value={String(config.mensaje ?? "")}
-              onChange={(v) => handleChange("mensaje", v)}
+              value={mensaje}
+              onChange={(v) => onChange(c.con("mensaje", v))}
               placeholder="Hola {{lead.nombre}}, gracias por escribir..."
               maxLength={4096}
               rows={4}
@@ -87,19 +88,24 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
             />
           </label>
 
-          <VariableSelector onSelect={insertVariable} compact />
+          <VariableSelector
+            onSelect={(variable) => onChange(c.con("mensaje", mensaje + variable))}
+            compact
+          />
         </div>
       );
+    }
 
     case "msg_botones": {
-      const botones = (config.botones as Boton[]) ?? [];
+      const c = editorDeConfig("msg_botones", config);
+      const botones = Array.isArray(c.valores.botones) ? (c.valores.botones as Boton[]) : [];
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Mensaje</span>
             <TextareaConVariables
-              value={String(config.mensaje ?? "")}
-              onChange={(v) => handleChange("mensaje", v)}
+              value={String(c.valores.mensaje ?? "")}
+              onChange={(v) => onChange(c.con("mensaje", v))}
               placeholder="Selecciona una opcion..."
               maxLength={1024}
               rows={3}
@@ -117,10 +123,9 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
                   size="sm"
                   className="h-6 px-2 text-[10px]"
                   onClick={() =>
-                    handleChange("botones", [
-                      ...botones,
-                      { texto: "", accion: "responder", valor: "" },
-                    ])
+                    onChange(
+                      c.con("botones", [...botones, { texto: "", accion: "responder", valor: "" }]),
+                    )
                   }
                 >
                   <Plus className="mr-1 h-3 w-3" />
@@ -143,7 +148,7 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
                       onChange={(e) => {
                         const newBotones = [...botones];
                         newBotones[idx] = { ...boton, texto: e.target.value };
-                        handleChange("botones", newBotones);
+                        onChange(c.con("botones", newBotones));
                       }}
                       placeholder="Texto del boton"
                       maxLength={20}
@@ -156,9 +161,11 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
                         size="sm"
                         className="h-8 w-8 p-0 text-red-500"
                         onClick={() =>
-                          handleChange(
-                            "botones",
-                            botones.filter((_, i) => i !== idx),
+                          onChange(
+                            c.con(
+                              "botones",
+                              botones.filter((_, i) => i !== idx),
+                            ),
                           )
                         }
                       >
@@ -175,7 +182,7 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
                           ...boton,
                           accion: v as Boton["accion"],
                         };
-                        handleChange("botones", newBotones);
+                        onChange(c.con("botones", newBotones));
                       }}
                       disabled={readonly}
                     >
@@ -194,7 +201,7 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
                       onChange={(e) => {
                         const newBotones = [...botones];
                         newBotones[idx] = { ...boton, valor: e.target.value };
-                        handleChange("botones", newBotones);
+                        onChange(c.con("botones", newBotones));
                       }}
                       placeholder={
                         boton.accion === "url"
@@ -215,15 +222,18 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
     }
 
     case "msg_lista": {
-      const secciones = (config.secciones as SeccionLista[]) ?? [];
+      const c = editorDeConfig("msg_lista", config);
+      const secciones = Array.isArray(c.valores.secciones)
+        ? (c.valores.secciones as SeccionLista[])
+        : [];
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Header (max 60 caracteres)</span>
             <Input
               className={inputClass}
-              value={String(config.header ?? "")}
-              onChange={(e) => handleChange("header", e.target.value)}
+              value={String(c.valores.header ?? "")}
+              onChange={(e) => onChange(c.con("header", e.target.value))}
               placeholder="Nuestro catalogo"
               maxLength={60}
               disabled={readonly}
@@ -233,8 +243,8 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
           <label className="block">
             <span className={labelClass}>Cuerpo</span>
             <TextareaConVariables
-              value={String(config.body ?? "")}
-              onChange={(v) => handleChange("body", v)}
+              value={String(c.valores.body ?? "")}
+              onChange={(v) => onChange(c.con("body", v))}
               placeholder="Selecciona una categoria..."
               maxLength={1024}
               rows={3}
@@ -246,8 +256,8 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
             <span className={labelClass}>Footer (max 60 caracteres)</span>
             <Input
               className={inputClass}
-              value={String(config.footer ?? "")}
-              onChange={(e) => handleChange("footer", e.target.value)}
+              value={String(c.valores.footer ?? "")}
+              onChange={(e) => onChange(c.con("footer", e.target.value))}
               placeholder="Responde con el numero"
               maxLength={60}
               disabled={readonly}
@@ -258,8 +268,8 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
             <span className={labelClass}>Texto del boton</span>
             <Input
               className={inputClass}
-              value={String(config.botonTexto ?? "Ver opciones")}
-              onChange={(e) => handleChange("botonTexto", e.target.value)}
+              value={String(c.valores.botonTexto)}
+              onChange={(e) => onChange(c.con("botonTexto", e.target.value))}
               placeholder="Ver opciones"
               maxLength={20}
               disabled={readonly}
@@ -276,10 +286,12 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
                   size="sm"
                   className="h-6 px-2 text-[10px]"
                   onClick={() =>
-                    handleChange("secciones", [
-                      ...secciones,
-                      { titulo: "", items: [{ titulo: "", descripcion: "" }] },
-                    ])
+                    onChange(
+                      c.con("secciones", [
+                        ...secciones,
+                        { titulo: "", items: [{ titulo: "", descripcion: "" }] },
+                      ]),
+                    )
                   }
                 >
                   <Plus className="mr-1 h-3 w-3" />
@@ -304,7 +316,7 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
                           ...seccion,
                           titulo: e.target.value,
                         };
-                        handleChange("secciones", newSecciones);
+                        onChange(c.con("secciones", newSecciones));
                       }}
                       placeholder="Titulo de la seccion"
                       disabled={readonly}
@@ -316,9 +328,11 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
                         size="sm"
                         className="h-8 w-8 p-0 text-red-500"
                         onClick={() =>
-                          handleChange(
-                            "secciones",
-                            secciones.filter((_, i) => i !== sIdx),
+                          onChange(
+                            c.con(
+                              "secciones",
+                              secciones.filter((_, i) => i !== sIdx),
+                            ),
                           )
                         }
                       >
@@ -341,7 +355,7 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
                               titulo: e.target.value,
                             };
                             newSecciones[sIdx] = { ...seccion, items: newItems };
-                            handleChange("secciones", newSecciones);
+                            onChange(c.con("secciones", newSecciones));
                           }}
                           placeholder="Titulo"
                           disabled={readonly}
@@ -357,7 +371,7 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
                               descripcion: e.target.value,
                             };
                             newSecciones[sIdx] = { ...seccion, items: newItems };
-                            handleChange("secciones", newSecciones);
+                            onChange(c.con("secciones", newSecciones));
                           }}
                           placeholder="Descripcion"
                           disabled={readonly}
@@ -374,7 +388,7 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
                                 ...seccion,
                                 items: seccion.items.filter((_, i) => i !== iIdx),
                               };
-                              handleChange("secciones", newSecciones);
+                              onChange(c.con("secciones", newSecciones));
                             }}
                           >
                             <Trash2 className="h-3 w-3" />
@@ -394,7 +408,7 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
                             ...seccion,
                             items: [...seccion.items, { titulo: "", descripcion: "" }],
                           };
-                          handleChange("secciones", newSecciones);
+                          onChange(c.con("secciones", newSecciones));
                         }}
                       >
                         <Plus className="mr-1 h-3 w-3" />
@@ -411,8 +425,13 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
     }
 
     case "msg_imagen":
-    case "msg_documento":
+    case "msg_documento": {
       const isImagen = tipo === "msg_imagen";
+      // Lo común a los dos (tipo de media y URL) va por el editor del tipo; lo
+      // propio de cada uno, por el suyo: el caption no es clave de un documento.
+      const c = editorDeConfig(tipo, config);
+      const imagen = editorDeConfig("msg_imagen", config);
+      const documento = editorDeConfig("msg_documento", config);
       return (
         <div className="flex flex-col gap-3">
           <div>
@@ -420,10 +439,10 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
             <div className="mt-1 flex gap-2">
               <button
                 type="button"
-                onClick={() => handleChange("tipoMedia", "url")}
+                onClick={() => onChange(c.con("tipoMedia", "url"))}
                 disabled={readonly}
                 className={`rounded px-3 py-1.5 text-[11px] ${
-                  config.tipoMedia !== "archivo"
+                  c.valores.tipoMedia !== "archivo"
                     ? "bg-accent-blue text-white"
                     : "bg-surface-hover text-ink-secondary"
                 }`}
@@ -432,10 +451,10 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
               </button>
               <button
                 type="button"
-                onClick={() => handleChange("tipoMedia", "archivo")}
+                onClick={() => onChange(c.con("tipoMedia", "archivo"))}
                 disabled={readonly}
                 className={`rounded px-3 py-1.5 text-[11px] ${
-                  config.tipoMedia === "archivo"
+                  c.valores.tipoMedia === "archivo"
                     ? "bg-accent-blue text-white"
                     : "bg-surface-hover text-ink-secondary"
                 }`}
@@ -445,13 +464,13 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
             </div>
           </div>
 
-          {config.tipoMedia !== "archivo" ? (
+          {c.valores.tipoMedia !== "archivo" ? (
             <label className="block">
               <span className={labelClass}>URL del {isImagen ? "imagen" : "documento"}</span>
               <Input
                 className={inputClass}
-                value={String(config.url ?? "")}
-                onChange={(e) => handleChange("url", e.target.value)}
+                value={String(c.valores.url ?? "")}
+                onChange={(e) => onChange(c.con("url", e.target.value))}
                 placeholder={
                   isImagen ? "https://ejemplo.com/imagen.jpg" : "https://ejemplo.com/documento.pdf"
                 }
@@ -471,8 +490,8 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
             <label className="block">
               <span className={labelClass}>Caption</span>
               <TextareaConVariables
-                value={String(config.caption ?? "")}
-                onChange={(v) => handleChange("caption", v)}
+                value={String(imagen.valores.caption ?? "")}
+                onChange={(v) => onChange(imagen.con("caption", v))}
                 placeholder="Texto debajo de la imagen"
                 maxLength={1024}
                 rows={2}
@@ -486,8 +505,8 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
               <span className={labelClass}>Nombre del archivo</span>
               <Input
                 className={inputClass}
-                value={String(config.nombreArchivo ?? "")}
-                onChange={(e) => handleChange("nombreArchivo", e.target.value)}
+                value={String(documento.valores.nombreArchivo ?? "")}
+                onChange={(e) => onChange(documento.con("nombreArchivo", e.target.value))}
                 placeholder="catalogo.pdf"
                 disabled={readonly}
               />
@@ -495,8 +514,10 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
           )}
         </div>
       );
+    }
 
-    case "msg_ubicacion":
+    case "msg_ubicacion": {
+      const c = editorDeConfig("msg_ubicacion", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
@@ -505,8 +526,8 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
               type="number"
               step="any"
               className={inputClass}
-              value={String(config.lat ?? "")}
-              onChange={(e) => handleChange("lat", Number(e.target.value))}
+              value={String(c.valores.lat ?? "")}
+              onChange={(e) => onChange(c.con("lat", Number(e.target.value)))}
               placeholder="-33.4489"
               disabled={readonly}
             />
@@ -518,8 +539,8 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
               type="number"
               step="any"
               className={inputClass}
-              value={String(config.lon ?? "")}
-              onChange={(e) => handleChange("lon", Number(e.target.value))}
+              value={String(c.valores.lon ?? "")}
+              onChange={(e) => onChange(c.con("lon", Number(e.target.value)))}
               placeholder="-70.6693"
               disabled={readonly}
             />
@@ -529,8 +550,8 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
             <span className={labelClass}>Nombre del lugar</span>
             <Input
               className={inputClass}
-              value={String(config.nombre ?? "")}
-              onChange={(e) => handleChange("nombre", e.target.value)}
+              value={String(c.valores.nombre ?? "")}
+              onChange={(e) => onChange(c.con("nombre", e.target.value))}
               placeholder="Nuestra tienda"
               disabled={readonly}
             />
@@ -540,24 +561,29 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
             <span className={labelClass}>Direccion</span>
             <Input
               className={inputClass}
-              value={String(config.direccion ?? "")}
-              onChange={(e) => handleChange("direccion", e.target.value)}
+              value={String(c.valores.direccion ?? "")}
+              onChange={(e) => onChange(c.con("direccion", e.target.value))}
               placeholder="Av. Principal 123"
               disabled={readonly}
             />
           </label>
         </div>
       );
+    }
 
-    case "msg_plantilla":
+    case "msg_plantilla": {
+      const c = editorDeConfig("msg_plantilla", config);
+      const parametros = Array.isArray(c.valores.parametros)
+        ? (c.valores.parametros as string[])
+        : [];
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Nombre de la plantilla</span>
             <Input
               className={inputClass}
-              value={String(config.templateName ?? "")}
-              onChange={(e) => handleChange("templateName", e.target.value)}
+              value={String(c.valores.templateName ?? "")}
+              onChange={(e) => onChange(c.con("templateName", e.target.value))}
               placeholder="hello_world"
               disabled={readonly}
             />
@@ -566,8 +592,8 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
           <label className="block">
             <span className={labelClass}>Idioma</span>
             <Select
-              value={String(config.idioma ?? "es")}
-              onValueChange={(v) => handleChange("idioma", v)}
+              value={String(c.valores.idioma)}
+              onValueChange={(v) => onChange(c.con("idioma", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -583,21 +609,82 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
             </Select>
           </label>
 
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <span className={labelClass}>Variables del cuerpo, en orden</span>
+              {!readonly && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-[10px]"
+                  onClick={() => onChange(c.con("parametros", [...parametros, ""]))}
+                >
+                  <Plus className="mr-1 h-3 w-3" />
+                  Agregar
+                </Button>
+              )}
+            </div>
+            <div className="space-y-2">
+              {parametros.map((valor, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <span className="text-ink-faint w-8 shrink-0 font-mono text-[10px]">
+                    {`{{${idx + 1}}}`}
+                  </span>
+                  <Input
+                    className={`${inputClass} flex-1`}
+                    aria-label={`Valor de la variable ${idx + 1}`}
+                    value={valor}
+                    onChange={(e) => {
+                      const siguientes = [...parametros];
+                      siguientes[idx] = e.target.value;
+                      onChange(c.con("parametros", siguientes));
+                    }}
+                    placeholder="{{lead.nombre}}"
+                    disabled={readonly}
+                  />
+                  {!readonly && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      aria-label={`Quitar la variable ${idx + 1}`}
+                      className="h-8 w-8 p-0 text-red-500"
+                      onClick={() =>
+                        onChange(
+                          c.con(
+                            "parametros",
+                            parametros.filter((_, i) => i !== idx),
+                          ),
+                        )
+                      }
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="text-ink-faint bg-surface-hover rounded-md p-2 text-[10px]">
-            Las plantillas deben estar aprobadas en Meta Business Manager
+            Las plantillas deben estar aprobadas en Meta Business Manager. Se mandan también fuera
+            de la ventana de 24 h, y sólo por WhatsApp.
           </div>
         </div>
       );
+    }
 
-    case "msg_reaccion":
+    case "msg_reaccion": {
+      const c = editorDeConfig("msg_reaccion", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Emoji de reaccion</span>
             <Input
               className={inputClass}
-              value={String(config.emoji ?? "")}
-              onChange={(e) => handleChange("emoji", e.target.value)}
+              value={String(c.valores.emoji ?? "")}
+              onChange={(e) => onChange(c.con("emoji", e.target.value))}
               placeholder="Ej: ok"
               maxLength={2}
               disabled={readonly}
@@ -609,10 +696,10 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
               <button
                 key={emoji}
                 type="button"
-                onClick={() => handleChange("emoji", emoji)}
+                onClick={() => onChange(c.con("emoji", emoji))}
                 disabled={readonly}
                 className={`rounded px-2 py-1 text-lg ${
-                  config.emoji === emoji
+                  c.valores.emoji === emoji
                     ? "bg-accent-blue/20 ring-accent-blue ring-1"
                     : "bg-surface-hover"
                 }`}
@@ -623,6 +710,7 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
           </div>
         </div>
       );
+    }
 
     default:
       return (

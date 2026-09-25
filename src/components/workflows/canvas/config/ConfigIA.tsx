@@ -1,6 +1,5 @@
 "use client";
 
-import { useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -11,6 +10,7 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2, X } from "lucide-react";
+import { editorDeConfig, type ConfigDeTipo } from "@/lib/workflows/config-nodos";
 import { TextareaConVariables } from "./TextareaConVariables";
 import { Badge } from "@/components/ui/badge";
 
@@ -22,27 +22,27 @@ interface ConfigIAProps {
   readonly?: boolean;
 }
 
-interface CampoExtraccion {
-  nombre: string;
-  tipo: "texto" | "numero" | "fecha" | "booleano";
-  descripcion: string;
-}
+type CampoExtraccion = ConfigDeTipo<"ia_extraer">["campos"][number];
 
+/**
+ * Formularios de los bloques de IA.
+ *
+ * Qué clave escribe cada campo, y con qué valor arranca uno que nadie tocó,
+ * sale del contrato de config (`editorDeConfig`, `lib/workflows/config-nodos.ts`):
+ * el mismo schema que revisa el validador. Una clave que el contrato no conoce
+ * no compila.
+ */
 export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIAProps) {
-  const handleChange = useCallback(
-    (campo: string, valor: unknown) => {
-      onChange({ ...config, [campo]: valor });
-    },
-    [config, onChange],
-  );
-
   const labelClass = "text-ink-secondary mb-1 block text-[11px]";
   const selectClass = "border-line-control bg-surface-root text-ink-primary w-full text-[12px]";
   const inputClass = "border-line-control bg-surface-root text-ink-primary w-full text-[12px] h-8";
 
   switch (tipo) {
     case "ia_clasificar": {
-      const selectedIntents = (config.intentIds as string[]) ?? [];
+      const c = editorDeConfig("ia_clasificar", config);
+      const selectedIntents = Array.isArray(c.valores.intentIds)
+        ? (c.valores.intentIds as string[])
+        : [];
       return (
         <div className="flex flex-col gap-3">
           <div>
@@ -63,9 +63,11 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
                       <button
                         type="button"
                         onClick={() =>
-                          handleChange(
-                            "intentIds",
-                            selectedIntents.filter((id) => id !== intentId),
+                          onChange(
+                            c.con(
+                              "intentIds",
+                              selectedIntents.filter((id) => id !== intentId),
+                            ),
                           )
                         }
                         className="hover:bg-surface-hover rounded"
@@ -82,7 +84,7 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
               value=""
               onValueChange={(v) => {
                 if (v && !selectedIntents.includes(v)) {
-                  handleChange("intentIds", [...selectedIntents, v]);
+                  onChange(c.con("intentIds", [...selectedIntents, v]));
                 }
               }}
               disabled={readonly}
@@ -103,14 +105,14 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
           </div>
 
           <label className="block">
-            <span className={labelClass}>Umbral de confianza: {Number(config.umbral ?? 70)}%</span>
+            <span className={labelClass}>Umbral de confianza: {Number(c.valores.umbral)}%</span>
             <input
               type="range"
               min={0}
               max={100}
               step={5}
-              value={Number(config.umbral ?? 70)}
-              onChange={(e) => handleChange("umbral", Number(e.target.value))}
+              value={Number(c.valores.umbral)}
+              onChange={(e) => onChange(c.con("umbral", Number(e.target.value)))}
               disabled={readonly}
               className="w-full"
             />
@@ -125,8 +127,8 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
             <span className={labelClass}>Guardar resultado en</span>
             <Input
               className={`${inputClass} font-mono text-[11px]`}
-              value={String(config.variableResultado ?? "intent_detectado")}
-              onChange={(e) => handleChange("variableResultado", e.target.value)}
+              value={String(c.valores.variableResultado)}
+              onChange={(e) => onChange(c.con("variableResultado", e.target.value))}
               placeholder="intent_detectado"
               disabled={readonly}
             />
@@ -135,15 +137,16 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
       );
     }
 
-    case "ia_responder":
+    case "ia_responder": {
+      const c = editorDeConfig("ia_responder", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Instrucciones para el modelo</span>
             <TextareaConVariables
-              value={String(config.instrucciones ?? "")}
-              onChange={(v) => handleChange("instrucciones", v)}
-              placeholder="Eres un asistente de ventas para repuestos automotrices. El cliente se llama {{lead.nombre}} y busca {{sesion.pieza_buscada}}..."
+              value={String(c.valores.instrucciones ?? "")}
+              onChange={(v) => onChange(c.con("instrucciones", v))}
+              placeholder="Eres un asistente de ventas para repuestos automotrices. El cliente se llama {{lead.nombre}} y está en la etapa {{lead.etapa}}..."
               rows={6}
               className={`${inputClass} h-auto min-h-[150px] resize-y`}
             />
@@ -152,8 +155,8 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
           <label className="block">
             <span className={labelClass}>Modelo</span>
             <Select
-              value={String(config.modelo ?? "gpt-4o-mini")}
-              onValueChange={(v) => handleChange("modelo", v)}
+              value={String(c.valores.modelo)}
+              onValueChange={(v) => onChange(c.con("modelo", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -169,15 +172,15 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
 
           <label className="block">
             <span className={labelClass}>
-              Temperatura: {Number(config.temperatura ?? 0.7).toFixed(1)}
+              Temperatura: {Number(c.valores.temperatura).toFixed(1)}
             </span>
             <input
               type="range"
               min={0}
               max={2}
               step={0.1}
-              value={Number(config.temperatura ?? 0.7)}
-              onChange={(e) => handleChange("temperatura", Number(e.target.value))}
+              value={Number(c.valores.temperatura)}
+              onChange={(e) => onChange(c.con("temperatura", Number(e.target.value)))}
               disabled={readonly}
               className="w-full"
             />
@@ -195,8 +198,8 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
               min={50}
               max={4096}
               className={inputClass}
-              value={Number(config.maxTokens ?? 500)}
-              onChange={(e) => handleChange("maxTokens", Number(e.target.value))}
+              value={Number(c.valores.maxTokens)}
+              onChange={(e) => onChange(c.con("maxTokens", Number(e.target.value)))}
               disabled={readonly}
             />
           </label>
@@ -205,25 +208,27 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
             <span className={labelClass}>Guardar respuesta en</span>
             <Input
               className={`${inputClass} font-mono text-[11px]`}
-              value={String(config.variableRespuesta ?? "respuesta_ia")}
-              onChange={(e) => handleChange("variableRespuesta", e.target.value)}
+              value={String(c.valores.variableRespuesta)}
+              onChange={(e) => onChange(c.con("variableRespuesta", e.target.value))}
               placeholder="respuesta_ia"
               disabled={readonly}
             />
           </label>
         </div>
       );
+    }
 
     case "ia_extraer": {
-      const campos = (config.campos as CampoExtraccion[]) ?? [];
+      const c = editorDeConfig("ia_extraer", config);
+      const campos = Array.isArray(c.valores.campos) ? (c.valores.campos as CampoExtraccion[]) : [];
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Texto a analizar</span>
             <TextareaConVariables
-              value={String(config.texto ?? "{{contexto.mensaje}}")}
-              onChange={(v) => handleChange("texto", v)}
-              placeholder="{{contexto.mensaje}}"
+              value={String(c.valores.texto ?? "")}
+              onChange={(v) => onChange(c.con("texto", v))}
+              placeholder="Texto a analizar, con variables como {{lead.nombre}}"
               rows={2}
               className={`${inputClass} h-auto min-h-[60px] resize-y`}
             />
@@ -239,10 +244,9 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
                   size="sm"
                   className="h-6 px-2 text-[10px]"
                   onClick={() =>
-                    handleChange("campos", [
-                      ...campos,
-                      { nombre: "", tipo: "texto", descripcion: "" },
-                    ])
+                    onChange(
+                      c.con("campos", [...campos, { nombre: "", tipo: "texto", descripcion: "" }]),
+                    )
                   }
                 >
                   <Plus className="mr-1 h-3 w-3" />
@@ -264,7 +268,7 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
                       onChange={(e) => {
                         const newCampos = [...campos];
                         newCampos[idx] = { ...campo, nombre: e.target.value };
-                        handleChange("campos", newCampos);
+                        onChange(c.con("campos", newCampos));
                       }}
                       placeholder="nombre_campo"
                       disabled={readonly}
@@ -277,7 +281,7 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
                           ...campo,
                           tipo: v as CampoExtraccion["tipo"],
                         };
-                        handleChange("campos", newCampos);
+                        onChange(c.con("campos", newCampos));
                       }}
                       disabled={readonly}
                     >
@@ -298,9 +302,11 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
                         size="sm"
                         className="h-8 w-8 p-0 text-red-500"
                         onClick={() =>
-                          handleChange(
-                            "campos",
-                            campos.filter((_, i) => i !== idx),
+                          onChange(
+                            c.con(
+                              "campos",
+                              campos.filter((_, i) => i !== idx),
+                            ),
                           )
                         }
                       >
@@ -317,7 +323,7 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
                         ...campo,
                         descripcion: e.target.value,
                       };
-                      handleChange("campos", newCampos);
+                      onChange(c.con("campos", newCampos));
                     }}
                     placeholder="Descripcion (ej: marca del vehiculo mencionado)"
                     disabled={readonly}
@@ -331,8 +337,8 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
             <span className={labelClass}>Guardar en</span>
             <Input
               className={`${inputClass} font-mono text-[11px]`}
-              value={String(config.variableResultado ?? "datos_extraidos")}
-              onChange={(e) => handleChange("variableResultado", e.target.value)}
+              value={String(c.valores.variableResultado)}
+              onChange={(e) => onChange(c.con("variableResultado", e.target.value))}
               placeholder="datos_extraidos"
               disabled={readonly}
             />
@@ -341,15 +347,16 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
       );
     }
 
-    case "ia_sentimiento":
+    case "ia_sentimiento": {
+      const c = editorDeConfig("ia_sentimiento", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Texto a analizar</span>
             <TextareaConVariables
-              value={String(config.texto ?? "{{contexto.mensaje}}")}
-              onChange={(v) => handleChange("texto", v)}
-              placeholder="{{contexto.mensaje}}"
+              value={String(c.valores.texto ?? "")}
+              onChange={(v) => onChange(c.con("texto", v))}
+              placeholder="Texto a analizar, con variables como {{lead.nombre}}"
               rows={2}
               className={`${inputClass} h-auto min-h-[60px] resize-y`}
             />
@@ -358,8 +365,8 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
           <label className="block">
             <span className={labelClass}>Tipo de analisis</span>
             <Select
-              value={String(config.tipoAnalisis ?? "basico")}
-              onValueChange={(v) => handleChange("tipoAnalisis", v)}
+              value={String(c.valores.tipoAnalisis)}
+              onValueChange={(v) => onChange(c.con("tipoAnalisis", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -376,23 +383,25 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
             <span className={labelClass}>Guardar en</span>
             <Input
               className={`${inputClass} font-mono text-[11px]`}
-              value={String(config.variableResultado ?? "sentimiento")}
-              onChange={(e) => handleChange("variableResultado", e.target.value)}
+              value={String(c.valores.variableResultado)}
+              onChange={(e) => onChange(c.con("variableResultado", e.target.value))}
               placeholder="sentimiento"
               disabled={readonly}
             />
           </label>
         </div>
       );
+    }
 
-    case "ia_resumir":
+    case "ia_resumir": {
+      const c = editorDeConfig("ia_resumir", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Que resumir</span>
             <Select
-              value={String(config.fuente ?? "conversacion")}
-              onValueChange={(v) => handleChange("fuente", v)}
+              value={String(c.valores.fuente)}
+              onValueChange={(v) => onChange(c.con("fuente", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -406,7 +415,7 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
             </Select>
           </label>
 
-          {config.fuente === "ultimos_mensajes" && (
+          {c.valores.fuente === "ultimos_mensajes" && (
             <label className="block">
               <span className={labelClass}>Cantidad de mensajes</span>
               <Input
@@ -414,19 +423,19 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
                 min={1}
                 max={50}
                 className={inputClass}
-                value={Number(config.cantidad ?? 10)}
-                onChange={(e) => handleChange("cantidad", Number(e.target.value))}
+                value={Number(c.valores.cantidad)}
+                onChange={(e) => onChange(c.con("cantidad", Number(e.target.value)))}
                 disabled={readonly}
               />
             </label>
           )}
 
-          {config.fuente === "texto" && (
+          {c.valores.fuente === "texto" && (
             <label className="block">
               <span className={labelClass}>Texto a resumir</span>
               <TextareaConVariables
-                value={String(config.texto ?? "")}
-                onChange={(v) => handleChange("texto", v)}
+                value={String(c.valores.texto ?? "")}
+                onChange={(v) => onChange(c.con("texto", v))}
                 placeholder="Texto a resumir..."
                 rows={4}
                 className={`${inputClass} h-auto min-h-[100px] resize-y`}
@@ -437,8 +446,8 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
           <label className="block">
             <span className={labelClass}>Longitud del resumen</span>
             <Select
-              value={String(config.longitud ?? "corto")}
-              onValueChange={(v) => handleChange("longitud", v)}
+              value={String(c.valores.longitud)}
+              onValueChange={(v) => onChange(c.con("longitud", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -456,24 +465,26 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
             <span className={labelClass}>Guardar en</span>
             <Input
               className={`${inputClass} font-mono text-[11px]`}
-              value={String(config.variableResultado ?? "resumen")}
-              onChange={(e) => handleChange("variableResultado", e.target.value)}
+              value={String(c.valores.variableResultado)}
+              onChange={(e) => onChange(c.con("variableResultado", e.target.value))}
               placeholder="resumen"
               disabled={readonly}
             />
           </label>
         </div>
       );
+    }
 
-    case "ia_traducir":
+    case "ia_traducir": {
+      const c = editorDeConfig("ia_traducir", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Texto a traducir</span>
             <TextareaConVariables
-              value={String(config.texto ?? "{{contexto.mensaje}}")}
-              onChange={(v) => handleChange("texto", v)}
-              placeholder="{{contexto.mensaje}}"
+              value={String(c.valores.texto ?? "")}
+              onChange={(v) => onChange(c.con("texto", v))}
+              placeholder="Texto a analizar, con variables como {{lead.nombre}}"
               rows={2}
               className={`${inputClass} h-auto min-h-[60px] resize-y`}
             />
@@ -482,8 +493,8 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
           <label className="block">
             <span className={labelClass}>Idioma origen</span>
             <Select
-              value={String(config.idiomaOrigen ?? "auto")}
-              onValueChange={(v) => handleChange("idiomaOrigen", v)}
+              value={String(c.valores.idiomaOrigen)}
+              onValueChange={(v) => onChange(c.con("idiomaOrigen", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -501,8 +512,8 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
           <label className="block">
             <span className={labelClass}>Idioma destino</span>
             <Select
-              value={String(config.idiomaDestino ?? "es")}
-              onValueChange={(v) => handleChange("idiomaDestino", v)}
+              value={String(c.valores.idiomaDestino)}
+              onValueChange={(v) => onChange(c.con("idiomaDestino", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -520,38 +531,40 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
             <span className={labelClass}>Guardar en</span>
             <Input
               className={`${inputClass} font-mono text-[11px]`}
-              value={String(config.variableResultado ?? "traduccion")}
-              onChange={(e) => handleChange("variableResultado", e.target.value)}
+              value={String(c.valores.variableResultado)}
+              onChange={(e) => onChange(c.con("variableResultado", e.target.value))}
               placeholder="traduccion"
               disabled={readonly}
             />
           </label>
         </div>
       );
+    }
 
-    case "ia_spam":
+    case "ia_spam": {
+      const c = editorDeConfig("ia_spam", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Texto a verificar</span>
             <TextareaConVariables
-              value={String(config.texto ?? "{{contexto.mensaje}}")}
-              onChange={(v) => handleChange("texto", v)}
-              placeholder="{{contexto.mensaje}}"
+              value={String(c.valores.texto ?? "")}
+              onChange={(v) => onChange(c.con("texto", v))}
+              placeholder="Texto a analizar, con variables como {{lead.nombre}}"
               rows={2}
               className={`${inputClass} h-auto min-h-[60px] resize-y`}
             />
           </label>
 
           <label className="block">
-            <span className={labelClass}>Umbral de spam: {Number(config.umbral ?? 80)}%</span>
+            <span className={labelClass}>Umbral de spam: {Number(c.valores.umbral)}%</span>
             <input
               type="range"
               min={0}
               max={100}
               step={5}
-              value={Number(config.umbral ?? 80)}
-              onChange={(e) => handleChange("umbral", Number(e.target.value))}
+              value={Number(c.valores.umbral)}
+              onChange={(e) => onChange(c.con("umbral", Number(e.target.value)))}
               disabled={readonly}
               className="w-full"
             />
@@ -566,14 +579,15 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
             <span className={labelClass}>Guardar resultado en</span>
             <Input
               className={`${inputClass} font-mono text-[11px]`}
-              value={String(config.variableResultado ?? "es_spam")}
-              onChange={(e) => handleChange("variableResultado", e.target.value)}
+              value={String(c.valores.variableResultado)}
+              onChange={(e) => onChange(c.con("variableResultado", e.target.value))}
               placeholder="es_spam"
               disabled={readonly}
             />
           </label>
         </div>
       );
+    }
 
     default:
       return (

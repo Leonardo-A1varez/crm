@@ -26,6 +26,7 @@ import { DefaultRuleEngineService } from "@/server/services/rule-engine.service"
 import { DefaultTwinExtractorService } from "@/server/services/twin-extractor.service";
 
 import { SupabaseConversationsRepository } from "@/server/repositories/conversations.supabase.repo";
+import { SupabaseDifusionSupresionesRepository } from "@/server/repositories/difusion-supresiones.supabase.repo";
 import { SupabaseEventOutboxRepository } from "@/server/repositories/event-outbox.supabase.repo";
 import { SupabaseHandoffEventsRepository } from "@/server/repositories/handoff-events.supabase.repo";
 import { SupabaseIntentsRepository } from "@/server/repositories/intents.supabase.repo";
@@ -63,15 +64,24 @@ import type { AppClient } from "@/server/db/client";
 import type { CrmInngestClient } from "@/inngest/client";
 import type { CrmInngestDeps } from "@/inngest/functions";
 
-import { makeEmitForOnMessageReceived, makeInngestEmitForOutbox } from "@/inngest/callbacks/emit";
+import {
+  makeEmitForOnMessageReceived,
+  makeEmitirDisparoWorkflow,
+  makeInngestEmitForOutbox,
+} from "@/inngest/callbacks/emit";
 import { recordatorioCancelado, workflowSegmentoPendiente } from "@/inngest/events";
 import { makePurgeSession } from "@/inngest/callbacks/purge-session";
 import { makeSendReactivation } from "@/inngest/callbacks/send-reactivation";
-import { makeConversationsParaEnviarMensaje } from "@/inngest/callbacks/workflow-adapters";
+import {
+  makeAvisosDeAsignacion,
+  makeConversationsParaEnviarMensaje,
+} from "@/inngest/callbacks/workflow-adapters";
+import { LeaseLock } from "@/server/lock/lease-lock";
+import { SupabaseCandadosRepository } from "@/server/repositories/candados.supabase.repo";
+import { DefaultAsignacionService } from "@/server/services/asignacion/asignacion.service";
+import { DefaultUsuariosService } from "@/server/services/usuarios/usuarios.service";
 
-import { crearAccionesInternas } from "@/server/services/workflows/acciones/internas";
-import { crearAccionEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
-import { crearRegistro } from "@/server/services/workflows/acciones/registro";
+import { crearRegistroDeAcciones } from "@/server/services/workflows/acciones/registro";
 import type { ConfigProviderParaEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
 import { SupabaseMetaOperationalEventsRepository } from "@/server/repositories/meta-operational-events.supabase.repo";
 
@@ -208,17 +218,44 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   const configProviderParaEnviarMensaje: ConfigProviderParaEnviarMensaje = {
     activa: () => agenteConfigProvider.get(),
   };
-  const registroDeAcciones = crearRegistro({
-    ...crearAccionesInternas({ tags, sessions, handoff }),
-    enviar_mensaje: crearAccionEnviarMensaje({
-      messages,
-      metaApi,
-      conversations: makeConversationsParaEnviarMensaje({ conversations, messages }),
-      leads,
-      sessions,
-      users,
-      configProvider: configProviderParaEnviarMensaje,
-    }),
+  // Una sola instancia para la baja por palabra y para `enviar_mensaje`. Sin
+  // ella en el registro, todo "Enviar mensaje" falla cerrado y no manda.
+  // Las claves HMAC se resuelven al usarla, no acá: si faltan, fallan las bajas
+  // (y los envíos que dependen de ellas), no el boot.
+  const supresiones = new SupabaseDifusionSupresionesRepository(db);
+  const asignacion = new DefaultAsignacionService({
+    sessions,
+    usuarios: new DefaultUsuariosService({ users }),
+  });
+  // El reparto lee el historial, elige y escribe en tres consultas: sin este
+  // candado, dos repartos a la vez le dan las dos sesiones a la misma persona.
+  // 30 s de vencimiento sobran para tres consultas; si el proceso muere con el
+  // candado tomado, el próximo reparto espera eso como mucho.
+  const candadoReparto = new LeaseLock(new SupabaseCandadosRepository(db), {
+    ttlMs: 30_000,
+    esperaMaxMs: 10_000,
+    intervaloMs: 100,
+    onErrorAlSoltar: (error) =>
+      logger.warn("candado-no-se-solto", {
+        error: error instanceof Error ? error.message : String(error),
+      }),
+  });
+  // EL registro de acciones: el mismo que corre "Probar", ahí con los efectos
+  // interceptados (`correrPrueba`). No se arma otro en ningún lado.
+  const registroDeAcciones = crearRegistroDeAcciones({
+    tags,
+    sessions,
+    handoff,
+    messages,
+    metaApi,
+    conversations: makeConversationsParaEnviarMensaje({ conversations, messages }),
+    leads,
+    users,
+    configProvider: configProviderParaEnviarMensaje,
+    supresiones,
+    asignacion,
+    avisos: makeAvisosDeAsignacion(makeEmitirDisparoWorkflow(inngest)),
+    candadoReparto,
   });
 
   // ===== Callbacks =====
@@ -265,6 +302,8 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       // Misma instancia que usa el detector de duplicados: el lead que nace del
       // webhook tiene que dejar su teléfono acá o el detector no lo ve.
       identificadores,
+      // "BAJA"/"SALIR"/"PARAR"/"SAIR" solos dejan una baja propia de Difusión.
+      supresiones,
       // Apaga el seguimiento apenas el cliente vuelve a escribir.
       recordatorios,
       cancelarAvisoRecordatorio: async (input) => {
@@ -289,6 +328,10 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     },
     updateLeadTwin: {
       twinExtractor,
+      // La etapa de antes de extraer, para saber si la extracción la movió.
+      sessions,
+      // Los flujos con trigger "Etapa cambiada".
+      emitirDisparo: makeEmitirDisparoWorkflow(inngest),
     },
     detectIntentsBatch: {
       sessions,
@@ -353,8 +396,13 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       runs: workflowRuns,
       workflows,
       registro: registroDeAcciones,
+      // "Esperar respuesta": al vencer, confirma que el lead no escribió en el
+      // hueco antes de que la espera quedara registrada.
+      conversaciones: makeConversationsParaEnviarMensaje({ conversations, messages }),
       logger,
     },
+    workflowProgramados: { workflows, sessions, leads, logger },
+    workflowInactividad: { workflows, sessions, conversations, messages, leads, logger },
   };
 
   return { deps, llmBundle, logger };

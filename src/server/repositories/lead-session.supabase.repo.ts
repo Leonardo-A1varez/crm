@@ -1,7 +1,8 @@
-import { ConflictError, IllegalStateError, NotFoundError } from "@/lib/errors";
+import { ConflictError, IllegalStateError, NotFoundError, ValidationError } from "@/lib/errors";
+import type { HistorialVendedor } from "@/lib/round-robin";
 import { esEtapaEmbudo, etapaAlcanzada } from "@/lib/ui/stage";
 import type { AppClient } from "@/server/db/client";
-import { mapPostgrestError } from "@/server/db/postgrest-errors";
+import { mapPostgrestError, type PostgrestErrorLike } from "@/server/db/postgrest-errors";
 import { escaparLike } from "@/server/db/postgrest-like";
 import { serverNowIso } from "@/server/db/server-time";
 import type { Database } from "@/server/db/types.gen";
@@ -32,6 +33,38 @@ type LeadSessionDbUpdate = Database["public"]["Tables"]["lead_session"]["Update"
 // Mismo tope que `SESSION_IDS_POR_TANDA` de mensajes y por el mismo motivo:
 // 100 uuids son ~3,7 KB de query string, que entra holgado en cualquier proxy.
 const IDS_POR_TANDA = 100;
+
+/**
+ * PostgREST corta en 1.000 filas y no avisa (AGENTS.md, lección 12). Las
+ * lecturas que recorren sesiones sin tope natural —las de los disparadores
+ * programado y de inactividad, y la purga— van en páginas de este tamaño.
+ */
+const FILAS_POR_PAGINA = 1000;
+
+/**
+ * Lee todas las filas de una consulta, página por página, por keyset sobre
+ * `id`: cada página pide `id > último id visto`, ordenado por `id`. A
+ * diferencia de un `offset`, una sesión que se cierra o se crea entre dos
+ * páginas no hace saltear ni repetir otras. Corta cuando una página vuelve
+ * incompleta.
+ */
+async function leerTodasLasPaginas<T extends { id: string }>(
+  pagina: (
+    despuesDeId: string | null,
+  ) => PromiseLike<{ data: T[] | null; error: PostgrestErrorLike | null }>,
+): Promise<T[]> {
+  const out: T[] = [];
+  let despuesDeId: string | null = null;
+  for (;;) {
+    const { data, error } = await pagina(despuesDeId);
+    if (error) throw mapPostgrestError(error, { resource: "lead_session" });
+    const filas = data ?? [];
+    out.push(...filas);
+    const ultima = filas.at(-1);
+    if (filas.length < FILAS_POR_PAGINA || ultima === undefined) return out;
+    despuesDeId = ultima.id;
+  }
+}
 
 /**
  * Supabase impl LeadSessionRepository. Slice 1 sub-paso 7.4 repo 9.
@@ -369,16 +402,29 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
   }
 
   async listCierres(): Promise<CierreSesion[]> {
-    const { data, error } = await this.db
-      .from("lead_session")
-      .select("lead_id, resultado, motivo_perdida, closed_at")
-      .not("resultado", "is", null)
-      .not("closed_at", "is", null)
-      .order("closed_at", { ascending: false });
-    if (error) throw mapPostgrestError(error, { resource: "lead_session" });
+    // Paginado: con más de 1.000 sesiones cerradas, PostgREST devolvía las
+    // 1.000 más nuevas y los leads con cierres más viejos figuraban sin
+    // resultado en la lista de Leads.
+    const filas = await leerTodasLasPaginas((despuesDeId) => {
+      let q = this.db
+        .from("lead_session")
+        .select("id, lead_id, resultado, motivo_perdida, closed_at")
+        .not("resultado", "is", null)
+        .not("closed_at", "is", null);
+      if (despuesDeId !== null) q = q.gt("id", despuesDeId);
+      return q.order("id", { ascending: true }).limit(FILAS_POR_PAGINA);
+    });
+    // Las páginas vienen por id; el contrato es del cierre más nuevo al más
+    // viejo, que es de lo que depende "el primero de cada lead es el último".
+    // Se compara la fecha y no el string: el texto de un timestamptz no ordena
+    // bien cuando cambia la cantidad de decimales de los segundos.
+    const ms = (iso: string | null) => (iso === null ? 0 : new Date(iso).getTime());
+    filas.sort(
+      (a, b) => ms(b.closed_at) - ms(a.closed_at) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
 
     const out: CierreSesion[] = [];
-    for (const row of data ?? []) {
+    for (const row of filas) {
       // `resultado`/`closed_at` no pueden ser null acá por el filtro, pero el
       // tipo generado no lo sabe: se descartan en vez de castear.
       if (row.resultado === null || row.closed_at === null) continue;
@@ -394,32 +440,47 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
 
   async listLeadIdsByCodigo(q: string): Promise<UUID[]> {
     if (q === "") return [];
-    const { data, error } = await this.db
-      .from("lead_session")
-      .select("lead_id")
-      .ilike("codigo_interno", `%${escaparLike(q)}%`);
-    if (error) throw mapPostgrestError(error, { resource: "lead_session" });
-    return Array.from(new Set((data ?? []).map((r) => r.lead_id)));
+    // Un código popular aparece en más de 1.000 sesiones: sin paginar, la
+    // búsqueda de Leads perdía en silencio a quien lo cotizó.
+    const filas = await leerTodasLasPaginas((despuesDeId) => {
+      let consulta = this.db
+        .from("lead_session")
+        .select("id, lead_id")
+        .ilike("codigo_interno", `%${escaparLike(q)}%`);
+      if (despuesDeId !== null) consulta = consulta.gt("id", despuesDeId);
+      return consulta.order("id", { ascending: true }).limit(FILAS_POR_PAGINA);
+    });
+    return Array.from(new Set(filas.map((r) => r.lead_id)));
   }
 
   async listClosedBefore(date: Date): Promise<LeadSession[]> {
-    const { data, error } = await this.db
-      .from("lead_session")
-      .select()
-      .lt("closed_at", date.toISOString())
-      .not("closed_at", "is", null);
-    if (error) throw mapPostgrestError(error, { resource: "lead_session" });
-    return (data ?? []).map(mapRow);
+    const filas = await leerTodasLasPaginas((despuesDeId) => {
+      let q = this.db
+        .from("lead_session")
+        .select()
+        .lt("closed_at", date.toISOString())
+        .not("closed_at", "is", null);
+      if (despuesDeId !== null) q = q.gt("id", despuesDeId);
+      return q.order("id", { ascending: true }).limit(FILAS_POR_PAGINA);
+    });
+    return filas.map(mapRow);
   }
 
   async listActive(): Promise<LeadSession[]> {
-    const { data, error } = await this.db
-      .from("lead_session")
-      .select()
-      .is("resultado", null)
-      .order("started_at", { ascending: false });
-    if (error) throw mapPostgrestError(error, { resource: "lead_session" });
-    return (data ?? []).map(mapRow);
+    const filas = await leerTodasLasPaginas((despuesDeId) => {
+      let q = this.db.from("lead_session").select().is("resultado", null);
+      if (despuesDeId !== null) q = q.gt("id", despuesDeId);
+      return q.order("id", { ascending: true }).limit(FILAS_POR_PAGINA);
+    });
+    // Las páginas vienen por id; el contrato de la bandeja es de la más nueva a
+    // la más vieja.
+    return filas
+      .map(mapRow)
+      .sort(
+        (a, b) =>
+          b.started_at.getTime() - a.started_at.getTime() ||
+          (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+      );
   }
 
   async delete(id: UUID): Promise<void> {
@@ -438,6 +499,54 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
       .select();
     if (error) throw mapPostgrestError(error, { resource: "lead_session" });
     return (data ?? []).length;
+  }
+
+  async asignarVendedor(id: UUID, vendedorId: UUID | null): Promise<LeadSession> {
+    // Un id que no es UUID revienta en Postgres con 22P02, que
+    // `mapPostgrestError` clasifica como InfraError —reintentable—: un workflow
+    // reintentaría hasta agotarse. Se corta antes, como error de entrada.
+    if (vendedorId !== null && !isUuid(vendedorId)) {
+      throw new ValidationError(`vendedor_id no es un UUID: ${vendedorId}`, "vendedor_id_invalido");
+    }
+    const actual = await this.requireRow(id);
+    if ((actual.vendedor_asignado_id ?? null) === vendedorId) return actual;
+
+    // `asignado_at` no viaja: la sella el trigger `lead_session_sellar_asignacion`
+    // con la hora de la base, e ignoraría cualquier valor mandado desde acá.
+    const { data, error } = await this.db
+      .from("lead_session")
+      .update({ vendedor_asignado_id: vendedorId })
+      .eq("id", id)
+      .select()
+      .maybeSingle();
+    if (error) throw mapPostgrestError(error, { resource: "lead_session" });
+    if (data === null) {
+      // La purga pudo llevársela entre la lectura y la escritura.
+      throw new NotFoundError(`sesión no encontrada: ${id}`, "lead_session", id);
+    }
+    return mapRow(data);
+  }
+
+  async resumenAsignaciones(vendedorIds: UUID[]): Promise<HistorialVendedor[]> {
+    // Un id que no es UUID no puede tener sesiones y rompería el cast a uuid[].
+    const ids = Array.from(new Set(vendedorIds.filter(isUuid)));
+    const out: HistorialVendedor[] = [];
+    // La RPC devuelve a lo sumo una fila por id pedido: en tandas de
+    // IDS_POR_TANDA el corte de 1.000 filas de PostgREST no se puede alcanzar.
+    for (let i = 0; i < ids.length; i += IDS_POR_TANDA) {
+      const { data, error } = await this.db.rpc("resumen_asignaciones_vendedores", {
+        p_vendedor_ids: ids.slice(i, i + IDS_POR_TANDA),
+      });
+      if (error) throw mapPostgrestError(error, { resource: "lead_session" });
+      for (const row of data ?? []) {
+        out.push({
+          vendedorId: row.vendedor_id,
+          ultimaAsignacionAt: new Date(row.ultima_asignacion_at),
+          sesionesAbiertas: row.sesiones_abiertas,
+        });
+      }
+    }
+    return out;
   }
 }
 
@@ -464,6 +573,8 @@ interface LeadSessionRow {
   motivo_perdida: MotivoPerdida | null;
   ia_pausada: boolean;
   stage_before_handoff: CurrentStage | null;
+  vendedor_asignado_id: string | null;
+  asignado_at: string | null;
   extras: unknown;
   context_summary: string | null;
   procedencia: unknown;
@@ -492,6 +603,8 @@ function mapRow(row: LeadSessionRow): LeadSession {
     motivo_perdida: row.motivo_perdida,
     ia_pausada: row.ia_pausada,
     stage_before_handoff: row.stage_before_handoff,
+    vendedor_asignado_id: row.vendedor_asignado_id,
+    asignado_at: row.asignado_at ? new Date(row.asignado_at) : null,
     extras: structuredClone(extras),
     context_summary: row.context_summary,
     procedencia: (row.procedencia ?? {}) as Procedencia,

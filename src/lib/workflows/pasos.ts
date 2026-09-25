@@ -7,6 +7,7 @@ import {
   type AccionWorkflow,
   type DisparadorWorkflow,
 } from "./catalogo";
+import { disparadorDe } from "./recorrer";
 import type { Grafo, Nodo, Puerto } from "@/types/workflows";
 
 /**
@@ -53,7 +54,9 @@ export interface LecturaDelGrafo {
 
 export function pasosDelGrafo(grafo: Grafo): LecturaDelGrafo {
   const porId = new Map(grafo.nodos.map((n) => [n.id, n]));
-  const raiz = grafo.nodos.find((n) => n.tipo === "disparador");
+  // `disparadorDe` y no una búsqueda propia: con el literal legacy, un grafo
+  // del canvas (`trigger_*`) se leía entero como inalcanzable.
+  const raiz = disparadorDe(grafo);
 
   if (!raiz) {
     // Sin disparador no hay por dónde empezar. Todo queda como inalcanzable en

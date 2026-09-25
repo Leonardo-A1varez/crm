@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { NODO_TIPOS, PUERTOS } from "@/types/workflows";
-import { CAMPOS_CONDICION, OPERADORES } from "@/lib/workflows/condiciones";
 import { ESTADOS_WORKFLOW_FILTRO, ORDENAR_WORKFLOWS } from "@/lib/ui/filtros-workflows";
 
 /**
@@ -29,11 +28,12 @@ export const AristaSchema = z.object({
   puerto: z.enum(PUERTOS),
 });
 
-export const CondicionSchema = z.object({
-  campo: z.enum(CAMPOS_CONDICION),
-  operador: z.enum(OPERADORES),
-  valor: z.string().max(200).nullable(),
-});
+/**
+ * Lo que valida el ejecutor antes de evaluar una condición: el árbol Y/O o el
+ * trío plano guardado antes del árbol. Vive en `lib/workflows/`, junto con el
+ * evaluador; se re-exporta acá porque es donde lo busca el ejecutor.
+ */
+export { CondicionSchema } from "@/lib/workflows/condiciones.schema";
 
 // Un flujo armado a mano en un canvas tiene decenas de nodos, no miles. 200
 // nodos y 500 aristas dejan margen de sobra (una condición sola ya usa 2
@@ -95,10 +95,21 @@ export const WorkflowIdSchema = z.object({
 });
 export type WorkflowIdInput = z.infer<typeof WorkflowIdSchema>;
 
-/** Publicar con descripción opcional del cambio. */
+/**
+ * La nota de una versión: por qué se hizo el cambio, en prosa para quien la
+ * revise después. En blanco es lo mismo que sin nota. El tope es el del CHECK
+ * `workflow_versiones_nota_largo`.
+ */
+const NotaDeVersionSchema = z
+  .string()
+  .trim()
+  .max(500, "La nota no puede pasar de 500 caracteres.")
+  .optional();
+
+/** Publicar con la nota de la versión (la pantalla DiffPublicacion). */
 export const PublicarVersionConDescripcionSchema = z.object({
   versionId: z.string().uuid(),
-  descripcion: z.string().trim().max(500).optional(),
+  nota: NotaDeVersionSchema,
 });
 export type PublicarVersionConDescripcionInput = z.infer<
   typeof PublicarVersionConDescripcionSchema
@@ -110,10 +121,11 @@ export const CrearVersionDesdeSchema = z.object({
 });
 export type CrearVersionDesdeInput = z.infer<typeof CrearVersionDesdeSchema>;
 
-/** Rollback: crear nueva versión desde una antigua y publicarla. */
+/** Restaurar: copiar una versión vieja a una versión nueva y publicarla. */
 export const RollbackVersionSchema = z.object({
   workflowId: z.string().uuid(),
   versionId: z.string().uuid(),
+  nota: NotaDeVersionSchema,
 });
 export type RollbackVersionInput = z.infer<typeof RollbackVersionSchema>;
 
@@ -155,8 +167,12 @@ export const ObtenerDetalleRunSchema = z.object({
 });
 export type ObtenerDetalleRunInput = z.infer<typeof ObtenerDetalleRunSchema>;
 
-export const ReejecutarDesdeErrorSchema = z.object({
+/**
+ * Una corrida: la pantalla "corrida en vivo", reanudarla o relanzarla. Sólo el
+ * id, a propósito: desde dónde se reanuda lo decide el servidor (el nodo del
+ * paso que falló), nunca un nodo que mande el cliente.
+ */
+export const CorridaIdSchema = z.object({
   runId: z.string().uuid(),
-  nodoId: z.string().min(1).max(64),
 });
-export type ReejecutarDesdeErrorInput = z.infer<typeof ReejecutarDesdeErrorSchema>;
+export type CorridaIdInput = z.infer<typeof CorridaIdSchema>;

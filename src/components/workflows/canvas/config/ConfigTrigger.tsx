@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/select";
 import { Copy, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { editorDeConfig } from "@/lib/workflows/config-nodos";
 
 interface ConfigTriggerProps {
   tipo: string;
@@ -22,6 +22,14 @@ interface ConfigTriggerProps {
   readonly?: boolean;
 }
 
+/**
+ * Formularios de los disparadores.
+ *
+ * Qué clave escribe cada campo, y con qué valor arranca uno que nadie tocó,
+ * sale del contrato de config (`editorDeConfig`, `lib/workflows/config-nodos.ts`):
+ * el mismo schema que revisa el validador antes de publicar. Una clave que el
+ * contrato no conoce no compila.
+ */
 export function ConfigTrigger({
   tipo,
   config,
@@ -32,26 +40,20 @@ export function ConfigTrigger({
 }: ConfigTriggerProps) {
   const [showSecret, setShowSecret] = useState(false);
 
-  const handleChange = useCallback(
-    (campo: string, valor: unknown) => {
-      onChange({ ...config, [campo]: valor });
-    },
-    [config, onChange],
-  );
-
   const labelClass = "text-ink-secondary mb-1 block text-[11px]";
   const selectClass = "border-line-control bg-surface-root text-ink-primary w-full text-[12px]";
   const inputClass = "border-line-control bg-surface-root text-ink-primary w-full text-[12px] h-8";
 
   switch (tipo) {
-    case "trigger_mensaje":
+    case "trigger_mensaje": {
+      const c = editorDeConfig("trigger_mensaje", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Canal</span>
             <Select
-              value={String(config.canal ?? "todos")}
-              onValueChange={(v) => handleChange("canal", v)}
+              value={String(c.valores.canal)}
+              onValueChange={(v) => onChange(c.con("canal", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -69,8 +71,8 @@ export function ConfigTrigger({
           <label className="block">
             <span className={labelClass}>Filtro de mensaje</span>
             <Select
-              value={String(config.filtro ?? "todos")}
-              onValueChange={(v) => handleChange("filtro", v)}
+              value={String(c.valores.filtro)}
+              onValueChange={(v) => onChange(c.con("filtro", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -85,13 +87,13 @@ export function ConfigTrigger({
             </Select>
           </label>
 
-          {config.filtro === "contiene" && (
+          {c.valores.filtro === "contiene" && (
             <label className="block">
               <span className={labelClass}>Palabra clave</span>
               <Input
                 className={inputClass}
-                value={String(config.palabra ?? "")}
-                onChange={(e) => handleChange("palabra", e.target.value)}
+                value={String(c.valores.palabra ?? "")}
+                onChange={(e) => onChange(c.con("palabra", e.target.value))}
                 placeholder="Ej: promocion"
                 disabled={readonly}
               />
@@ -99,15 +101,18 @@ export function ConfigTrigger({
           )}
         </div>
       );
+    }
 
-    case "trigger_cron":
+    case "trigger_cron": {
+      const c = editorDeConfig("trigger_cron", config);
+      const dias = Array.isArray(c.valores.dias) ? (c.valores.dias as number[]) : [];
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Frecuencia</span>
             <Select
-              value={String(config.frecuencia ?? "diario")}
-              onValueChange={(v) => handleChange("frecuencia", v)}
+              value={String(c.valores.frecuencia)}
+              onValueChange={(v) => onChange(c.con("frecuencia", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -123,25 +128,24 @@ export function ConfigTrigger({
             </Select>
           </label>
 
-          {config.frecuencia !== "personalizado" && (
+          {c.valores.frecuencia !== "personalizado" && (
             <label className="block">
               <span className={labelClass}>Hora</span>
               <Input
                 type="time"
                 className={inputClass}
-                value={String(config.hora ?? "09:00")}
-                onChange={(e) => handleChange("hora", e.target.value)}
+                value={String(c.valores.hora)}
+                onChange={(e) => onChange(c.con("hora", e.target.value))}
                 disabled={readonly}
               />
             </label>
           )}
 
-          {config.frecuencia === "semanal" && (
+          {c.valores.frecuencia === "semanal" && (
             <div className="block">
               <span className={labelClass}>Dias</span>
               <div className="mt-1 flex flex-wrap gap-1">
                 {["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"].map((dia, idx) => {
-                  const dias = (config.dias as number[]) ?? [];
                   const selected = dias.includes(idx);
                   return (
                     <button
@@ -149,7 +153,7 @@ export function ConfigTrigger({
                       type="button"
                       onClick={() => {
                         const newDias = selected ? dias.filter((d) => d !== idx) : [...dias, idx];
-                        handleChange("dias", newDias);
+                        onChange(c.con("dias", newDias));
                       }}
                       disabled={readonly}
                       className={`rounded px-2 py-1 text-[10px] ${
@@ -166,13 +170,13 @@ export function ConfigTrigger({
             </div>
           )}
 
-          {config.frecuencia === "personalizado" && (
+          {c.valores.frecuencia === "personalizado" && (
             <label className="block">
               <span className={labelClass}>Expresion cron</span>
               <Input
                 className={`${inputClass} font-mono`}
-                value={String(config.cron ?? "0 9 * * *")}
-                onChange={(e) => handleChange("cron", e.target.value)}
+                value={String(c.valores.cron)}
+                onChange={(e) => onChange(c.con("cron", e.target.value))}
                 placeholder="0 9 * * *"
                 disabled={readonly}
               />
@@ -185,8 +189,8 @@ export function ConfigTrigger({
           <label className="block">
             <span className={labelClass}>Timezone</span>
             <Select
-              value={String(config.timezone ?? "America/Mexico_City")}
-              onValueChange={(v) => handleChange("timezone", v)}
+              value={String(c.valores.timezone)}
+              onValueChange={(v) => onChange(c.con("timezone", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -204,10 +208,15 @@ export function ConfigTrigger({
           </label>
         </div>
       );
+    }
 
-    case "trigger_webhook":
-      const webhookUrl = config.url ?? `https://api.crm.com/webhook/${config.id ?? "nuevo"}`;
-      const webhookSecret = config.secret ?? "wh_xxxxxxxxxxxxx";
+    case "trigger_webhook": {
+      // Sólo lectura: la URL y el secreto los genera el sistema, el panel no
+      // los escribe.
+      const c = editorDeConfig("trigger_webhook", config);
+      const webhookUrl =
+        c.valores.url ?? `https://api.crm.com/webhook/${String(c.valores.id ?? "nuevo")}`;
+      const webhookSecret = c.valores.secret ?? "wh_xxxxxxxxxxxxx";
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
@@ -252,9 +261,11 @@ export function ConfigTrigger({
           </label>
         </div>
       );
+    }
 
     case "trigger_etiqueta":
-    case "trigger_etiqueta_removida":
+    case "trigger_etiqueta_removida": {
+      const c = editorDeConfig(tipo, config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
@@ -264,8 +275,8 @@ export function ConfigTrigger({
                 : "Cuando se remueve la etiqueta"}
             </span>
             <Select
-              value={String(config.tagId ?? "")}
-              onValueChange={(v) => handleChange("tagId", v)}
+              value={String(c.valores.tagId ?? "")}
+              onValueChange={(v) => onChange(c.con("tagId", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -282,15 +293,17 @@ export function ConfigTrigger({
           </label>
         </div>
       );
+    }
 
-    case "trigger_etapa":
+    case "trigger_etapa": {
+      const c = editorDeConfig("trigger_etapa", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Etapa origen</span>
             <Select
-              value={String(config.etapaOrigen ?? "cualquiera")}
-              onValueChange={(v) => handleChange("etapaOrigen", v)}
+              value={String(c.valores.etapaOrigen)}
+              onValueChange={(v) => onChange(c.con("etapaOrigen", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -310,8 +323,8 @@ export function ConfigTrigger({
           <label className="block">
             <span className={labelClass}>Etapa destino</span>
             <Select
-              value={String(config.etapaDestino ?? "")}
-              onValueChange={(v) => handleChange("etapaDestino", v)}
+              value={String(c.valores.etapaDestino ?? "")}
+              onValueChange={(v) => onChange(c.con("etapaDestino", v))}
               disabled={readonly}
             >
               <SelectTrigger className={selectClass}>
@@ -328,8 +341,10 @@ export function ConfigTrigger({
           </label>
         </div>
       );
+    }
 
-    case "trigger_inactividad":
+    case "trigger_inactividad": {
+      const c = editorDeConfig("trigger_inactividad", config);
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
@@ -339,13 +354,13 @@ export function ConfigTrigger({
                 type="number"
                 min={1}
                 className={`${inputClass} w-20`}
-                value={Number(config.duracion ?? 24)}
-                onChange={(e) => handleChange("duracion", Number(e.target.value))}
+                value={Number(c.valores.duracion)}
+                onChange={(e) => onChange(c.con("duracion", Number(e.target.value)))}
                 disabled={readonly}
               />
               <Select
-                value={String(config.unidad ?? "horas")}
-                onValueChange={(v) => handleChange("unidad", v)}
+                value={String(c.valores.unidad)}
+                onValueChange={(v) => onChange(c.con("unidad", v))}
                 disabled={readonly}
               >
                 <SelectTrigger className={`${selectClass} flex-1`}>
@@ -361,6 +376,7 @@ export function ConfigTrigger({
           </label>
         </div>
       );
+    }
 
     default:
       return (

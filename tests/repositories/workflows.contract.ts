@@ -212,5 +212,117 @@ export function runWorkflowsContract(makeRepo: () => WorkflowsRepository) {
         expect(await repo.listarWorkflows()).toEqual([]);
       });
     });
+
+    describe("nota de la versión", () => {
+      it("una versión nace sin nota", async () => {
+        const w = await repo.crearWorkflow({ nombre: "W", descripcion: null, activo: false });
+        const v = await repo.crearVersion({
+          workflow_id: w.id,
+          version: 1,
+          grafo: GRAFO,
+          max_pasos: 500,
+          created_by: null,
+        });
+        expect(v.nota).toBeNull();
+      });
+
+      it("publicar con nota la guarda; publicar sin nota no la borra; una nota en blanco no la pisa", async () => {
+        const w = await repo.crearWorkflow({ nombre: "W", descripcion: null, activo: false });
+        const v = await repo.crearVersion({
+          workflow_id: w.id,
+          version: 1,
+          grafo: GRAFO,
+          max_pasos: 500,
+          created_by: null,
+        });
+
+        expect((await repo.publicarVersion(v.id, "Arreglo del saludo")).nota).toBe(
+          "Arreglo del saludo",
+        );
+        expect((await repo.publicarVersion(v.id)).nota).toBe("Arreglo del saludo");
+        expect((await repo.publicarVersion(v.id, "   ")).nota).toBe("Arreglo del saludo");
+        expect((await repo.findVersion(v.id))?.nota).toBe("Arreglo del saludo");
+      });
+    });
+
+    describe("clonarVersion", () => {
+      it("sin publicar: una versión nueva con el próximo número, el mismo grafo y tope, despublicada", async () => {
+        const w = await repo.crearWorkflow({ nombre: "W", descripcion: null, activo: false });
+        const v1 = await repo.crearVersion({
+          workflow_id: w.id,
+          version: 1,
+          grafo: GRAFO,
+          max_pasos: 77,
+          created_by: null,
+        });
+        await repo.crearVersion({
+          workflow_id: w.id,
+          version: 2,
+          grafo: grafoConDisparador("mensaje_recibido"),
+          max_pasos: 500,
+          created_by: null,
+        });
+
+        const copia = await repo.clonarVersion({
+          versionId: v1.id,
+          publicar: false,
+          nota: null,
+          createdBy: null,
+        });
+
+        expect(copia.id).not.toBe(v1.id);
+        expect(copia.workflow_id).toBe(w.id);
+        expect(copia.version).toBe(3);
+        expect(copia.grafo).toEqual(GRAFO);
+        expect(copia.max_pasos).toBe(77);
+        expect(copia.publicada).toBe(false);
+        expect(copia.nota).toBeNull();
+        expect(await repo.findVersionPublicada(w.id)).toBeNull();
+      });
+
+      it("publicando: la copia queda publicada con su nota y la versión vieja no revive", async () => {
+        const w = await repo.crearWorkflow({ nombre: "W", descripcion: null, activo: false });
+        const v1 = await repo.crearVersion({
+          workflow_id: w.id,
+          version: 1,
+          grafo: GRAFO,
+          max_pasos: 500,
+          created_by: null,
+        });
+        const v2 = await repo.crearVersion({
+          workflow_id: w.id,
+          version: 2,
+          grafo: grafoConDisparador("mensaje_recibido"),
+          max_pasos: 500,
+          created_by: null,
+        });
+        await repo.publicarVersion(v2.id);
+
+        const restaurada = await repo.clonarVersion({
+          versionId: v1.id,
+          publicar: true,
+          nota: "Restaurada desde la versión 1",
+          createdBy: null,
+        });
+
+        expect(restaurada.version).toBe(3);
+        expect(restaurada.publicada).toBe(true);
+        expect(restaurada.nota).toBe("Restaurada desde la versión 1");
+        expect((await repo.findVersionPublicada(w.id))?.id).toBe(restaurada.id);
+        expect((await repo.findVersion(v1.id))?.publicada).toBe(false);
+        expect((await repo.findVersion(v2.id))?.publicada).toBe(false);
+      });
+
+      it("clonar una versión que no existe rechaza con NotFoundError", async () => {
+        await expect(
+          repo.clonarVersion({
+            versionId: "00000000-0000-4000-8000-000000000999",
+            publicar: false,
+            nota: null,
+            createdBy: null,
+          }),
+        ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      });
+    });
   });
 }
