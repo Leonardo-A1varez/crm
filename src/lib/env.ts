@@ -17,6 +17,7 @@
  */
 
 import { z } from "zod";
+import { parsearClavesBajas } from "@/lib/difusion/claves-bajas";
 
 const isTest = process.env.NODE_ENV === "test";
 
@@ -88,6 +89,52 @@ const envSchema = z.object({
   // Sentry (Slice 4a 10.2) — opcional: sin DSN queda disabled sin overhead.
   SENTRY_DSN: z.string().url().optional(),
   NEXT_PUBLIC_SENTRY_DSN: z.string().url().optional(),
+
+  // Claves HMAC del teléfono de las bajas de difusión (`difusion_supresiones.telefono_hash`).
+  // `version:claveBase64` separadas por coma, cada clave de ≥32 bytes
+  // (`openssl rand -base64 32`). Las altas se escriben con la ACTIVA; se busca
+  // con todas. Rotan cada 90 días y una versión vieja no se retira mientras
+  // haya bajas activas con ella: docs/runbooks/secrets-rotation.md.
+  //
+  // Opcionales ACÁ a propósito: que falten no puede tumbar el panel entero. La
+  // obligación se exige donde se usan (`hasherBajasDesdeEnv()` lanza
+  // `IllegalStateError`), y lo único que deja de andar es registrar o consultar
+  // bajas —y con eso, todo envío que dependa de ellas: falla cerrado, no manda—.
+  // Si vienen, se validan en forma estricta (`envSchemaEstricto`).
+  DIFUSION_BAJAS_HMAC_CLAVES: z.string().min(1).optional(),
+  DIFUSION_BAJAS_HMAC_VERSION_ACTIVA: z.coerce.number().int().positive().optional(),
+});
+
+/**
+ * Lo que el schema campo a campo no ve: si vienen las claves de bajas, que se
+ * decodifiquen y que la versión activa esté entre ellas. Una sola de las dos
+ * es una configuración a medias y también se rechaza. El mensaje de
+ * `parsearClavesBajas` nunca incluye material de la clave.
+ */
+const envSchemaEstricto = envSchema.superRefine((e, ctx) => {
+  const claves = e.DIFUSION_BAJAS_HMAC_CLAVES;
+  const activa = e.DIFUSION_BAJAS_HMAC_VERSION_ACTIVA;
+  if (claves === undefined && activa === undefined) return;
+  if (claves === undefined || activa === undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: [
+        claves === undefined ? "DIFUSION_BAJAS_HMAC_CLAVES" : "DIFUSION_BAJAS_HMAC_VERSION_ACTIVA",
+      ],
+      message:
+        "DIFUSION_BAJAS_HMAC_CLAVES y DIFUSION_BAJAS_HMAC_VERSION_ACTIVA van juntas: falta una",
+    });
+    return;
+  }
+  try {
+    parsearClavesBajas(claves, activa);
+  } catch (err) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["DIFUSION_BAJAS_HMAC_CLAVES"],
+      message: err instanceof Error ? err.message : "claves inválidas",
+    });
+  }
 });
 
 export type AppEnv = z.infer<typeof envSchema>;
@@ -131,6 +178,8 @@ const testEnvSchema = envSchema.partial().transform(
     UPSTASH_REDIS_REST_TOKEN: partial.UPSTASH_REDIS_REST_TOKEN,
     SENTRY_DSN: partial.SENTRY_DSN,
     NEXT_PUBLIC_SENTRY_DSN: partial.NEXT_PUBLIC_SENTRY_DSN,
+    DIFUSION_BAJAS_HMAC_CLAVES: partial.DIFUSION_BAJAS_HMAC_CLAVES,
+    DIFUSION_BAJAS_HMAC_VERSION_ACTIVA: partial.DIFUSION_BAJAS_HMAC_VERSION_ACTIVA,
   }),
 );
 
@@ -157,7 +206,7 @@ function parseEnv(): AppEnv {
   if (isTest) {
     return testEnvSchema.parse(stripEmpty(process.env));
   }
-  const parsed = envSchema.safeParse(stripEmpty(process.env));
+  const parsed = envSchemaEstricto.safeParse(stripEmpty(process.env));
   if (!parsed.success) {
     const issues = parsed.error.issues
       .map((i) => `  - ${i.path.join(".")}: ${i.message}`)
