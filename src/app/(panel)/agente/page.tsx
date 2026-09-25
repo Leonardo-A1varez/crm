@@ -54,7 +54,7 @@ export default async function AgentePage({
   return (
     <div className="bg-surface-root flex h-full flex-col overflow-hidden">
       <PageHeader
-        title="OpenAI settings"
+        title="Agente"
         subtitle="Reglas, escalado y límites del vendedor automático"
         actions={
           configActiva ? (

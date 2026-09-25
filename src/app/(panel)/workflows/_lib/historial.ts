@@ -3,6 +3,7 @@ import { MOTIVO_SALTO } from "@/lib/workflows/motivos-salto";
 import { motivoSaltoDeSalida } from "@/types/workflows";
 import { pasosDelGrafo } from "@/lib/workflows/pasos";
 import { esperaLegible } from "@/lib/triage";
+import { campoHoraEnZona } from "@/lib/zona-horaria";
 import type {
   CorridaEnLista,
   DetalleDeCorrida,
@@ -56,11 +57,6 @@ export function duracionLegible(ms: number | null): string {
   const minutos = Math.floor(segundos / 60);
   const resto = segundos % 60;
   return resto === 0 ? `${minutos} m` : `${minutos} m ${resto} s`;
-}
-
-/** "09:14" en la zona del servidor. */
-function hora(fecha: Date): string {
-  return fecha.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 /**
@@ -156,6 +152,7 @@ function aPasos(
   pasos: readonly WorkflowRunPaso[],
   nodos: Map<string, { nombre: string; nivel: number }>,
   run: WorkflowRunDetalle,
+  zona: string,
 ): PasoDeCorrida[] {
   const ordenados = [...pasos].sort((a, b) => a.orden - b.orden);
 
@@ -167,7 +164,7 @@ function aPasos(
       id: paso.id,
       nombre: info?.nombre ?? paso.nodo_id,
       paso: paso.error !== null ? "fallado" : salto !== null ? "saltado" : "recorrido",
-      hora: hora(paso.created_at),
+      hora: campoHoraEnZona(zona, paso.created_at),
       // Cuánto tardó ESTE paso: desde que terminó el anterior hasta que terminó
       // él. El primero se mide contra el arranque de la corrida.
       duracion: duracionLegible(
@@ -201,10 +198,17 @@ function aLineas(valor: Record<string, unknown> | null): string[] {
   return Object.entries(valor).map(([clave, v]) => `${clave}: ${JSON.stringify(v)}`);
 }
 
+/**
+ * `zona` es la del negocio (`agente_config.horario_timezone`): la hora de cada
+ * paso tiene que coincidir con la que muestra la corrida abierta en el lienzo,
+ * que ya usa esa zona. Formatear con la del servidor mostraba el mismo paso con
+ * una hora distinta en cada pantalla.
+ */
 export function aDetalleDeCorrida(
   run: WorkflowRunDetalle,
   grafo: Grafo | undefined,
   ahoraMs: number,
+  zona: string,
 ): DetalleDeCorrida {
   const nodos = grafo ? leerGrafo(grafo) : new Map<string, { nombre: string; nivel: number }>();
   const ordenados = [...run.pasos].sort((a, b) => a.orden - b.orden);
@@ -218,7 +222,7 @@ export function aDetalleDeCorrida(
     corrida: aCorridaEnLista(run, ahoraMs),
     version: `v${run.version_numero}${run.version_actual ? "" : " (vieja)"}`,
     cronologia: cronologia(run, ahoraMs),
-    pasos: aPasos(run.pasos, nodos, run),
+    pasos: aPasos(run.pasos, nodos, run, zona),
     entrada: aLineas(foco?.entrada ?? null),
     salida:
       run.error !== null && foco?.salida == null

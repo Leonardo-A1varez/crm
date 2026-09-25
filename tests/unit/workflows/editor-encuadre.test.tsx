@@ -15,6 +15,8 @@ import type { NodoEditor, ProblemaNodo } from "@/components/workflows/editor";
 
 const camara = vi.hoisted(() => ({
   setCenter: vi.fn(async () => true),
+  // El encuadre al abrir (`EncuadreInicial`) mueve la cámara con `setViewport`.
+  setViewport: vi.fn(async () => true),
   getZoom: vi.fn(() => 0.4),
   getInternalNode: vi.fn(),
   getNodes: vi.fn((): unknown[] => []),

@@ -19,6 +19,7 @@ import "@xyflow/react/dist/style.css";
 
 import { cn } from "@/lib/utils";
 import { categoriaColor } from "./contrato-nodos";
+import { EncuadreInicial, useEncuadrarTodo } from "./EncuadreInicial";
 import { CURVA, DURACION, FOCO, MEDIDAS, TRANSICION_CONTROL } from "./tokens-editor";
 import {
   EVENTO_BORRAR_NODO,
@@ -245,10 +246,8 @@ export function LienzoEditor({
         proOptions={{ hideAttribution: false }}
         minZoom={0.3}
         maxZoom={2}
-        fitView
-        fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
-        // El encuadre es un movimiento de cámara, no una respuesta a un
-        // control: 240 ms lo hace seguible sin que se sienta lento.
+        // Sin `fitView`: el encuadre al abrir lo hace `<EncuadreInicial>`, que
+        // cuenta también los nodos que todavía no se midieron.
         defaultEdgeOptions={{ type: "insertable" }}
         snapToGrid
         snapGrid={[16, 16]}
@@ -273,6 +272,7 @@ export function LienzoEditor({
           // a una distancia distinta de la de los controles de la izquierda.
           className="!border-line-card !bg-surface-panel/90 !right-3.5 !bottom-3.5 !m-0 rounded-lg !border backdrop-blur-sm"
         />
+        <EncuadreInicial />
       </ReactFlow>
 
       <ControlesLienzo />
@@ -293,7 +293,8 @@ export function LienzoEditor({
  * caracteres.
  */
 function ControlesLienzo() {
-  const { zoomIn, zoomOut, fitView } = useReactFlow();
+  const { zoomIn, zoomOut } = useReactFlow();
+  const encuadrarTodo = useEncuadrarTodo();
 
   return (
     <div
@@ -311,7 +312,11 @@ function ControlesLienzo() {
       </BotonLienzo>
       <BotonLienzo
         etiqueta="Encuadrar todo el flujo"
-        onClick={() => fitView({ padding: 0.2, duration: 240 })}
+        // El encuadre es un movimiento de cámara, no una respuesta a un
+        // control: 240 ms lo hace seguible sin que se sienta lento.
+        onClick={() =>
+          encuadrarTodo({ duration: prefiereMenosMovimiento() ? 0 : ENCUADRE.duration })
+        }
       >
         ⛶
       </BotonLienzo>

@@ -20,6 +20,7 @@ import type { Grafo } from "@/types/workflows";
 
 const ARRANQUE = new Date("2026-09-04T12:00:00Z");
 const AHORA = new Date("2026-09-04T12:05:00Z").getTime();
+const ZONA = "UTC";
 
 function paso(
   nodoId: string,
@@ -98,6 +99,7 @@ describe("aDetalleDeCorrida — sangría de los pasos", () => {
       run({ pasos: [paso("n1", 1, 2), paso("n2", 2, 10), paso("n3", 3, 11)] }),
       GRAFO_LINEAL,
       AHORA,
+      ZONA,
     );
 
     expect(detalle.pasos.map((p) => p.nivel)).toEqual([0, 0, 0]);
@@ -109,6 +111,7 @@ describe("aDetalleDeCorrida — sangría de los pasos", () => {
       run({ pasos: [paso("n1", 1, 1), paso("n2", 2, 2), paso("n3", 3, 3)] }),
       GRAFO_CON_RAMA,
       AHORA,
+      ZONA,
     );
 
     // disparador y condición son tronco; la rama `verdadero` va sangrada.
@@ -126,7 +129,7 @@ describe("aDetalleDeCorrida — sangría de los pasos", () => {
    * pantalla del historial.
    */
   it("cae al id del nodo cuando no hay grafo de esa versión", () => {
-    const detalle = aDetalleDeCorrida(run({ pasos: [paso("n1", 1, 1)] }), undefined, AHORA);
+    const detalle = aDetalleDeCorrida(run({ pasos: [paso("n1", 1, 1)] }), undefined, AHORA, ZONA);
     expect(detalle.pasos[0]?.nombre).toBe("n1");
   });
 });
@@ -146,6 +149,7 @@ describe("aDetalleDeCorrida — reanudar", () => {
       }),
       GRAFO_LINEAL,
       AHORA,
+      ZONA,
     );
 
     expect(detalle.pasosMemoizados).toBe(2);
@@ -164,6 +168,7 @@ describe("aDetalleDeCorrida — reanudar", () => {
       }),
       GRAFO_LINEAL,
       AHORA,
+      ZONA,
     );
 
     expect(detalle.pasos.at(-1)).toMatchObject({ nombre: "Fin", paso: "pendiente", hora: null });
@@ -216,7 +221,7 @@ describe("corrida saltada por un tope de seguridad", () => {
   });
 
   it("el paso saltado sale como 'saltado' con el motivo en palabras", () => {
-    const d = aDetalleDeCorrida(saltada(), GRAFO_LINEAL, AHORA);
+    const d = aDetalleDeCorrida(saltada(), GRAFO_LINEAL, AHORA, ZONA);
     const ultimo = d.pasos.at(-1);
     expect(ultimo?.paso).toBe("saltado");
     expect(ultimo?.motivo).toMatch(/tope de mensajes/i);
@@ -224,7 +229,41 @@ describe("corrida saltada por un tope de seguridad", () => {
   });
 
   it("la cronología dice que el lead salió del flujo", () => {
-    const d = aDetalleDeCorrida(saltada(), GRAFO_LINEAL, AHORA);
+    const d = aDetalleDeCorrida(saltada(), GRAFO_LINEAL, AHORA, ZONA);
     expect(d.cronologia).toMatch(/sali[oó] del flujo/i);
+  });
+});
+
+describe("aDetalleDeCorrida — la hora de cada paso", () => {
+  /**
+   * El historial formateaba en la zona del servidor y la corrida abierta en el
+   * lienzo en la del negocio: el mismo paso salía con una hora distinta en cada
+   * pantalla. Dos zonas que no pueden ser a la vez la del
+   * servidor prueban que la hora sale de la zona pedida y no del proceso.
+   */
+  it("formatea en la zona del negocio, no en la del servidor", () => {
+    // 12:00:10Z. Buenos Aires es UTC-3 todo el año; Tokio, UTC+9.
+    const corrida = run({ pasos: [paso("n1", 1, 10)] });
+
+    const enBuenosAires = aDetalleDeCorrida(
+      corrida,
+      GRAFO_LINEAL,
+      AHORA,
+      "America/Argentina/Buenos_Aires",
+    );
+    const enTokio = aDetalleDeCorrida(corrida, GRAFO_LINEAL, AHORA, "Asia/Tokyo");
+
+    expect(enBuenosAires.pasos[0]?.hora).toBe("09:00");
+    expect(enTokio.pasos[0]?.hora).toBe("21:00");
+  });
+
+  it("con una zona que no existe muestra UTC antes que inventar una hora", () => {
+    const d = aDetalleDeCorrida(
+      run({ pasos: [paso("n1", 1, 10)] }),
+      GRAFO_LINEAL,
+      AHORA,
+      "No/Existe",
+    );
+    expect(d.pasos[0]?.hora).toBe("12:00");
   });
 });

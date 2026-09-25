@@ -37,15 +37,13 @@ export function GaleriaPlantillas({
             Nuevo flujo
           </h1>
           {/*
-            La versión anterior de esta línea prometía que "el lienzo aparece ya
-            armado". No es cierto y no hay forma de que lo sea todavía: no
-            existe traducción de estas seis plantillas a nodos del grafo, así
-            que el flujo nace vacío se elija lo que se elija. La plantilla dice
-            qué armar; armarlo sigue siendo trabajo del lienzo.
+            Las seis plantillas abren el lienzo ya armado (`armarPlantilla`, en
+            `workflows/nuevo/_lib/grafos-plantillas.ts`). Lo que depende del
+            negocio —qué etiqueta, qué texto— queda vacío y se completa después.
           */}
-          <p className="text-ink-faint mt-[3px] text-[12px]">
-            Elegí por dónde empezar. La plantilla dice qué pasos tiene que tener el flujo; el lienzo
-            todavía arranca vacío.
+          <p className="text-ink-faint mt-[3px] text-[12px] text-pretty">
+            Elegí por dónde empezar. La plantilla arma los pasos en el lienzo y deja vacío lo que
+            depende de tu negocio.
           </p>
         </div>
       </header>

@@ -46,10 +46,8 @@ const DISPARADORES_LEGACY: ReadonlySet<string> = new Set<DisparadorWorkflow>([
  */
 function eventoQueEscucha(nodo: Nodo): string | undefined {
   if (nodo.tipo === "disparador") {
-    const disparador = nodo.config["disparador"];
-    return typeof disparador === "string" && DISPARADORES_LEGACY.has(disparador)
-      ? disparador
-      : undefined;
+    const disparador = configDeDisparador("disparador", nodo.config)?.disparador;
+    return disparador !== undefined && DISPARADORES_LEGACY.has(disparador) ? disparador : undefined;
   }
   return DISPARADOR_DE_TIPO[nodo.tipo as NodoTipoTrigger];
 }
@@ -69,15 +67,16 @@ export function disparadorMatch(grafo: Grafo, disparador: string): boolean {
 }
 
 /**
- * La config de un disparador leída con su schema (`config-nodos.ts`, el
- * contrato que comparten el panel, el validador y el motor): las claves viejas
- * pasadas a su nombre de hoy y el default del panel donde no hay nada escrito.
+ * La config de un disparador —los `trigger_*` y el `disparador` legacy— leída
+ * con su schema (`config-nodos.ts`, el contrato que comparten el panel, el
+ * validador y el motor): las claves viejas pasadas a su nombre de hoy y el
+ * default del panel donde no hay nada escrito.
  *
  * `null` = la config no pasa el schema, y quien la lee **falla cerrado**. Un
  * filtro mal leído que deja pasar todo le escribe a leads que nadie eligió; uno
  * que no deja pasar nada se ve en el historial vacío y se corrige.
  */
-export function configDeDisparador<T extends NodoTipoTrigger>(
+export function configDeDisparador<T extends NodoTipoTrigger | "disparador">(
   tipo: T,
   config: Record<string, unknown>,
 ): ConfigDeTipo<T> | null {

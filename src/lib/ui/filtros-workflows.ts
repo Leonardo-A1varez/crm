@@ -1,4 +1,4 @@
-import { ESTADOS_WORKFLOW, ESTADO_WORKFLOW_LABEL } from "./workflow-estado";
+import { ESTADOS_WORKFLOW } from "./workflow-estado";
 import type { ValorParam } from "./filtros-leads";
 import type { WorkflowEstado, WorkflowResumen } from "@/types/entities";
 
@@ -24,11 +24,6 @@ export const ORDENAR_WORKFLOWS_LABEL: Record<OrdenarWorkflows, string> = {
   nombre: "Nombre",
   runs: "Más runs",
   reciente: "Más reciente",
-};
-
-export const ESTADO_WORKFLOW_FILTRO_LABEL: Record<EstadoWorkflowFiltro, string> = {
-  todos: "Todos",
-  ...ESTADO_WORKFLOW_LABEL,
 };
 
 export interface FiltrosWorkflowsValores {

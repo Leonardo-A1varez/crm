@@ -1,9 +1,11 @@
 import { notFound } from "next/navigation";
+import { getLogger } from "@/lib/observability/get-logger";
 import { getCurrentRol } from "@/server/auth/guards";
 import { getReglasAdminServiceForRequest } from "@/server/bootstrap/reglas-bootstrap";
 import { getTagsAdminServiceForRequest } from "@/server/bootstrap/tags-bootstrap";
 import { getUsuariosServiceForRequest } from "@/server/bootstrap/usuarios-bootstrap";
 import { getWorkflowsAdminServiceForRequest } from "@/server/bootstrap/workflows-bootstrap";
+import { zonaDelNegocio } from "../../difusion/_lib/zona";
 import { searchLeadsAction } from "../../leads/_actions/search-leads.action";
 import {
   guardarVersionAction,
@@ -39,7 +41,7 @@ export default async function WorkflowDetallePage({ params }: { params: Promise<
   const detalle = await svc.detalle(id);
   if (!detalle) notFound();
 
-  const [rol, tags, intents, usuarios] = await Promise.all([
+  const [rol, tags, intents, usuarios, zona] = await Promise.all([
     getCurrentRol(),
     // Las listas alimentan los selectores del panel, que guardan un id real:
     // escribirlo a mano es un `tag_id_ausente` en producción esperando a que
@@ -48,6 +50,9 @@ export default async function WorkflowDetallePage({ params }: { params: Promise<
     getTagsAdminServiceForRequest().then((s) => s.listar()),
     getReglasAdminServiceForRequest().then((s) => s.listarIntents()),
     getUsuariosServiceForRequest().then((s) => s.listar()),
+    // Las horas de Flujos van en la zona del negocio, como en el historial y
+    // en la corrida.
+    zonaDelNegocio(getLogger({ scope: "workflows" })),
   ]);
   const isAdmin = rol === "admin";
 
@@ -90,6 +95,7 @@ export default async function WorkflowDetallePage({ params }: { params: Promise<
           grafoUltimaGuardada={ultima?.grafo ?? null}
           versiones={detalle.versiones}
           puedeEditar={isAdmin}
+          zona={zona}
           tags={tags.map((t) => ({ id: t.id, nombre: t.nombre }))}
           etapas={opcionesDeEtapas()}
           vendedores={opcionesDeVendedores(usuarios)}

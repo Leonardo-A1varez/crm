@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowForward } from "@/components/icons";
+import { getLogger } from "@/lib/observability/get-logger";
 import { DetalleCorrida } from "@/components/workflows/lista/DetalleCorrida";
 import { HistorialCorridas } from "@/components/workflows/lista/HistorialCorridas";
 import { getWorkflowsAdminServiceForRequest } from "@/server/bootstrap/workflows-bootstrap";
@@ -8,6 +9,7 @@ import {
   obtenerDetalleRunAction,
   obtenerHistorialWorkflowAction,
 } from "../../_actions/workflows.actions";
+import { zonaDelNegocio } from "../../../difusion/_lib/zona";
 import { aCorridaEnLista, aDetalleDeCorrida } from "../../_lib/historial";
 import type { FiltroHistorial } from "@/components/workflows/lista/HistorialCorridas";
 import type { WorkflowVersion } from "@/types/entities";
@@ -64,7 +66,16 @@ export default async function HistorialPage({
   const pagina = filtro === "fallidas" ? fallidas : todas;
   const corridas = pagina.runs.map((r) => aCorridaEnLista(r, ahora));
 
-  const detalle = corridaId ? await leerDetalle(corridaId, workflow.versiones, ahora) : null;
+  // La misma zona que la corrida abierta en el lienzo: si no, un mismo paso
+  // sale con dos horas distintas según la pantalla.
+  const detalle = corridaId
+    ? await leerDetalle(
+        corridaId,
+        workflow.versiones,
+        ahora,
+        await zonaDelNegocio(getLogger({ scope: "workflows" })),
+      )
+    : null;
 
   return (
     <div className="bg-surface-root flex h-full flex-col overflow-hidden">
@@ -130,7 +141,12 @@ async function leerHistorial(workflowId: string) {
   return { ok: true as const, todas: todas.data, fallidas: fallidas.data, ahora: Date.now() };
 }
 
-async function leerDetalle(runId: string, versiones: readonly WorkflowVersion[], ahora: number) {
+async function leerDetalle(
+  runId: string,
+  versiones: readonly WorkflowVersion[],
+  ahora: number,
+  zona: string,
+) {
   const r = await obtenerDetalleRunAction({ runId });
   if (!r.ok || r.data === null) return null;
   // A una const local: dentro del closure de `find`, TypeScript pierde el
@@ -140,7 +156,7 @@ async function leerDetalle(runId: string, versiones: readonly WorkflowVersion[],
   // una corrida vieja queda pinneada a su versión, no a la publicada hoy. Sin
   // él, la línea de tiempo mostraría los ids crudos de los nodos.
   const version = versiones.find((v) => v.version === run.version_numero);
-  return aDetalleDeCorrida(run, version?.grafo, ahora);
+  return aDetalleDeCorrida(run, version?.grafo, ahora, zona);
 }
 
 function href(workflowId: string, filtro: FiltroHistorial, corridaId?: string): string {

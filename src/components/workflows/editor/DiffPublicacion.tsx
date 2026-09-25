@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Eyebrow } from "@/components/shared/Eyebrow";
+import { EncuadreInicial } from "./EncuadreInicial";
 import { BarraEditor } from "./BarraEditor";
 import { MEDIDAS, PRESION_TACTIL, TRANSICION_CONTROL } from "./tokens-editor";
 import { TIPOS_NODO_DIFF, type NodoDiffFlow } from "./NodoDiff";
@@ -248,8 +249,8 @@ export function DiffPublicacion({
               onlyRenderVisibleElements
               minZoom={0.3}
               maxZoom={1.5}
-              fitView
-              fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+              // El encuadre al abrir lo hace `<EncuadreInicial>`: la prop
+              // `fitView` sólo cuenta los nodos ya medidos.
             >
               <Background
                 variant={BackgroundVariant.Dots}
@@ -257,6 +258,7 @@ export function DiffPublicacion({
                 size={1}
                 className="!text-line-layout"
               />
+              <EncuadreInicial />
             </ReactFlow>
           </ReactFlowProvider>
         </div>

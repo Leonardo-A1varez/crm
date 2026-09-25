@@ -21,7 +21,7 @@ import {
   ConfigMensajeria,
   ConfigTrigger,
 } from "@/components/workflows/canvas/config";
-import { ProbarDialog } from "@/components/workflows/canvas";
+import { ProbarDialog } from "@/components/workflows/canvas/ProbarDialog";
 import { VersionesDelWorkflow } from "@/components/workflows/VersionesDelWorkflow";
 import {
   EditorWorkflow,
@@ -36,6 +36,7 @@ import {
 import { FOCO, TRANSICION_CONTROL } from "@/lib/ui/motion";
 import { cn } from "@/lib/utils";
 import { puertosDe, validarGrafo } from "@/lib/workflows/validar-grafo";
+import { campoHoraEnZona } from "@/lib/zona-horaria";
 import {
   NODO_TIPOS,
   PUERTOS,
@@ -323,6 +324,12 @@ export interface EditorWorkflowClienteProps {
   grafoUltimaGuardada: Grafo | null;
   versiones: readonly WorkflowVersion[];
   puedeEditar: boolean;
+  /**
+   * La zona del negocio (`agente_config.horario_timezone`). La hora de
+   * "guardado a las…" se escribe en ella y no en la del navegador, igual que
+   * todas las horas de Flujos.
+   */
+  zona: string;
   /** Las opciones de los selectores del panel. El `id` es lo que se guarda en `config`. */
   tags: ReadonlyArray<OpcionSelect>;
   etapas: ReadonlyArray<OpcionSelect>;
@@ -360,6 +367,7 @@ export function EditorWorkflowCliente({
   grafoUltimaGuardada,
   versiones,
   puedeEditar,
+  zona,
   tags,
   etapas,
   vendedores,
@@ -775,14 +783,12 @@ export function EditorWorkflowCliente({
         setAviso({ tono: "error", texto: r.error });
         return;
       }
-      setGuardadoA(
-        new Date().toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit", hour12: false }),
-      );
+      setGuardadoA(campoHoraEnZona(zona, new Date()));
       setAviso({ tono: "ok", texto: "Versión guardada. Publicala para que empiece a correr." });
       // Trae la versión nueva: es la que va a publicar el botón de al lado.
       router.refresh();
     })();
-  }, [rechazarSinPermiso, topeValido, avisarTopeInvalido, onGuardar, workflowId, router]);
+  }, [rechazarSinPermiso, topeValido, avisarTopeInvalido, onGuardar, workflowId, zona, router]);
 
   /**
    * Publicar lleva al diff de **la última versión guardada** contra la

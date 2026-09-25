@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Eyebrow } from "@/components/shared/Eyebrow";
 import type { Grafo } from "@/types/workflows";
+import { EncuadreInicial } from "./EncuadreInicial";
 import { BarraEditor, ChipEstado } from "./BarraEditor";
 import { MEDIDAS, PRESION_TACTIL, TRANSICION_CONTROL, FOCO } from "./tokens-editor";
 import { TIPOS_NODO_CORRIDA, type NodoCorridaFlow } from "./NodoCorrida";
@@ -292,8 +293,8 @@ export function CorridaEnVivo({
               onlyRenderVisibleElements
               minZoom={0.3}
               maxZoom={1.5}
-              fitView
-              fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+              // El encuadre al abrir lo hace `<EncuadreInicial>`: la prop
+              // `fitView` sólo cuenta los nodos ya medidos.
             >
               <Background
                 variant={BackgroundVariant.Dots}
@@ -301,6 +302,7 @@ export function CorridaEnVivo({
                 size={1}
                 className="!text-line-layout"
               />
+              <EncuadreInicial />
             </ReactFlow>
           </ReactFlowProvider>
 

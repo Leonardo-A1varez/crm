@@ -1,20 +1,12 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { DomainError, PermissionDeniedError } from "@/lib/errors";
-import {
-  ContarCorridasVivasSchema,
-  CrearFlujoDesdePlantillaSchema,
-} from "@/lib/validation/workflows-listado.schema";
-import { getCurrentRol } from "@/server/auth/guards";
-import {
-  getWorkflowRunsRepoForRequest,
-  getWorkflowsAdminServiceForRequest,
-} from "@/server/bootstrap/workflows-bootstrap";
+import { ContarCorridasVivasSchema } from "@/lib/validation/workflows-listado.schema";
+import { getWorkflowRunsRepoForRequest } from "@/server/bootstrap/workflows-bootstrap";
 import type { UUID } from "@/types/entities";
 
 /**
- * Las dos lecturas/escrituras que agregó la pantalla de listado nueva.
+ * La lectura que agregó la pantalla de listado nueva: las corridas vivas por flujo.
  *
  * Viven separadas de `workflows.actions.ts` para no tocar un archivo que ya
  * concentra el editor y las seis mutaciones. Mismo contrato: Zod en la primera
@@ -70,44 +62,4 @@ export async function contarCorridasVivasAction(
   } catch (e) {
     return { ok: false, error: mensajeDeError(e, "No se pudieron contar las corridas vivas.") };
   }
-}
-
-/**
- * Crea un flujo desde la galería y devuelve su id, para poder mandar a la
- * persona directo al editor.
- *
- * `crearWorkflowAction` no sirve acá: devuelve `ActionResult`, o sea `ok` sin
- * id, y después de elegir una plantilla lo único que alguien quiere es estar
- * adentro del flujo que acaba de crear.
- *
- * **La plantilla elegida no arma el grafo.** No existe traducción de las seis
- * plantillas a nodos, así que el flujo nace vacío y apagado. Lo que sí queda es
- * la descripción, que es lo que el formulario muestra antes de crear. Fingir
- * que la plantilla dejó pasos armados sería la peor versión de esto.
- */
-export async function crearFlujoDesdePlantillaAction(
-  raw: unknown,
-): Promise<{ ok: true; workflowId: UUID } | { ok: false; error: string }> {
-  const parsed = CrearFlujoDesdePlantillaSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? "Datos inválidos." };
-  }
-
-  let workflowId: UUID;
-  try {
-    const rol = await getCurrentRol();
-    if (rol !== "admin") throw new PermissionDeniedError("solo un admin puede crear flujos");
-
-    const svc = await getWorkflowsAdminServiceForRequest();
-    const creado = await svc.crear({
-      nombre: parsed.data.nombre,
-      descripcion: parsed.data.descripcion,
-    });
-    workflowId = creado.id;
-  } catch (e) {
-    return { ok: false, error: mensajeDeError(e, "No se pudo crear el flujo.") };
-  }
-
-  revalidatePath("/workflows");
-  return { ok: true, workflowId };
 }

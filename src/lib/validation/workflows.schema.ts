@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { NODO_TIPOS, PUERTOS } from "@/types/workflows";
-import { ESTADOS_WORKFLOW_FILTRO, ORDENAR_WORKFLOWS } from "@/lib/ui/filtros-workflows";
 
 /**
  * Forma del grafo, no su sentido.
@@ -128,14 +127,6 @@ export const RollbackVersionSchema = z.object({
   nota: NotaDeVersionSchema,
 });
 export type RollbackVersionInput = z.infer<typeof RollbackVersionSchema>;
-
-/** Filtros del listado (`getWorkflowsAction`). Todo opcional: sin filtros llega la lista entera. */
-export const FiltrosWorkflowsSchema = z.object({
-  busqueda: z.string().trim().max(200).optional(),
-  estado: z.enum(ESTADOS_WORKFLOW_FILTRO).optional(),
-  ordenar: z.enum(ORDENAR_WORKFLOWS).optional(),
-});
-export type FiltrosWorkflowsInput = z.infer<typeof FiltrosWorkflowsSchema>;
 
 // =========================================================================
 // Historial de ejecuciones (panel lateral I)
