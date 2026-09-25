@@ -19,6 +19,7 @@ describe("aviso «vendedor asignado»", () => {
       vendedorId: "ven-1",
       runId: "run-1",
       orden: 4,
+      profundidad: 1,
     });
 
     expect(emitir).toHaveBeenCalledWith({
@@ -28,6 +29,7 @@ describe("aviso «vendedor asignado»", () => {
         leadId: "lead-1",
         leadSessionId: "ses-1",
         contexto: { lead: { etapa: "cotizado" }, sesion: { tiene_cotizacion: false } },
+        profundidad: 1,
       },
     });
   });
@@ -40,6 +42,7 @@ describe("aviso «vendedor asignado»", () => {
       vendedorId: "ven-1",
       runId: "run-1",
       orden: 4,
+      profundidad: 1,
     });
     expect(emitir).toHaveBeenCalledWith(
       expect.objectContaining({ id: "workflow-disparo:vendedor-asignado:ses-1:ven-1:run-1:4" }),

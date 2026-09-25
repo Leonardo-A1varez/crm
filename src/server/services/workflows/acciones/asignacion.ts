@@ -1,4 +1,5 @@
 import { ValidationError } from "@/lib/errors";
+import { profundidadDeContexto } from "@/lib/workflows/cadena";
 import { configDeAccion } from "@/lib/workflows/config-nodos";
 import type { SessionLock } from "@/server/lock/session-lock";
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
@@ -15,6 +16,12 @@ export interface AvisoVendedorAsignado {
   /** Para la idempotencia del aviso cuando la sesión no trae `asignado_at`. */
   runId: UUID;
   orden: number;
+  /**
+   * La profundidad de la cadena del disparo que sale: la de la corrida que
+   * asignó más uno (`lib/workflows/cadena.ts`). Es lo que corta dos flujos
+   * que se reasignan entre sí.
+   */
+  profundidad: number;
 }
 
 /**
@@ -87,6 +94,7 @@ function crearAsignarVendedor(deps: AccionesAsignacionDeps): AccionHandler {
         vendedorId,
         runId: entorno.runId,
         orden: entorno.orden,
+        profundidad: profundidadDeContexto(entorno.contexto) + 1,
       });
     }
     return {
@@ -132,6 +140,7 @@ function crearRepartirRoundRobin(deps: AccionesAsignacionDeps): AccionHandler {
         vendedorId: r.vendedorId,
         runId: entorno.runId,
         orden: entorno.orden,
+        profundidad: profundidadDeContexto(entorno.contexto) + 1,
       });
     }
     return {

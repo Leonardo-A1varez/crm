@@ -135,6 +135,36 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
     return { run };
   }
 
+  async registrarNoArrancada(
+    input: ArrancarWorkflowRunInput,
+    motivo: string,
+  ): Promise<WorkflowRun> {
+    // INSERT directo y no `arrancar_workflow_run`: esa función aplica la
+    // política de concurrencia, y una corrida que no arranca no es viva --
+    // con `reiniciar` cancelaría la corrida de verdad del flujo sólo para
+    // anotar que ésta no corrió. `started_at` lo pone Postgres y `ended_at`
+    // sale de su mismo reloj (`serverNowIso`): el CHECK
+    // `workflow_runs_fin_coherente` exige `ended_at` en un estado terminal.
+    const endedAt = await serverNowIso(this.db);
+    const { data, error } = await this.db
+      .from("workflow_runs")
+      .insert({
+        workflow_version_id: input.versionId,
+        lead_id: input.leadId,
+        lead_session_id: input.sessionId,
+        estado: "cancelado",
+        // Mismo cast que `arrancar`: `Record<string, unknown>` no es `Json` para TS.
+        contexto: input.contexto as never,
+        pasos_ejecutados: 0,
+        error: motivo,
+        ended_at: endedAt,
+      })
+      .select(COLS_RUN)
+      .single();
+    if (error) throw mapPostgrestError(error, { resource: "workflow_runs" });
+    return mapRun(data as WorkflowRunRow);
+  }
+
   async tomarSegmento(runId: UUID, desdePaso: number): Promise<WorkflowRun | null> {
     const { data, error } = await this.db
       .from("workflow_runs")

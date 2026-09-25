@@ -105,6 +105,20 @@ function makeDeps() {
   return { deps, emitted, intentLLM, agentLLM, messages, supresiones, metaClient };
 }
 
+/**
+ * Con un intent activo el clasificador sí llama al LLM (sin ninguno devuelve
+ * "sin intents" sin llamarlo), así que `intentLLM.calls` mide algo.
+ */
+async function conIntentActivo(ctx: ReturnType<typeof makeDeps>) {
+  await ctx.deps.intents.create({
+    nombre: "consulta",
+    descripcion: "",
+    ejemplos: [],
+    auto_detectado: false,
+    activo: true,
+  });
+}
+
 function turno(ctx: ReturnType<typeof makeDeps>, overrides: Partial<ParsedMessage>) {
   ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
   ctx.agentLLM.enqueueText("respuesta del agente");
@@ -181,6 +195,68 @@ describe("on-message-received — baja por palabra", () => {
     );
     expect(confirmaciones).toHaveLength(1);
     expect(await ctx.supresiones.contarActivas()).toBe(1);
+  });
+
+  // Decisión del dueño: quien escribe BAJA recibe la confirmación y nada más.
+  // El agente de ventas contestándole a alguien que acaba de pedir que no le
+  // escriban es exactamente lo que se quería evitar, y el turno no gasta LLM.
+  test("una baja nueva manda solo la confirmación y no llama a ningún LLM", async () => {
+    const ctx = makeDeps();
+    await conIntentActivo(ctx);
+
+    const r = await turno(ctx, { contenido: "BAJA" });
+
+    expect(ctx.metaClient.calls.map((m) => m.text)).toEqual([CONFIRMACION_BAJA]);
+    expect(ctx.intentLLM.calls).toHaveLength(0);
+    expect(ctx.agentLLM.calls).toHaveLength(0);
+    expect(r).toMatchObject({ agentSource: "baja", sent: true, duplicate: false });
+    // Sin turno del agente no hay nada que extraer al Twin ni que evaluar para
+    // el escalado: `turn.completed` dispararía otra llamada al LLM.
+    const nombres = ctx.emitted.map((e) => e.name);
+    expect(nombres).not.toContain("lead-session/turn.completed");
+    expect(nombres).not.toContain("lead-session/auto-handoff.evaluate");
+  });
+
+  // Volver a escribir BAJA es la misma intención: ni se repite la
+  // confirmación ni contesta el agente.
+  test("una baja repetida no manda nada y no llama a ningún LLM", async () => {
+    const ctx = makeDeps();
+    await conIntentActivo(ctx);
+    await turno(ctx, { contenido: "BAJA", meta_message_id: "wamid.IN-1" });
+    const enviadosAntes = ctx.metaClient.calls.length;
+
+    const r = await turno(ctx, { contenido: "salir", meta_message_id: "wamid.IN-2" });
+
+    expect(ctx.metaClient.calls.length - enviadosAntes).toBe(0);
+    expect(ctx.intentLLM.calls).toHaveLength(0);
+    expect(ctx.agentLLM.calls).toHaveLength(0);
+    expect(r).toMatchObject({ agentSource: "baja", sent: false });
+  });
+
+  test("con la baja los flujos se siguen enterando del mensaje, y el entrante queda guardado", async () => {
+    const ctx = makeDeps();
+
+    const r = await turno(ctx, { contenido: "BAJA" });
+
+    const disparos = ctx.emitted.filter((e) => e.name === "workflow/disparo.recibido");
+    expect(disparos.map((e) => e.data.disparador)).toContain("mensaje_recibido");
+    const entrantes = (await ctx.messages.listByConversacion(r.conversacionId)).filter(
+      (m) => m.direction === "in",
+    );
+    expect(entrantes.map((m) => m.contenido)).toEqual(["BAJA"]);
+  });
+
+  test("un mensaje normal sigue pasando por el clasificador y el agente", async () => {
+    const ctx = makeDeps();
+    await conIntentActivo(ctx);
+
+    const r = await turno(ctx, { contenido: "hola, busco un radiador" });
+
+    expect(ctx.intentLLM.calls).toHaveLength(1);
+    expect(ctx.agentLLM.calls).toHaveLength(1);
+    expect(ctx.metaClient.calls.map((m) => m.text)).toEqual(["respuesta del agente"]);
+    expect(r.agentSource).toBe("llm");
+    expect(ctx.emitted.map((e) => e.name)).toContain("lead-session/turn.completed");
   });
 
   test("un reintento del step de confirmación no la manda dos veces", async () => {

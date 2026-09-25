@@ -126,7 +126,11 @@ export interface OnMessageReceivedResult {
   sessionId: UUID;
   sessionCreated: boolean;
   conversacionId: UUID;
-  agentSource: "rule" | "llm" | "handoff";
+  /**
+   * `baja`: el mensaje era una palabra de baja registrable y el turno cortó
+   * antes del agente (ver `ResultadoBaja`).
+   */
+  agentSource: "rule" | "llm" | "handoff" | "baja";
   sent: boolean;
   duplicate: boolean;
 }
@@ -257,24 +261,28 @@ export async function onMessageReceivedHandler(
     // en un step aparte: si mandar falla, el reintento no vuelve a registrar.
     // La clave `baja:<entrante>` hace que un reintento de ese step no la mande
     // dos veces, y no choca con la de la respuesta del agente (`out:`).
+    //
+    // Con la baja registrada —nueva o repetida— el turno corta después de
+    // avisarle a los flujos: ni clasificador ni agente (ver `ResultadoBaja`).
     const baja = parsed.tipo === "text" ? palabraDeBaja(parsed.contenido) : null;
-    if (baja !== null) {
-      const nueva = await step.run("registrar-baja", () =>
-        registrarBaja(parsed, lead.id, baja, deps.supresiones, logger),
+    const resultadoBaja: ResultadoBaja | null =
+      baja === null
+        ? null
+        : await step.run("registrar-baja", () =>
+            registrarBaja(parsed, lead.id, baja, deps.supresiones, logger),
+          );
+    if (resultadoBaja === "nueva") {
+      await step.run("confirmar-baja", () =>
+        deps.metaApi.sendOutbound({
+          conversacionId: conv.id,
+          leadSessionId: session.id,
+          canal: parsed.canal,
+          to: parsed.meta_user_id,
+          contenido: CONFIRMACION_BAJA,
+          sender: "sistema",
+          idempotencyKey: `baja:${parsed.meta_message_id}`,
+        }),
       );
-      if (nueva) {
-        await step.run("confirmar-baja", () =>
-          deps.metaApi.sendOutbound({
-            conversacionId: conv.id,
-            leadSessionId: session.id,
-            canal: parsed.canal,
-            to: parsed.meta_user_id,
-            contenido: CONFIRMACION_BAJA,
-            sender: "sistema",
-            idempotencyKey: `baja:${parsed.meta_message_id}`,
-          }),
-        );
-      }
     }
 
     // Los flujos con trigger "Mensaje recibido" (Corte 3 de la Fase 0: el
@@ -330,6 +338,27 @@ export async function onMessageReceivedHandler(
         },
       }),
     );
+
+    // Baja registrada: el turno termina acá (decisión del dueño). Quien acaba
+    // de pedir que no le escriban recibe la confirmación y nada más; si ya
+    // estaba dado de baja, ni eso. Los flujos ya se enteraron arriba, y los
+    // que quieran contestarle chocan con los topes, que bloquean a quien está
+    // en la lista. Tampoco se emite `turn.completed`: sin respuesta del agente
+    // no hay turno que extraer al Twin, y extraerlo sería otra llamada al LLM.
+    if (resultadoBaja === "nueva" || resultadoBaja === "repetida") {
+      const sent = resultadoBaja === "nueva";
+      logger.info("pipeline-complete", { duplicate: false, sent, skipped: "baja" });
+      return {
+        leadId: lead.id,
+        leadCreated,
+        sessionId: session.id,
+        sessionCreated,
+        conversacionId: conv.id,
+        agentSource: "baja",
+        sent,
+        duplicate: false,
+      };
+    }
 
     const config = await deps.configProvider.get();
 
@@ -653,6 +682,19 @@ async function etiquetarPorReglas(
 }
 
 /**
+ * Qué pasó con una palabra de baja, y con eso qué hace el resto del turno:
+ *
+ * - `nueva`: se registró. Sale sólo la confirmación; el agente no contesta.
+ * - `repetida`: el número ya estaba dado de baja. No sale nada: volver a
+ *   escribir BAJA es la misma intención, y ni la confirmación repetida ni una
+ *   respuesta de ventas le sirven a quien la escribe.
+ * - `no_registrable`: no hay teléfono que anotar (Instagram, Messenger o un
+ *   número que la lista rechaza). No quedó ninguna baja, así que el turno
+ *   sigue como cualquier otro: callar sin haber registrado nada sería peor.
+ */
+type ResultadoBaja = "nueva" | "repetida" | "no_registrable";
+
+/**
  * Anota la baja en `difusion_supresiones` como propia (`palabra_clave`), con la
  * palabra en `detalle` y nunca el texto del cliente.
  *
@@ -661,8 +703,9 @@ async function etiquetarPorReglas(
  * que escribió (`meta_user_id`), no el del lead: si el lead se fusionó, la baja
  * es de quien la pidió.
  *
- * Devuelve si la baja es **nueva**: un número que ya estaba dado de baja no
- * se vuelve a confirmar. `registrar` es idempotente y no dice si creó, así que
+ * Devuelve si la baja es **nueva** o **repetida** —un número que ya estaba
+ * dado de baja no se vuelve a confirmar—, o `no_registrable` si no hay
+ * teléfono que anotar. `registrar` es idempotente y no dice si creó, así que
  * se mira antes; el pipeline serializa por `meta_user_id` (`concurrency`), así
  * que dos mensajes del mismo número no compiten entre la lectura y la escritura.
  *
@@ -679,16 +722,16 @@ async function registrarBaja(
   palabra: PalabraDeBaja,
   supresiones: OnMessageReceivedDeps["supresiones"],
   logger: Logger,
-): Promise<boolean> {
+): Promise<ResultadoBaja> {
   if (parsed.canal !== "wa") {
     logger.info("baja-sin-telefono", { lead_id: leadId, palabra });
-    return false;
+    return "no_registrable";
   }
   try {
     const previas = await supresiones.activasPorTelefonos([parsed.meta_user_id]);
     if (previas.length > 0) {
       logger.info("baja-repetida", { lead_id: leadId, palabra });
-      return false;
+      return "repetida";
     }
     await supresiones.registrar({
       telefono: parsed.meta_user_id,
@@ -697,11 +740,11 @@ async function registrarBaja(
       lead_id: leadId,
     });
     logger.info("baja-registrada", { lead_id: leadId, palabra });
-    return true;
+    return "nueva";
   } catch (e) {
     if (!(e instanceof ValidationError)) throw e;
     logger.warn("baja-telefono-invalido", { lead_id: leadId, error_name: e.name });
-    return false;
+    return "no_registrable";
   }
 }
 

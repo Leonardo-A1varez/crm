@@ -3,6 +3,7 @@ import { inngest } from "@/inngest/client";
 import { workflowDisparoRecibido } from "@/inngest/events";
 import { isNonRetriable } from "@/lib/errors";
 import { NoopLogger, type Logger } from "@/lib/observability/logger";
+import { MOTIVO_CADENA_CORTADA, conProfundidad, excedeCadena } from "@/lib/workflows/cadena";
 import { DISPARADORES_DIRIGIDOS } from "@/lib/workflows/catalogo";
 import { disparoCoincide } from "@/lib/workflows/recorrer";
 import type {
@@ -33,7 +34,7 @@ export interface EmitirSegmentoPendienteInput {
 
 export interface DispararWorkflowDeps {
   workflows: Pick<WorkflowsRepository, "listarPublicadasPorDisparador">;
-  runs: Pick<WorkflowRunsRepository, "arrancar">;
+  runs: Pick<WorkflowRunsRepository, "arrancar" | "registrarNoArrancada">;
   /**
    * Manda `workflow/segmento.pendiente` con `desdePaso: 0`. Sólo se llama por
    * cada corrida que efectivamente arrancó -- ver el comentario de
@@ -63,6 +64,12 @@ export interface DispararWorkflowResult {
  * función no agrega esa versión a la lista, ni loguea un error -- es el
  * comportamiento esperado (una etiqueta que se reasigna dos veces no debe
  * abrir una segunda corrida), no una falla.
+ *
+ * Un disparo más profundo que `MAX_PROFUNDIDAD_CADENA` (una cadena de flujos
+ * que se disparan entre sí, `lib/workflows/cadena.ts`) no arranca nada: por
+ * cada flujo que habría arrancado queda una corrida cancelada con el motivo,
+ * para que el dueño vea en el historial por qué ese flujo no corrió. Aplica a
+ * cualquier disparador: el corte mira la profundidad, no de dónde vino.
  */
 export async function arrancarPorDisparador(
   input: DispararWorkflowInput,
@@ -90,14 +97,24 @@ export async function arrancarPorDisparador(
       disparoCoincide(v.grafo, input.disparador, input.datos ?? {}),
   );
   const iniciadas: EmitirSegmentoPendienteInput[] = [];
+  const profundidad = input.profundidad ?? 0;
 
   for (const version of versiones) {
     const arrancarInput: ArrancarWorkflowRunInput = {
       versionId: version.id,
       leadId: input.leadId,
       sessionId: input.leadSessionId ?? null,
-      contexto: input.contexto,
+      contexto: conProfundidad(input.contexto, profundidad),
     };
+    if (excedeCadena(profundidad)) {
+      const cortada = await deps.runs.registrarNoArrancada(arrancarInput, MOTIVO_CADENA_CORTADA);
+      logger.warn("cadena-de-disparos-cortada", {
+        version_id: version.id,
+        run_id: cortada.id,
+        profundidad,
+      });
+      continue;
+    }
     const resultado = await deps.runs.arrancar(arrancarInput);
     if (!resultado.run) {
       logger.info("corrida-no-arranco", { version_id: version.id, motivo: resultado.motivo });

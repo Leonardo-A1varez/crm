@@ -30,6 +30,25 @@ export function runWorkflowRunsContract(
       expect(run?.contexto).toEqual({ origen: "test" });
     });
 
+    it("registrarNoArrancada deja una corrida cancelada con el motivo, sin frenar a las que vienen", async () => {
+      const { repo, versionId, leadId } = await makeRepo();
+      const cortada = await repo.registrarNoArrancada(
+        { versionId, leadId, sessionId: null, contexto: { $cadena: 6 } },
+        "cadena cortada",
+      );
+      expect(cortada).toMatchObject({
+        estado: "cancelado",
+        pasos_ejecutados: 0,
+        error: "cadena cortada",
+        contexto: { $cadena: 6 },
+      });
+      expect(cortada.ended_at).not.toBeNull();
+      expect((await repo.findRun(cortada.id))?.estado).toBe("cancelado");
+      // No es una corrida viva: con política `ignorar`, la próxima arranca.
+      const siguiente = await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });
+      expect(siguiente.run).not.toBeNull();
+    });
+
     it("no deja arrancar una segunda corrida viva para el mismo lead", async () => {
       const { repo, versionId, leadId } = await makeRepo();
       await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });

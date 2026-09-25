@@ -71,6 +71,7 @@ export function makeAvisosDeAsignacion(
           sesion: aviso.sesion,
           vendedorId: aviso.vendedorId,
           marca: aviso.sesion.asignado_at?.toISOString() ?? `${aviso.runId}:${aviso.orden}`,
+          profundidad: aviso.profundidad,
         }),
       );
     },

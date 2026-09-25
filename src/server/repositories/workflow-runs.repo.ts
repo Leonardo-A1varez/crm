@@ -95,6 +95,14 @@ const ESTADOS_VIVOS: readonly WorkflowRunEstado[] = ["corriendo", "esperando"];
  */
 export interface WorkflowRunsRepository {
   arrancar(input: ArrancarWorkflowRunInput): Promise<ArrancarWorkflowRunResult>;
+  /**
+   * Deja constancia de una corrida que NO arrancó: una fila `cancelado`, sin
+   * pasos, con `motivo` en `error`. Es lo que ve el dueño en el historial del
+   * flujo cuando el motor corta una cadena de disparos
+   * (`lib/workflows/cadena.ts`). No pasa por la política de concurrencia: no
+   * es una corrida viva, así que ni frena a otra ni la reinicia.
+   */
+  registrarNoArrancada(input: ArrancarWorkflowRunInput, motivo: string): Promise<WorkflowRun>;
   /** Compare-and-swap: null si `pasos_ejecutados !== desdePaso` o si la corrida ya no está viva. */
   tomarSegmento(runId: UUID, desdePaso: number): Promise<WorkflowRun | null>;
   registrarPaso(runId: UUID, paso: WorkflowRunPasoInsert): Promise<void>;
@@ -263,6 +271,28 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
     };
     this.runs.set(run.id, run);
     return { run: clonarRun(run) };
+  }
+
+  async registrarNoArrancada(
+    input: ArrancarWorkflowRunInput,
+    motivo: string,
+  ): Promise<WorkflowRun> {
+    const ahora = new Date();
+    const run: WorkflowRun = {
+      id: crypto.randomUUID(),
+      workflow_version_id: input.versionId,
+      lead_id: input.leadId,
+      lead_session_id: input.sessionId,
+      estado: "cancelado",
+      nodo_actual: null,
+      contexto: structuredClone(input.contexto),
+      pasos_ejecutados: 0,
+      error: motivo,
+      started_at: ahora,
+      ended_at: ahora,
+    };
+    this.runs.set(run.id, run);
+    return clonarRun(run);
   }
 
   async tomarSegmento(runId: UUID, desdePaso: number): Promise<WorkflowRun | null> {

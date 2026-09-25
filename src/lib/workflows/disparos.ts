@@ -44,6 +44,13 @@ export type DispararWorkflowInput = {
    * persiste. Sin datos, un trigger con filtro no arranca: falla cerrado.
    */
   datos?: DatosDisparo;
+  /**
+   * Cuántos saltos de flujo a flujo hay detrás de este disparo
+   * (`lib/workflows/cadena.ts`). Ausente = nace afuera del motor. Lo manda
+   * sólo quien emite desde una acción de una corrida: la profundidad de esa
+   * corrida más uno. Pasado `MAX_PROFUNDIDAD_CADENA` no arranca nada.
+   */
+  profundidad?: number;
 };
 
 /** Un disparo listo para mandar. `id` es la clave de deduplicación de Inngest. */
@@ -143,14 +150,17 @@ export function disparoEtapaManual(
  *
  * Es el único disparo que emite una acción de un flujo, y por eso el único
  * con riesgo de bucle: dos flujos "Vendedor asignado" que reasignan cada uno a
- * otra persona se disparan entre sí sin fin. Asignar al vendedor que ya tiene
- * no emite nada, así que un flujo solo no cicla.
+ * otra persona se disparan entre sí. Asignar al vendedor que ya tiene no emite
+ * nada, así que un flujo solo no cicla; dos sí, y los corta `profundidad`
+ * (`lib/workflows/cadena.ts`).
  */
 export function disparoVendedorAsignado(input: {
   leadId: UUID;
   sesion: SesionDelDisparo;
   vendedorId: UUID;
   marca: string;
+  /** La de la corrida que asignó, más uno. */
+  profundidad: number;
 }): DisparoWorkflow {
   return {
     id: `workflow-disparo:vendedor-asignado:${input.sesion.id}:${input.vendedorId}:${input.marca}`,
@@ -159,6 +169,7 @@ export function disparoVendedorAsignado(input: {
       leadId: input.leadId,
       leadSessionId: input.sesion.id,
       contexto: contextoDeDisparo({ sesion: input.sesion }),
+      profundidad: input.profundidad,
     },
   };
 }
