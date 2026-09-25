@@ -1,4 +1,5 @@
 import type { AppClient } from "@/server/db/client";
+import { leerPorKeyset } from "@/server/db/paginar";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { isUuid } from "@/server/db/uuid";
 import type { RuleExecution, UUID } from "@/types/entities";
@@ -41,13 +42,24 @@ export class SupabaseRuleExecutionsRepository implements RuleExecutionsRepositor
 
   async listByRegla(reglaId: UUID): Promise<RuleExecution[]> {
     if (!isUuid(reglaId)) return [];
-    const { data, error } = await this.db
-      .from("rule_executions")
-      .select()
-      .eq("regla_id", reglaId)
-      .order("created_at", { ascending: false });
-    if (error) throw mapPostgrestError(error, { resource: "rule_executions" });
-    return (data ?? []).map((r) => mapRow(r as RuleExecutionRow));
+    // Una fila por turno que contestó la regla: una regla popular pasa las
+    // 1.000 y PostgREST cortaría ahí sin avisar (lección 12).
+    const filas = await leerPorKeyset({
+      recurso: "rule_executions",
+      clave: (r: { id: string }) => r.id,
+      pagina: (despuesDe, tamanio) => {
+        let q = this.db.from("rule_executions").select().eq("regla_id", reglaId);
+        if (despuesDe !== null) q = q.gt("id", despuesDe);
+        return q.order("id", { ascending: true }).limit(tamanio);
+      },
+    });
+    return filas
+      .map((r) => mapRow(r as RuleExecutionRow))
+      .sort(
+        (a, b) =>
+          b.created_at.getTime() - a.created_at.getTime() ||
+          (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+      );
   }
 
   async findByMensajeId(mensajeId: UUID): Promise<RuleExecution | null> {

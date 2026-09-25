@@ -1,5 +1,6 @@
 import { ConflictError, NotFoundError } from "@/lib/errors";
 import type { AppClient } from "@/server/db/client";
+import { leerPorKeyset } from "@/server/db/paginar";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { serverNowIso } from "@/server/db/server-time";
 import { isUuid } from "@/server/db/uuid";
@@ -140,16 +141,39 @@ export class SupabaseMergeCandidatesRepository implements MergeCandidatesReposit
   }
 
   async list(filter: MergeCandidatesListFilter = {}): Promise<MergeCandidate[]> {
-    let query = this.db.from("merge_candidates").select().order("created_at", { ascending: false });
-    if (filter.status !== undefined) {
-      query = query.eq("status", filter.status);
-    }
+    const filtrar = () => {
+      let query = this.db.from("merge_candidates").select();
+      if (filter.status !== undefined) query = query.eq("status", filter.status);
+      return query;
+    };
+
     if (filter.limit !== undefined) {
-      query = query.limit(filter.limit);
+      const { data, error } = await filtrar()
+        .order("created_at", { ascending: false })
+        .limit(filter.limit);
+      if (error) throw mapPostgrestError(error, { resource: "merge_candidate" });
+      return (data ?? []).map(mapRow);
     }
-    const { data, error } = await query;
-    if (error) throw mapPostgrestError(error, { resource: "merge_candidate" });
-    return (data ?? []).map(mapRow);
+
+    // Sin límite: los pendientes que nadie revisa se acumulan, y pasadas las
+    // 1.000 filas PostgREST cortaba sin avisar (lección 12) — el banner de
+    // duplicados de Leads contaba de menos. Se pagina por id y se reordena.
+    const filas = await leerPorKeyset({
+      recurso: "merge_candidate",
+      clave: (r: MergeCandidateRow) => r.id,
+      pagina: (despuesDe, tamanio) => {
+        let q = filtrar();
+        if (despuesDe !== null) q = q.gt("id", despuesDe);
+        return q.order("id", { ascending: true }).limit(tamanio);
+      },
+    });
+    return filas
+      .map(mapRow)
+      .sort(
+        (a, b) =>
+          b.created_at.getTime() - a.created_at.getTime() ||
+          (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+      );
   }
 }
 

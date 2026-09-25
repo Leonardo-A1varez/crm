@@ -12,8 +12,25 @@ export interface Parte {
  * Barra apilada con leyenda, para los repartos de dos o tres partes del handoff
  * (§3.1 "quién cerró la venta", §3.2 "cómo resolvió cada turno"). El vacío se
  * dice con palabras y no con una barra en cero, que se leería como un dato.
+ *
+ * `numerada` cambia el punto de color de la leyenda por el número de posición.
+ * Es para las barras que NO son categóricas sino un ranking pintado con una
+ * rampa de un solo tono (`escalaSecuencial`): ahí el color no identifica a
+ * nadie —es la misma tinta más o menos fuerte— y el tramo más suave queda a
+ * 1,5:1 contra el fondo, o sea un punto invisible. El número no depende del
+ * color, hereda la tinta del texto y encima dice el puesto, que en un ranking
+ * es justo el dato. Con `numerada`, el orden del array TIENE que ser el del
+ * ranking: es lo que ata cada franja a su renglón.
  */
-export function BarraReparto({ partes, vacio }: { partes: Parte[]; vacio: string }) {
+export function BarraReparto({
+  partes,
+  vacio,
+  numerada = false,
+}: {
+  partes: Parte[];
+  vacio: string;
+  numerada?: boolean;
+}) {
   const total = partes.reduce((acc, p) => acc + p.cantidad, 0);
 
   if (total === 0) {
@@ -32,13 +49,22 @@ export function BarraReparto({ partes, vacio }: { partes: Parte[]; vacio: string
         ))}
       </div>
       <ul className="flex flex-col gap-2">
-        {partes.map((p) => (
+        {partes.map((p, i) => (
           <li key={p.label} className="flex items-center gap-2">
-            <span
-              className="size-[7px] shrink-0 rounded-full"
-              style={{ backgroundColor: p.color }}
-              aria-hidden
-            />
+            {numerada ? (
+              <span
+                className="text-ink-ghost w-[7px] shrink-0 text-center font-mono text-[10px] tabular-nums"
+                aria-hidden
+              >
+                {i + 1}
+              </span>
+            ) : (
+              <span
+                className="size-[7px] shrink-0 rounded-full"
+                style={{ backgroundColor: p.color }}
+                aria-hidden
+              />
+            )}
             <span className="text-ink-dim min-w-0 flex-1 truncate text-[11.5px]">
               {p.label}
               {p.detalle ? <span className="text-ink-ghost"> · {p.detalle}</span> : null}

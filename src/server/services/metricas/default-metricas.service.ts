@@ -1,11 +1,11 @@
 import { porcentajeDe } from "@/lib/ui/metricas";
 import { FUNNEL_STAGES } from "@/lib/ui/stage";
 import type {
-  FilaLlmUsageMetrica,
   FilaMensajeMetrica,
   FilaSesionMetrica,
   FilaToolExecutionMetrica,
   FilaUsuarioMetrica,
+  GastoWorkflowMetrica,
   MetricsRepository,
 } from "@/server/repositories/metrics.repo";
 import { CANAL, CURRENT_STAGE, SENDER, WORKFLOW_LLM } from "@/types/domain";
@@ -70,39 +70,42 @@ export class DefaultMetricsService implements MetricsService {
     const [
       sesionesAmbas,
       mensajes,
-      leadsAmbos,
-      reglas,
+      leadsNuevos,
+      leadsAnteriores,
+      turnosReglaEnVentana,
       tools,
       intents,
       reglasActivas,
       clasificaciones,
       usuarios,
       gastos,
-      handoffs,
+      pausas,
       gastosHoy,
     ] = await Promise.all([
       this.deps.metrics.listSesionesDesde(desdeAnterior, hasta),
       this.deps.metrics.listMensajesDesde(desde, hasta),
-      this.deps.metrics.listLeadsDesde(desdeAnterior, hasta),
-      this.deps.metrics.listRuleExecutionsDesde(desde, hasta),
+      // Dos conteos y no uno partido en memoria: son las mismas dos ventanas
+      // contiguas —[desdeAnterior, desde) y [desde, hasta)— que antes salían de
+      // filtrar una sola lista por `created_at >= desde`.
+      this.deps.metrics.contarLeadsDesde(desde, hasta),
+      this.deps.metrics.contarLeadsDesde(desdeAnterior, desde),
+      this.deps.metrics.contarRuleExecutionsDesde(desde, hasta),
       this.deps.metrics.listToolExecutionsDesde(desde, hasta),
       this.deps.metrics.listIntentsActivos(),
       this.deps.metrics.listReglasActivas(),
-      this.deps.metrics.listTurnClassificationsDesde(desde, hasta),
+      this.deps.metrics.contarClasificacionesPorIntent(desde, hasta),
       this.deps.metrics.listUsuarios(),
-      this.deps.metrics.listLlmUsageDesde(desde, hasta),
-      this.deps.metrics.listHandoffsDesde(desde, hasta),
+      this.deps.metrics.resumirGastoPorWorkflow(desde, hasta),
+      this.deps.metrics.contarPausasPorMotivo(desde, hasta),
       // Independiente de [desde, hasta): `hoyUsd` es un indicador en tiempo
       // real, no parte del período que se está navegando.
-      this.deps.metrics.listLlmUsageDesde(inicioDeHoyUtc(ahora), ahora),
+      this.deps.metrics.resumirGastoPorWorkflow(inicioDeHoyUtc(ahora), ahora),
     ]);
 
     const corte = desde.getTime();
     const dias = Math.round(ventana / DIA_MS);
     const sesiones = sesionesAmbas.filter((s) => s.started_at.getTime() >= corte);
     const sesionesAnteriores = sesionesAmbas.filter((s) => s.started_at.getTime() < corte);
-    const leadsNuevos = leadsAmbos.filter((l) => l.created_at.getTime() >= corte).length;
-    const leadsAnteriores = leadsAmbos.length - leadsNuevos;
 
     const porEtapa = new Map<CurrentStage, number>();
     const motivos = new Map<string, number>();
@@ -226,7 +229,7 @@ export class DefaultMetricsService implements MetricsService {
     // en vez del LLM, así que el resto de lo que mandó la IA se resolvió con
     // modelo. El clamp cubre el desfase de borde: la regla se audita contra el
     // mensaje entrante y su saliente puede haber caído fuera de la ventana.
-    const turnosRegla = Math.min(reglas.length, autoria.ia);
+    const turnosRegla = Math.min(turnosReglaEnVentana, autoria.ia);
     const herramientas: ConteoHerramienta[] = agruparHerramientas(tools);
     const repuestosMasPreguntados = medirDemandaCatalogo(tools);
 
@@ -235,7 +238,7 @@ export class DefaultMetricsService implements MetricsService {
     const usosPorIntent = new Map<string, number>();
     for (const c of clasificaciones) {
       if (c.intent_id === null) continue;
-      usosPorIntent.set(c.intent_id, (usosPorIntent.get(c.intent_id) ?? 0) + 1);
+      usosPorIntent.set(c.intent_id, (usosPorIntent.get(c.intent_id) ?? 0) + c.turnos);
     }
 
     // Un intent sin regla activa es uno que hoy contesta el LLM. Ordenados por
@@ -272,10 +275,11 @@ export class DefaultMetricsService implements MetricsService {
       other: "Otro",
     };
     const razonConteo = new Map<string, number>();
-    for (const event of handoffs) {
-      if (event.action !== "pause") continue;
-      const label = etiquetasHandoff[event.reason_code] ?? "Sin motivo registrado";
-      razonConteo.set(label, (razonConteo.get(label) ?? 0) + 1);
+    // Ya vienen solo las pausas, agrupadas por código. Se suman por etiqueta y
+    // no se asignan: dos códigos desconocidos caen en la misma etiqueta.
+    for (const p of pausas) {
+      const label = etiquetasHandoff[p.reason_code] ?? "Sin motivo registrado";
+      razonConteo.set(label, (razonConteo.get(label) ?? 0) + p.cantidad);
     }
 
     return {
@@ -326,7 +330,7 @@ export class DefaultMetricsService implements MetricsService {
 }
 
 /**
- * Reduce las filas de `llm_usage` a lo que muestran los §3.1 y §3.2.
+ * Reduce el gasto por workflow de `llm_usage` a lo que muestran los §3.1 y §3.2.
  *
  * `hoyUsd` sale de `gastosHoy`, una consulta aparte acotada a
  * `[inicio de hoy UTC, ahora)` — el mismo día UTC que usa el contador diario
@@ -343,8 +347,8 @@ export class DefaultMetricsService implements MetricsService {
  * los más caros; el número queda por encima del ahorro real y la UI lo dice.
  */
 function resumirGasto(
-  gastos: FilaLlmUsageMetrica[],
-  gastosHoy: FilaLlmUsageMetrica[],
+  gastos: GastoWorkflowMetrica[],
+  gastosHoy: GastoWorkflowMetrica[],
   leadsNuevos: number,
   turnosRegla: number,
 ): GastoIa {
@@ -353,20 +357,23 @@ function resumirGasto(
   let totalUsd = 0;
   let tokensEntrada = 0;
   let tokensSalida = 0;
+  let llamadas = 0;
   let usdAgente = 0;
   let turnosAgente = 0;
 
+  // Una fila por workflow, ya sumada en la base.
   for (const g of gastos) {
     totalUsd += g.costo_usd;
     tokensEntrada += g.input_tokens;
     tokensSalida += g.output_tokens;
+    llamadas += g.llamadas;
     if (g.workflow === WORKFLOW_LLM.agente) {
       usdAgente += g.costo_usd;
-      turnosAgente++;
+      turnosAgente += g.llamadas;
     }
     const fila = porWorkflow.get(g.workflow) ?? { workflow: g.workflow, usd: 0, llamadas: 0 };
     fila.usd += g.costo_usd;
-    fila.llamadas++;
+    fila.llamadas += g.llamadas;
     porWorkflow.set(g.workflow, fila);
   }
 
@@ -379,7 +386,7 @@ function resumirGasto(
     porLeadUsd: leadsNuevos > 0 ? totalUsd / leadsNuevos : null,
     tokensEntrada,
     tokensSalida,
-    llamadas: gastos.length,
+    llamadas,
     porWorkflow: [...porWorkflow.values()].sort(
       (a, b) => b.usd - a.usd || a.workflow.localeCompare(b.workflow),
     ),

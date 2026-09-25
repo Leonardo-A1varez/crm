@@ -1,5 +1,6 @@
 import { ConflictError } from "@/lib/errors";
 import type { AppClient } from "@/server/db/client";
+import { FILAS_POR_PAGINA, leerPorKeyset } from "@/server/db/paginar";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { escaparLike } from "@/server/db/postgrest-like";
 import { isUuid } from "@/server/db/uuid";
@@ -157,18 +158,28 @@ export class SupabaseMessagesRepository implements MessagesRepository {
     // sesiones activas de una instancia grande, un solo GET se pasaría del
     // largo de URL que acepta el proxy y fallaría con 414, no con un error de
     // dominio. Cada tanda es una consulta, nunca una por sesión.
+    //
+    // Y cada tanda se pagina: 100 sesiones de 15 mensajes ya son 1.500 filas,
+    // y PostgREST cortaba en 1.000 sin avisar (lección 12) — el filtro "sin
+    // responder" de Leads decidía sobre hilos mutilados.
     const out: Mensaje[] = [];
     for (let i = 0; i < ids.length; i += SESSION_IDS_POR_TANDA) {
       const tanda = ids.slice(i, i + SESSION_IDS_POR_TANDA);
-      const { data, error } = await this.db
-        .from("mensajes")
-        .select()
-        .in("lead_session_id", tanda)
-        .order("created_at", { ascending: true });
-      if (error) throw mapPostgrestError(error, { resource: "mensaje" });
-      for (const row of data ?? []) out.push(mapRow(row));
+      const filas = await leerPorKeyset({
+        recurso: "mensaje",
+        clave: (r: MensajeRow) => r.id,
+        pagina: (despuesDe, tamanio) => {
+          let q = this.db.from("mensajes").select().in("lead_session_id", tanda);
+          if (despuesDe !== null) q = q.gt("id", despuesDe);
+          return q.order("id", { ascending: true }).limit(tamanio);
+        },
+      });
+      for (const row of filas) out.push(mapRow(row));
     }
-    return out.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
+    return out.sort(
+      (a, b) =>
+        a.created_at.getTime() - b.created_at.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    );
   }
 
   async listRecentBySessionIds(sessionIds: UUID[], limit: number): Promise<InboxRecentMessage[]> {
@@ -177,15 +188,26 @@ export class SupabaseMessagesRepository implements MessagesRepository {
 
     // La función SQL aplica LIMIT dentro de cada sesión. Un `.in()` con LIMIT
     // limitaría el conjunto global y dejaría algunas sesiones sin mensajes.
-    const { data, error } = await this.db.rpc("inbox_recent_messages", {
-      p_session_ids: ids,
-      p_limit: Math.min(limit, 200),
-    });
-    if (error) throw mapPostgrestError(error, { resource: "inbox_recent_messages" });
-    return (data ?? []).map((row) => ({
-      ...row,
-      created_at: new Date(row.created_at),
-    }));
+    //
+    // Pero el resultado del RPC también pasa por el corte de 1.000 filas de
+    // PostgREST (lección 12): con toda la bandeja en una llamada, 21 sesiones
+    // con 50 mensajes ya lo pasaban, y como la función ordena ascendente, lo que
+    // se perdía era el final de los hilos. Se parte en tandas de sesiones que
+    // no pueden devolver más de FILAS_POR_PAGINA filas.
+    const porSesion = Math.max(1, Math.min(limit, 200));
+    const sesionesPorTanda = Math.max(1, Math.floor(FILAS_POR_PAGINA / porSesion));
+    const out: InboxRecentMessage[] = [];
+    for (let i = 0; i < ids.length; i += sesionesPorTanda) {
+      const { data, error } = await this.db.rpc("inbox_recent_messages", {
+        p_session_ids: ids.slice(i, i + sesionesPorTanda),
+        p_limit: porSesion,
+      });
+      if (error) throw mapPostgrestError(error, { resource: "inbox_recent_messages" });
+      for (const row of data ?? []) out.push({ ...row, created_at: new Date(row.created_at) });
+    }
+    // Cada tanda vino ordenada por su cuenta; el contrato es ascendente global.
+    // `sort` es estable: dentro de una misma fecha queda el orden de la base.
+    return out.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
   }
 
   async buscarContenido(

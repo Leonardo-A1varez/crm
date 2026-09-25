@@ -1,5 +1,6 @@
 import { ConflictError, NotFoundError, PermissionDeniedError } from "@/lib/errors";
 import type { AppClient } from "@/server/db/client";
+import { leerPorKeyset } from "@/server/db/paginar";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { ilikeContains } from "@/server/db/postgrest-like";
 import { serverNowIso } from "@/server/db/server-time";
@@ -128,11 +129,49 @@ export class SupabaseLeadsRepository implements LeadsRepository {
   }
 
   async list(filter: LeadListFilter = {}): Promise<Lead[]> {
-    let query = this.db
-      .from("leads")
-      .select()
+    const offset = filter.offset ?? 0;
+    const limit = filter.limit;
+
+    if (limit === undefined && offset === 0) {
+      // Sin límite pedido, "todos" tiene que ser todos: PostgREST cortaba en
+      // 1.000 sin avisar (lección 12) y el detector global de duplicados
+      // revisaba solo los 1.000 leads tocados más recientemente. Se pagina por
+      // id y se reordena acá con el mismo criterio que la consulta ordenada.
+      const filas = await leerPorKeyset({
+        recurso: "lead",
+        clave: (r: LeadRow) => r.id,
+        pagina: (despuesDe, tamanio) => {
+          let q = this.filtrar(filter);
+          if (despuesDe !== null) q = q.gt("id", despuesDe);
+          return q.order("id", { ascending: true }).limit(tamanio);
+        },
+      });
+      return filas
+        .map(mapRow)
+        .sort(
+          (a, b) =>
+            b.updated_at.getTime() - a.updated_at.getTime() ||
+            (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+        );
+    }
+
+    let query = this.filtrar(filter)
       .order("updated_at", { ascending: false })
       .order("id", { ascending: true });
+    if (limit !== undefined) {
+      query = query.range(offset, offset + limit - 1);
+    } else {
+      query = query.range(offset, offset + 999);
+    }
+
+    const { data, error } = await query;
+    if (error) throw mapPostgrestError(error, { resource: "lead" });
+    return (data ?? []).map(mapRow);
+  }
+
+  /** Los filtros de `list`, sin orden ni rango: los comparten las dos lecturas. */
+  private filtrar(filter: LeadListFilter) {
+    let query = this.db.from("leads").select();
 
     if (filter.q) {
       const pat = ilikeContains(filter.q);
@@ -157,18 +196,7 @@ export class SupabaseLeadsRepository implements LeadsRepository {
     if (filter.actualizadoHasta) {
       query = query.lt("updated_at", filter.actualizadoHasta.toISOString());
     }
-
-    const offset = filter.offset ?? 0;
-    const limit = filter.limit;
-    if (limit !== undefined) {
-      query = query.range(offset, offset + limit - 1);
-    } else if (offset > 0) {
-      query = query.range(offset, offset + 999);
-    }
-
-    const { data, error } = await query;
-    if (error) throw mapPostgrestError(error, { resource: "lead" });
-    return (data ?? []).map(mapRow);
+    return query;
   }
 
   async listByIds(ids: UUID[]): Promise<Lead[]> {

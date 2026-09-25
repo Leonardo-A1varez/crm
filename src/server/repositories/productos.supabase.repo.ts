@@ -1,5 +1,6 @@
 import { ConflictError, NotFoundError, PermissionDeniedError, ValidationError } from "@/lib/errors";
 import type { AppClient } from "@/server/db/client";
+import { FILAS_POR_PAGINA } from "@/server/db/paginar";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { ilikeContains } from "@/server/db/postgrest-like";
 import { serverNowIso } from "@/server/db/server-time";
@@ -106,6 +107,32 @@ export class SupabaseProductsRepository implements ProductsRepository {
   }
 
   async list(filter: ProductoListFilter = {}): Promise<Producto[]> {
+    const offset = filter.offset ?? 0;
+    const limit = filter.limit;
+    if (limit !== undefined) return this.pagina(filter, offset, limit);
+    if (offset > 0) return this.pagina(filter, offset, FILAS_POR_PAGINA);
+
+    // Sin límite, "todo el catálogo" tiene que ser todo: PostgREST cortaba en
+    // 1.000 filas alfabéticas y el resto del catálogo no existía (lección 12).
+    //
+    // Por rango y no por keyset: el orden es `nombre` con la collation de la
+    // base, y reordenar en JS lo cambiaría. `codigo_interno` es UNIQUE, así
+    // que (nombre, codigo_interno) es un orden total y las páginas no se
+    // pisan. Lo único que un rango no cubre es un alta o baja en medio de la
+    // lectura, que puede correr una fila de página.
+    const out: Producto[] = [];
+    for (let desde = 0; ; desde += FILAS_POR_PAGINA) {
+      const filas = await this.pagina(filter, desde, FILAS_POR_PAGINA);
+      out.push(...filas);
+      if (filas.length < FILAS_POR_PAGINA) return out;
+    }
+  }
+
+  private async pagina(
+    filter: ProductoListFilter,
+    desde: number,
+    cantidad: number,
+  ): Promise<Producto[]> {
     let query = this.db
       .from("productos")
       .select()
@@ -120,15 +147,7 @@ export class SupabaseProductsRepository implements ProductsRepository {
       query = query.eq("activo", filter.activo);
     }
 
-    const offset = filter.offset ?? 0;
-    const limit = filter.limit;
-    if (limit !== undefined) {
-      query = query.range(offset, offset + limit - 1);
-    } else if (offset > 0) {
-      query = query.range(offset, offset + 999);
-    }
-
-    const { data, error } = await query;
+    const { data, error } = await query.range(desde, desde + cantidad - 1);
     if (error) throw mapPostgrestError(error, { resource: "producto" });
     return (data ?? []).map(mapRow);
   }

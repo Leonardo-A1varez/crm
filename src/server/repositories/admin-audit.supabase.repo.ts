@@ -1,4 +1,5 @@
 import type { AppClient } from "@/server/db/client";
+import { leerPorKeyset } from "@/server/db/paginar";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { isUuid } from "@/server/db/uuid";
 import type { AdminAction, UUID } from "@/types/entities";
@@ -46,26 +47,45 @@ export class SupabaseAdminAuditRepository implements AdminAuditRepository {
   }
 
   async list(filter: AdminAuditListFilter = {}): Promise<AdminAction[]> {
-    let query = this.db.from("admin_actions").select().order("created_at", { ascending: false });
+    if (filter.actorUserId !== undefined && !isUuid(filter.actorUserId)) return [];
+    if (filter.entityId !== undefined && !isUuid(filter.entityId)) return [];
 
-    if (filter.actorUserId !== undefined) {
-      if (!isUuid(filter.actorUserId)) return [];
-      query = query.eq("actor_user_id", filter.actorUserId);
-    }
-    if (filter.entityType !== undefined) {
-      query = query.eq("entity_type", filter.entityType);
-    }
-    if (filter.entityId !== undefined) {
-      if (!isUuid(filter.entityId)) return [];
-      query = query.eq("entity_id", filter.entityId);
-    }
+    const filtrar = () => {
+      let query = this.db.from("admin_actions").select();
+      if (filter.actorUserId !== undefined) {
+        query = query.eq("actor_user_id", filter.actorUserId);
+      }
+      if (filter.entityType !== undefined) query = query.eq("entity_type", filter.entityType);
+      if (filter.entityId !== undefined) query = query.eq("entity_id", filter.entityId);
+      return query;
+    };
+
     if (filter.limit !== undefined) {
-      query = query.limit(filter.limit);
+      const { data, error } = await filtrar()
+        .order("created_at", { ascending: false })
+        .limit(filter.limit);
+      if (error) throw mapPostgrestError(error, { resource: "admin_action" });
+      return (data ?? []).map(mapRow);
     }
 
-    const { data, error } = await query;
-    if (error) throw mapPostgrestError(error, { resource: "admin_action" });
-    return (data ?? []).map(mapRow);
+    // Sin límite, la auditoría entera: append-only, así que pasa las 1.000
+    // filas y PostgREST cortaría ahí sin avisar (lección 12).
+    const filas = await leerPorKeyset({
+      recurso: "admin_action",
+      clave: (r: AdminActionRow) => r.id,
+      pagina: (despuesDe, tamanio) => {
+        let q = filtrar();
+        if (despuesDe !== null) q = q.gt("id", despuesDe);
+        return q.order("id", { ascending: true }).limit(tamanio);
+      },
+    });
+    return filas
+      .map(mapRow)
+      .sort(
+        (a, b) =>
+          b.created_at.getTime() - a.created_at.getTime() ||
+          (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+      );
   }
 }
 

@@ -4,24 +4,54 @@ import { Seccion } from "@/components/metricas/Seccion";
 import { TarjetaKpi } from "@/components/metricas/TarjetaKpi";
 import { DoneAll, Group, Schedule, TaskAlt } from "@/components/icons";
 import {
+  COLORES_ATENCION,
+  TRAMOS_RAMPA,
   cantidad,
+  escalaSecuencial,
   formatearEntero,
   formatearEspera,
   formatearPorcentaje,
   formatearUsd,
   porcentajeDe,
 } from "@/lib/ui/metricas";
-import { stageColor } from "@/lib/ui/stage";
-import type { Metricas } from "@/types/metricas";
+import type { ConteoMotivo, Metricas } from "@/types/metricas";
+import type { Parte } from "@/components/metricas/BarraReparto";
 
-const COLORES_RAZON = [
-  "var(--color-brand)",
-  "var(--color-info)",
-  "var(--color-danger)",
-  "var(--color-ok)",
-  "var(--color-special)",
-  "var(--color-warn)",
-] as const;
+/**
+ * Los motivos de escalado, listos para la barra.
+ *
+ * `razonesEscalado` ya viene ordenado de mayor a menor por el service, y ese
+ * orden es lo que ata cada franja con su renglón numerado en la leyenda. La
+ * cola se agrupa en vez de seguir estirando la rampa: a partir del sexto tramo
+ * dos contiguos se separan ΔE 7,1 y dejan de distinguirse (`TRAMOS_RAMPA`).
+ * Agrupar dice la verdad —el conteo sigue estando— y no inventa colores que no
+ * se leen.
+ */
+function motivosParaLaBarra(razones: readonly ConteoMotivo[]): Parte[] {
+  const colores = escalaSecuencial(Math.min(razones.length, TRAMOS_RAMPA));
+  if (razones.length <= TRAMOS_RAMPA) {
+    return razones.map((r, i) => ({
+      label: r.motivo,
+      cantidad: r.cantidad,
+      color: colores[i] ?? colores[colores.length - 1] ?? "var(--color-info)",
+    }));
+  }
+
+  const visibles = razones.slice(0, TRAMOS_RAMPA - 1);
+  const cola = razones.slice(TRAMOS_RAMPA - 1);
+  const partes: Parte[] = visibles.map((r, i) => ({
+    label: r.motivo,
+    cantidad: r.cantidad,
+    color: colores[i] ?? "var(--color-info)",
+  }));
+  partes.push({
+    label: "Otros motivos",
+    cantidad: cola.reduce((acc, r) => acc + r.cantidad, 0),
+    color: colores[colores.length - 1] ?? "var(--color-info)",
+    detalle: cantidad(cola.length, "motivo"),
+  });
+  return partes;
+}
 
 /**
  * La tabla del handoff §3.3, con las columnas que hoy tienen dato.
@@ -158,17 +188,17 @@ export function PanelVendedores({ m }: { m: Metricas }) {
               {
                 label: "Las resolvió el agente",
                 cantidad: m.agente.sinIntervencionHumana,
-                color: "var(--color-brand)",
+                color: COLORES_ATENCION.resueltoPorAgente,
               },
               {
                 label: "Las tomó una persona",
                 cantidad: m.tomadasPorHumano,
-                color: "var(--color-info)",
+                color: COLORES_ATENCION.tomadoPorPersona,
               },
               {
                 label: "Esperando a una persona",
                 cantidad: esperando,
-                color: stageColor("requiere_humano"),
+                color: COLORES_ATENCION.sinAtender,
                 detalle: "pidió humano y nadie contestó",
               },
             ]}
@@ -183,13 +213,13 @@ export function PanelVendedores({ m }: { m: Metricas }) {
           )}
           nota="Cada pausa registrada en handoff_events, con su motivo."
         >
+          {/* Numerada y con rampa, no categórica: un motivo de escalado no
+              tiene color propio, y la escala anterior repetía colores con `%`
+              apenas había más de seis. */}
           <BarraReparto
+            numerada
             vacio="Ninguna conversación se escaló a humano en el período."
-            partes={m.razonesEscalado.map((r, i) => ({
-              label: r.motivo,
-              cantidad: r.cantidad,
-              color: COLORES_RAZON[i % COLORES_RAZON.length] ?? COLORES_RAZON[0],
-            }))}
+            partes={motivosParaLaBarra(m.razonesEscalado)}
           />
         </Seccion>
       </div>

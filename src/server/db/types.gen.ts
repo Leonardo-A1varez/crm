@@ -7,30 +7,10 @@ export type Json =
   | Json[]
 
 export type Database = {
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -201,6 +181,24 @@ export type Database = {
         }
         Relationships: []
       }
+      candados: {
+        Row: {
+          clave: string
+          duenio: string
+          vence_at: string
+        }
+        Insert: {
+          clave: string
+          duenio: string
+          vence_at: string
+        }
+        Update: {
+          clave?: string
+          duenio?: string
+          vence_at?: string
+        }
+        Relationships: []
+      }
       conversaciones: {
         Row: {
           canal: Database["public"]["Enums"]["canal_enum"]
@@ -232,6 +230,239 @@ export type Database = {
             columns: ["lead_id"]
             isOneToOne: false
             referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      difusion_envios: {
+        Row: {
+          created_at: string
+          difusion_id: string
+          error_codigo: string | null
+          error_detalle: string | null
+          estado: Database["public"]["Enums"]["difusion_envio_estado"]
+          estado_at: string
+          id: string
+          lead_id: string | null
+          meta_message_id: string | null
+          motivo_exclusion:
+            | Database["public"]["Enums"]["difusion_motivo_exclusion"]
+            | null
+          programado_para: string | null
+          ruta: Database["public"]["Enums"]["difusion_ruta"] | null
+          tanda: number | null
+          telefono: string | null
+        }
+        Insert: {
+          created_at?: string
+          difusion_id: string
+          error_codigo?: string | null
+          error_detalle?: string | null
+          estado: Database["public"]["Enums"]["difusion_envio_estado"]
+          estado_at?: string
+          id?: string
+          lead_id?: string | null
+          meta_message_id?: string | null
+          motivo_exclusion?:
+            | Database["public"]["Enums"]["difusion_motivo_exclusion"]
+            | null
+          programado_para?: string | null
+          ruta?: Database["public"]["Enums"]["difusion_ruta"] | null
+          tanda?: number | null
+          telefono?: string | null
+        }
+        Update: {
+          created_at?: string
+          difusion_id?: string
+          error_codigo?: string | null
+          error_detalle?: string | null
+          estado?: Database["public"]["Enums"]["difusion_envio_estado"]
+          estado_at?: string
+          id?: string
+          lead_id?: string | null
+          meta_message_id?: string | null
+          motivo_exclusion?:
+            | Database["public"]["Enums"]["difusion_motivo_exclusion"]
+            | null
+          programado_para?: string | null
+          ruta?: Database["public"]["Enums"]["difusion_ruta"] | null
+          tanda?: number | null
+          telefono?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "difusion_envios_difusion_id_fkey"
+            columns: ["difusion_id"]
+            isOneToOne: false
+            referencedRelation: "difusiones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "difusion_envios_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      difusion_supresiones: {
+        Row: {
+          clave_version: number
+          created_at: string
+          detalle: string | null
+          difusion_id: string | null
+          id: string
+          lead_id: string | null
+          origen: Database["public"]["Enums"]["difusion_supresion_origen"]
+          reactivacion_motivo: string | null
+          reactivada_at: string | null
+          reactivada_por: string | null
+          registrada_por: string | null
+          telefono_hash: string
+        }
+        Insert: {
+          clave_version: number
+          created_at?: string
+          detalle?: string | null
+          difusion_id?: string | null
+          id?: string
+          lead_id?: string | null
+          origen: Database["public"]["Enums"]["difusion_supresion_origen"]
+          reactivacion_motivo?: string | null
+          reactivada_at?: string | null
+          reactivada_por?: string | null
+          registrada_por?: string | null
+          telefono_hash: string
+        }
+        Update: {
+          clave_version?: number
+          created_at?: string
+          detalle?: string | null
+          difusion_id?: string | null
+          id?: string
+          lead_id?: string | null
+          origen?: Database["public"]["Enums"]["difusion_supresion_origen"]
+          reactivacion_motivo?: string | null
+          reactivada_at?: string | null
+          reactivada_por?: string | null
+          registrada_por?: string | null
+          telefono_hash?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "difusion_supresiones_difusion_id_fkey"
+            columns: ["difusion_id"]
+            isOneToOne: false
+            referencedRelation: "difusiones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "difusion_supresiones_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "difusion_supresiones_reactivada_por_fkey"
+            columns: ["reactivada_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "difusion_supresiones_registrada_por_fkey"
+            columns: ["registrada_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      difusiones: {
+        Row: {
+          audiencia: Json
+          audiencia_modo: Database["public"]["Enums"]["difusion_audiencia_modo"]
+          audiencia_toda_la_base: boolean
+          canary_tamano: number | null
+          creada_por: string | null
+          created_at: string
+          detenida_por: string | null
+          estado: Database["public"]["Enums"]["difusion_estado"]
+          exenta_tope_frecuencia: boolean
+          finalizada_at: string | null
+          id: string
+          incluir_en_negociacion: boolean
+          iniciada_at: string | null
+          motivo_detencion: string | null
+          nombre: string
+          plantilla_categoria:
+            | Database["public"]["Enums"]["difusion_plantilla_categoria"]
+            | null
+          plantilla_nombre: string | null
+          programada_para: string | null
+          updated_at: string
+        }
+        Insert: {
+          audiencia: Json
+          audiencia_modo?: Database["public"]["Enums"]["difusion_audiencia_modo"]
+          audiencia_toda_la_base?: boolean
+          canary_tamano?: number | null
+          creada_por?: string | null
+          created_at?: string
+          detenida_por?: string | null
+          estado?: Database["public"]["Enums"]["difusion_estado"]
+          exenta_tope_frecuencia?: boolean
+          finalizada_at?: string | null
+          id?: string
+          incluir_en_negociacion?: boolean
+          iniciada_at?: string | null
+          motivo_detencion?: string | null
+          nombre: string
+          plantilla_categoria?:
+            | Database["public"]["Enums"]["difusion_plantilla_categoria"]
+            | null
+          plantilla_nombre?: string | null
+          programada_para?: string | null
+          updated_at?: string
+        }
+        Update: {
+          audiencia?: Json
+          audiencia_modo?: Database["public"]["Enums"]["difusion_audiencia_modo"]
+          audiencia_toda_la_base?: boolean
+          canary_tamano?: number | null
+          creada_por?: string | null
+          created_at?: string
+          detenida_por?: string | null
+          estado?: Database["public"]["Enums"]["difusion_estado"]
+          exenta_tope_frecuencia?: boolean
+          finalizada_at?: string | null
+          id?: string
+          incluir_en_negociacion?: boolean
+          iniciada_at?: string | null
+          motivo_detencion?: string | null
+          nombre?: string
+          plantilla_categoria?:
+            | Database["public"]["Enums"]["difusion_plantilla_categoria"]
+            | null
+          plantilla_nombre?: string | null
+          programada_para?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "difusiones_creada_por_fkey"
+            columns: ["creada_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "difusiones_detenida_por_fkey"
+            columns: ["detenida_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
             referencedColumns: ["id"]
           },
         ]
@@ -426,6 +657,7 @@ export type Database = {
       }
       lead_session: {
         Row: {
+          asignado_at: string | null
           bloqueador: string | null
           cantidad: number | null
           closed_at: string | null
@@ -453,8 +685,10 @@ export type Database = {
           started_at: string
           updated_at: string
           urgencia: Database["public"]["Enums"]["urgencia_enum"]
+          vendedor_asignado_id: string | null
         }
         Insert: {
+          asignado_at?: string | null
           bloqueador?: string | null
           cantidad?: number | null
           closed_at?: string | null
@@ -482,8 +716,10 @@ export type Database = {
           started_at?: string
           updated_at?: string
           urgencia?: Database["public"]["Enums"]["urgencia_enum"]
+          vendedor_asignado_id?: string | null
         }
         Update: {
+          asignado_at?: string | null
           bloqueador?: string | null
           cantidad?: number | null
           closed_at?: string | null
@@ -511,6 +747,7 @@ export type Database = {
           started_at?: string
           updated_at?: string
           urgencia?: Database["public"]["Enums"]["urgencia_enum"]
+          vendedor_asignado_id?: string | null
         }
         Relationships: [
           {
@@ -525,6 +762,13 @@ export type Database = {
             columns: ["producto_cotizado_id"]
             isOneToOne: false
             referencedRelation: "productos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_session_vendedor_asignado_id_fkey"
+            columns: ["vendedor_asignado_id"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
             referencedColumns: ["id"]
           },
         ]
@@ -1380,6 +1624,7 @@ export type Database = {
           entrada: Json | null
           error: string | null
           id: string
+          motivo_salto: string | null
           nodo_id: string
           orden: number
           run_id: string
@@ -1390,6 +1635,7 @@ export type Database = {
           entrada?: Json | null
           error?: string | null
           id?: string
+          motivo_salto?: string | null
           nodo_id: string
           orden: number
           run_id: string
@@ -1400,6 +1646,7 @@ export type Database = {
           entrada?: Json | null
           error?: string | null
           id?: string
+          motivo_salto?: string | null
           nodo_id?: string
           orden?: number
           run_id?: string
@@ -1424,6 +1671,7 @@ export type Database = {
           id: string
           lead_id: string
           lead_session_id: string | null
+          motivo_salto: string | null
           nodo_actual: string | null
           pasos_ejecutados: number
           started_at: string
@@ -1437,6 +1685,7 @@ export type Database = {
           id?: string
           lead_id: string
           lead_session_id?: string | null
+          motivo_salto?: string | null
           nodo_actual?: string | null
           pasos_ejecutados?: number
           started_at?: string
@@ -1450,6 +1699,7 @@ export type Database = {
           id?: string
           lead_id?: string
           lead_session_id?: string | null
+          motivo_salto?: string | null
           nodo_actual?: string | null
           pasos_ejecutados?: number
           started_at?: string
@@ -1486,6 +1736,7 @@ export type Database = {
           grafo: Json
           id: string
           max_pasos: number
+          nota: string | null
           politica_concurrencia: Database["public"]["Enums"]["workflow_concurrencia"]
           publicada: boolean
           version: number
@@ -1497,6 +1748,7 @@ export type Database = {
           grafo: Json
           id?: string
           max_pasos?: number
+          nota?: string | null
           politica_concurrencia?: Database["public"]["Enums"]["workflow_concurrencia"]
           publicada?: boolean
           version: number
@@ -1508,6 +1760,7 @@ export type Database = {
           grafo?: Json
           id?: string
           max_pasos?: number
+          nota?: string | null
           politica_concurrencia?: Database["public"]["Enums"]["workflow_concurrencia"]
           publicada?: boolean
           version?: number
@@ -1598,11 +1851,132 @@ export type Database = {
           stock: number
         }[]
       }
+      clonar_workflow_version: {
+        Args: {
+          p_created_by?: string
+          p_nota?: string
+          p_publicar: boolean
+          p_version_id: string
+        }
+        Returns: {
+          error_code: string
+          version_id: string
+        }[]
+      }
       codigos_a_texto: { Args: { ts: string[] }; Returns: string }
+      contar_corridas_vivas: {
+        Args: { p_workflow_id: string }
+        Returns: {
+          cantidad: number
+          version_id: string
+        }[]
+      }
+      contar_leads_por_etiqueta: {
+        Args: never
+        Returns: {
+          leads: number
+          tag_id: string
+        }[]
+      }
+      contar_saltos_workflow: {
+        Args: { p_desde: string }
+        Returns: {
+          cantidad: number
+          motivo: string
+        }[]
+      }
       current_rol: {
         Args: never
         Returns: Database["public"]["Enums"]["rol_usuario_enum"]
       }
+      difusion_audiencia_predicado: {
+        Args: { p_ahora: string; p_nivel?: number; p_nodo: Json }
+        Returns: string
+      }
+      difusion_audiencia_regla: {
+        Args: { p_ahora: string; p_regla: Json }
+        Returns: string
+      }
+      difusion_envios_conteo: {
+        Args: { p_difusion_id: string }
+        Returns: {
+          cantidad: number
+          estado: Database["public"]["Enums"]["difusion_envio_estado"]
+          motivo_exclusion: Database["public"]["Enums"]["difusion_motivo_exclusion"]
+        }[]
+      }
+      difusion_envios_fallos: {
+        Args: { p_difusion_id: string }
+        Returns: {
+          cantidad: number
+          error_codigo: string
+        }[]
+      }
+      difusion_envios_resumen: {
+        Args: { p_difusion_ids: string[] }
+        Returns: {
+          aceptados: number
+          cancelados: number
+          difusion_id: string
+          en_cola: number
+          entregados: number
+          excluidos: number
+          fallidos: number
+          leidos: number
+          total: number
+        }[]
+      }
+      difusion_envios_tandas: {
+        Args: { p_difusion_id: string }
+        Returns: {
+          desde: string
+          en_cola: number
+          por_plantilla: number
+          tanda: number
+          total: number
+        }[]
+      }
+      difusion_resolver_audiencia: {
+        Args: {
+          p_ahora: string
+          p_audiencia: Json
+          p_despues_de?: string
+          p_limite?: number
+        }
+        Returns: {
+          etapa_activa: Database["public"]["Enums"]["current_stage_enum"]
+          lead_id: string
+          nombre: string
+          salientes_automaticos_24h: number
+          telefono: string
+          ultimo_entrante_at: string
+          vehiculo: string
+        }[]
+      }
+      difusion_supresiones_activas: {
+        Args: { p_hashes: string[] }
+        Returns: {
+          clave_version: number
+          created_at: string
+          detalle: string | null
+          difusion_id: string | null
+          id: string
+          lead_id: string | null
+          origen: Database["public"]["Enums"]["difusion_supresion_origen"]
+          reactivacion_motivo: string | null
+          reactivada_at: string | null
+          reactivada_por: string | null
+          registrada_por: string | null
+          telefono_hash: string
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "difusion_supresiones"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      difusion_uso_cupo_24h: { Args: { p_desde: string }; Returns: number }
       inbox_recent_messages: {
         Args: { p_limit?: number; p_session_ids: string[] }
         Returns: {
@@ -1623,14 +1997,103 @@ export type Database = {
           tipos: string[]
         }[]
       }
+      metricas_clasificaciones_por_intent: {
+        Args: { p_desde: string; p_hasta: string }
+        Returns: {
+          intent_id: string
+          turnos: number
+        }[]
+      }
+      metricas_gasto_por_workflow: {
+        Args: { p_desde: string; p_hasta: string }
+        Returns: {
+          costo_usd: number
+          input_tokens: number
+          llamadas: number
+          output_tokens: number
+          workflow: string
+        }[]
+      }
+      metricas_pausas_por_motivo: {
+        Args: { p_desde: string; p_hasta: string }
+        Returns: {
+          cantidad: number
+          reason_code: string
+        }[]
+      }
       plegar_codigo: { Args: { t: string }; Returns: string }
       plegar_codigos: { Args: { ts: string[] }; Returns: string[] }
       plegar_texto: { Args: { t: string }; Returns: string }
+      programar_difusion: {
+        Args: {
+          p_canary_tamano?: number
+          p_difusion_id: string
+          p_envios: Json
+          p_programada_para: string
+        }
+        Returns: {
+          audiencia_inicial: number
+          destinatarios: number
+        }[]
+      }
       publicar_workflow_version: {
         Args: { p_version_id: string }
         Returns: {
           error_code: string
           version_id: string
+        }[]
+      }
+      publicar_workflow_version_con_nota: {
+        Args: { p_nota?: string; p_version_id: string }
+        Returns: {
+          error_code: string
+          version_id: string
+        }[]
+      }
+      reactivar_supresion_difusion: {
+        Args: { p_motivo: string; p_supresion_id: string }
+        Returns: {
+          clave_version: number
+          created_at: string
+          detalle: string | null
+          difusion_id: string | null
+          id: string
+          lead_id: string | null
+          origen: Database["public"]["Enums"]["difusion_supresion_origen"]
+          reactivacion_motivo: string | null
+          reactivada_at: string | null
+          reactivada_por: string | null
+          registrada_por: string | null
+          telefono_hash: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "difusion_supresiones"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      reanudar_workflow_run: {
+        Args: { p_run_id: string }
+        Returns: {
+          desde_paso: number
+          error_code: string
+          nodo_id: string
+        }[]
+      }
+      relanzar_workflow_run: {
+        Args: { p_run_id: string }
+        Returns: {
+          error_code: string
+          run_id: string
+        }[]
+      }
+      resumen_asignaciones_vendedores: {
+        Args: { p_vendedor_ids: string[] }
+        Returns: {
+          sesiones_abiertas: number
+          ultima_asignacion_at: string
+          vendedor_id: string
         }[]
       }
       revert_lead_merge: {
@@ -1643,6 +2106,14 @@ export type Database = {
       server_now: { Args: never; Returns: string }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
+      soltar_candado: {
+        Args: { p_clave: string; p_duenio: string }
+        Returns: undefined
+      }
+      tomar_candado: {
+        Args: { p_clave: string; p_duenio: string; p_ttl_ms: number }
+        Returns: boolean
+      }
       transition_handoff: {
         Args: {
           p_action: string
@@ -1674,6 +2145,41 @@ export type Database = {
         | "cerrado"
         | "perdido"
         | "requiere_humano"
+      difusion_audiencia_modo: "congelada" | "dinamica"
+      difusion_envio_estado:
+        | "excluido"
+        | "en_cola"
+        | "aceptado"
+        | "entregado"
+        | "leido"
+        | "fallido"
+        | "cancelado"
+      difusion_estado:
+        | "borrador"
+        | "programada"
+        | "enviando"
+        | "en_revision"
+        | "completada"
+        | "detenida"
+      difusion_motivo_exclusion:
+        | "sin_telefono"
+        | "duplicado_telefono"
+        | "baja_propia"
+        | "baja_meta"
+        | "requiere_humano"
+        | "conversacion_activa"
+        | "sin_ventana"
+        | "saturado_meta"
+        | "cap_frecuencia"
+        | "en_negociacion"
+      difusion_plantilla_categoria: "marketing" | "utility"
+      difusion_ruta: "ventana_abierta" | "plantilla"
+      difusion_supresion_origen:
+        | "palabra_clave"
+        | "boton_baja"
+        | "meta_131050"
+        | "meta_preferencias"
+        | "manual"
       direction_enum: "in" | "out"
       estado_entrega_enum: "enviado" | "entregado" | "leido" | "fallido"
       identificador_tipo_enum:
@@ -1731,12 +2237,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1760,11 +2266,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1785,11 +2291,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1810,11 +2316,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1827,11 +2333,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1841,9 +2347,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       canal_enum: ["wa", "ig", "fb"],
@@ -1856,6 +2359,45 @@ export const Constants = {
         "cerrado",
         "perdido",
         "requiere_humano",
+      ],
+      difusion_audiencia_modo: ["congelada", "dinamica"],
+      difusion_envio_estado: [
+        "excluido",
+        "en_cola",
+        "aceptado",
+        "entregado",
+        "leido",
+        "fallido",
+        "cancelado",
+      ],
+      difusion_estado: [
+        "borrador",
+        "programada",
+        "enviando",
+        "en_revision",
+        "completada",
+        "detenida",
+      ],
+      difusion_motivo_exclusion: [
+        "sin_telefono",
+        "duplicado_telefono",
+        "baja_propia",
+        "baja_meta",
+        "requiere_humano",
+        "conversacion_activa",
+        "sin_ventana",
+        "saturado_meta",
+        "cap_frecuencia",
+        "en_negociacion",
+      ],
+      difusion_plantilla_categoria: ["marketing", "utility"],
+      difusion_ruta: ["ventana_abierta", "plantilla"],
+      difusion_supresion_origen: [
+        "palabra_clave",
+        "boton_baja",
+        "meta_131050",
+        "meta_preferencias",
+        "manual",
       ],
       direction_enum: ["in", "out"],
       estado_entrega_enum: ["enviado", "entregado", "leido", "fallido"],
@@ -1901,4 +2443,3 @@ export const Constants = {
     },
   },
 } as const
-

@@ -1,4 +1,5 @@
 import type { AppClient } from "@/server/db/client";
+import { leerPorKeyset } from "@/server/db/paginar";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { isUuid } from "@/server/db/uuid";
 import type { EstadoRecordatorio, MotivoCancelacionRecordatorio } from "@/types/domain";
@@ -13,6 +14,18 @@ const RECURSO = "session_recordatorio";
 
 /** Los dos estados que cuentan como "todavía tiene efecto". */
 const VIVOS: readonly EstadoRecordatorio[] = ["pendiente", "avisado"];
+
+// Mismo tope que `IDS_POR_TANDA` de lead_session: 100 uuids son ~3,7 KB de
+// query string y entran holgados en cualquier proxy.
+const SESSION_IDS_POR_TANDA = 100;
+
+/** El orden de las dos lecturas de la bandeja: el que vence primero, primero. */
+function porRecordarAt(filas: SessionRecordatorio[]): SessionRecordatorio[] {
+  return filas.sort(
+    (a, b) =>
+      a.recordar_at.getTime() - b.recordar_at.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  );
+}
 
 /**
  * Impl Supabase de `SessionRecordatoriosRepository`.
@@ -69,28 +82,43 @@ export class SupabaseSessionRecordatoriosRepository implements SessionRecordator
     // `avisado` (el workflow ya pasó) o `pendiente` con la fecha cumplida (el
     // workflow todavía no pasó, pero el vendedor no tiene por qué enterarse de
     // que Inngest está atrasado).
-    const { data, error } = await this.db
-      .from(TABLA)
-      .select()
-      .in("estado", [...VIVOS])
-      .lte("recordar_at", now.toISOString())
-      .order("recordar_at", { ascending: true });
-    if (error) throw mapPostgrestError(error, { resource: RECURSO });
-    return (data ?? []).map(mapRow);
+    //
+    // Paginado: hay uno vivo por sesión abierta, y con más de 1.000 PostgREST
+    // cortaba sin avisar (lección 12) — el badge del SideNav contaba de menos.
+    const filas = await leerPorKeyset({
+      recurso: RECURSO,
+      clave: (r: SessionRecordatorioRow) => r.id,
+      pagina: (despuesDe, tamanio) => {
+        let q = this.db
+          .from(TABLA)
+          .select()
+          .in("estado", [...VIVOS])
+          .lte("recordar_at", now.toISOString());
+        if (despuesDe !== null) q = q.gt("id", despuesDe);
+        return q.order("id", { ascending: true }).limit(tamanio);
+      },
+    });
+    return porRecordarAt(filas.map(mapRow));
   }
 
   async listVivosBySessionIds(sessionIds: UUID[]): Promise<SessionRecordatorio[]> {
     // Sin el corte, PostgREST arma un `in ()` vacío que no filtra nada y la
     // bandeja se traería los recordatorios de toda la instalación.
     if (sessionIds.length === 0) return [];
-    const { data, error } = await this.db
-      .from(TABLA)
-      .select()
-      .in("lead_session_id", sessionIds)
-      .in("estado", [...VIVOS])
-      .order("recordar_at", { ascending: true });
-    if (error) throw mapPostgrestError(error, { resource: RECURSO });
-    return (data ?? []).map(mapRow);
+    // En tandas: `.in()` viaja en la query string (414 con toda la bandeja), y
+    // el índice único `session_recordatorios_uno_vivo_idx` deja a lo sumo un
+    // vivo por sesión, así que cada tanda vuelve con menos de 1.000 filas.
+    const out: SessionRecordatorio[] = [];
+    for (let i = 0; i < sessionIds.length; i += SESSION_IDS_POR_TANDA) {
+      const { data, error } = await this.db
+        .from(TABLA)
+        .select()
+        .in("lead_session_id", sessionIds.slice(i, i + SESSION_IDS_POR_TANDA))
+        .in("estado", [...VIVOS]);
+      if (error) throw mapPostgrestError(error, { resource: RECURSO });
+      for (const row of data ?? []) out.push(mapRow(row));
+    }
+    return porRecordarAt(out);
   }
 
   async marcarAvisado(

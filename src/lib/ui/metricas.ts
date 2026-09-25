@@ -119,3 +119,81 @@ export function deltaPuntos({ valor, anterior }: Comparado): Delta | null {
   if (diferencia === 0) return { texto: "sin cambio", sentido: "igual" };
   return { texto: conSigno(diferencia, " pts"), sentido: sentidoDe(diferencia) };
 }
+
+// =========================================================================
+// Escalas de color de los repartos (§3.1-§3.3)
+// =========================================================================
+
+/**
+ * Los tres colores del reparto de la atención.
+ *
+ * Reemplazan a `[--color-brand, --color-info, stageColor("requiere_humano")]`,
+ * que mezclaba en una misma barra apilada tres paletas distintas: la marca, los
+ * semánticos y las etapas del embudo. Las tres están congeladas de a una —la
+ * marca por decisión de producto, las etapas por estar ya calibradas— así que
+ * ningún ajuste de token podía arreglar la colisión; había que sacarlas de la
+ * escala. Medido con `node scripts/verificar-paleta-clara.mjs`:
+ *
+ *   info <-> stage-requiere-humano   ΔE 22.0 normal pero 3.5 en CVD
+ *   (el piso del validador es 6 y el objetivo 8)
+ *
+ * O sea: "las tomó una persona" y "esperando a una persona" eran el mismo color
+ * para quien no distingue rojo de verde, y son justo las dos franjas cuya
+ * diferencia es el punto del gráfico.
+ *
+ * Con `ok / info / caution` el peor par baja a ΔE 16.6 normal y 8.3 CVD en
+ * claro, y 16.9 / 11.6 en oscuro: por encima del objetivo en los dos temas.
+ *
+ * La lectura además mejora. La barra no responde "quién actuó" sino "en qué
+ * terminó la cola": resuelta sin gente (`ok`), resuelta por gente (`info`,
+ * neutro) y sin resolver (`caution`, mirá esto). `--color-brand` sigue siendo
+ * "el agente" en las barras de autoría de `PanelTotal` y `PanelAgente`, donde
+ * la pregunta SÍ es quién actuó y donde los pares miden bien.
+ */
+export const COLORES_ATENCION = {
+  resueltoPorAgente: "var(--color-ok)",
+  tomadoPorPersona: "var(--color-info)",
+  sinAtender: "var(--color-caution)",
+} as const;
+
+/**
+ * Cuántos tramos admite una rampa antes de que dos contiguos se confundan.
+ *
+ * A 5 tramos el peor escalón mide ΔE 8.6 normal y 8.2 en CVD sobre el track de
+ * la barra en tema claro, que es el caso más hostil de los cuatro (dos temas x
+ * dos superficies). A 6 cae a 7.1 y queda por debajo del objetivo. El número
+ * sale de `scripts/verificar-paleta-clara.mjs`, que lo vuelve a medir en cada
+ * corrida en vez de dejarlo escrito acá y nada más.
+ */
+export const TRAMOS_RAMPA = 5;
+
+/**
+ * Rampa secuencial de un solo tono, del más fuerte al más suave.
+ *
+ * Para repartos ORDENADOS por magnitud, no categóricos. Los motivos de escalado
+ * no son categorías con color propio —ningún motivo es "el rojo"— y pintarlos
+ * con una escala categórica le da significado a un color que no lo tiene. Peor:
+ * los tokens semánticos no dan para una escala categórica larga. Medido, la
+ * subescala más grande en la que TODOS los pares llegan a ΔE 15 normal y 8 CVD
+ * en los dos temas es de **tres** colores (`ok`, `warn`, `info`); la constante
+ * que esto reemplaza tenía seis, así que era imposible de leer por construcción.
+ *
+ * Una rampa de un tono no tiene ese techo porque los escalones son de
+ * luminosidad, y la luminosidad sobrevive a la simulación de daltonismo casi
+ * intacta.
+ *
+ * El alfa baja hasta 28% y no menos: más abajo los escalones se juntan. Y como
+ * a ese alfa el punto de la leyenda queda lavado contra el fondo (contraste
+ * 1,5:1), la leyenda de una barra así **numera** en vez de poner un punto de
+ * color — ver la prop `numerada` de `BarraReparto`. La identidad de cada tramo
+ * la lleva el número y el orden, no el color.
+ */
+export function escalaSecuencial(tramos: number, tono = "var(--color-info)"): string[] {
+  const n = Math.max(1, Math.min(tramos, TRAMOS_RAMPA));
+  if (n === 1) return [tono];
+  const MINIMO = 28;
+  return Array.from({ length: n }, (_, i) => {
+    const alfa = Math.round(100 - i * ((100 - MINIMO) / (n - 1)));
+    return `color-mix(in srgb, ${tono} ${alfa}%, transparent)`;
+  });
+}

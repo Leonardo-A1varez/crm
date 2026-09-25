@@ -5,7 +5,7 @@ import type { MetricsRepository } from "@/server/repositories/metrics.repo";
  * Contrato del read-model de métricas.
  *
  * No verifica campo por campo de las once formas de fila: verifica **el corte
- * por fecha**, que es lo único que comparten todos los `listXDesde` y lo único
+ * por fecha**, que es lo único que comparten todas las lecturas con ventana y lo único
  * cuyo error no se ve. Un corte roto no rompe la pantalla: la llena con datos
  * de más o la deja vacía, y el tablero miente sin que falle nada.
  *
@@ -44,39 +44,58 @@ export function runMetricsContract(
 
     // Cada método por separado y no en un bucle: si uno se rompe, el nombre del
     // test tiene que decir cuál.
+    // Cada lectura reducida a "cuánto trajo": largo de las filas, el conteo, o
+    // la suma de los grupos. Así el mismo corte se prueba en los tres tipos.
+    const suma = (grupos: readonly number[]) => grupos.reduce((acc, n) => acc + n, 0);
     const cortes = [
-      ["listSesionesDesde", (r: MetricsRepository, d: Date, h: Date) => r.listSesionesDesde(d, h)],
-      ["listMensajesDesde", (r: MetricsRepository, d: Date, h: Date) => r.listMensajesDesde(d, h)],
-      ["listLeadsDesde", (r: MetricsRepository, d: Date, h: Date) => r.listLeadsDesde(d, h)],
       [
-        "listRuleExecutionsDesde",
-        (r: MetricsRepository, d: Date, h: Date) => r.listRuleExecutionsDesde(d, h),
+        "listSesionesDesde",
+        async (r: MetricsRepository, d: Date, h: Date) => (await r.listSesionesDesde(d, h)).length,
       ],
       [
-        "listTurnClassificationsDesde",
-        (r: MetricsRepository, d: Date, h: Date) => r.listTurnClassificationsDesde(d, h),
+        "listMensajesDesde",
+        async (r: MetricsRepository, d: Date, h: Date) => (await r.listMensajesDesde(d, h)).length,
       ],
       [
         "listToolExecutionsDesde",
-        (r: MetricsRepository, d: Date, h: Date) => r.listToolExecutionsDesde(d, h),
+        async (r: MetricsRepository, d: Date, h: Date) =>
+          (await r.listToolExecutionsDesde(d, h)).length,
       ],
-      ["listLlmUsageDesde", (r: MetricsRepository, d: Date, h: Date) => r.listLlmUsageDesde(d, h)],
-      ["listHandoffsDesde", (r: MetricsRepository, d: Date, h: Date) => r.listHandoffsDesde(d, h)],
+      ["contarLeadsDesde", (r: MetricsRepository, d: Date, h: Date) => r.contarLeadsDesde(d, h)],
+      [
+        "contarRuleExecutionsDesde",
+        (r: MetricsRepository, d: Date, h: Date) => r.contarRuleExecutionsDesde(d, h),
+      ],
+      [
+        "contarClasificacionesPorIntent",
+        async (r: MetricsRepository, d: Date, h: Date) =>
+          suma((await r.contarClasificacionesPorIntent(d, h)).map((g) => g.turnos)),
+      ],
+      [
+        "contarPausasPorMotivo",
+        async (r: MetricsRepository, d: Date, h: Date) =>
+          suma((await r.contarPausasPorMotivo(d, h)).map((g) => g.cantidad)),
+      ],
+      [
+        "resumirGastoPorWorkflow",
+        async (r: MetricsRepository, d: Date, h: Date) =>
+          suma((await r.resumirGastoPorWorkflow(d, h)).map((g) => g.llamadas)),
+      ],
     ] as const;
 
-    for (const [nombre, llamar] of cortes) {
-      test(`${nombre} no devuelve nada de después del corte`, async () => {
-        expect(await llamar(repo, fixtures.despuesDeTodo, fixtures.despuesDeTodo)).toEqual([]);
+    for (const [nombre, cuanto] of cortes) {
+      test(`${nombre} no cuenta nada de después del corte`, async () => {
+        expect(await cuanto(repo, fixtures.despuesDeTodo, fixtures.despuesDeTodo)).toBe(0);
       });
     }
 
     // `desde = antesDeTodo` por sí solo incluiría todo lo sembrado; con
     // `hasta = antesDeTodo` también, la cota superior tiene que vaciarlo. Si
-    // `hasta` no se aplicara (el bug que este task cierra), esto devolvería
-    // filas y el test fallaría — no es una tautología.
-    for (const [nombre, llamar] of cortes) {
-      test(`${nombre} no devuelve nada cuando hasta es anterior a lo sembrado`, async () => {
-        expect(await llamar(repo, fixtures.antesDeTodo, fixtures.antesDeTodo)).toEqual([]);
+    // `hasta` no se aplicara, esto contaría filas y el test fallaría — no es
+    // una tautología.
+    for (const [nombre, cuanto] of cortes) {
+      test(`${nombre} no cuenta nada cuando hasta es anterior a lo sembrado`, async () => {
+        expect(await cuanto(repo, fixtures.antesDeTodo, fixtures.antesDeTodo)).toBe(0);
       });
     }
 
@@ -111,9 +130,9 @@ export function runMetricsContract(
       expect(filas[0]?.started_at).toBeInstanceOf(Date);
     });
 
-    test("listLeadsDesde devuelve lo sembrado cuando el corte es anterior", async () => {
+    test("contarLeadsDesde cuenta lo sembrado cuando el corte es anterior", async () => {
       expect(
-        (await repo.listLeadsDesde(fixtures.antesDeTodo, fixtures.despuesDeTodo)).length,
+        await repo.contarLeadsDesde(fixtures.antesDeTodo, fixtures.despuesDeTodo),
       ).toBeGreaterThan(0);
     });
 

@@ -1,4 +1,5 @@
 import type { AppClient } from "@/server/db/client";
+import { leerPorKeyset } from "@/server/db/paginar";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { isUuid } from "@/server/db/uuid";
 import type { LlmUsage, UUID } from "@/types/entities";
@@ -107,12 +108,18 @@ export class SupabaseLlmUsageRepository implements LlmUsageRepository {
   }
 
   async listDesde(desde: Date): Promise<LlmUsage[]> {
-    const { data, error } = await this.db
-      .from("llm_usage")
-      .select()
-      .gte("created_at", desde.toISOString());
-    if (error) throw mapPostgrestError(error, { resource: "llm_usage" });
-    return (data ?? []).map((r) => mapRow(r as LlmUsageRow));
+    // Una fila por llamada al modelo: pasa las 1.000 en días, y PostgREST
+    // cortaría ahí sin avisar (lección 12).
+    const filas = await leerPorKeyset({
+      recurso: "llm_usage",
+      clave: (r: LlmUsageRow) => r.id,
+      pagina: (despuesDe, tamanio) => {
+        let q = this.db.from("llm_usage").select().gte("created_at", desde.toISOString());
+        if (despuesDe !== null) q = q.gt("id", despuesDe);
+        return q.order("id", { ascending: true }).limit(tamanio);
+      },
+    });
+    return filas.map(mapRow);
   }
 
   async listByMensajeId(mensajeId: UUID): Promise<LlmUsage[]> {

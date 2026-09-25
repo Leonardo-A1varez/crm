@@ -1,5 +1,6 @@
 import { ConflictError, NotFoundError, PermissionDeniedError } from "@/lib/errors";
 import type { AppClient } from "@/server/db/client";
+import { leerPorKeyset } from "@/server/db/paginar";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import type { Database } from "@/server/db/types.gen";
 import { isUuid } from "@/server/db/uuid";
@@ -196,27 +197,37 @@ export class SupabaseTagsRepository implements TagsRepository {
 
   async listLeadIdsByTag(tagId: UUID): Promise<UUID[]> {
     if (!isUuid(tagId)) return [];
-    const { data, error } = await this.db
-      .from("lead_tags")
-      .select("lead_id")
-      .eq("tag_id", tagId)
-      .is("quitada_at", null);
-    if (error) throw mapPostgrestError(error, { resource: "lead_tag" });
-    return (data ?? []).map((r) => r.lead_id);
+    // Una etiqueta puede estar en más de 1.000 leads y PostgREST cortaría ahí
+    // sin avisar (lección 12): se pagina por `lead_id`, que es único dentro de
+    // una etiqueta por la PK (lead_id, tag_id).
+    const filas = await leerPorKeyset({
+      recurso: "lead_tag",
+      clave: (r: { lead_id: string }) => r.lead_id,
+      pagina: (despuesDe, tamanio) => {
+        let q = this.db
+          .from("lead_tags")
+          .select("lead_id")
+          .eq("tag_id", tagId)
+          .is("quitada_at", null);
+        if (despuesDe !== null) q = q.gt("lead_id", despuesDe);
+        return q.order("lead_id", { ascending: true }).limit(tamanio);
+      },
+    });
+    return filas.map((r) => r.lead_id);
   }
 
   async countLeadsByTag(): Promise<Map<UUID, number>> {
-    // Se agrupa en JS y no con el `count()` de PostgREST porque los agregados
-    // dependen de `db-aggregates-enabled`, que este proyecto no habilita. Trae
-    // una sola columna del pivot: a escala de piloto (~5K leads/mes) es una
-    // consulta barata, y es lo que evita el N+1 por etiqueta.
-    const { data, error } = await this.db.from("lead_tags").select("tag_id").is("quitada_at", null);
+    // Se cuenta en la base: traer el pivot para agrupar en JS cortaba en 1.000
+    // filas, y el contador de la administración de etiquetas mentía en cuanto
+    // el pivot las pasaba. Los agregados de PostgREST (`count()` dentro del
+    // select) dependen de `db-aggregates-enabled`, que este proyecto no
+    // habilita. Vuelve una fila por etiqueta en uso: no se acerca al corte.
+    const { data, error } = await this.db.rpc("contar_leads_por_etiqueta");
     if (error) throw mapPostgrestError(error, { resource: "lead_tag" });
 
     const out = new Map<UUID, number>();
-    for (const row of data ?? []) {
-      out.set(row.tag_id, (out.get(row.tag_id) ?? 0) + 1);
-    }
+    // `bigint` puede viajar como string en JSON: se normaliza.
+    for (const row of data ?? []) out.set(row.tag_id, Number(row.leads));
     return out;
   }
 }
