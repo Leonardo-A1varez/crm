@@ -1,12 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { ConflictError, DomainError, PermissionDeniedError } from "@/lib/errors";
-import { filtrarYOrdenarWorkflows } from "@/lib/ui/filtros-workflows";
+import { ConflictError, DomainError, PermissionDeniedError, ValidationError } from "@/lib/errors";
 import {
   CrearWorkflowSchema,
   CrearVersionDesdeSchema,
-  FiltrosWorkflowsSchema,
   GuardarVersionSchema,
   ObtenerDetalleRunSchema,
   ObtenerHistorialSchema,
@@ -20,8 +18,10 @@ import { getWorkflowRunsRepoForRequest } from "@/server/bootstrap/workflows-boot
 import { getCurrentRol } from "@/server/auth/guards";
 import { getAuthenticatedUser } from "@/server/auth/supabase-ssr";
 import { getWorkflowsAdminServiceForRequest } from "@/server/bootstrap/workflows-bootstrap";
-import type { HistorialPaginado, WorkflowResumen, WorkflowRunDetalle } from "@/types/entities";
-import type { ActionResult } from "@/types/inbox";
+import type { ProblemaPublicacion } from "@/lib/workflows/validar-workflow";
+import type { PreviaPublicacion } from "@/server/services/workflows/workflows-admin.service";
+import type { HistorialPaginado, WorkflowRunDetalle, WorkflowVersion } from "@/types/entities";
+import type { ActionError, ActionResult } from "@/types/inbox";
 
 /**
  * Las tres acciones de la pantalla de workflows.
@@ -165,45 +165,6 @@ export async function publicarVersionAction(raw: unknown): Promise<ActionResult>
   return { ok: true };
 }
 
-/**
- * Lectura del listado. A diferencia de las otras cinco, no pasa por
- * `soloAdmin()`: `workflows_select` en RLS deja ver a admin Y vendedor por
- * igual (`supabase/migrations/20260822044955_workflows_grafo.sql`), así que
- * gatear acá sería más estricto que la base sin ningún motivo.
- *
- * Devuelve, además de `items`, dos números que sólo se pueden sacar de la
- * lista SIN filtrar:
- *   - `totalSinFiltrar`, para que la pantalla elija el `EmptyState` correcto
- *     -- "todavía no hay flujos" (la instalación entera está vacía) contra
- *     "ningún flujo coincide" (hay flujos, pero ninguno pasa la búsqueda/el
- *     estado puestos) son mensajes distintos;
- *   - `activosCorriendo`, para el subtítulo del header. Si se calculara sobre
- *     `items` (ya filtrados), buscar algo dejaría el contador de "corriendo"
- *     mintiendo sobre el total real de la instalación.
- */
-export async function getWorkflowsAction(
-  raw?: unknown,
-): Promise<
-  | { ok: true; items: WorkflowResumen[]; totalSinFiltrar: number; activosCorriendo: number }
-  | { ok: false; error: string }
-> {
-  const parsed = FiltrosWorkflowsSchema.safeParse(raw ?? {});
-  if (!parsed.success) return { ok: false, error: "Filtros inválidos." };
-
-  try {
-    const svc = await getWorkflowsAdminServiceForRequest();
-    const todos = await svc.listarConResumen();
-    return {
-      ok: true,
-      items: filtrarYOrdenarWorkflows(todos, parsed.data),
-      totalSinFiltrar: todos.length,
-      activosCorriendo: todos.filter((i) => i.estado === "activo").length,
-    };
-  } catch (e) {
-    return { ok: false, error: mensajeDeError(e, "No se pudieron cargar los flujos.") };
-  }
-}
-
 export async function duplicateWorkflowAction(raw: unknown): Promise<ActionResult> {
   const parsed = WorkflowIdSchema.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Flujo inválido." };
@@ -274,79 +235,139 @@ export async function deleteWorkflowAction(raw: unknown): Promise<ActionResult> 
 }
 
 /**
- * Publicar una versión con descripción opcional del cambio.
- *
- * Extiende `publicarVersionAction` con el campo de descripción que el dialog
- * de publicación permite llenar.
+ * Lo que devuelven las acciones de versión: la versión que quedó. Si el flujo
+ * tiene errores que impiden publicarlo, vienen en `problemas`, uno por nodo,
+ * para que la pantalla los muestre nombrando cada uno.
  */
-export async function publicarVersionConDescripcionAction(raw: unknown): Promise<ActionResult> {
+export type ResultadoVersion =
+  | { ok: true; data: { versionId: string; version: number } }
+  | (ActionError & { problemas?: ProblemaPublicacion[] });
+
+/** Los problemas de publicar que trae un `ValidationError` del servicio, o `null`. */
+function problemasDelError(e: unknown): ProblemaPublicacion[] | null {
+  if (!(e instanceof ValidationError) || !Array.isArray(e.issues)) return null;
+  const problemas = e.issues.filter(
+    (p): p is ProblemaPublicacion =>
+      typeof p === "object" &&
+      p !== null &&
+      typeof (p as ProblemaPublicacion).mensaje === "string" &&
+      (typeof (p as ProblemaPublicacion).nodoId === "string" ||
+        (p as ProblemaPublicacion).nodoId === null),
+  );
+  return problemas.length > 0 ? problemas : null;
+}
+
+/** El fallo de publicar o restaurar: con los problemas del flujo si los hay. */
+function falloDeVersion(e: unknown, fallback: string): ResultadoVersion {
+  const problemas = problemasDelError(e);
+  if (problemas) {
+    return {
+      ok: false,
+      error: "El flujo tiene errores. Corregilos en el editor antes de publicar.",
+      problemas,
+    };
+  }
+  return { ok: false, error: mensajeDeError(e, fallback) };
+}
+
+/** El error de entrada: el de la nota se lee; el de un id roto, no le dice nada a nadie. */
+function errorDeEntrada(issue: { path: PropertyKey[]; message: string } | undefined): string {
+  return issue?.path[0] === "nota" ? issue.message : "Versión inválida.";
+}
+
+/**
+ * Lo que necesita la pantalla "Publicar la versión N" (DiffPublicacion): la
+ * versión a publicar, la publicada hoy —contra la que se dibuja el diff con
+ * `compararGrafos`— y cuántas corridas siguen en marcha, por versión. Es de
+ * sólo lectura, pero pertenece al flujo de publicar, que es de admin.
+ */
+export async function obtenerPreviaPublicacionAction(
+  raw: unknown,
+): Promise<{ ok: true; data: PreviaPublicacion } | ActionError> {
+  const parsed = PublicarVersionSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Versión inválida." };
+
+  try {
+    await soloAdmin();
+    const svc = await getWorkflowsAdminServiceForRequest();
+    const previa = await svc.previaPublicacion(parsed.data.versionId);
+    if (!previa) return { ok: false, error: "Esa versión ya no existe." };
+    return { ok: true, data: previa };
+  } catch (e) {
+    return { ok: false, error: mensajeDeError(e, "No se pudo preparar la publicación.") };
+  }
+}
+
+/**
+ * Publicar con la nota de la versión. Las corridas en curso no se tocan:
+ * terminan en la versión donde arrancaron. Sin nota, la versión conserva la
+ * que tuviera.
+ */
+export async function publicarVersionConDescripcionAction(raw: unknown): Promise<ResultadoVersion> {
   const parsed = PublicarVersionConDescripcionSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { ok: false, error: "Versión inválida." };
-  }
+  if (!parsed.success) return { ok: false, error: errorDeEntrada(parsed.error.issues[0]) };
 
+  let publicada: WorkflowVersion;
   try {
     await soloAdmin();
     const svc = await getWorkflowsAdminServiceForRequest();
-    // TODO: Guardar la descripción cuando se agregue el campo a la tabla.
-    // Por ahora, se publica sin descripción pero el schema la acepta para
-    // que la UI ya la envíe y esté listo cuando se agregue.
-    await svc.publicar(parsed.data.versionId);
+    publicada = await svc.publicar(parsed.data.versionId, parsed.data.nota);
   } catch (e) {
-    return fallo(e, "No se pudo publicar la versión.");
+    return falloDeVersion(e, "No se pudo publicar la versión.");
   }
 
   revalidatePath("/workflows", "layout");
-  return { ok: true };
+  return { ok: true, data: { versionId: publicada.id, version: publicada.version } };
 }
 
 /**
- * Crear una nueva versión draft clonando el grafo de una existente.
- *
- * Se usa cuando se quiere editar una versión publicada sin romperla.
+ * Un borrador nuevo con el grafo de una versión existente, para editar una
+ * versión publicada sin romperla. El grafo se revalida con las reglas de hoy.
  */
-export async function crearVersionDesdeAction(raw: unknown): Promise<ActionResult> {
+export async function crearVersionDesdeAction(raw: unknown): Promise<ResultadoVersion> {
   const parsed = CrearVersionDesdeSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { ok: false, error: "Versión inválida." };
-  }
+  if (!parsed.success) return { ok: false, error: "Versión inválida." };
 
+  let creada: WorkflowVersion;
   try {
     await soloAdmin();
     const svc = await getWorkflowsAdminServiceForRequest();
     const user = await getAuthenticatedUser();
-    await svc.crearVersionDesde(parsed.data.versionId, user?.id ?? null);
+    creada = await svc.crearVersionDesde(parsed.data.versionId, user?.id ?? null);
   } catch (e) {
-    return fallo(e, "No se pudo crear la versión.");
+    return { ok: false, error: mensajeDeError(e, "No se pudo crear la versión.") };
   }
 
   revalidatePath("/workflows", "layout");
-  return { ok: true };
+  return { ok: true, data: { versionId: creada.id, version: creada.version } };
 }
 
 /**
- * Rollback: crear nueva versión desde una antigua y publicarla.
- *
- * La versión nueva tiene el grafo de la versión seleccionada pero con número
- * nuevo — no revive la versión vieja, crea una copia fresca y la publica.
+ * Restaurar una versión vieja: se copia a una versión NUEVA —número nuevo,
+ * fila nueva— y se publica en la misma transacción. La vieja no revive. Sin
+ * nota, la nueva dice de qué versión salió.
  */
-export async function rollbackVersionAction(raw: unknown): Promise<ActionResult> {
+export async function rollbackVersionAction(raw: unknown): Promise<ResultadoVersion> {
   const parsed = RollbackVersionSchema.safeParse(raw);
-  if (!parsed.success) {
-    return { ok: false, error: "Datos inválidos." };
-  }
+  if (!parsed.success) return { ok: false, error: errorDeEntrada(parsed.error.issues[0]) };
 
+  let restaurada: WorkflowVersion;
   try {
     await soloAdmin();
     const svc = await getWorkflowsAdminServiceForRequest();
     const user = await getAuthenticatedUser();
-    await svc.rollbackAVersion(parsed.data.workflowId, parsed.data.versionId, user?.id ?? null);
+    restaurada = await svc.rollbackAVersion(
+      parsed.data.workflowId,
+      parsed.data.versionId,
+      user?.id ?? null,
+      parsed.data.nota,
+    );
   } catch (e) {
-    return fallo(e, "No se pudo restaurar la versión.");
+    return falloDeVersion(e, "No se pudo restaurar la versión.");
   }
 
   revalidatePath("/workflows", "layout");
-  return { ok: true };
+  return { ok: true, data: { versionId: restaurada.id, version: restaurada.version } };
 }
 
 // =========================================================================

@@ -1,25 +1,37 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { PageHeader } from "@/components/shared/PageHeader";
-import { EditorCanvasWorkflow } from "@/components/workflows/EditorCanvasWorkflow";
-import { VersionesDelWorkflow } from "@/components/workflows/VersionesDelWorkflow";
 import { getCurrentRol } from "@/server/auth/guards";
+import { getReglasAdminServiceForRequest } from "@/server/bootstrap/reglas-bootstrap";
 import { getTagsAdminServiceForRequest } from "@/server/bootstrap/tags-bootstrap";
+import { getUsuariosServiceForRequest } from "@/server/bootstrap/usuarios-bootstrap";
 import { getWorkflowsAdminServiceForRequest } from "@/server/bootstrap/workflows-bootstrap";
 import { searchLeadsAction } from "../../leads/_actions/search-leads.action";
 import {
   guardarVersionAction,
   obtenerDetalleRunAction,
   probarWorkflowAction,
-  publicarVersionAction,
 } from "../_actions/workflows.actions";
+import { EditorWorkflowCliente } from "./_components/EditorWorkflowCliente";
+import { TOPE_PASOS } from "./_lib/max-pasos";
+import { opcionesDeEtapas, opcionesDeIntents, opcionesDeVendedores } from "./_lib/opciones-editor";
 import type { Grafo } from "@/types/workflows";
 
 export const dynamic = "force-dynamic";
 
-/** Un flujo vacío: un disparador y nada más, para no arrancar de la nada. */
+/** Un flujo que todavía no tiene nada. El editor arranca con la paleta y el lienzo vacío. */
 const GRAFO_VACIO: Grafo = { nodos: [], aristas: [] };
 
+/**
+ * El editor de un flujo.
+ *
+ * **Ocupa la pantalla entera y no lleva `PageHeader`**: `EditorWorkflow` trae su
+ * propia `BarraEditor` con el título, el botón de volver y las tres acciones, y
+ * el lienzo necesita todo el ancho y todo el alto. Un encabezado de la página
+ * encima sería un segundo título y ~60 px menos de lienzo.
+ *
+ * Lo único que la página dibuja son las dos franjas de estado. Van acá y no en
+ * el cliente porque son hechos que el servidor ya sabe —si hay versión
+ * publicada, qué rol tiene quien mira— y así se pintan sin JavaScript.
+ */
 export default async function WorkflowDetallePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
@@ -27,12 +39,15 @@ export default async function WorkflowDetallePage({ params }: { params: Promise<
   const detalle = await svc.detalle(id);
   if (!detalle) notFound();
 
-  const [rol, tags] = await Promise.all([
+  const [rol, tags, intents, usuarios] = await Promise.all([
     getCurrentRol(),
-    // Las etiquetas alimentan el select de la acción `poner_etiqueta`, que
-    // necesita un `tagId` real: escribirlo a mano es un `tag_id_ausente` en
-    // producción esperando a que alguien se equivoque de UUID.
+    // Las listas alimentan los selectores del panel, que guardan un id real:
+    // escribirlo a mano es un `tag_id_ausente` en producción esperando a que
+    // alguien se equivoque de UUID. Las etapas no se piden: son un enum del
+    // dominio y salen de `opcionesDeEtapas`.
     getTagsAdminServiceForRequest().then((s) => s.listar()),
+    getReglasAdminServiceForRequest().then((s) => s.listarIntents()),
+    getUsuariosServiceForRequest().then((s) => s.listar()),
   ]);
   const isAdmin = rol === "admin";
 
@@ -43,53 +58,47 @@ export default async function WorkflowDetallePage({ params }: { params: Promise<
 
   return (
     <div className="bg-surface-root flex h-full flex-col overflow-hidden">
-      <PageHeader
-        title={detalle.workflow.nombre}
-        subtitle={
-          publicada
-            ? `v${publicada.version} publicada · ${detalle.workflow.activo ? "prendido" : "apagado"}`
-            : `sin versión publicada · ${detalle.workflow.activo ? "prendido" : "apagado"}`
-        }
-        actions={
-          <Link
-            href="/workflows"
-            className="border-line-control text-ink-secondary hover:bg-surface-hover rounded-[9px] border px-[11px] py-1.5 text-[11.5px] font-semibold transition-colors"
-          >
-            Volver
-          </Link>
-        }
-      />
+      {!publicada && detalle.workflow.activo ? (
+        <p className="border-caution/30 bg-caution/10 text-caution flex shrink-0 items-center gap-2 border-b px-4 py-1.5 text-[11.5px] leading-snug text-pretty">
+          <span aria-hidden className="bg-caution size-1.5 shrink-0 rounded-full" />
+          Este flujo está prendido pero no tiene ninguna versión publicada, así que{" "}
+          <strong className="font-semibold">no corre</strong>. Publicá una versión para que empiece.
+        </p>
+      ) : null}
 
-      <div className="flex-1 overflow-y-auto p-5">
-        <div className="mx-auto flex max-w-[860px] flex-col gap-5">
-          {!publicada && detalle.workflow.activo ? (
-            <p className="rounded-[11px] border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-[12px] text-amber-700 dark:text-amber-400">
-              Este flujo está prendido pero no tiene ninguna versión publicada, así que{" "}
-              <strong>no corre</strong>. Publicá una versión para que empiece.
-            </p>
-          ) : null}
+      {!isAdmin ? (
+        <p className="border-line-layout bg-surface-panel text-ink-faint flex shrink-0 items-center gap-2 border-b px-4 py-1.5 text-[11.5px] leading-snug text-pretty">
+          <span aria-hidden className="bg-ink-ghost size-1.5 shrink-0 rounded-full" />
+          Estás mirando el flujo. Guardar, publicar y probar quedan para un administrador.
+        </p>
+      ) : null}
 
-          <section className="border-line-layout bg-surface-panel rounded-[11px] border p-4">
-            <h2 className="text-ink-primary mb-3 text-[13px] font-[680]">Versiones</h2>
-            <VersionesDelWorkflow
-              versiones={detalle.versiones}
-              puedeEditar={isAdmin}
-              onPublicar={publicarVersionAction}
-            />
-          </section>
-
-          <EditorCanvasWorkflow
-            workflowId={detalle.workflow.id}
-            grafoInicial={ultima?.grafo ?? GRAFO_VACIO}
-            maxPasosInicial={ultima?.max_pasos ?? 50}
-            tags={tags.map((t) => ({ id: t.id, nombre: t.nombre }))}
-            puedeEditar={isAdmin}
-            onGuardar={guardarVersionAction}
-            onBuscarLeads={searchLeadsAction}
-            onProbar={probarWorkflowAction}
-            onObtenerDetalleRun={obtenerDetalleRunAction}
-          />
-        </div>
+      <div className="min-h-0 flex-1">
+        <EditorWorkflowCliente
+          workflowId={detalle.workflow.id}
+          nombre={detalle.workflow.nombre}
+          grafoInicial={ultima?.grafo ?? GRAFO_VACIO}
+          // Sin versión guardada, el tope arranca en el mismo default que pone
+          // la base. Antes arrancaba en 50: el primer "Guardar" de un flujo
+          // nuevo le bajaba el tope a un décimo sin que nadie lo pidiera.
+          maxPasos={ultima?.max_pasos ?? TOPE_PASOS.POR_DEFECTO}
+          maxPasosPublicado={publicada?.max_pasos ?? null}
+          versionPublicada={publicada?.version ?? null}
+          grafoPublicado={publicada?.grafo ?? null}
+          ultimaVersionId={ultima?.id ?? null}
+          ultimaVersionNumero={ultima?.version ?? null}
+          grafoUltimaGuardada={ultima?.grafo ?? null}
+          versiones={detalle.versiones}
+          puedeEditar={isAdmin}
+          tags={tags.map((t) => ({ id: t.id, nombre: t.nombre }))}
+          etapas={opcionesDeEtapas()}
+          vendedores={opcionesDeVendedores(usuarios)}
+          intents={opcionesDeIntents(intents.map((i) => i.intent))}
+          onGuardar={guardarVersionAction}
+          onProbar={probarWorkflowAction}
+          onBuscarLeads={searchLeadsAction}
+          onObtenerDetalleRun={obtenerDetalleRunAction}
+        />
       </div>
     </div>
   );
