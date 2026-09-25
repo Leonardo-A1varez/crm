@@ -39,6 +39,14 @@ import { InMemoryWorkflowsRepository } from "@/server/repositories/workflows.rep
 import { crearAccionesInternas } from "@/server/services/workflows/acciones/internas";
 import { crearRegistro } from "@/server/services/workflows/acciones/registro";
 import { InMemoryMetaOperationalEventsRepository } from "@/server/repositories/meta-operational-events.repo";
+import type { MotorDifusionService } from "@/server/services/difusion/motor.service";
+
+/** El factory sólo arma funciones: el motor no se llama. */
+const motorDeMentira: MotorDifusionService = {
+  drenarLote: async () => ({ tipo: "sin_trabajo" }),
+  verificarPlan: async () => true,
+  aplicarEstadoWebhook: async () => false,
+};
 
 describe("makeCrmInngestFunctions", () => {
   test("produce 17 InngestFunction con IDs esperados", () => {
@@ -100,7 +108,7 @@ describe("makeCrmInngestFunctions", () => {
         configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
         emit: async () => {},
       },
-      onStatusReceived: { messages },
+      onStatusReceived: { messages, difusion: motorDeMentira },
       onOperationalReceived: { eventos: new InMemoryMetaOperationalEventsRepository() },
       updateLeadTwin: { twinExtractor, sessions, emitirDisparo: async () => {} },
       detectIntentsBatch: {
@@ -127,9 +135,10 @@ describe("makeCrmInngestFunctions", () => {
       workflowSegmento: { runs: workflowRuns, workflows, registro },
       workflowProgramados: { workflows, sessions, leads },
       workflowInactividad: { workflows, sessions, conversations, messages, leads },
+      drenarDifusiones: { motor: motorDeMentira },
     });
 
-    expect(fns).toHaveLength(17);
+    expect(fns).toHaveLength(18);
     const ids = fns.map((f) => f.id());
     expect(ids).toEqual(
       expect.arrayContaining([
@@ -150,6 +159,7 @@ describe("makeCrmInngestFunctions", () => {
         expect.stringContaining("workflow-segmento"),
         expect.stringContaining("workflow-programados"),
         expect.stringContaining("workflow-inactividad"),
+        expect.stringContaining("drenar-difusiones"),
       ]),
     );
   });

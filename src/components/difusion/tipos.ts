@@ -268,6 +268,8 @@ export interface EnvioDifusion {
   programadaPara: string | null;
   finalizadaAt: string | null;
   motivoDetencion: string | null;
+  /** Por qué el sistema la pasó a revisión (Meta pausó la plantilla, salió la muestra). */
+  motivoRevision: string | null;
   /** La frenó una persona; `false` en una detenida = la frenó el sistema. */
   detenidaPorPersona: boolean;
 }

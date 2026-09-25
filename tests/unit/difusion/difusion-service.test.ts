@@ -23,6 +23,7 @@ import {
   DefaultDifusionService,
   LIMITE_LISTADO,
   type AlcanceInput,
+  type DifusionServiceDeps,
   type LecturaTope,
 } from "@/server/services/difusion/difusion.service";
 import {
@@ -40,6 +41,13 @@ const HORA = 60 * MINUTO;
 const hace = (ms: number) => new Date(AHORA.getTime() - ms);
 
 const ADMIN = "00000000-0000-4000-8000-00000000a001";
+/** Una difusión que sale necesita plantilla e idioma (CHECK de la tabla). */
+const CON_PLANTILLA = {
+  plantilla_nombre: "promo_frenos_v3",
+  plantilla_categoria: "marketing",
+  plantilla_idioma: "es",
+} as const;
+
 const ARBOL: Grupo = {
   id: "raiz",
   clase: "grupo",
@@ -73,6 +81,7 @@ function armar(
     maxSalientes?: number;
     logger?: Logger;
     supresiones?: InMemoryDifusionSupresionesRepository;
+    datosDelLead?: DifusionServiceDeps["datosDelLead"];
   } = {},
 ) {
   const difusiones = new InMemoryDifusionesRepository();
@@ -86,6 +95,7 @@ function armar(
   const tags = new InMemoryTagsRepository();
   const usuarios = new InMemoryUsersRepository();
   const avisarProgramada = vi.fn(async () => {});
+  const avisarReanudada = vi.fn(async () => {});
   const svc = new DefaultDifusionService({
     difusiones,
     envios,
@@ -97,6 +107,8 @@ function armar(
     leerTopeMensajeria: async () => opciones.tope ?? { estado: "ok", tope: 250 },
     leerMaxSalientes24h: async () => opciones.maxSalientes ?? 3,
     avisarProgramada,
+    avisarReanudada,
+    datosDelLead: opciones.datosDelLead,
     logger: opciones.logger ?? new NoopLogger(),
     ahora: () => AHORA,
   });
@@ -110,6 +122,7 @@ function armar(
     tags,
     usuarios,
     avisarProgramada,
+    avisarReanudada,
   };
 }
 
@@ -173,7 +186,7 @@ async function borradorConPlantilla(
     ADMIN,
   );
   await svc.guardarBorrador(d.id, {
-    plantilla: { nombre: "promo_frenos_v3", categoria: "marketing" },
+    plantilla: { nombre: "promo_frenos_v3", categoria: "marketing", idioma: "es", parametros: [] },
   });
   return d;
 }
@@ -408,6 +421,7 @@ describe("DifusionService — alcance", () => {
       nombre: "Promo agosto",
       audiencia: ARBOL,
       creada_por: null,
+      ...CON_PLANTILLA,
     });
     await programacion.programar({
       difusionId: previa.id,
@@ -658,19 +672,73 @@ describe("DifusionService — pausar, reanudar y detener", () => {
     expect((await svc.reanudar(d.id)).estado).toBe("enviando");
     await expect(svc.reanudar(d.id)).rejects.toThrow(ConflictError);
   });
+
+  test("reanudar saca el motivo de revisión del sistema y avisa al motor", async () => {
+    const { svc, difusiones, avisarReanudada } = armar({ candidatos: [candidato(1)] });
+    const d = await borradorConPlantilla(svc);
+    await svc.programar(d.id, { canaryTamano: null });
+    await difusiones.update(d.id, { estado: "enviando", iniciada_at: AHORA });
+    await difusiones.update(d.id, {
+      estado: "en_revision",
+      motivo_revision: "Meta pausó la plantilla (132015)",
+    });
+
+    const r = await svc.reanudar(d.id);
+
+    expect(r.motivo_revision).toBeNull();
+    expect(avisarReanudada).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "difusion/reanudada",
+        data: { difusionId: d.id, reanudadaAt: AHORA.toISOString() },
+      }),
+    );
+  });
+});
+
+describe("DifusionService — valores de las variables", () => {
+  test("devuelve por lead los datos que resuelven las variables, sin los que no tiene", async () => {
+    const { svc } = armar({
+      datosDelLead: async (id) =>
+        id === leadIdDe(1)
+          ? { lead: { nombre: "Ana", vehiculo_modelo: "Aveo", vehiculo_marca: null } }
+          : { lead: { nombre: "" }, sesion: { consulta: "radiador" } },
+    });
+
+    const v = await svc.valoresDeVariables([leadIdDe(1), leadIdDe(2)]);
+
+    expect(v).toEqual({
+      [leadIdDe(1)]: { nombre: "Ana", vehiculo_modelo: "Aveo" },
+      [leadIdDe(2)]: { consulta: "radiador" },
+    });
+  });
+
+  test("sin la fuente de datos no afirma nada", async () => {
+    const { svc } = armar();
+    expect(await svc.valoresDeVariables([leadIdDe(1)])).toEqual({});
+  });
 });
 
 describe("DifusionService — lecturas", () => {
   test("el listado trae métricas por difusión, las bajas y los destinatarios de 30 días", async () => {
     const { svc, difusiones, programacion, supresiones } = armar();
-    const uno = await difusiones.create({ nombre: "Uno", audiencia: ARBOL, creada_por: null });
+    const uno = await difusiones.create({
+      nombre: "Uno",
+      audiencia: ARBOL,
+      creada_por: null,
+      ...CON_PLANTILLA,
+    });
     await programacion.programar({
       difusionId: uno.id,
       programadaPara: AHORA,
       canaryTamano: null,
       filas: [filaEnCola(uno.id, 1), filaEnCola(uno.id, 2), filaExcluida(uno.id, 3)],
     });
-    const dos = await difusiones.create({ nombre: "Dos", audiencia: ARBOL, creada_por: null });
+    const dos = await difusiones.create({
+      nombre: "Dos",
+      audiencia: ARBOL,
+      creada_por: null,
+      ...CON_PLANTILLA,
+    });
     await supresiones.registrar({ telefono: telefonoDe(50), origen: "manual" });
 
     const l = await svc.listar();
@@ -678,7 +746,7 @@ describe("DifusionService — lecturas", () => {
     expect(l.difusiones.map((x) => x.nombre)).toEqual(["Dos", "Uno"]);
     expect(l.difusiones.find((x) => x.id === uno.id)).toMatchObject({
       estado: "programada",
-      plantilla: null,
+      plantilla: "promo_frenos_v3",
       destinatarios: 2,
       entregados: 0,
       leidos: 0,
@@ -698,7 +766,12 @@ describe("DifusionService — lecturas", () => {
   test("el listado dice cuando hay más difusiones de las que muestra", async () => {
     const { svc, difusiones } = armar();
     for (let i = 0; i <= LIMITE_LISTADO; i++) {
-      await difusiones.create({ nombre: `Difusión ${i}`, audiencia: ARBOL, creada_por: null });
+      await difusiones.create({
+        nombre: `Difusión ${i}`,
+        audiencia: ARBOL,
+        creada_por: null,
+        ...CON_PLANTILLA,
+      });
     }
 
     const l = await svc.listar();
@@ -709,7 +782,12 @@ describe("DifusionService — lecturas", () => {
 
   test("el detalle trae el conteo, el plan por tanda y los fallidos", async () => {
     const { svc, difusiones, programacion } = armar();
-    const uno = await difusiones.create({ nombre: "Uno", audiencia: ARBOL, creada_por: null });
+    const uno = await difusiones.create({
+      nombre: "Uno",
+      audiencia: ARBOL,
+      creada_por: null,
+      ...CON_PLANTILLA,
+    });
     await programacion.programar({
       difusionId: uno.id,
       programadaPara: AHORA,
@@ -745,14 +823,24 @@ describe("DifusionService — lecturas", () => {
       rol: "vendedor",
       activo: false,
     });
-    const uno = await difusiones.create({ nombre: "Uno", audiencia: ARBOL, creada_por: null });
+    const uno = await difusiones.create({
+      nombre: "Uno",
+      audiencia: ARBOL,
+      creada_por: null,
+      ...CON_PLANTILLA,
+    });
     await programacion.programar({
       difusionId: uno.id,
       programadaPara: AHORA,
       canaryTamano: null,
       filas: [filaEnCola(uno.id, 1)],
     });
-    await difusiones.create({ nombre: "Borrador", audiencia: ARBOL, creada_por: null });
+    await difusiones.create({
+      nombre: "Borrador",
+      audiencia: ARBOL,
+      creada_por: null,
+      ...CON_PLANTILLA,
+    });
 
     const c = await svc.catalogosAudiencia();
 

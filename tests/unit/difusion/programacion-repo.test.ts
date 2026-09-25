@@ -12,6 +12,13 @@ import { SupabaseDifusionProgramacionRepository } from "@/server/repositories/di
 import { InMemoryDifusionesRepository } from "@/server/repositories/difusiones.repo";
 
 // Árbol y leads armados a mano para este archivo.
+/** Una difusión que sale necesita plantilla e idioma (CHECK de la tabla). */
+const CON_PLANTILLA = {
+  plantilla_nombre: "promo_frenos_v3",
+  plantilla_categoria: "marketing",
+  plantilla_idioma: "es",
+} as const;
+
 const ARBOL: Grupo = {
   id: "raiz",
   clase: "grupo",
@@ -70,7 +77,12 @@ describe("InMemoryDifusionProgramacionRepository", () => {
   });
 
   test("escribe el plan, pasa a programada y deja el aviso con el contrato del evento", async () => {
-    const d = await difusiones.create({ nombre: "Promo", audiencia: ARBOL, creada_por: null });
+    const d = await difusiones.create({
+      nombre: "Promo",
+      audiencia: ARBOL,
+      creada_por: null,
+      ...CON_PLANTILLA,
+    });
 
     const r = await repo.programar({
       difusionId: d.id,
@@ -99,7 +111,12 @@ describe("InMemoryDifusionProgramacionRepository", () => {
   });
 
   test("una difusión se programa una sola vez", async () => {
-    const d = await difusiones.create({ nombre: "Promo", audiencia: ARBOL, creada_por: null });
+    const d = await difusiones.create({
+      nombre: "Promo",
+      audiencia: ARBOL,
+      creada_por: null,
+      ...CON_PLANTILLA,
+    });
     const filas = [enCola(d.id, L1, "593900000001")];
     await repo.programar({ difusionId: d.id, programadaPara: HOY, canaryTamano: null, filas });
 
@@ -121,7 +138,12 @@ describe("InMemoryDifusionProgramacionRepository", () => {
   });
 
   test("un plan vacío o con filas de otra difusión se rechaza", async () => {
-    const d = await difusiones.create({ nombre: "Promo", audiencia: ARBOL, creada_por: null });
+    const d = await difusiones.create({
+      nombre: "Promo",
+      audiencia: ARBOL,
+      creada_por: null,
+      ...CON_PLANTILLA,
+    });
     await expect(
       repo.programar({ difusionId: d.id, programadaPara: HOY, canaryTamano: null, filas: [] }),
     ).rejects.toThrow(ValidationError);
@@ -137,7 +159,12 @@ describe("InMemoryDifusionProgramacionRepository", () => {
 
   // Todo o nada, como la transacción de `programar_difusion()`.
   test("si el plan choca no queda nada escrito: ni filas, ni estado, ni aviso", async () => {
-    const d = await difusiones.create({ nombre: "Promo", audiencia: ARBOL, creada_por: null });
+    const d = await difusiones.create({
+      nombre: "Promo",
+      audiencia: ARBOL,
+      creada_por: null,
+      ...CON_PLANTILLA,
+    });
 
     await expect(
       repo.programar({
@@ -154,7 +181,12 @@ describe("InMemoryDifusionProgramacionRepository", () => {
   });
 
   test("un árbol vacío sin elegir toda la base no se programa, y no escribe filas", async () => {
-    const d = await difusiones.create({ nombre: "Vacía", audiencia: VACIO, creada_por: null });
+    const d = await difusiones.create({
+      nombre: "Vacía",
+      audiencia: VACIO,
+      creada_por: null,
+      ...CON_PLANTILLA,
+    });
 
     await expect(
       repo.programar({

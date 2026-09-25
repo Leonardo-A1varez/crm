@@ -80,6 +80,10 @@ import { InMemorySessionLock } from "@/server/lock/session-lock";
 import { DefaultAsignacionService } from "@/server/services/asignacion/asignacion.service";
 import { DefaultUsuariosService } from "@/server/services/usuarios/usuarios.service";
 import { InMemoryMetaOperationalEventsRepository } from "@/server/repositories/meta-operational-events.repo";
+import { InMemoryDifusionEnviosRepository } from "@/server/repositories/difusion-envios.repo";
+import { InMemoryDifusionesRepository } from "@/server/repositories/difusiones.repo";
+import { DefaultMotorDifusionService } from "@/server/services/difusion/motor.service";
+import { cargarDatosDelLeadParaDifusion } from "@/server/services/difusion/datos-lead";
 
 export interface SmokeBundle {
   deps: CrmInngestDeps;
@@ -206,6 +210,19 @@ export function makeSmokeBundle(): SmokeBundle {
   // La misma lista de bajas para la baja por palabra y para `enviar_mensaje`,
   // como en producción (`inngest/bootstrap.ts`).
   const supresiones = new InMemoryDifusionSupresionesRepository();
+  // El mismo motor que producción, con repos en memoria y el Meta de mentira.
+  const motorDifusion = new DefaultMotorDifusionService({
+    difusiones: new InMemoryDifusionesRepository(),
+    envios: new InMemoryDifusionEnviosRepository(),
+    supresiones,
+    usoCupoDesde: async () => 0,
+    meta: metaClient,
+    leerTopeMensajeria: async () => ({ estado: "ok", tope: 250 }),
+    datosDelLead: (leadId, campos) =>
+      cargarDatosDelLeadParaDifusion({ leads, vehiculos, sessions }, leadId, campos),
+    esperar: async () => {},
+    logger,
+  });
   const registroDeAcciones = crearRegistroDeAcciones({
     tags,
     sessions,
@@ -264,7 +281,7 @@ export function makeSmokeBundle(): SmokeBundle {
       emit,
       logger,
     },
-    onStatusReceived: { messages },
+    onStatusReceived: { messages, difusion: motorDifusion },
     onOperationalReceived: { eventos: new InMemoryMetaOperationalEventsRepository() },
     updateLeadTwin: {
       twinExtractor,
@@ -315,6 +332,7 @@ export function makeSmokeBundle(): SmokeBundle {
     },
     workflowProgramados: { workflows, sessions, leads, logger },
     workflowInactividad: { workflows, sessions, conversations, messages, leads, logger },
+    drenarDifusiones: { motor: motorDifusion, logger },
   };
 
   return {

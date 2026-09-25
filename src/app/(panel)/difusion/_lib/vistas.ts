@@ -143,10 +143,10 @@ function categoriaDe(crudo: string | null): CategoriaPlantilla | null {
  * una categoría que no se conoce no se ofrece a ciegas. Las que se dejan
  * afuera se cuentan para que la pantalla lo diga.
  *
- * El texto no se lee: la lectura de plantillas de Meta que usa el CRM trae
- * nombre, idioma, categoría y estado, no los componentes. Por eso cuerpo,
- * encabezado y pie van en `null` y los botones vacíos. El estado y la nota
- * salen de la misma traducción que la tabla de Ajustes.
+ * El texto sale de los `components` que devuelve Meta: encabezado (sólo si es
+ * de texto), cuerpo con sus `{{n}}`, pie y los botones de respuesta rápida.
+ * Lo que Meta no manda queda en `null`: no se inventa un texto. El estado y la
+ * nota salen de la misma traducción que la tabla de Ajustes.
  */
 export function plantillasParaDifusion(
   salud: SaludWhatsApp,
@@ -183,9 +183,12 @@ export function plantillasParaDifusion(
       nota: traducida?.nota ?? null,
       requiereDespausadoManual: false,
       escalonPausado: null,
-      encabezado: null,
-      cuerpo: null,
-      pie: null,
+      encabezado: p.encabezado,
+      cuerpo: p.cuerpo,
+      pie: p.pie,
+      // Las respuestas rápidas se leen (`respuestasRapidas`) pero no se ofrecen
+      // todavía: la acción de cada botón no se guarda ni la ejecuta nadie, y
+      // mostrar el selector prometería algo que no pasa.
       botones: [],
     });
   }
@@ -246,6 +249,7 @@ export function vistaEnvio(detalle: DetalleDifusion, tz: string): EnvioDifusion 
     programadaPara: d.programadaPara === null ? null : fecha(tz, d.programadaPara),
     finalizadaAt: d.finalizadaAt === null ? null : fecha(tz, d.finalizadaAt),
     motivoDetencion: d.motivoDetencion,
+    motivoRevision: d.motivoRevision,
     detenidaPorPersona: d.detenidaPorPersona,
   };
 }

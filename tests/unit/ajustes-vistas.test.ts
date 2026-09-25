@@ -40,6 +40,10 @@ function plantilla(parcial: Partial<PlantillaLeida> = {}): PlantillaLeida {
     estado: "APPROVED",
     motivoRechazo: null,
     calidad: "GREEN",
+    encabezado: null,
+    cuerpo: null,
+    pie: null,
+    respuestasRapidas: [],
     ...parcial,
   };
 }

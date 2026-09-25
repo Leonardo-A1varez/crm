@@ -11,6 +11,8 @@ import {
   makeDetectMergeCandidatesPerLeadFn,
 } from "@/inngest/functions/detect-merge-candidates";
 import type { DispatchOutboxEventsDeps } from "@/inngest/functions/dispatch-outbox-events.cron";
+import type { DrenarDifusionesDeps } from "@/inngest/functions/drenar-difusiones";
+import { makeDrenarDifusionesFn } from "@/inngest/functions/drenar-difusiones";
 import { makeDispatchOutboxEventsFn } from "@/inngest/functions/dispatch-outbox-events.cron";
 import type { OnMessageReceivedDeps } from "@/inngest/functions/on-message-received";
 import { makeOnMessageReceivedFn } from "@/inngest/functions/on-message-received";
@@ -55,6 +57,7 @@ export interface CrmInngestDeps {
   workflowSegmento: WorkflowSegmentoDeps;
   workflowProgramados: WorkflowProgramadosDeps;
   workflowInactividad: WorkflowInactividadDeps;
+  drenarDifusiones: DrenarDifusionesDeps;
 }
 
 export function makeCrmInngestFunctions(deps: CrmInngestDeps) {
@@ -76,5 +79,6 @@ export function makeCrmInngestFunctions(deps: CrmInngestDeps) {
     makeWorkflowSegmentoFn(deps.workflowSegmento),
     makeWorkflowProgramadosFn(deps.workflowProgramados),
     makeWorkflowInactividadFn(deps.workflowInactividad),
+    makeDrenarDifusionesFn(deps.drenarDifusiones),
   ];
 }

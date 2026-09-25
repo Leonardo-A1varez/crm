@@ -28,9 +28,11 @@ function situacion(envio: EnvioDifusion): string | null {
       return `Programada${envio.programadaPara ? ` el ${envio.programadaPara}` : ""}. Los envíos están en cola: salen cuando el motor de envío toma la difusión.`;
     case "en_revision":
       return `En revisión: el envío está frenado hasta que alguien lo reanude.${
-        envio.canaryTamano === null
-          ? ""
-          : ` La muestra era de ${formatearEntero(envio.canaryTamano)}.`
+        envio.motivoRevision
+          ? ` Motivo: ${envio.motivoRevision}`
+          : envio.canaryTamano === null
+            ? ""
+            : ` La muestra era de ${formatearEntero(envio.canaryTamano)}.`
       }`;
     case "completada":
       return `Terminó${envio.finalizadaAt ? ` el ${envio.finalizadaAt}` : ""}.`;

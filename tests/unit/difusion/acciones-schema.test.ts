@@ -58,9 +58,21 @@ describe("schemas de las acciones de Difusión", () => {
     expect(
       GuardarBorradorSchema.safeParse({
         id: ID,
-        plantilla: { nombre: "promo_frenos_v3", categoria: "marketing" },
+        plantilla: {
+          nombre: "promo_frenos_v3",
+          categoria: "marketing",
+          idioma: "es_AR",
+          parametros: [{ valor: "{{lead.nombre}}", respaldo: "cliente" }],
+        },
       }).success,
     ).toBe(true);
+    // Sin idioma Meta no sabe cuál de las plantillas con ese nombre mandar.
+    expect(
+      GuardarBorradorSchema.safeParse({
+        id: ID,
+        plantilla: { nombre: "promo_frenos_v3", categoria: "marketing", parametros: [] },
+      }).success,
+    ).toBe(false);
     expect(
       GuardarBorradorSchema.safeParse({ id: ID, plantilla: { nombre: "promo_frenos_v3" } }).success,
     ).toBe(false);

@@ -73,3 +73,32 @@ export function eventoDifusionProgramada(input: {
     data: r.data,
   };
 }
+
+/**
+ * Una difusión en revisión se reanudó. Lo emite el panel para que el motor no
+ * espere a su cron. El id lleva el instante: reanudar dos veces (pausar y
+ * volver a reanudar) son dos avisos, no uno deduplicado.
+ */
+export const EVENTO_DIFUSION_REANUDADA = "difusion/reanudada";
+
+export const DifusionReanudadaSchema = z.strictObject({
+  difusionId: UUIDSchema,
+  reanudadaAt: z.iso.datetime({ precision: 3 }),
+});
+
+export type DifusionReanudada = z.infer<typeof DifusionReanudadaSchema>;
+
+export function eventoDifusionReanudada(
+  difusionId: string,
+  at: Date,
+): { name: typeof EVENTO_DIFUSION_REANUDADA; id: string; data: DifusionReanudada } {
+  const r = DifusionReanudadaSchema.safeParse({ difusionId, reanudadaAt: at.toISOString() });
+  if (!r.success) {
+    throw new ValidationError("el evento difusion/reanudada no cumple su contrato", r.error.issues);
+  }
+  return {
+    name: EVENTO_DIFUSION_REANUDADA,
+    id: `difusion-reanudada:${r.data.difusionId}:${r.data.reanudadaAt}`,
+    data: r.data,
+  };
+}

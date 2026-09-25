@@ -27,6 +27,10 @@ function plantilla(
     estado: "APPROVED",
     motivoRechazo: null,
     calidad: null,
+    encabezado: null,
+    cuerpo: null,
+    pie: null,
+    respuestasRapidas: [],
     ...parcial,
   };
 }
@@ -194,7 +198,40 @@ describe("plantillasParaDifusion", () => {
     expect(r.valor.nota).toBeNull();
   });
 
-  it("traduce categoría y estado, y deja el cuerpo en null: esta lectura de Meta no lo trae", () => {
+  it("trae el texto de la plantilla que leyó de Meta, con sus variables", () => {
+    const base = salud();
+    if (base.plantillas.estado !== "ok") throw new Error("fixture");
+    const r = plantillasParaDifusion(
+      salud({
+        plantillas: {
+          estado: "ok",
+          valor: {
+            ...base.plantillas.valor,
+            plantillas: [
+              plantilla({
+                id: "t9",
+                nombre: "promo_frenos_v3",
+                encabezado: "Frenos",
+                cuerpo: "Hola {{1}}, tenemos pastillas para tu {{2}}.",
+                pie: "Respondé BAJA",
+                respuestasRapidas: ["Me interesa", "No, gracias"],
+              }),
+            ],
+          },
+        },
+      }),
+    );
+    if (r.estado !== "ok") throw new Error("se esperaba la lista");
+    expect(r.valor.plantillas[0]).toMatchObject({
+      encabezado: "Frenos",
+      cuerpo: "Hola {{1}}, tenemos pastillas para tu {{2}}.",
+      pie: "Respondé BAJA",
+      // Las acciones por botón no están construidas: no se ofrecen.
+      botones: [],
+    });
+  });
+
+  it("traduce categoría y estado; sin texto leído, el cuerpo queda en null", () => {
     const r = plantillasParaDifusion(salud());
     if (r.estado !== "ok") throw new Error("se esperaba la lista");
     const porId = new Map(r.valor.plantillas.map((p) => [p.id, p]));
@@ -312,6 +349,8 @@ describe("vistaEnvio", () => {
       audienciaModo: "congelada",
       plantillaNombre: "promo_frenos",
       plantillaCategoria: "marketing",
+      plantillaIdioma: "es",
+      plantillaParametros: [],
       incluirEnNegociacion: false,
       exentaTopeFrecuencia: false,
       canaryTamano: 20,
@@ -319,6 +358,7 @@ describe("vistaEnvio", () => {
       iniciadaAt: null,
       finalizadaAt: null,
       motivoDetencion: null,
+      motivoRevision: null,
       detenidaPorPersona: false,
       creadaAt: "2026-09-14T12:00:00.000Z",
     },

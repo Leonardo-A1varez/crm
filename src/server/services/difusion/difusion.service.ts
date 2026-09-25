@@ -1,7 +1,7 @@
 import { BudgetExceededError, ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { compilarAudiencia, type AudienciaCompilada } from "@/lib/difusion/audiencia";
 import { SIN_TECHO, cupoParaPlanificar, type TopeMensajeria } from "@/lib/difusion/cupo";
-import { eventoDifusionProgramada } from "@/lib/difusion/eventos";
+import { eventoDifusionProgramada, eventoDifusionReanudada } from "@/lib/difusion/eventos";
 import { enmascararTelefono } from "@/lib/difusion/mascara";
 import {
   MOTIVO_EXCLUSION,
@@ -24,6 +24,12 @@ import {
   type SupresionActiva,
   type TandaPlanificada,
 } from "@/lib/difusion/planificador";
+import {
+  CAMPOS_PARAMETRO,
+  type CampoParametro,
+  type ParametroPlantilla,
+} from "@/lib/difusion/parametros";
+import type { DatosInterpolacion } from "@/lib/workflows/variables";
 import type { Logger } from "@/lib/observability/logger";
 import type { Grupo } from "@/lib/ui/condiciones";
 import { LIMITE_MAX_PAGINA } from "@/server/repositories/_paginacion";
@@ -61,6 +67,7 @@ export type LecturaTope =
   | { estado: "sin-dato"; motivo: string };
 
 export type EventoDifusionProgramada = ReturnType<typeof eventoDifusionProgramada>;
+export type EventoDifusionReanudada = ReturnType<typeof eventoDifusionReanudada>;
 
 export interface DifusionServiceDeps {
   difusiones: DifusionesRepository;
@@ -79,6 +86,17 @@ export interface DifusionServiceDeps {
    * escrita en la misma transacción que el plan, y el cron la reenvía.
    */
   avisarProgramada: (evento: EventoDifusionProgramada) => Promise<void>;
+  /**
+   * Aviso al motor de que una difusión en revisión se reanudó. Best-effort
+   * igual: si falla, el cron del motor la retoma en su próxima pasada.
+   */
+  avisarReanudada?: (evento: EventoDifusionReanudada) => Promise<void>;
+  /**
+   * Los mismos datos con que el motor resuelve las variables al mandar. Sin
+   * él, `valoresDeVariables` no devuelve nada y la pantalla no afirma que a
+   * alguien le falte un dato.
+   */
+  datosDelLead?: (leadId: UUID, campos: ReadonlySet<CampoParametro>) => Promise<DatosInterpolacion>;
   logger: Logger;
   ahora?: () => Date;
 }
@@ -105,7 +123,14 @@ export interface GuardarBorradorInput {
   incluirEnNegociacion?: boolean;
   exentaTopeFrecuencia?: boolean;
   /** `null` saca la plantilla elegida. */
-  plantilla?: { nombre: string; categoria: CategoriaPlantilla } | null;
+  plantilla?: {
+    nombre: string;
+    categoria: CategoriaPlantilla;
+    /** El código con que Meta la aprobó: `es`, `es_AR`. */
+    idioma: string;
+    /** Una por `{{n}}`, en orden. */
+    parametros: ParametroPlantilla[];
+  } | null;
 }
 
 export interface AlcanceInput {
@@ -254,6 +279,8 @@ export interface DifusionVista {
   audienciaModo: ModoAudiencia;
   plantillaNombre: string | null;
   plantillaCategoria: CategoriaPlantilla | null;
+  plantillaIdioma: string | null;
+  plantillaParametros: ParametroPlantilla[];
   incluirEnNegociacion: boolean;
   exentaTopeFrecuencia: boolean;
   canaryTamano: number | null;
@@ -261,6 +288,8 @@ export interface DifusionVista {
   iniciadaAt: string | null;
   finalizadaAt: string | null;
   motivoDetencion: string | null;
+  /** Por qué el sistema la pasó a revisión; `null` = la pausó una persona. */
+  motivoRevision: string | null;
   /** La frenó una persona; `false` con estado detenida = la frenó el sistema. */
   detenidaPorPersona: boolean;
   creadaAt: string;
@@ -310,7 +339,18 @@ export interface DifusionService {
   detalle(id: UUID): Promise<DetalleDifusion | null>;
   estadoCupo(): Promise<CupoVista>;
   catalogosAudiencia(): Promise<CatalogosAudienciaVista>;
+  /**
+   * Lo que cada lead tiene para las variables de la plantilla, para la vista
+   * previa del paso «Mensaje». Hasta `MAX_VALORES_MUESTRA` leads.
+   */
+  valoresDeVariables(leadIds: readonly UUID[]): Promise<Record<UUID, ValoresDeLead>>;
 }
+
+/** Por dato del lead; un dato que no tiene no aparece. */
+export type ValoresDeLead = Partial<Record<CampoParametro, string>>;
+
+/** Leads por pedido de valores: la muestra que se ve en pantalla. */
+export const MAX_VALORES_MUESTRA = 200;
 
 const HORA_MS = 3_600_000;
 const DIA_MS = 24 * HORA_MS;
@@ -386,6 +426,8 @@ export class DefaultDifusionService implements DifusionService {
         : {
             plantilla_nombre: patch.plantilla?.nombre ?? null,
             plantilla_categoria: patch.plantilla?.categoria ?? null,
+            plantilla_idioma: patch.plantilla?.idioma ?? null,
+            plantilla_parametros: patch.plantilla?.parametros ?? [],
           }),
     });
   }
@@ -470,6 +512,11 @@ export class DefaultDifusionService implements DifusionService {
         "Falta elegir la plantilla: sin ella no hay qué mandarle a quien no tiene la ventana abierta.",
       );
     }
+    if (d.plantilla_idioma === null) {
+      throw new ValidationError(
+        "Falta el idioma de la plantilla: Meta la aprueba por idioma y sin él no sabe cuál mandar. Volvé a elegirla.",
+      );
+    }
     const compilada = compilarAudiencia(d.audiencia, { todaLaBase: d.audiencia_toda_la_base });
     const ahora = this.ahora();
     const ctx = await this.contexto(compilada, ahora);
@@ -542,24 +589,51 @@ export class DefaultDifusionService implements DifusionService {
 
   async pausar(id: UUID): Promise<Difusion> {
     const d = await this.exigir(id);
-    if (d.estado !== "enviando") {
-      throw new ConflictError(
-        `Sólo se pausa una difusión que se está enviando; esta está ${ESTADO_LEGIBLE[d.estado]}.`,
-        "estado_difusion",
-      );
-    }
-    return this.deps.difusiones.update(id, { estado: "en_revision" });
+    // Condicional: si el motor la terminó o la frenó entre la lectura y el
+    // cambio, no se pisa lo que decidió.
+    const pausada =
+      d.estado === "enviando"
+        ? await this.deps.difusiones.actualizarSiEstado(id, ["enviando"], {
+            estado: "en_revision",
+            motivo_revision: null,
+          })
+        : null;
+    if (pausada) return pausada;
+    const actual = await this.exigir(id);
+    throw new ConflictError(
+      `Sólo se pausa una difusión que se está enviando; esta está ${ESTADO_LEGIBLE[actual.estado]}.`,
+      "estado_difusion",
+    );
   }
 
   async reanudar(id: UUID): Promise<Difusion> {
     const d = await this.exigir(id);
-    if (d.estado !== "en_revision") {
+    const reanudada =
+      d.estado === "en_revision"
+        ? await this.deps.difusiones.actualizarSiEstado(id, ["en_revision"], {
+            estado: "enviando",
+            motivo_revision: null,
+          })
+        : null;
+    if (!reanudada) {
+      const actual = await this.exigir(id);
       throw new ConflictError(
-        `Sólo se reanuda una difusión en revisión; esta está ${ESTADO_LEGIBLE[d.estado]}.`,
+        `Sólo se reanuda una difusión en revisión; esta está ${ESTADO_LEGIBLE[actual.estado]}.`,
         "estado_difusion",
       );
     }
-    return this.deps.difusiones.update(id, { estado: "enviando" });
+    if (this.deps.avisarReanudada) {
+      try {
+        await this.deps.avisarReanudada(eventoDifusionReanudada(id, this.ahora()));
+      } catch (e) {
+        // El cron del motor la retoma igual en su próxima pasada.
+        this.deps.logger.warn("difusion.aviso_reanudada_fallido", {
+          difusionId: id,
+          tipo: e instanceof Error ? e.name : typeof e,
+        });
+      }
+    }
+    return reanudada;
   }
 
   async cancelar(id: UUID, input: { motivo: string; actorId: UUID }): Promise<ResultadoCancelar> {
@@ -698,6 +772,20 @@ export class DefaultDifusionService implements DifusionService {
         .filter((d) => d.estado !== "borrador")
         .map((d) => ({ valor: d.id, etiqueta: d.nombre })),
     };
+  }
+
+  async valoresDeVariables(leadIds: readonly UUID[]): Promise<Record<UUID, ValoresDeLead>> {
+    const datosDelLead = this.deps.datosDelLead;
+    if (!datosDelLead) return {};
+    const ids = [...new Set(leadIds)];
+    if (ids.length > MAX_VALORES_MUESTRA) {
+      throw new ValidationError(`se piden hasta ${MAX_VALORES_MUESTRA} leads por vez`);
+    }
+    const todos = new Set<CampoParametro>(CAMPOS_PARAMETRO);
+    const pares = await Promise.all(
+      ids.map(async (id) => [id, valoresDe(await datosDelLead(id, todos))] as const),
+    );
+    return Object.fromEntries(pares);
   }
 
   // -----------------------------------------------------------------------
@@ -886,6 +974,20 @@ export class DefaultDifusionService implements DifusionService {
   }
 }
 
+function valoresDe(datos: DatosInterpolacion): ValoresDeLead {
+  const valores: ValoresDeLead = {};
+  const poner = (campo: CampoParametro, v: unknown) => {
+    if (typeof v === "string" && v.trim() !== "") valores[campo] = v;
+  };
+  poner("nombre", datos.lead?.nombre);
+  poner("nombre_perfil", datos.lead?.nombre_perfil);
+  poner("vehiculo_marca", datos.lead?.vehiculo_marca);
+  poner("vehiculo_modelo", datos.lead?.vehiculo_modelo);
+  poner("vehiculo_anio", datos.lead?.vehiculo_anio);
+  poner("consulta", datos.sesion?.consulta);
+  return valores;
+}
+
 function aCandidato(c: CandidatoResuelto): CandidatoDifusion {
   return {
     leadId: c.leadId,
@@ -919,6 +1021,8 @@ export function vistaDifusion(d: Difusion): DifusionVista {
     audienciaModo: d.audiencia_modo,
     plantillaNombre: d.plantilla_nombre,
     plantillaCategoria: d.plantilla_categoria,
+    plantillaIdioma: d.plantilla_idioma,
+    plantillaParametros: d.plantilla_parametros,
     incluirEnNegociacion: d.incluir_en_negociacion,
     exentaTopeFrecuencia: d.exenta_tope_frecuencia,
     canaryTamano: d.canary_tamano,
@@ -926,6 +1030,7 @@ export function vistaDifusion(d: Difusion): DifusionVista {
     iniciadaAt: iso(d.iniciada_at),
     finalizadaAt: iso(d.finalizada_at),
     motivoDetencion: d.motivo_detencion,
+    motivoRevision: d.motivo_revision,
     detenidaPorPersona: d.detenida_por !== null,
     creadaAt: d.created_at.toISOString(),
   };

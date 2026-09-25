@@ -8,9 +8,13 @@ import { SupabaseDifusionEnviosRepository } from "@/server/repositories/difusion
 import { SupabaseDifusionProgramacionRepository } from "@/server/repositories/difusion-programacion.supabase.repo";
 import { SupabaseDifusionSupresionesRepository } from "@/server/repositories/difusion-supresiones.supabase.repo";
 import { SupabaseDifusionesRepository } from "@/server/repositories/difusiones.supabase.repo";
+import { SupabaseLeadSessionRepository } from "@/server/repositories/lead-session.supabase.repo";
+import { SupabaseLeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.supabase.repo";
+import { SupabaseLeadsRepository } from "@/server/repositories/leads.supabase.repo";
 import { SupabaseTagsRepository } from "@/server/repositories/tags.supabase.repo";
 import { SupabaseUsersRepository } from "@/server/repositories/users.supabase.repo";
 import { CachedAgentConfigProvider } from "@/server/services/agente/config-provider";
+import { cargarDatosDelLeadParaDifusion } from "@/server/services/difusion/datos-lead";
 import { DefaultDifusionService } from "@/server/services/difusion/difusion.service";
 import { topeDesdeLimite } from "@/server/services/difusion/tope";
 import type { AppClient } from "@/server/db/client";
@@ -69,6 +73,20 @@ export function makeDifusionService(db: AppClient): DifusionService {
     leerTopeMensajeria: async () => topeDesdeLimite((await leerSaludWhatsAppCacheada()).limite),
     leerMaxSalientes24h: async () => (await configAgente.get()).max_salientes_automaticos_24h,
     avisarProgramada: async (evento) => {
+      await inngest.send({ name: evento.name, data: evento.data, id: evento.id });
+    },
+    // La misma carga que usa el motor al mandar, con el client de quien mira.
+    datosDelLead: (leadId, campos) =>
+      cargarDatosDelLeadParaDifusion(
+        {
+          leads: new SupabaseLeadsRepository(db),
+          vehiculos: new SupabaseLeadVehiculosRepository(db),
+          sessions: new SupabaseLeadSessionRepository(db),
+        },
+        leadId,
+        campos,
+      ),
+    avisarReanudada: async (evento) => {
       await inngest.send({ name: evento.name, data: evento.data, id: evento.id });
     },
     logger,

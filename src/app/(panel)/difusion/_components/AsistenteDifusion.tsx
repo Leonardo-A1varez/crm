@@ -18,7 +18,9 @@ import { contarIncompletas, contarReglas } from "@/lib/ui/condiciones";
 import { calcularAlcanceAction } from "../_actions/alcance.action";
 import { crearBorradorAction, guardarBorradorAction } from "../_actions/borrador.actions";
 import { programarAction } from "../_actions/envio.actions";
+import { valoresVariablesAction } from "../_actions/valores.action";
 import { vistaAlcance } from "../_lib/alcance";
+import { configDesdeGuardada, parametrosDesdeConfig } from "../_lib/mensaje-guardado";
 import type {
   AlcanceAudiencia,
   CatalogosAudiencia,
@@ -34,6 +36,7 @@ import type {
   MotivoExclusion,
   Plantilla,
   SaludNumero,
+  ValoresLead,
 } from "@/components/difusion";
 import type { Alcance, DifusionVista } from "@/server/services/difusion/difusion.service";
 import type { ResultadoAccion } from "../_actions/action-error";
@@ -84,11 +87,27 @@ const SIN_RESPUESTA = "El servidor no respondió. Reintentá.";
 
 function idDeLaGuardada(inicial: DifusionVista | null, lista: readonly Plantilla[]): string | null {
   if (!inicial?.plantillaNombre) return null;
+  // Una plantilla existe en varios idiomas con el mismo nombre: si se guardó
+  // el idioma, es la de ese idioma.
   return (
     lista.find(
-      (p) => p.nombre === inicial.plantillaNombre && p.categoria === inicial.plantillaCategoria,
+      (p) =>
+        p.nombre === inicial.plantillaNombre &&
+        p.categoria === inicial.plantillaCategoria &&
+        (inicial.plantillaIdioma === null || p.idioma === inicial.plantillaIdioma),
     )?.id ?? null
   );
+}
+
+/** Lo que se eligió para cada variable la última vez que se guardó. */
+function configsGuardadas(
+  inicial: DifusionVista | null,
+  lista: readonly Plantilla[],
+): Readonly<Record<string, ConfigMensaje>> {
+  const id = idDeLaGuardada(inicial, lista);
+  const plantilla = lista.find((p) => p.id === id);
+  if (!inicial || !plantilla) return {};
+  return { [plantilla.id]: configDesdeGuardada(plantilla, inicial.plantillaParametros) };
 }
 
 /**
@@ -147,7 +166,9 @@ export function AsistenteDifusion({
   const [plantillaId, setPlantillaId] = useState<string | null>(() =>
     idDeLaGuardada(inicial, lista),
   );
-  const [configs, setConfigs] = useState<Readonly<Record<string, ConfigMensaje>>>({});
+  const [configs, setConfigs] = useState<Readonly<Record<string, ConfigMensaje>>>(() =>
+    configsGuardadas(inicial, lista),
+  );
   const [canary, setCanary] = useState<{ activo: boolean; tamano: number | null }>({
     activo: true,
     tamano: null,
@@ -241,6 +262,32 @@ export function AsistenteDifusion({
         ? estadoAlcance.previo
         : null;
 
+  // Lo que tiene cada lead de la muestra para las variables: los mismos datos
+  // con que el motor las resuelve al mandar. Mientras no llegan, la pantalla
+  // no cuenta a nadie como "sin dato".
+  const idsMuestra = (alcanceVisible?.muestra ?? []).map((d) => d.leadId);
+  const claveValores =
+    paso === "Mensaje" && idsMuestra.length > 0 ? JSON.stringify(idsMuestra) : null;
+  const [valores, setValores] = useState<{
+    clave: string;
+    datos: Readonly<Record<string, ValoresLead>>;
+  } | null>(null);
+  useEffect(() => {
+    if (claveValores === null) return;
+    let vigente = true;
+    valoresVariablesAction({ leadIds: JSON.parse(claveValores) as string[] })
+      .then((r) => {
+        if (vigente && r.ok) setValores({ clave: claveValores, datos: r.datos });
+      })
+      .catch(() => {
+        // Sin valores la cobertura no se muestra: no se inventa una.
+      });
+    return () => {
+      vigente = false;
+    };
+  }, [claveValores]);
+  const valoresPorLead = valores !== null && valores.clave === claveValores ? valores.datos : null;
+
   const saludConPlantilla: SaludNumero =
     salud.plantillasPausadas.estado === "ok"
       ? {
@@ -322,11 +369,24 @@ export function AsistenteDifusion({
       setError("La audiencia todavía no se guardó: volvé al paso anterior y continuá desde ahí.");
       return;
     }
+    // Meta aprueba la plantilla por idioma: sin él no sabe cuál mandar.
+    if (plantilla.idioma === null) {
+      setError("Meta no informó el idioma de esta plantilla, y sin él no se puede mandar.");
+      return;
+    }
+    const parametros = config ? parametrosDesdeConfig(plantilla, config) : null;
+    if (parametros === null) return;
+    const idioma = plantilla.idioma;
     void guardar(
       () =>
         guardarBorradorAction({
           id,
-          plantilla: { nombre: plantilla.nombre, categoria: plantilla.categoria },
+          plantilla: {
+            nombre: plantilla.nombre,
+            categoria: plantilla.categoria,
+            idioma,
+            parametros,
+          },
         }),
       () => setPaso("Pre-vuelo"),
     );
@@ -452,10 +512,10 @@ export function AsistenteDifusion({
         lectura={plantillas}
         plantilla={plantilla}
         config={config}
-        destinatarios={alcanceVisible?.muestra ?? []}
-        // Los valores por lead para la vista previa no se leen todavía: sin el
-        // texto de la plantilla no hay variables que completar.
-        valoresPorLead={{}}
+        // Sin los valores todavía, la muestra no se pasa: si no, cada lead
+        // figuraría "sin dato" cuando lo que falta es la lectura.
+        destinatarios={valoresPorLead === null ? [] : (alcanceVisible?.muestra ?? [])}
+        valoresPorLead={valoresPorLead ?? {}}
         etiquetas={catalogos.etiquetas ?? []}
         porVentanaAbierta={alcanceVisible?.porVentanaAbierta ?? null}
         porPlantilla={alcanceVisible?.porPlantilla ?? null}

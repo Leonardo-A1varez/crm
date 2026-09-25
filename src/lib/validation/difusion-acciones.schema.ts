@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CATEGORIA_PLANTILLA, MODO_AUDIENCIA } from "@/lib/difusion/modelo";
+import { IdiomaPlantillaSchema, ParametrosPlantillaSchema } from "@/lib/difusion/parametros";
 import { AudienciaSchema } from "./difusion.schema";
 import { UUIDSchema } from "./schemas";
 
@@ -48,6 +49,10 @@ export const GuardarBorradorSchema = z.strictObject({
     .strictObject({
       nombre: z.string().trim().min(1).max(512),
       categoria: z.enum(CATEGORIA_PLANTILLA),
+      // Una plantilla existe en varios idiomas con el mismo nombre: sin el
+      // idioma, Meta no sabe cuál mandar.
+      idioma: IdiomaPlantillaSchema,
+      parametros: ParametrosPlantillaSchema,
     })
     .nullable()
     .optional(),
@@ -62,6 +67,11 @@ export const CalcularAlcanceSchema = z.strictObject({
   }),
   difusionId: UUIDSchema.nullable().optional(),
   conDiff: z.boolean().optional(),
+});
+
+/** Los leads de la muestra que se ve en el paso «Mensaje». */
+export const ValoresVariablesSchema = z.strictObject({
+  leadIds: z.array(UUIDSchema).max(200),
 });
 
 export const ProgramarSchema = z.strictObject({

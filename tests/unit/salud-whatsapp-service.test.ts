@@ -36,6 +36,10 @@ const PLANTILLA: PlantillaCruda = {
   status: "APPROVED",
   rejected_reason: null,
   quality_score: "GREEN",
+  header_text: null,
+  body_text: "Hola {{1}}",
+  footer_text: null,
+  quick_replies: [],
 };
 
 function saludConWaba(): SaludCruda {
@@ -193,6 +197,10 @@ describe("DefaultSaludWhatsAppService", () => {
             estado: "APPROVED",
             motivoRechazo: null,
             calidad: "GREEN",
+            encabezado: null,
+            cuerpo: "Hola {{1}}",
+            pie: null,
+            respuestasRapidas: [],
           },
         ],
         hayMas: true,

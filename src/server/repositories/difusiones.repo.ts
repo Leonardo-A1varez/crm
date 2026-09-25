@@ -1,5 +1,15 @@
 import { NotFoundError, ValidationError } from "@/lib/errors";
-import type { CategoriaPlantilla, Difusion, ModoAudiencia } from "@/lib/difusion/modelo";
+import type {
+  CategoriaPlantilla,
+  Difusion,
+  EstadoDifusion,
+  ModoAudiencia,
+} from "@/lib/difusion/modelo";
+import {
+  IdiomaPlantillaSchema,
+  ParametrosPlantillaSchema,
+  type ParametroPlantilla,
+} from "@/lib/difusion/parametros";
 import type { Grupo } from "@/lib/ui/condiciones";
 import { validarAudiencia } from "@/lib/validation/difusion.schema";
 import type { UUID } from "@/types/entities";
@@ -19,6 +29,8 @@ export interface DifusionInsert {
   audiencia_modo?: ModoAudiencia;
   plantilla_nombre?: string | null;
   plantilla_categoria?: CategoriaPlantilla | null;
+  plantilla_idioma?: string | null;
+  plantilla_parametros?: ParametroPlantilla[];
   incluir_en_negociacion?: boolean;
   exenta_tope_frecuencia?: boolean;
   canary_tamano?: number | null;
@@ -34,16 +46,23 @@ export type DifusionUpdate = Partial<
     | "audiencia_modo"
     | "plantilla_nombre"
     | "plantilla_categoria"
+    | "plantilla_idioma"
+    | "plantilla_parametros"
     | "incluir_en_negociacion"
     | "exenta_tope_frecuencia"
     | "canary_tamano"
+    | "canary_revisado_at"
     | "programada_para"
     | "iniciada_at"
     | "finalizada_at"
     | "detenida_por"
     | "motivo_detencion"
+    | "motivo_revision"
   >
 >;
+
+/** Estados en los que el motor tiene algo que drenar. */
+export const ESTADOS_CON_COLA: readonly EstadoDifusion[] = ["programada", "enviando"];
 
 export interface DifusionesRepository {
   /** Valida la audiencia con `AudienciaSchema` antes de escribir. */
@@ -53,6 +72,18 @@ export interface DifusionesRepository {
   list(pagina: { limite: number }): Promise<Difusion[]>;
   /** `ValidationError` si el resultado rompe una regla de la tabla (programada sin fecha, detenida sin motivo…). */
   update(id: UUID, patch: DifusionUpdate): Promise<Difusion>;
+  /**
+   * El cambio sólo si la difusión sigue en uno de `desde`. `null` si ya no
+   * está (una persona la pausó o detuvo en el medio): el motor no pisa esa
+   * decisión. `NotFoundError` si no existe.
+   */
+  actualizarSiEstado(
+    id: UUID,
+    desde: readonly EstadoDifusion[],
+    patch: DifusionUpdate,
+  ): Promise<Difusion | null>;
+  /** Programadas y enviándose, la programada antes primero: lo que el motor drena. */
+  listarConCola(): Promise<Difusion[]>;
   /**
    * Sólo borradores. Una que salió o está programada es el registro de a quién
    * se le mandó qué: se detiene, no se borra (`ValidationError`). Idempotente
@@ -90,6 +121,27 @@ export function incoherenciaDifusion(d: DifusionSinIdentidad): string | null {
     (!Number.isInteger(d.canary_tamano) || d.canary_tamano < 1 || d.canary_tamano > 10_000)
   ) {
     return "el canary tiene que ser un entero entre 1 y 10.000";
+  }
+  if (d.plantilla_idioma !== null && !IdiomaPlantillaSchema.safeParse(d.plantilla_idioma).success) {
+    return "el idioma de la plantilla no tiene la forma de Meta";
+  }
+  if (d.plantilla_idioma !== null && d.plantilla_nombre === null) {
+    return "el idioma va con una plantilla elegida";
+  }
+  if (d.estado !== "borrador" && (d.plantilla_nombre === null || d.plantilla_idioma === null)) {
+    return "una difusión que sale necesita la plantilla y su idioma";
+  }
+  if (!ParametrosPlantillaSchema.safeParse(d.plantilla_parametros).success) {
+    return "las variables de la plantilla no tienen la forma esperada";
+  }
+  if (
+    d.motivo_revision !== null &&
+    (d.estado !== "en_revision" || d.motivo_revision.length < 1 || d.motivo_revision.length > 500)
+  ) {
+    return "el motivo de revisión va sólo en revisión, de 1 a 500 caracteres";
+  }
+  if (d.canary_revisado_at !== null && d.canary_tamano === null) {
+    return "no hay muestra que revisar sin canary";
   }
   if (d.estado === "programada" && d.programada_para === null) {
     return "una difusión programada necesita fecha";
@@ -146,14 +198,18 @@ export class InMemoryDifusionesRepository implements DifusionesRepository {
       audiencia_modo: input.audiencia_modo ?? "congelada",
       plantilla_nombre: input.plantilla_nombre ?? null,
       plantilla_categoria: input.plantilla_categoria ?? null,
+      plantilla_idioma: input.plantilla_idioma ?? null,
+      plantilla_parametros: input.plantilla_parametros ?? [],
       incluir_en_negociacion: input.incluir_en_negociacion ?? false,
       exenta_tope_frecuencia: input.exenta_tope_frecuencia ?? false,
       canary_tamano: input.canary_tamano ?? null,
+      canary_revisado_at: null,
       programada_para: null,
       iniciada_at: null,
       finalizada_at: null,
       detenida_por: null,
       motivo_detencion: null,
+      motivo_revision: null,
       creada_por: input.creada_por,
       created_at: ahora,
       updated_at: ahora,
@@ -186,6 +242,28 @@ export class InMemoryDifusionesRepository implements DifusionesRepository {
     exigirCoherencia(siguiente);
     this.store.set(id, siguiente);
     return structuredClone(siguiente);
+  }
+
+  async actualizarSiEstado(
+    id: UUID,
+    desde: readonly EstadoDifusion[],
+    patch: DifusionUpdate,
+  ): Promise<Difusion | null> {
+    const actual = this.store.get(id);
+    if (!actual) throw new NotFoundError(`difusión no encontrada: ${id}`, "difusion", id);
+    if (!desde.includes(actual.estado)) return null;
+    return this.update(id, patch);
+  }
+
+  async listarConCola(): Promise<Difusion[]> {
+    return [...this.store.values()]
+      .filter((d) => ESTADOS_CON_COLA.includes(d.estado))
+      .sort(
+        (a, b) =>
+          (a.programada_para?.getTime() ?? 0) - (b.programada_para?.getTime() ?? 0) ||
+          (a.id < b.id ? -1 : 1),
+      )
+      .map((d) => structuredClone(d));
   }
 
   async delete(id: UUID): Promise<void> {

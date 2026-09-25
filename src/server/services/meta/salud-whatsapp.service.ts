@@ -81,6 +81,13 @@ export interface PlantillaLeida {
   estado: string | null;
   motivoRechazo: string | null;
   calidad: string | null;
+  /** Encabezado de texto; `null` si es de imagen o video, o no tiene. */
+  encabezado: string | null;
+  /** El cuerpo con las variables posicionales tal cual (`{{1}}`). */
+  cuerpo: string | null;
+  pie: string | null;
+  /** Los botones de respuesta rápida, en orden. */
+  respuestasRapidas: string[];
 }
 
 export interface PlantillasLeidas {
@@ -197,6 +204,10 @@ function plantillaLeida(p: PlantillaCruda): PlantillaLeida {
     estado: p.status,
     motivoRechazo: p.rejected_reason,
     calidad: p.quality_score,
+    encabezado: p.header_text,
+    cuerpo: p.body_text,
+    pie: p.footer_text,
+    respuestasRapidas: [...p.quick_replies],
   };
 }
 

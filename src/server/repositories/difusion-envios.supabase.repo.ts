@@ -6,6 +6,7 @@ import {
   type ConteoEnvios,
   type DifusionEnvio,
   type EstadoEnvio,
+  type MotivoExclusion,
 } from "@/lib/difusion/modelo";
 import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
@@ -291,6 +292,120 @@ export class SupabaseDifusionEnviosRepository implements DifusionEnviosRepositor
     return (data ?? []).map((f) => ({ codigo: f.error_codigo, cantidad: f.cantidad }));
   }
 
+  async pendientesParaEnviar(
+    difusionId: UUID,
+    hasta: Date,
+    limite: number,
+  ): Promise<DifusionEnvio[]> {
+    exigirPagina(limite);
+    if (!isUuid(difusionId)) return [];
+    const { data, error } = await this.db
+      .from("difusion_envios")
+      .select()
+      .eq("difusion_id", difusionId)
+      .eq("estado", "en_cola")
+      .is("intento_at", null)
+      .lte("programado_para", hasta.toISOString())
+      .order("programado_para", { ascending: true })
+      .order("id", { ascending: true })
+      .range(0, limite - 1);
+    if (error) throw mapPostgrestError(error, { resource: "difusion_envio" });
+    return (data ?? []).map(mapRow);
+  }
+
+  async reservadosSinDesenlace(
+    difusionId: UUID,
+    antesDe: Date,
+    limite: number,
+  ): Promise<DifusionEnvio[]> {
+    exigirPagina(limite);
+    if (!isUuid(difusionId)) return [];
+    const { data, error } = await this.db
+      .from("difusion_envios")
+      .select()
+      .eq("difusion_id", difusionId)
+      .eq("estado", "en_cola")
+      .not("intento_at", "is", null)
+      .lte("intento_at", antesDe.toISOString())
+      .order("id", { ascending: true })
+      .range(0, limite - 1);
+    if (error) throw mapPostgrestError(error, { resource: "difusion_envio" });
+    return (data ?? []).map(mapRow);
+  }
+
+  async reservar(id: UUID, at: Date): Promise<boolean> {
+    if (!isUuid(id)) return false;
+    // Un solo UPDATE condicional: dos procesos que intentan reservar la misma
+    // fila se serializan en la fila y el segundo no encuentra `intento_at` nulo.
+    const { data, error } = await this.db
+      .from("difusion_envios")
+      .update({ intento_at: at.toISOString() })
+      .eq("id", id)
+      .eq("estado", "en_cola")
+      .is("intento_at", null)
+      .select("id")
+      .maybeSingle();
+    if (error) throw mapPostgrestError(error, { resource: "difusion_envio" });
+    return data !== null;
+  }
+
+  async liberarReserva(id: UUID): Promise<void> {
+    if (!isUuid(id)) return;
+    const { error } = await this.db
+      .from("difusion_envios")
+      .update({ intento_at: null })
+      .eq("id", id)
+      .eq("estado", "en_cola");
+    if (error) throw mapPostgrestError(error, { resource: "difusion_envio" });
+  }
+
+  async marcarExcluido(id: UUID, motivo: MotivoExclusion): Promise<boolean> {
+    if (!isUuid(id)) return false;
+    const { data, error } = await this.db
+      .from("difusion_envios")
+      .update({ estado: "excluido", motivo_exclusion: motivo })
+      .eq("id", id)
+      .eq("estado", "en_cola")
+      .is("intento_at", null)
+      .select("id")
+      .maybeSingle();
+    if (error) throw mapPostgrestError(error, { resource: "difusion_envio" });
+    return data !== null;
+  }
+
+  async leadsConSalienteDesde(leadIds: readonly UUID[], desde: Date): Promise<Set<UUID>> {
+    const ids = [...new Set(leadIds)].filter(isUuid);
+    const con = new Set<UUID>();
+    for (let i = 0; i < ids.length; i += LOTE_TELEFONOS) {
+      const lote = ids.slice(i, i + LOTE_TELEFONOS);
+      // Cualquier saliente del hilo: el agente, un vendedor o un workflow.
+      // Pocas filas por definición (una ventana de segundos); el rango es para
+      // no depender del corte de PostgREST.
+      const mensajes = await this.db
+        .from("mensajes")
+        .select("conversaciones!inner(lead_id)")
+        .in("conversaciones.lead_id", lote)
+        .eq("direction", "out")
+        .gte("created_at", desde.toISOString())
+        .range(0, LIMITE_MAX_PAGINA - 1);
+      if (mensajes.error) throw mapPostgrestError(mensajes.error, { resource: "mensajes" });
+      for (const m of mensajes.data ?? []) {
+        const conv = m.conversaciones as { lead_id: string } | { lead_id: string }[] | null;
+        for (const c of Array.isArray(conv) ? conv : conv ? [conv] : []) con.add(c.lead_id);
+      }
+
+      const envios = await this.db
+        .from("difusion_envios")
+        .select("lead_id")
+        .in("lead_id", lote)
+        .gte("intento_at", desde.toISOString())
+        .range(0, LIMITE_MAX_PAGINA - 1);
+      if (envios.error) throw mapPostgrestError(envios.error, { resource: "difusion_envio" });
+      for (const e of envios.data ?? []) if (e.lead_id !== null) con.add(e.lead_id);
+    }
+    return con;
+  }
+
   /** Corre un UPDATE ... RETURNING de una fila; `null` si no movió ninguna. */
   private async transicionar(
     consulta: ReturnType<ReturnType<AppClient["from"]>["update"]>,
@@ -328,6 +443,7 @@ function mapRow(r: Row): DifusionEnvio {
     meta_message_id: r.meta_message_id,
     error_codigo: r.error_codigo,
     error_detalle: r.error_detalle,
+    intento_at: r.intento_at === null ? null : new Date(r.intento_at),
     created_at: new Date(r.created_at),
     estado_at: new Date(r.estado_at),
   };

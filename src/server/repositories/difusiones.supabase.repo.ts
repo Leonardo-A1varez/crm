@@ -1,5 +1,6 @@
 import { NotFoundError, PermissionDeniedError } from "@/lib/errors";
-import type { Difusion } from "@/lib/difusion/modelo";
+import type { Difusion, EstadoDifusion } from "@/lib/difusion/modelo";
+import { ParametrosPlantillaSchema } from "@/lib/difusion/parametros";
 import type { Grupo } from "@/lib/ui/condiciones";
 import { validarAudiencia } from "@/lib/validation/difusion.schema";
 import type { AppClient } from "@/server/db/client";
@@ -9,6 +10,7 @@ import { isUuid } from "@/server/db/uuid";
 import type { UUID } from "@/types/entities";
 import { exigirPagina } from "./_paginacion";
 import {
+  ESTADOS_CON_COLA,
   patchDefinido,
   type DifusionInsert,
   type DifusionUpdate,
@@ -43,6 +45,8 @@ export class SupabaseDifusionesRepository implements DifusionesRepository {
         audiencia_modo: input.audiencia_modo,
         plantilla_nombre: input.plantilla_nombre ?? null,
         plantilla_categoria: input.plantilla_categoria ?? null,
+        plantilla_idioma: input.plantilla_idioma ?? null,
+        plantilla_parametros: (input.plantilla_parametros ?? []) as unknown as Json,
         incluir_en_negociacion: input.incluir_en_negociacion,
         exenta_tope_frecuencia: input.exenta_tope_frecuencia,
         canary_tamano: input.canary_tamano ?? null,
@@ -89,6 +93,42 @@ export class SupabaseDifusionesRepository implements DifusionesRepository {
     return mapRow(data);
   }
 
+  async actualizarSiEstado(
+    id: UUID,
+    desde: readonly EstadoDifusion[],
+    patch: DifusionUpdate,
+  ): Promise<Difusion | null> {
+    if (!isUuid(id)) throw new NotFoundError(`difusión no encontrada: ${id}`, "difusion", id);
+    const { data, error } = await this.db
+      .from("difusiones")
+      .update(aUpdate(patchDefinido(patch)))
+      .eq("id", id)
+      .in("estado", [...desde])
+      .select()
+      .maybeSingle();
+    if (error) throw mapPostgrestError(error, { resource: "difusion" });
+    if (data !== null) return mapRow(data);
+    // No se movió: o no existe, o ya no está en ninguno de `desde`.
+    if (!(await this.findById(id))) {
+      throw new NotFoundError(`difusión no encontrada: ${id}`, "difusion", id);
+    }
+    return null;
+  }
+
+  async listarConCola(): Promise<Difusion[]> {
+    // Se drenan de a una, así que son pocas; el rango explícito es para no
+    // depender del corte de PostgREST.
+    const { data, error } = await this.db
+      .from("difusiones")
+      .select()
+      .in("estado", [...ESTADOS_CON_COLA])
+      .order("programada_para", { ascending: true, nullsFirst: false })
+      .order("id", { ascending: true })
+      .range(0, 99);
+    if (error) throw mapPostgrestError(error, { resource: "difusion" });
+    return (data ?? []).map(mapRow);
+  }
+
   async delete(id: UUID): Promise<void> {
     if (!isUuid(id)) return;
     const { error } = await this.db.from("difusiones").delete().eq("id", id);
@@ -116,6 +156,12 @@ function aUpdate(patch: DifusionUpdate): DbUpdate {
   if (patch.plantilla_nombre !== undefined) payload.plantilla_nombre = patch.plantilla_nombre;
   if (patch.plantilla_categoria !== undefined)
     payload.plantilla_categoria = patch.plantilla_categoria;
+  if (patch.plantilla_idioma !== undefined) payload.plantilla_idioma = patch.plantilla_idioma;
+  if (patch.plantilla_parametros !== undefined) {
+    payload.plantilla_parametros = ParametrosPlantillaSchema.parse(
+      patch.plantilla_parametros,
+    ) as unknown as Json;
+  }
   if (patch.incluir_en_negociacion !== undefined) {
     payload.incluir_en_negociacion = patch.incluir_en_negociacion;
   }
@@ -123,11 +169,15 @@ function aUpdate(patch: DifusionUpdate): DbUpdate {
     payload.exenta_tope_frecuencia = patch.exenta_tope_frecuencia;
   }
   if (patch.canary_tamano !== undefined) payload.canary_tamano = patch.canary_tamano;
+  if (patch.canary_revisado_at !== undefined) {
+    payload.canary_revisado_at = iso(patch.canary_revisado_at);
+  }
   if (patch.programada_para !== undefined) payload.programada_para = iso(patch.programada_para);
   if (patch.iniciada_at !== undefined) payload.iniciada_at = iso(patch.iniciada_at);
   if (patch.finalizada_at !== undefined) payload.finalizada_at = iso(patch.finalizada_at);
   if (patch.detenida_por !== undefined) payload.detenida_por = patch.detenida_por;
   if (patch.motivo_detencion !== undefined) payload.motivo_detencion = patch.motivo_detencion;
+  if (patch.motivo_revision !== undefined) payload.motivo_revision = patch.motivo_revision;
   return payload;
 }
 
@@ -154,16 +204,27 @@ function mapRow(r: Row): Difusion {
     audiencia_modo: r.audiencia_modo,
     plantilla_nombre: r.plantilla_nombre,
     plantilla_categoria: r.plantilla_categoria,
+    plantilla_idioma: r.plantilla_idioma,
+    // Una fila escrita a mano con otra forma no manda variables inventadas: se
+    // lee vacía, y la plantilla sale sin parámetros o Meta la rechaza.
+    plantilla_parametros: parametrosDe(r.plantilla_parametros),
     incluir_en_negociacion: r.incluir_en_negociacion,
     exenta_tope_frecuencia: r.exenta_tope_frecuencia,
     canary_tamano: r.canary_tamano,
+    canary_revisado_at: fecha(r.canary_revisado_at),
     programada_para: fecha(r.programada_para),
     iniciada_at: fecha(r.iniciada_at),
     finalizada_at: fecha(r.finalizada_at),
     detenida_por: r.detenida_por,
     motivo_detencion: r.motivo_detencion,
+    motivo_revision: r.motivo_revision,
     creada_por: r.creada_por,
     created_at: new Date(r.created_at),
     updated_at: new Date(r.updated_at),
   };
+}
+
+function parametrosDe(v: Json): Difusion["plantilla_parametros"] {
+  const r = ParametrosPlantillaSchema.safeParse(v);
+  return r.success ? r.data : [];
 }

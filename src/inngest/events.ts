@@ -1,4 +1,10 @@
 import { eventType, staticSchema } from "inngest";
+import {
+  EVENTO_DIFUSION_PROGRAMADA,
+  EVENTO_DIFUSION_REANUDADA,
+  type DifusionProgramada,
+  type DifusionReanudada,
+} from "@/lib/difusion/eventos";
 import type { ParsedMessage } from "@/lib/meta/parse-webhook";
 import type { IntentClassification } from "@/lib/validation/ai";
 import type { DispararWorkflowInput } from "@/lib/workflows/disparos";
@@ -18,6 +24,10 @@ export const statusReceived = eventType("meta/status.received", {
       estado: EstadoEntrega;
       at: string;
       error: string | null;
+      // Opcionales: los eventos encolados antes de que el parser los leyera
+      // no los traen, y se tienen que seguir procesando.
+      error_codigo?: string | null;
+      error_detalle?: string | null;
     };
   }>(),
 });
@@ -171,4 +181,14 @@ export const workflowProgramadosRevisar = eventType("workflow/programados.revisa
 /** Revisa a mano los flujos "Inactividad" (además del escaneo de cada 10 minutos). */
 export const workflowInactividadRevisar = eventType("workflow/inactividad.revisar", {
   schema: staticSchema<Record<string, never>>(),
+});
+
+// Difusión: el contrato vive en `lib/difusion/eventos.ts` (lo emiten el panel
+// y `programar_difusion()` por el outbox); acá sólo se registra para el motor.
+export const difusionProgramada = eventType(EVENTO_DIFUSION_PROGRAMADA, {
+  schema: staticSchema<DifusionProgramada>(),
+});
+
+export const difusionReanudada = eventType(EVENTO_DIFUSION_REANUDADA, {
+  schema: staticSchema<DifusionReanudada>(),
 });

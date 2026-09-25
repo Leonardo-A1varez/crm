@@ -243,6 +243,7 @@ export type Database = {
           estado: Database["public"]["Enums"]["difusion_envio_estado"]
           estado_at: string
           id: string
+          intento_at: string | null
           lead_id: string | null
           meta_message_id: string | null
           motivo_exclusion:
@@ -261,6 +262,7 @@ export type Database = {
           estado: Database["public"]["Enums"]["difusion_envio_estado"]
           estado_at?: string
           id?: string
+          intento_at?: string | null
           lead_id?: string | null
           meta_message_id?: string | null
           motivo_exclusion?:
@@ -279,6 +281,7 @@ export type Database = {
           estado?: Database["public"]["Enums"]["difusion_envio_estado"]
           estado_at?: string
           id?: string
+          intento_at?: string | null
           lead_id?: string | null
           meta_message_id?: string | null
           motivo_exclusion?:
@@ -385,6 +388,7 @@ export type Database = {
           audiencia: Json
           audiencia_modo: Database["public"]["Enums"]["difusion_audiencia_modo"]
           audiencia_toda_la_base: boolean
+          canary_revisado_at: string | null
           canary_tamano: number | null
           creada_por: string | null
           created_at: string
@@ -396,11 +400,14 @@ export type Database = {
           incluir_en_negociacion: boolean
           iniciada_at: string | null
           motivo_detencion: string | null
+          motivo_revision: string | null
           nombre: string
           plantilla_categoria:
             | Database["public"]["Enums"]["difusion_plantilla_categoria"]
             | null
+          plantilla_idioma: string | null
           plantilla_nombre: string | null
+          plantilla_parametros: Json
           programada_para: string | null
           updated_at: string
         }
@@ -408,6 +415,7 @@ export type Database = {
           audiencia: Json
           audiencia_modo?: Database["public"]["Enums"]["difusion_audiencia_modo"]
           audiencia_toda_la_base?: boolean
+          canary_revisado_at?: string | null
           canary_tamano?: number | null
           creada_por?: string | null
           created_at?: string
@@ -419,11 +427,14 @@ export type Database = {
           incluir_en_negociacion?: boolean
           iniciada_at?: string | null
           motivo_detencion?: string | null
+          motivo_revision?: string | null
           nombre: string
           plantilla_categoria?:
             | Database["public"]["Enums"]["difusion_plantilla_categoria"]
             | null
+          plantilla_idioma?: string | null
           plantilla_nombre?: string | null
+          plantilla_parametros?: Json
           programada_para?: string | null
           updated_at?: string
         }
@@ -431,6 +442,7 @@ export type Database = {
           audiencia?: Json
           audiencia_modo?: Database["public"]["Enums"]["difusion_audiencia_modo"]
           audiencia_toda_la_base?: boolean
+          canary_revisado_at?: string | null
           canary_tamano?: number | null
           creada_por?: string | null
           created_at?: string
@@ -442,11 +454,14 @@ export type Database = {
           incluir_en_negociacion?: boolean
           iniciada_at?: string | null
           motivo_detencion?: string | null
+          motivo_revision?: string | null
           nombre?: string
           plantilla_categoria?:
             | Database["public"]["Enums"]["difusion_plantilla_categoria"]
             | null
+          plantilla_idioma?: string | null
           plantilla_nombre?: string | null
+          plantilla_parametros?: Json
           programada_para?: string | null
           updated_at?: string
         }

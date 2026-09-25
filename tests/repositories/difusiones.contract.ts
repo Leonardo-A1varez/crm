@@ -56,6 +56,13 @@ function base(f: DifusionesContractFixtures, over: Partial<DifusionInsert> = {})
   return { nombre: "Promo frenos", audiencia: AUDIENCIA, creada_por: f.usuarioId, ...over };
 }
 
+/** Con qué sale: sin nombre e idioma de plantilla una difusión no deja de ser borrador. */
+const PLANTILLA = {
+  plantilla_nombre: "promo_frenos_v3",
+  plantilla_categoria: "marketing",
+  plantilla_idioma: "es_AR",
+} as const;
+
 export function runDifusionesContract(
   makeRepo: () => DifusionesRepository,
   fixturesArg: DifusionesContractFixturesArg = DEFAULT_FIXTURES,
@@ -153,12 +160,83 @@ export function runDifusionesContract(
       expect(leida?.audiencia_modo).toBe("dinamica");
     });
 
+    test("no sale sin idioma de plantilla: Meta no la encuentra sin él", async () => {
+      const d = await repo.create(
+        base(f, { plantilla_nombre: "promo_frenos_v3", plantilla_categoria: "marketing" }),
+      );
+      await expect(
+        repo.update(d.id, { estado: "programada", programada_para: new Date() }),
+      ).rejects.toThrow(ValidationError);
+    });
+
+    test("guarda idioma y variables de la plantilla, y las devuelve", async () => {
+      const parametros = [
+        { valor: "{{lead.nombre}}", respaldo: "cliente" },
+        { valor: "{{lead.vehiculo_modelo}}", respaldo: "" },
+      ];
+      const d = await repo.create(base(f, { ...PLANTILLA, plantilla_parametros: parametros }));
+      const leida = await repo.findById(d.id);
+      expect(leida?.plantilla_idioma).toBe("es_AR");
+      expect(leida?.plantilla_parametros).toEqual(parametros);
+    });
+
+    test("actualizarSiEstado no pisa una difusión que cambió de estado", async () => {
+      const d = await repo.create(base(f, PLANTILLA));
+      await repo.update(d.id, { estado: "programada", programada_para: new Date() });
+
+      const movida = await repo.actualizarSiEstado(d.id, ["programada"], {
+        estado: "enviando",
+        iniciada_at: new Date(),
+      });
+      expect(movida?.estado).toBe("enviando");
+
+      // Una persona la pausa; el motor, que creía que seguía enviando, no la completa.
+      await repo.update(d.id, { estado: "en_revision" });
+      const noMovida = await repo.actualizarSiEstado(d.id, ["enviando"], {
+        estado: "completada",
+        finalizada_at: new Date(),
+      });
+      expect(noMovida).toBeNull();
+      expect((await repo.findById(d.id))?.estado).toBe("en_revision");
+    });
+
+    test("el motivo de revisión va sólo con la difusión en revisión", async () => {
+      const d = await repo.create(base(f, PLANTILLA));
+      await repo.update(d.id, { estado: "enviando", programada_para: new Date() });
+      await expect(repo.update(d.id, { motivo_revision: "132015" })).rejects.toThrow(
+        ValidationError,
+      );
+      const u = await repo.update(d.id, {
+        estado: "en_revision",
+        motivo_revision: "Meta pausó la plantilla (132015)",
+      });
+      expect(u.motivo_revision).toBe("Meta pausó la plantilla (132015)");
+    });
+
+    test("listarConCola trae programadas y enviándose, la programada antes primero", async () => {
+      const a = await repo.create(base(f, { ...PLANTILLA, nombre: "A" }));
+      const b = await repo.create(base(f, { ...PLANTILLA, nombre: "B" }));
+      const c = await repo.create(base(f, { ...PLANTILLA, nombre: "C" }));
+      await repo.update(a.id, {
+        estado: "programada",
+        programada_para: new Date("2026-10-02T10:00:00.000Z"),
+      });
+      await repo.update(b.id, {
+        estado: "enviando",
+        programada_para: new Date("2026-10-01T10:00:00.000Z"),
+      });
+      await repo.update(c.id, { estado: "en_revision", programada_para: new Date() });
+
+      const ids = (await repo.listarConCola()).map((d) => d.id);
+      expect(ids.filter((id) => [a.id, b.id, c.id].includes(id))).toEqual([b.id, a.id]);
+    });
+
     test("findById de una inexistente devuelve null", async () => {
       expect(await repo.findById(f.desconocido)).toBeNull();
     });
 
     test("update cambia lo pedido y devuelve la fila", async () => {
-      const d = await repo.create(base(f));
+      const d = await repo.create(base(f, PLANTILLA));
       const programada = new Date("2026-10-01T13:00:00.000Z");
 
       const u = await repo.update(d.id, { estado: "programada", programada_para: programada });
@@ -179,7 +257,7 @@ export function runDifusionesContract(
 
     // "Detener dice con precisión qué pasó" (§8.5).
     test("detenida exige motivo y fecha de fin", async () => {
-      const d = await repo.create(base(f));
+      const d = await repo.create(base(f, PLANTILLA));
       await expect(
         repo.update(d.id, { estado: "detenida", finalizada_at: new Date() }),
       ).rejects.toThrow(ValidationError);
@@ -217,7 +295,7 @@ export function runDifusionesContract(
     // Una difusión que salió es el registro de a quién se le mandó qué: se
     // detiene, no se borra.
     test("delete de una que no es borrador se rechaza y la difusión sigue", async () => {
-      const d = await repo.create(base(f));
+      const d = await repo.create(base(f, PLANTILLA));
       await repo.update(d.id, { estado: "programada", programada_para: new Date() });
 
       await expect(repo.delete(d.id)).rejects.toThrow(ValidationError);

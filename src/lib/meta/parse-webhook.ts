@@ -7,6 +7,13 @@ export interface ParsedStatus {
   at: Date;
   /** Título del error cuando `estado` es `fallido`. */
   error: string | null;
+  /**
+   * `errors[].code` como texto ("131049"). Meta pide decidir por el código y
+   * no por el título, que va a dejar de mandar. `null` si no vino.
+   */
+  error_codigo: string | null;
+  /** `errors[].error_data.details`. */
+  error_detalle: string | null;
 }
 
 export interface ParsedOperationalEvent {
@@ -97,8 +104,17 @@ function waStatus(s: Record<string, unknown>): ParsedStatus | null {
 
   const primerError = asArray(s.errors).find(isObject);
   const error = primerError ? (asString(primerError.title) ?? asString(primerError.message)) : null;
+  const codigo = primerError?.code;
+  const error_codigo =
+    typeof codigo === "number" && Number.isInteger(codigo)
+      ? String(codigo)
+      : typeof codigo === "string" && /^\d{1,10}$/.test(codigo)
+        ? codigo
+        : null;
+  const datos = primerError && isObject(primerError.error_data) ? primerError.error_data : null;
+  const error_detalle = datos ? asString(datos.details) : null;
 
-  return { meta_message_id: id, estado, at, error };
+  return { meta_message_id: id, estado, at, error, error_codigo, error_detalle };
 }
 
 function waEstado(status: string | null): EstadoEntrega | null {

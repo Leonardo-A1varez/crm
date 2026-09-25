@@ -260,6 +260,10 @@ describe("GraphApiMetaLecturaClient", () => {
           status: "APPROVED",
           rejected_reason: null,
           quality_score: "GREEN",
+          header_text: null,
+          body_text: null,
+          footer_text: null,
+          quick_replies: [],
         },
       ],
       hayMas: true,
@@ -268,8 +272,57 @@ describe("GraphApiMetaLecturaClient", () => {
     expect(url.pathname).toBe("/v21.0/202/message_templates");
     expect(url.searchParams.get("limit")).toBe("50");
     expect(url.searchParams.get("fields")).toBe(
-      "id,name,language,category,status,rejected_reason,quality_score",
+      "id,name,language,category,status,rejected_reason,quality_score,components",
     );
+  });
+
+  // Forma de `components` según la referencia de la Template API de Meta
+  // (type, text, format, buttons[type, text]), leída el 2026-09-25.
+  test("lee el texto de la plantilla: encabezado de texto, cuerpo, pie y respuestas rápidas", async () => {
+    const { impl } = fakeFetch([
+      json({
+        data: [
+          {
+            id: "9",
+            name: "promo_frenos_v3",
+            language: "es_AR",
+            category: "MARKETING",
+            status: "APPROVED",
+            components: [
+              { type: "HEADER", format: "TEXT", text: "Frenos" },
+              { type: "BODY", text: "Hola {{1}}, tenemos pastillas para tu {{2}}." },
+              { type: "FOOTER", text: "Respondé BAJA para no recibir más" },
+              {
+                type: "BUTTONS",
+                buttons: [
+                  { type: "QUICK_REPLY", text: "Me interesa" },
+                  { type: "URL", text: "Ver web", url: "https://example.com" },
+                ],
+              },
+            ],
+          },
+          {
+            id: "10",
+            name: "con_imagen",
+            components: [
+              { type: "HEADER", format: "IMAGE" },
+              { type: "BODY", text: "Hola" },
+            ],
+          },
+        ],
+      }),
+    ]);
+
+    const r = await cliente(impl).listarPlantillas("202", 50);
+
+    expect(r.plantillas[0]).toMatchObject({
+      header_text: "Frenos",
+      body_text: "Hola {{1}}, tenemos pastillas para tu {{2}}.",
+      footer_text: "Respondé BAJA para no recibir más",
+      quick_replies: ["Me interesa"],
+    });
+    // Un encabezado de imagen no es texto: no se inventa uno.
+    expect(r.plantillas[1]).toMatchObject({ header_text: null, body_text: "Hola" });
   });
 
   test("un estado de plantilla que Meta agregue mañana pasa crudo y no rompe la lectura", async () => {

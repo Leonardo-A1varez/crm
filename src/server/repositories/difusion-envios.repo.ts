@@ -158,6 +158,41 @@ export interface DifusionEnviosRepository {
   tandasPorDifusion(difusionId: UUID): Promise<TandaPersistida[]>;
   /** Los fallidos agrupados por código de Meta, el más frecuente primero. */
   fallosPorCodigo(difusionId: UUID): Promise<FalloPorCodigo[]>;
+
+  // ---- Lo que usa el motor que drena la cola -----------------------------
+
+  /**
+   * En cola, sin reservar y con `programado_para <= hasta`, en orden de
+   * salida. Hasta `limite` filas.
+   */
+  pendientesParaEnviar(difusionId: UUID, hasta: Date, limite: number): Promise<DifusionEnvio[]>;
+  /**
+   * En cola pero reservadas antes de `antesDe`: el proceso murió entre la
+   * reserva y el desenlace. Nadie sabe si Meta lo recibió.
+   */
+  reservadosSinDesenlace(difusionId: UUID, antesDe: Date, limite: number): Promise<DifusionEnvio[]>;
+  /**
+   * Reserva el envío para mandarlo: sólo si sigue en cola y nadie lo reservó.
+   * `false` = otro lo tomó, o ya no está en cola. Es lo que impide mandar dos
+   * veces: se reserva ANTES de llamar a Meta.
+   */
+  reservar(id: UUID, at: Date): Promise<boolean>;
+  /**
+   * Devuelve a la cola una reserva que Meta rechazó sin mandar (429, 131056).
+   * Sólo si sigue en cola: lo que ya tiene desenlace no se toca.
+   */
+  liberarReserva(id: UUID): Promise<void>;
+  /**
+   * Re-evaluado al salir (§8.6): en cola y sin reservar → excluido con su
+   * motivo. `false` si ya no estaba en esas condiciones.
+   */
+  marcarExcluido(id: UUID, motivo: MotivoExclusion): Promise<boolean>;
+  /**
+   * De esos leads, los que recibieron algo desde `desde`: cualquier saliente
+   * del hilo o un envío reservado de cualquier difusión. Meta limita a un
+   * mensaje cada 6 s por destinatario (131056).
+   */
+  leadsConSalienteDesde(leadIds: readonly UUID[], desde: Date): Promise<Set<UUID>>;
 }
 
 const SALIERON: ReadonlySet<EstadoEnvio> = new Set<EstadoEnvio>(ESTADOS_QUE_SALIERON);
@@ -228,6 +263,14 @@ export function yaSalieron(conteo: ConteoEnvios): number {
   return ESTADOS_QUE_SALIERON.reduce((total, e) => total + conteo.porEstado[e], 0);
 }
 
+/** Como sale: por fecha programada y después por id. */
+function porOrdenDeSalida(a: DifusionEnvio, b: DifusionEnvio): number {
+  const ta = a.programado_para?.getTime() ?? Number.POSITIVE_INFINITY;
+  const tb = b.programado_para?.getTime() ?? Number.POSITIVE_INFINITY;
+  if (ta !== tb) return ta - tb;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
 function porOrdenDeLista(a: DifusionEnvio, b: DifusionEnvio): number {
   const ta = a.tanda ?? Number.POSITIVE_INFINITY;
   const tb = b.tanda ?? Number.POSITIVE_INFINITY;
@@ -288,6 +331,7 @@ export class InMemoryDifusionEnviosRepository implements DifusionEnviosRepositor
         meta_message_id: null,
         error_codigo: null,
         error_detalle: null,
+        intento_at: null,
         created_at: ahora,
         estado_at: ahora,
       });
@@ -460,6 +504,96 @@ export class InMemoryDifusionEnviosRepository implements DifusionEnviosRepositor
         (a, b) =>
           b.cantidad - a.cantidad || (a.codigo < b.codigo ? -1 : a.codigo > b.codigo ? 1 : 0),
       );
+  }
+
+  async pendientesParaEnviar(
+    difusionId: UUID,
+    hasta: Date,
+    limite: number,
+  ): Promise<DifusionEnvio[]> {
+    exigirPagina(limite);
+    return [...this.store.values()]
+      .filter(
+        (e) =>
+          e.difusion_id === difusionId &&
+          e.estado === "en_cola" &&
+          e.intento_at === null &&
+          e.programado_para !== null &&
+          e.programado_para.getTime() <= hasta.getTime(),
+      )
+      .sort(porOrdenDeSalida)
+      .slice(0, limite)
+      .map((e) => structuredClone(e));
+  }
+
+  async reservadosSinDesenlace(
+    difusionId: UUID,
+    antesDe: Date,
+    limite: number,
+  ): Promise<DifusionEnvio[]> {
+    exigirPagina(limite);
+    return [...this.store.values()]
+      .filter(
+        (e) =>
+          e.difusion_id === difusionId &&
+          e.estado === "en_cola" &&
+          e.intento_at !== null &&
+          e.intento_at.getTime() <= antesDe.getTime(),
+      )
+      .sort(porOrdenDeSalida)
+      .slice(0, limite)
+      .map((e) => structuredClone(e));
+  }
+
+  async reservar(id: UUID, at: Date): Promise<boolean> {
+    const e = this.store.get(id);
+    if (!e || e.estado !== "en_cola" || e.intento_at !== null) return false;
+    this.store.set(id, { ...e, intento_at: new Date(at) });
+    return true;
+  }
+
+  async liberarReserva(id: UUID): Promise<void> {
+    const e = this.store.get(id);
+    if (!e || e.estado !== "en_cola") return;
+    this.store.set(id, { ...e, intento_at: null });
+  }
+
+  async marcarExcluido(id: UUID, motivo: MotivoExclusion): Promise<boolean> {
+    const e = this.store.get(id);
+    if (!e || e.estado !== "en_cola" || e.intento_at !== null) return false;
+    this.store.set(id, {
+      ...e,
+      estado: "excluido",
+      motivo_exclusion: motivo,
+      estado_at: this.reloj(),
+    });
+    return true;
+  }
+
+  /** Salientes que no pasan por una difusión (el agente, un vendedor): los carga el test. */
+  private readonly salientesExternos: { leadId: UUID; at: Date }[] = [];
+
+  registrarSalienteExterno(leadId: UUID, at: Date): void {
+    this.salientesExternos.push({ leadId, at: new Date(at) });
+  }
+
+  async leadsConSalienteDesde(leadIds: readonly UUID[], desde: Date): Promise<Set<UUID>> {
+    const buscados = new Set(leadIds);
+    const con = new Set<UUID>();
+    for (const s of this.salientesExternos) {
+      if (buscados.has(s.leadId) && s.at.getTime() >= desde.getTime()) con.add(s.leadId);
+    }
+    for (const e of this.store.values()) {
+      if (
+        e.lead_id !== null &&
+        buscados.has(e.lead_id) &&
+        e.intento_at !== null &&
+        e.intento_at.getTime() >= desde.getTime()
+      ) {
+        con.add(e.lead_id);
+      }
+    }
+    return con;
   }
 
   private exigir(id: UUID): DifusionEnvio {

@@ -87,6 +87,13 @@ export interface PlantillaCruda {
   rejected_reason: string | null;
   /** El `score` de `quality_score`. Meta lo manda anidado; acá se aplana. */
   quality_score: string | null;
+  /** Texto del componente HEADER cuando es de texto; `null` si es de imagen, video o no hay. */
+  header_text: string | null;
+  /** Texto del BODY, con las variables posicionales tal cual (`{{1}}`). */
+  body_text: string | null;
+  footer_text: string | null;
+  /** Los textos de los botones de respuesta rápida, en orden. */
+  quick_replies: string[];
 }
 
 export interface MetaLecturaClient {
@@ -116,7 +123,11 @@ const LARGO_MAXIMO_DETALLE = 300;
 const CAMPOS_NUMERO = "id,display_phone_number,verified_name,quality_rating";
 const CAMPO_LIMITE = "whatsapp_business_manager_messaging_limit";
 const CAMPO_SALUD = "health_status";
-const CAMPOS_PLANTILLA = "id,name,language,category,status,rejected_reason,quality_score";
+// `components` agregado el 2026-09-25 (referencia de la Template API: type,
+// text, format, buttons[type, text]): sin el texto, el asistente de Difusión no
+// sabe qué variables tiene la plantilla.
+const CAMPOS_PLANTILLA =
+  "id,name,language,category,status,rejected_reason,quality_score,components";
 
 const IdSchema = z.union([z.string().min(1), z.number()]).transform((v) => String(v));
 const TextoOpcional = z
@@ -195,7 +206,56 @@ const PlantillaSchema = z.object({
   // leyó ("WhatsAppBusinessHSMQualityScoreShape"). Se acepta cualquier cosa y
   // se extrae el `score` si está; si no, queda en null en vez de romper.
   quality_score: z.unknown().optional(),
+  // Tolerante: un componente con otra forma se ignora en vez de romper la
+  // lectura de todas las plantillas.
+  components: z.array(z.unknown()).optional(),
 });
+
+const ComponenteSchema = z.object({
+  type: z.string(),
+  format: z.string().nullish(),
+  text: z.string().nullish(),
+  buttons: z.array(z.object({ type: z.string(), text: z.string().nullish() })).nullish(),
+});
+
+interface TextosPlantilla {
+  header_text: string | null;
+  body_text: string | null;
+  footer_text: string | null;
+  quick_replies: string[];
+}
+
+function textosDe(componentes: readonly unknown[] | undefined): TextosPlantilla {
+  const textos: TextosPlantilla = {
+    header_text: null,
+    body_text: null,
+    footer_text: null,
+    quick_replies: [],
+  };
+  for (const crudo of componentes ?? []) {
+    const r = ComponenteSchema.safeParse(crudo);
+    if (!r.success) continue;
+    const c = r.data;
+    switch (c.type.toUpperCase()) {
+      case "HEADER":
+        // Sólo un encabezado de texto es texto: uno de imagen no se describe.
+        if ((c.format ?? "TEXT").toUpperCase() === "TEXT") textos.header_text = c.text ?? null;
+        break;
+      case "BODY":
+        textos.body_text = c.text ?? null;
+        break;
+      case "FOOTER":
+        textos.footer_text = c.text ?? null;
+        break;
+      case "BUTTONS":
+        for (const b of c.buttons ?? []) {
+          if (b.type.toUpperCase() === "QUICK_REPLY" && b.text) textos.quick_replies.push(b.text);
+        }
+        break;
+    }
+  }
+  return textos;
+}
 
 const ListaPlantillasSchema = z.object({
   data: z.array(PlantillaSchema),
@@ -317,6 +377,7 @@ export class GraphApiMetaLecturaClient implements MetaLecturaClient {
         status: p.status,
         rejected_reason: p.rejected_reason,
         quality_score: scoreDe(p.quality_score),
+        ...textosDe(p.components),
       })),
       hayMas: Boolean(paging?.next),
     };

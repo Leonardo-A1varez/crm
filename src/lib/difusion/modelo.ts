@@ -1,4 +1,5 @@
 import type { Grupo } from "@/lib/ui/condiciones";
+import type { ParametroPlantilla } from "./parametros";
 import type { UUID } from "@/types/entities";
 
 /**
@@ -170,15 +171,23 @@ export interface Difusion {
   audiencia_modo: ModoAudiencia;
   plantilla_nombre: string | null;
   plantilla_categoria: CategoriaPlantilla | null;
+  /** El código con que Meta aprobó la plantilla (`es`, `es_AR`). Obligatorio para programar. */
+  plantilla_idioma: string | null;
+  /** Las variables del cuerpo en orden: la 0 es `{{1}}`. */
+  plantilla_parametros: ParametroPlantilla[];
   incluir_en_negociacion: boolean;
   exenta_tope_frecuencia: boolean;
   canary_tamano: number | null;
+  /** La muestra salió y se frenó para revisarla: al reanudar no se vuelve a frenar. */
+  canary_revisado_at: Date | null;
   programada_para: Date | null;
   iniciada_at: Date | null;
   finalizada_at: Date | null;
   /** Null con `estado = 'detenida'`: la frenó el sistema (368, 131031, 131048). */
   detenida_por: UUID | null;
   motivo_detencion: string | null;
+  /** Por qué el sistema la pasó a revisión (132015, canary). Null = la pausó una persona. */
+  motivo_revision: string | null;
   creada_por: UUID | null;
   created_at: Date;
   updated_at: Date;
@@ -199,6 +208,11 @@ export interface DifusionEnvio {
   meta_message_id: string | null;
   error_codigo: string | null;
   error_detalle: string | null;
+  /**
+   * Reservado para mandarse: se escribe antes de llamar a Meta. En cola con
+   * reserva = en vuelo, o desenlace desconocido si quedó así: nunca se reenvía.
+   */
+  intento_at: Date | null;
   created_at: Date;
   /** Cuándo entró al estado actual. Sólo lo mueve un cambio de estado. */
   estado_at: Date;

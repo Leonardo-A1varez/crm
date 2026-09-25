@@ -243,8 +243,10 @@ export function VistaPreviaMensaje({
                   }}
                 >
                   <p className="text-caution text-[11.5px] leading-snug font-[650]">
-                    A {lead.nombre} le llega con{" "}
-                    {huecosDelLead.length === 1 ? "un hueco" : `${huecosDelLead.length} huecos`}
+                    A {lead.nombre} no se le manda:{" "}
+                    {huecosDelLead.length === 1
+                      ? "queda una variable vacía"
+                      : `quedan ${huecosDelLead.length} variables vacías`}
                   </p>
                   <p className="text-ink-secondary text-[11px] leading-relaxed text-pretty">
                     No tiene {enPalabras(huecosDelLead)}. Poné un respaldo o elegí otro dato.

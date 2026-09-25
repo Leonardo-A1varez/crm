@@ -84,6 +84,17 @@ import { DefaultUsuariosService } from "@/server/services/usuarios/usuarios.serv
 import { crearRegistroDeAcciones } from "@/server/services/workflows/acciones/registro";
 import type { ConfigProviderParaEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
 import { SupabaseMetaOperationalEventsRepository } from "@/server/repositories/meta-operational-events.supabase.repo";
+import { SupabaseDifusionAudienciaRepository } from "@/server/repositories/difusion-audiencia.supabase.repo";
+import { SupabaseDifusionEnviosRepository } from "@/server/repositories/difusion-envios.supabase.repo";
+import { SupabaseDifusionesRepository } from "@/server/repositories/difusiones.supabase.repo";
+import { cargarDatosDelLeadParaDifusion } from "@/server/services/difusion/datos-lead";
+import { DefaultMotorDifusionService } from "@/server/services/difusion/motor.service";
+import { topeDesdeLimite } from "@/server/services/difusion/tope";
+import { GraphApiMetaLecturaClient } from "@/server/services/meta/graph-api-lectura";
+import {
+  DefaultSaludWhatsAppService,
+  type SaludWhatsApp,
+} from "@/server/services/meta/salud-whatsapp.service";
 
 export interface BootstrapConfig {
   env: AppEnv;
@@ -270,6 +281,43 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     },
     logger: logger.child({ scope: "purge-session" }),
   });
+  // ===== Motor de difusión =====
+  // Manda por el cliente de Meta y no por `metaApi`: el destinatario típico de
+  // una difusión no tiene sesión, y `mensajes` la exige. La reserva de cada
+  // envío vive en `difusion_envios` (ver `motor.service.ts`).
+  const saludWhatsApp = new DefaultSaludWhatsAppService({
+    cliente: new GraphApiMetaLecturaClient({
+      graphApiVersion: env.META_GRAPH_API_VERSION,
+      accessToken: env.META_WHATSAPP_ACCESS_TOKEN,
+    }),
+    phoneNumberId: env.META_WHATSAPP_PHONE_NUMBER_ID,
+    versionApi: env.META_GRAPH_API_VERSION,
+    logger: logger.child({ scope: "meta-salud" }),
+  });
+  // Un minuto de cache por instancia, como el panel: cada lectura son cinco
+  // pedidos a la Graph API y el escalón no cambia de un lote a otro.
+  let saludCache: { expira: number; lectura: Promise<SaludWhatsApp> } | null = null;
+  const leerSalud = (): Promise<SaludWhatsApp> => {
+    const ahora = Date.now();
+    if (saludCache === null || ahora >= saludCache.expira) {
+      saludCache = { expira: ahora + 60_000, lectura: saludWhatsApp.leer() };
+    }
+    return saludCache.lectura;
+  };
+  const difusionAudiencia = new SupabaseDifusionAudienciaRepository(db);
+  const motorDifusion = new DefaultMotorDifusionService({
+    difusiones: new SupabaseDifusionesRepository(db),
+    envios: new SupabaseDifusionEnviosRepository(db),
+    supresiones,
+    usoCupoDesde: (desde) => difusionAudiencia.usoCupoDesde(desde),
+    meta: metaClient,
+    leerTopeMensajeria: async () => topeDesdeLimite((await leerSalud()).limite),
+    datosDelLead: (leadId, campos) =>
+      cargarDatosDelLeadParaDifusion({ leads, vehiculos, sessions }, leadId, campos),
+    esperar: (ms) => new Promise((resolver) => setTimeout(resolver, ms)),
+    logger: logger.child({ scope: "difusion-motor" }),
+  });
+
   const sendReactivation = makeSendReactivation({
     leads,
     sessions,
@@ -321,6 +369,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     },
     onStatusReceived: {
       messages,
+      difusion: motorDifusion,
     },
     onOperationalReceived: {
       eventos: new SupabaseMetaOperationalEventsRepository(db),
@@ -403,6 +452,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     },
     workflowProgramados: { workflows, sessions, leads, logger },
     workflowInactividad: { workflows, sessions, conversations, messages, leads, logger },
+    drenarDifusiones: { motor: motorDifusion, logger },
   };
 
   return { deps, llmBundle, logger };

@@ -76,11 +76,47 @@ describe("parseMetaStatuses", () => {
     expect(out[0]?.error).toBe("Fuera de la ventana de 24 horas");
   });
 
+  // Forma verificada contra la referencia del webhook de estado de Meta
+  // (2026-09-25): `errors[].code` es entero; el ejemplo oficial es un 131049.
+  test("levanta el código y el detalle del error: la difusión reacciona por código", () => {
+    const out = parseMetaStatuses(
+      payloadWA([
+        {
+          id: "wamid.7",
+          status: "failed",
+          timestamp: "1751142888",
+          errors: [
+            {
+              code: 131049,
+              title: "This message was not delivered to maintain healthy ecosystem engagement.",
+              message: "This message was not delivered to maintain healthy ecosystem engagement.",
+              error_data: {
+                details:
+                  "In order to maintain a healthy ecosystem engagement, the message failed to be delivered.",
+              },
+            },
+          ],
+        },
+      ]),
+    );
+    expect(out[0]?.error_codigo).toBe("131049");
+    expect(out[0]?.error_detalle).toMatch(/healthy ecosystem/);
+  });
+
+  test("sin código de error, el código queda en null", () => {
+    const out = parseMetaStatuses(payloadWA([{ id: "wamid.8", status: "delivered" }]));
+    expect(out[0]?.error_codigo).toBeNull();
+    expect(out[0]?.error_detalle).toBeNull();
+  });
+
   test("Instagram y Messenger no reportan por mensaje: devuelve vacío", () => {
     expect(parseMetaStatuses({ object: "instagram", entry: [] })).toEqual([]);
     expect(parseMetaStatuses({ object: "page", entry: [] })).toEqual([]);
   });
 });
+
+/** Ningún wamid es de una difusión. */
+const sinDifusion = { aplicarEstadoWebhook: async () => false };
 
 describe("onStatusReceivedHandler", () => {
   async function conMensaje() {
@@ -111,7 +147,7 @@ describe("onStatusReceivedHandler", () => {
         at: "2026-08-10T10:00:00.000Z",
         error: null,
       },
-      { messages },
+      { messages, difusion: sinDifusion },
     );
 
     expect(r).toEqual({ aplicado: true, motivo: "ok" });
@@ -126,11 +162,11 @@ describe("onStatusReceivedHandler", () => {
 
     await onStatusReceivedHandler(
       { ...base, estado: "leido", at: "2026-08-10T10:00:02.000Z" },
-      { messages },
+      { messages, difusion: sinDifusion },
     );
     await onStatusReceivedHandler(
       { ...base, estado: "entregado", at: "2026-08-10T10:00:01.000Z" },
-      { messages },
+      { messages, difusion: sinDifusion },
     );
 
     expect((await messages.findById(msg.id))?.estado_entrega).toBe("leido");
@@ -146,7 +182,7 @@ describe("onStatusReceivedHandler", () => {
         at: "2026-08-10T10:00:00.000Z",
         error: null,
       },
-      { messages },
+      { messages, difusion: sinDifusion },
     );
 
     expect(r).toEqual({ aplicado: false, motivo: "mensaje_desconocido" });
@@ -162,11 +198,44 @@ describe("onStatusReceivedHandler", () => {
         at: "2026-08-10T10:00:00.000Z",
         error: "Fuera de la ventana de 24 horas",
       },
-      { messages },
+      { messages, difusion: sinDifusion },
     );
 
     const actualizado = await messages.findById(msg.id);
     expect(actualizado?.estado_entrega).toBe("fallido");
     expect(actualizado?.error_entrega).toBe("Fuera de la ventana de 24 horas");
+  });
+
+  test("un wamid de una difusión se aplica a su envío, con el código de Meta", async () => {
+    const messages = new InMemoryMessagesRepository();
+    const llamadas: unknown[] = [];
+    const difusion = {
+      aplicarEstadoWebhook: async (input: unknown) => {
+        llamadas.push(input);
+        return true;
+      },
+    };
+
+    const r = await onStatusReceivedHandler(
+      {
+        meta_message_id: "wamid.difusion",
+        estado: "fallido",
+        at: "2026-09-25T10:00:00.000Z",
+        error: "User opted out",
+        error_codigo: "131050",
+        error_detalle: "Unable to deliver the message.",
+      },
+      { messages, difusion },
+    );
+
+    expect(r).toEqual({ aplicado: true, motivo: "difusion" });
+    expect(llamadas).toEqual([
+      {
+        wamid: "wamid.difusion",
+        estado: "fallido",
+        codigo: "131050",
+        detalle: "Unable to deliver the message.",
+      },
+    ]);
   });
 });

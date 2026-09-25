@@ -393,5 +393,79 @@ export function runDifusionEnviosContract(
       expect(primera.map((x) => x.tanda)).toEqual([0, 1]);
       expect(segunda.map((x) => x.estado)).toEqual(["excluido"]);
     });
+
+    // ---- Motor ------------------------------------------------------------
+
+    test("pendientesParaEnviar trae lo que está en cola y vencido, en orden de salida", async () => {
+      const manana = new Date(HOY.getTime() + 24 * 3_600_000);
+      await repo.registrarPlan([
+        enCola(d1, f.leads.l1, T1),
+        enCola(d1, f.leads.l2, T2, { tanda: 1, programado_para: manana }),
+        excluido(d1, f.leads.l3, T3, "baja_propia"),
+      ]);
+
+      const hoy = await repo.pendientesParaEnviar(d1, HOY, 10);
+      expect(hoy.map((e) => e.lead_id)).toEqual([f.leads.l1]);
+
+      const pasadoManana = await repo.pendientesParaEnviar(d1, new Date(manana.getTime() + 1), 10);
+      expect(pasadoManana.map((e) => e.lead_id)).toEqual([f.leads.l1, f.leads.l2]);
+    });
+
+    test("reservar es de una sola vez: el segundo que lo intenta no lo toma", async () => {
+      const id = await unoEnCola();
+      expect(await repo.reservar(id, HOY)).toBe(true);
+      expect(await repo.reservar(id, HOY)).toBe(false);
+      expect((await repo.findById(id))?.intento_at?.toISOString()).toBe(HOY.toISOString());
+      // Reservado ya no está pendiente.
+      expect(await repo.pendientesParaEnviar(d1, HOY, 10)).toEqual([]);
+    });
+
+    test("una reserva vieja sin desenlace aparece como tal, y se puede cerrar como fallida", async () => {
+      const id = await unoEnCola();
+      await repo.reservar(id, HOY);
+
+      const viejas = await repo.reservadosSinDesenlace(d1, new Date(HOY.getTime() + 1), 10);
+      expect(viejas.map((e) => e.id)).toEqual([id]);
+      expect(await repo.reservadosSinDesenlace(d1, new Date(HOY.getTime() - 1), 10)).toEqual([]);
+
+      const f2 = await repo.marcarFallido(id, { codigo: "desenlace_desconocido" });
+      expect(f2.estado).toBe("fallido");
+    });
+
+    test("liberarReserva devuelve a la cola lo que Meta rechazó sin mandar", async () => {
+      const id = await unoEnCola();
+      await repo.reservar(id, HOY);
+      await repo.liberarReserva(id);
+      expect((await repo.findById(id))?.intento_at).toBeNull();
+      expect((await repo.pendientesParaEnviar(d1, HOY, 10)).map((e) => e.id)).toEqual([id]);
+    });
+
+    test("marcarExcluido saca de la cola lo que no está reservado, con su motivo", async () => {
+      const id = await unoEnCola();
+      expect(await repo.marcarExcluido(id, "baja_propia")).toBe(true);
+      const e = await repo.findById(id);
+      expect(e?.estado).toBe("excluido");
+      expect(e?.motivo_exclusion).toBe("baja_propia");
+      expect(await repo.marcarExcluido(id, "baja_propia")).toBe(false);
+    });
+
+    test("marcarExcluido no toca un envío reservado: está en vuelo", async () => {
+      const id = await unoEnCola();
+      await repo.reservar(id, HOY);
+      expect(await repo.marcarExcluido(id, "baja_meta")).toBe(false);
+      expect((await repo.findById(id))?.estado).toBe("en_cola");
+    });
+
+    test("leadsConSalienteDesde ve los envíos reservados desde la fecha", async () => {
+      const id = await unoEnCola();
+      await repo.reservar(id, HOY);
+      const con = await repo.leadsConSalienteDesde(
+        [f.leads.l1, f.leads.l2],
+        new Date(HOY.getTime() - 6_000),
+      );
+      expect([...con]).toEqual([f.leads.l1]);
+      const despues = await repo.leadsConSalienteDesde([f.leads.l1], new Date(HOY.getTime() + 1));
+      expect(despues.size).toBe(0);
+    });
   });
 }

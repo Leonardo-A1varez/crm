@@ -253,7 +253,7 @@ function FilaVariable({
             <span className="font-mono tabular-nums">{total}</span> en la muestra no lo tienen:{" "}
             {respaldoLimpio
               ? `les llega «${respaldoLimpio}».`
-              : "sin respaldo, les llega con el hueco."}
+              : "sin respaldo, a esos no se les manda: Meta rechaza una variable vacía."}
           </>
         )}
       </p>
