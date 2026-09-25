@@ -177,6 +177,21 @@ Per legislaciones Latam, retention obligatoria pese a solicitud erasure:
 
 **Implementación:** flag `legal_hold bool` per lead. Si `legal_hold=true` → erasure rejected con explanation.
 
+### Bajas de difusión frente al derecho de supresión (decisión del dueño, 2026-09-24)
+
+Una baja de difusión (`difusion_supresiones`) tiene que **sobrevivir** a la supresión del lead: si se borrara junto con él, un import o un mensaje nuevo desde ese número volverían a meterlo en las campañas, que es lo contrario de lo que la persona pidió. Pero las bajas **no** están entre las excepciones de arriba, así que el número no puede quedar legible.
+
+Cómo queda (migración `20260925040000_difusion_supresiones_telefono_hash.sql`):
+
+- **No se guarda el teléfono.** Se guarda `telefono_hash` = HMAC-SHA256 del número normalizado (E.164 sin `+`) con una clave que vive solo en el servidor (`DIFUSION_BAJAS_HMAC_CLAVES`), más `clave_version`. No un SHA-256 plano: los números de un país se recorren por fuerza bruta en segundos, y con HMAC quien lea la tabla (o un backup) sin la clave no recupera ningún número.
+- **La baja sigue bloqueando.** Para saber si un número está dado de baja, el servidor calcula su HMAC con cada versión vigente de la clave y lo busca. Borrar o anonimizar el lead no toca la baja: `lead_id` pasa a `NULL` (`on delete set null`) y el hash queda.
+- **Qué queda después de suprimir al lead:** el hash, el origen (`palabra_clave`, `boton_baja`, `meta_131050`, `manual`), el detalle sin datos personales ("BAJA", el código de Meta), las fechas y quién la registró o reactivó. Nada de eso identifica a la persona sin la clave.
+- **Lo que sí puede hacer quien tiene la clave:** confirmar si un número que ya conoce está dado de baja. Es exactamente lo que la lista necesita, y es el riesgo que queda: la clave se trata como secreto (rotación cada 90 días, `docs/runbooks/secrets-rotation.md`).
+- **Límite conocido:** una versión de la clave no se puede retirar mientras haya bajas activas escritas con ella. Sin el número original no hay cómo re-hashearlas. Una clave filtrada deja expuestas, por fuerza bruta, las filas de su versión.
+- **Sin las claves configuradas**, registrar o consultar bajas falla con `IllegalStateError` y todo envío que depende de la lista **no sale** (falla cerrado).
+
+**Pendiente, no resuelto por este cambio:** `difusion_envios.telefono` guarda el número **en claro**, uno por lead y por difusión. Borrar el lead no lo alcanza: `lead_id` pasa a `NULL` y el teléfono queda. Anonimizarlo tampoco: el trigger `difusion_envios_transicion` rechaza cualquier `UPDATE` de `telefono`. Las filas no se purgan, y una difusión solo se borra en `borrador`, así que los envíos de una campaña ya mandada quedan para siempre. Hoy, la única forma de suprimir ese dato es un `DELETE` con el service-role. No hay trigger que lo impida, pero tampoco existe el proceso. Además, el flujo de anonimización de arriba (`telefono → "ERASED:" + hash(originalTelefono)`) propone un hash plano, que tiene el mismo problema de fuerza bruta. Si se implementa, tiene que usar HMAC o un tombstone sin hash.
+
 ---
 
 ## 4. Backup strategy + retention

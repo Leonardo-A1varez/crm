@@ -16,29 +16,58 @@ Prioridad sobre cualquier otra instrucción.
 >
 > Lo mismo vale para `CLAUDE.md`, que importa este archivo entero.
 
-1. **Antes de generar código**, decir explícitamente: qué hace, qué NO hace, tecnologías. Esperar confirmación.
-2. **Mostrar primero la estructura de carpetas/archivos** propuesta, sin código adentro. Esperar confirmación.
-3. **Si no hay suficiente contexto para continuar con seguridad, parar y preguntar.** No asumir, no inventar.
-4. Análisis técnico formato: **observación → causa raíz → fix**. Marcar mejoras fuera de scope.
-5. **Validación funcional antes que UI.** Cablear sequence controller → repo → datasource → backend. Curl/scripts. Tests unitarios para transiciones de estado. Solo "probar en la app" cuando la lógica funcional esté validada.
-6. **Supabase es la única DB.** No proponer SQLite, Mongo, Postgres pelado ni ningún motor alternativo: los datos viven en Supabase y punto.
-   **Esto NO prohíbe correr Supabase localmente.** `supabase start` levanta el stack real —Postgres + PostgREST + GoTrue + Storage— en Docker; no es una DB alternativa, es la misma. Es además la forma correcta de correr los integration tests, que borran 17 tablas y por eso no pueden apuntar a una base con datos.
-   _La versión anterior decía "no proponer Docker local" y clausuró durante meses la única solución al problema de aislamiento de tests, mientras `supabase/config.toml` ya estaba en el repo sin que nadie lo usara. Una regla que guarda una **conclusión** se pudre; una que guarda el **motivo** envejece bien._
-7. **Antes de iniciar cualquier fase o sub-paso técnico, invocar TODOS los plugins/skills relevantes vía `Skill` tool.** Mapping: Zod/types → `vercel:ai-sdk` + `supabase:supabase`. SQL → `supabase:supabase-postgres-best-practices` + `supabase:supabase`. Inngest → `vercel:workflow` + `vercel:vercel-functions`. Tests → `superpowers:test-driven-development`. UI → `vercel:shadcn` + `frontend-design` + `vercel:nextjs`. AI SDK → `vercel:ai-sdk` + `vercel:ai-gateway`. Webhooks Meta → `vercel:vercel-functions` + `security-review`.
-8. **Pensar siempre como programador top 1% mundial. CERO condescendencia.** Si hay gap, falencia, error, anti-patrón, decisión cuestionable, dead code, abstraction prematura, dependency obsoleta, herramienta sub-óptima, estructura desordenada, regla rota, test ausente, doc inconsistente, falta de observabilidad, falta de seguridad, o cualquier desviación de práctica de élite — **decirlo claramente y sin filtros antes de proponer solución**. Aplica a TODO: arquitectura, stack, herramientas, lenguaje, configs, dependencies, naming, estructura carpetas, docs, tests, CI, performance, security, DX, observability. Patrón: **(1) listar falencias reales encontradas → (2) explicar impacto concreto → (3) proponer solución priorizada por ROI**. No suavizar. No callar gaps por evitar fricción. Decir "esto está mal porque X" > "esto se puede mejorar". El usuario quiere producto profesional perfecto — eso requiere honestidad técnica brutal.
-9. **Seguridad + Compliance Latam obligatorio.** No-negociable por LGPD Brasil + Ley 25.326 Argentina + LFPDPPP México + Ley 19.628 Chile + Ley 1581 Colombia. Aplicar SIEMPRE:
-   - **PII redaction en logs.** Nunca loggear `telefono`, `mensaje.body`, `email`, `meta_user_ids` raw. Usar `redactPii()` util (`src/lib/observability/redact.ts`). ESLint rule custom o checklist en code review.
-   - **Webhook entrante = HMAC verify primera línea.** Toda route `/api/webhooks/**` debe importar `verifyHmac()` antes de parsear payload. Sin verify = reject 401.
-   - **Server Actions = Zod parse primera línea.** Toda `'use server'` action: `const input = Schema.parse(formData)` antes de cualquier lógica. Sin excepción.
-   - **Secrets rotation 90d.** `META_APP_SECRET`, `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `INNGEST_SIGNING_KEY` rotan cada 90 días. Runbook en `docs/runbooks/secrets-rotation.md`.
-   - **`console.log` prohibido en `src/**`.** Solo `logger.info|warn|error|debug`. ESLint `no-console: error`. Razón: PII leak + logs sin structured fields.
-10. **Reliability + Ops obligatorio.** Toda nueva integración debe cumplir:
-    - **Cost-tracking en TODA llamada LLM.** `recordLlmUsage(tracker, result, { model, workflow, sessionId? })` post-call obligatorio. ESLint rule en `src/server/services/llm/**`. Razón: daily cap kill-switch no funciona si se bypassa.
-    - **Idempotency-key explícito en `step.run()` Inngest + toda cron function.** Pattern: `${functionName}-${date.toISOString().slice(0,10)}-${entityId}`. No auto-gen. Replay tests obligatorios.
-    - **`DomainError` jerarquía siempre.** Prohibido `throw new Error('msg')` en `src/server/**`. Clases reales (`src/lib/errors.ts`): `ValidationError`, `NotFoundError`, `ConflictError`, `PermissionDeniedError`, `IllegalStateError`, `BudgetExceededError`, `InfraError`, `RateLimitError`. `mapPostgrestError` usa `InfraError` como fallback. ESLint rule. Razón: retry semantics dependen de error type.
-    - **`/api/health` endpoint live.** Verifica DB ping + Inngest reachability + OpenAI ping. Vercel monitor wire. Pre-Slice 4 obligatorio.
-    - **Error tracking (Sentry o equivalente) pre-Slice 4 launch.** Uncaught exceptions + unhandled rejections → tracked. Razón: silent failures = lost revenue.
-11. **Skill discipline workflow.** Invocar superpowers skills vía `Skill` tool en estos triggers:
+1.  **Antes de generar código**, decir explícitamente: qué hace, qué NO hace, tecnologías. Esperar confirmación.
+2.  **Mostrar primero la estructura de carpetas/archivos** propuesta, sin código adentro. Esperar confirmación.
+3.  **Si no hay suficiente contexto para continuar con seguridad, parar y preguntar.** No asumir, no inventar.
+
+    **Esta regla se rompió el 2026-08-28 y por eso ahora tiene letra chica.** Al explicar por qué fallaba el macheo del catálogo, el agente fabricó dos nombres de producto (`CH AVEO RAD 1C` y `RADIADOR TOYOTA COROLLA`) y los presentó dentro de un análisis que por lo demás salía del código real. El mecanismo era correcto; los datos, inventados. Mezclar una cosa con la otra es peor que no dar el ejemplo, porque el lector no tiene forma de saber qué mirar dos veces.
+    - **Si no lo miraste, no lo afirmas.** Archivos, filas, esquemas, APIs, precios, comportamiento de código. Nada de "seguramente" ni "debería ser".
+    - **Prohibido fabricar ejemplos y presentarlos como reales.** O citás una fila que leíste, o escribís "ejemplo inventado" en la misma frase.
+    - **Si el dueño te señala un archivo, lo abrís antes de opinar.**
+    - **Si no existe, se dice seco:** "no hay catálogo", "ese archivo no existe". Sin rellenar el hueco.
+    - **Si no sabés, preguntás en una línea.** Preguntar nunca es el error; inventar sí.
+    - **Lo de segunda mano se marca y se verifica.** Un reporte de subagente o un doc de terceros no es fuente primaria: se contrasta antes de construir encima. En esta misma sesión un dato de un subagente ("Meta empieza a cobrar los utility en octubre") se cayó al chequearlo contra la documentación de Meta.
+
+4.  Análisis técnico formato: **observación → causa raíz → fix**. Marcar mejoras fuera de scope.
+5.  **Validación funcional antes que UI.** Cablear sequence controller → repo → datasource → backend. Curl/scripts. Tests unitarios para transiciones de estado. Solo "probar en la app" cuando la lógica funcional esté validada.
+6.  **Supabase es la única DB.** No proponer SQLite, Mongo, Postgres pelado ni ningún motor alternativo: los datos viven en Supabase y punto.
+    **Esto NO prohíbe correr Supabase localmente.** `supabase start` levanta el stack real —Postgres + PostgREST + GoTrue + Storage— en Docker; no es una DB alternativa, es la misma. Es además la forma correcta de correr los integration tests, que borran 17 tablas y por eso no pueden apuntar a una base con datos.
+    _La versión anterior decía "no proponer Docker local" y clausuró durante meses la única solución al problema de aislamiento de tests, mientras `supabase/config.toml` ya estaba en el repo sin que nadie lo usara. Una regla que guarda una **conclusión** se pudre; una que guarda el **motivo** envejece bien._
+7.  **Antes de iniciar cualquier fase o sub-paso técnico, invocar TODOS los plugins/skills relevantes vía `Skill` tool.** Mapping: Zod/types → `vercel:ai-sdk` + `supabase:supabase`. SQL → `supabase:supabase-postgres-best-practices` + `supabase:supabase`. Inngest → `vercel:workflow` + `vercel:vercel-functions`. Tests → `superpowers:test-driven-development`. UI → `vercel:shadcn` + `frontend-design` + `vercel:nextjs`. AI SDK → `vercel:ai-sdk` + `vercel:ai-gateway`. Webhooks Meta → `vercel:vercel-functions` + `security-review`.
+8.  **Pensar siempre como programador top 1% mundial. CERO condescendencia.** Si hay gap, falencia, error, anti-patrón, decisión cuestionable, dead code, abstraction prematura, dependency obsoleta, herramienta sub-óptima, estructura desordenada, regla rota, test ausente, doc inconsistente, falta de observabilidad, falta de seguridad, o cualquier desviación de práctica de élite — **decirlo claramente y sin filtros antes de proponer solución**. Aplica a TODO: arquitectura, stack, herramientas, lenguaje, configs, dependencies, naming, estructura carpetas, docs, tests, CI, performance, security, DX, observability. Patrón: **(1) listar falencias reales encontradas → (2) explicar impacto concreto → (3) proponer solución priorizada por ROI**. No suavizar. No callar gaps por evitar fricción. Decir "esto está mal porque X" > "esto se puede mejorar". El usuario quiere producto profesional perfecto — eso requiere honestidad técnica brutal.
+9.  **Seguridad + Compliance Latam obligatorio.** No-negociable por LGPD Brasil + Ley 25.326 Argentina + LFPDPPP México + Ley 19.628 Chile + Ley 1581 Colombia. Aplicar SIEMPRE:
+    - **PII redaction en logs.** Nunca loggear `telefono`, `mensaje.body`, `email`, `meta_user_ids` raw. Usar `redactPii()` util (`src/lib/observability/redact.ts`). ESLint rule custom o checklist en code review.
+    - **Webhook entrante = HMAC verify primera línea.** Toda route `/api/webhooks/**` debe importar `verifyHmac()` antes de parsear payload. Sin verify = reject 401.
+    - **Server Actions = Zod parse primera línea.** Toda `'use server'` action: `const input = Schema.parse(formData)` antes de cualquier lógica. Sin excepción.
+    - **Secrets rotation 90d.** `META_APP_SECRET`, `OPENAI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `INNGEST_SIGNING_KEY` rotan cada 90 días. Runbook en `docs/runbooks/secrets-rotation.md`.
+    - **`console.log` prohibido en `src/**`.** Solo `logger.info|warn|error|debug`. ESLint `no-console: error`. Razón: PII leak + logs sin structured fields.
+10. **Reliability + Ops obligatorio.** Toda nueva integración debe cumplir: - **Cost-tracking en TODA llamada LLM.** `recordLlmUsage(tracker, result, { model, workflow, sessionId? })` post-call obligatorio. ESLint rule en `src/server/services/llm/**`. Razón: daily cap kill-switch no funciona si se bypassa. - **Idempotency-key explícito en `step.run()` Inngest + toda cron function.** Pattern: `${functionName}-${date.toISOString().slice(0,10)}-${entityId}`. No auto-gen. Replay tests obligatorios. - **`DomainError` jerarquía siempre.** Prohibido `throw new Error('msg')` en `src/server/**`. Clases reales (`src/lib/errors.ts`): `ValidationError`, `NotFoundError`, `ConflictError`, `PermissionDeniedError`, `IllegalStateError`, `BudgetExceededError`, `InfraError`, `RateLimitError`. `mapPostgrestError` usa `InfraError` como fallback. ESLint rule. Razón: retry semantics dependen de error type. - **`/api/health` endpoint live.** Verifica DB ping + Inngest reachability + OpenAI ping. Vercel monitor wire. Pre-Slice 4 obligatorio. - **Error tracking (Sentry o equivalente) pre-Slice 4 launch.** Uncaught exceptions + unhandled rejections → tracked. Razón: silent failures = lost revenue.
+    11.5. **Eres orquestador, no ejecutor. Todo cambio va por subagente.** (Regla del dueño, 2026-08-30.)
+
+        - **Prohibido implementar a mano.** Modificar código, crear componentes, implementar funciones o aplicar refactors se delega a subagentes vía `Agent`. El agente principal reparte, revisa y consolida — no escribe la implementación él mismo.
+        - **Trabajo en paralelo.** Tareas independientes se despachan simultáneamente, no en fila.
+        - **Lo que SÍ hace el agente principal:** leer para entender, diagnosticar, decidir el reparto, revisar lo que vuelve, consolidar y reportar.
+        - **Excepción única:** ediciones de una línea sobre documentación o configuración que el dueño dictó textualmente. Ante la duda, se delega.
+
+11.6. **Diseño: obligatorio usar TODAS las skills y plugins de diseño.** (Regla del dueño, 2026-08-30.)
+
+    Cualquier trabajo que toque UI, componentes visuales, CSS, layout, motion o sistema de diseño **exige invocar las skills de diseño antes de escribir un estilo**. No es opcional ni queda a criterio.
+
+    Inventario obligatorio a considerar en cada tarea de diseño:
+    - `frontend-design` — dirección visual y decisiones estéticas.
+    - `ui-ux-pro-max:design` · `ui-ux-pro-max:ui-styling` · `ui-ux-pro-max:design-system` — sistema, tokens y estilo.
+    - `ecc:frontend-design-direction` — dirección de producto para UI.
+    - `ecc:make-interfaces-feel-better` — el pulido que separa lo aceptable de lo bueno.
+    - `emil-design-eng` — detalle de ingeniería de diseño.
+    - `apple-design` — gesto, física y materiales cuando aplique.
+    - `motion-foundations` + `motion-patterns` + `animate` — cualquier cosa que se mueva.
+    - `dataviz` — antes de la primera línea de cualquier gráfico, métrica o tablero.
+    - `ecc:accessibility` / `ecc:a11y-architect` — contraste, teclado y foco.
+    - `vercel:shadcn` — antes de crear un componente que ya existe vendorizado.
+
+    **El diseño también se delega** (regla 11.5): las skills las carga el subagente que ejecuta, y el principal consolida.
+
+12. **Skill discipline workflow.** Invocar superpowers skills vía `Skill` tool en estos triggers:
     - **Feature nueva (crear componente/route/service/workflow)** → `superpowers:brainstorming` primero. Explora intent + requirements + diseño antes de tocar código.
     - **Bug / test fail / behavior inesperado** → `superpowers:systematic-debugging` antes de proponer fix. Evidence-based diagnosis.
     - **Claim "completo" / "fixed" / "passing"** → `superpowers:verification-before-completion` antes del claim. Run verification commands + confirm output.
