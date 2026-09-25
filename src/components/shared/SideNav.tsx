@@ -9,6 +9,7 @@ import {
   Group,
   InboxIcon,
   Inventory2,
+  SendIcon,
   SettingsIcon,
   SettingsSuggest,
   SmartToy,
@@ -25,20 +26,25 @@ interface NavItem {
   Icon: ComponentType<{ className?: string; size?: number; strokeWidth?: number }>;
 }
 
-// Los ítems de la barra. "OpenAI settings" (/agente)
-// es la consola que absorbió la administración de intents y reglas:
-// /intents-reglas ya solo redirige a /agente?tab=reglas, así que no tiene ítem
-// propio. El nombre lo eligió el dueño; nombra al proveedor y no a la función,
-// así que si algún día se cambia de modelo hay que revisarlo.
+// Los ítems de la barra. "/agente" es la consola que absorbió la
+// administración de intents y reglas: /intents-reglas ya solo redirige a
+// /agente?tab=reglas, así que no tiene ítem propio.
+//
+// Se llamaba "OpenAI settings" y pasó a "Agente": nombraba al proveedor en vez
+// de a la función, así que cambiar de modelo dejaba mintiendo a la barra. La
+// pantalla configura al vendedor —tono, límites, horario, reglas—, no a OpenAI.
 //
 // "Flujos" (/workflows) se agregó cuando la pantalla existió: el motor estaba
 // desplegado y andando desde antes, sin nada en la web que lo mostrara.
+// "Difusión" va pegada a Flujos porque comparten motor: una difusión es un
+// envío masivo que corre por los mismos pasos y aparece en el mismo historial.
 const ITEMS: readonly NavItem[] = [
   { href: "/inbox", label: "Inbox", Icon: InboxIcon },
   { href: "/leads", label: "Leads", Icon: Group },
   { href: "/productos", label: "Productos", Icon: Inventory2 },
-  { href: "/agente", label: "OpenAI settings", Icon: SmartToy },
+  { href: "/agente", label: "Agente", Icon: SmartToy },
   { href: "/workflows", label: "Flujos", Icon: AccountTree },
+  { href: "/difusion", label: "Difusión", Icon: SendIcon },
   { href: "/metricas", label: "Métricas", Icon: BarChartIcon },
   { href: "/ajustes", label: "Ajustes", Icon: SettingsIcon },
 ];

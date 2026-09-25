@@ -51,6 +51,7 @@ export {
   Settings as SettingsIcon,
   Settings2 as SettingsSuggest,
   ShieldCheck as VerifiedUser,
+  ShieldMinus as ShieldTope,
   SlidersHorizontal as Tune,
   Sparkles as AutoAwesome,
   Split as AltRoute,

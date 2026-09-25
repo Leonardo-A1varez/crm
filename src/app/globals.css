@@ -159,26 +159,87 @@
   --surface-warm: #fdf1f0;
   --ink-warm-dim: #6b2a26;
 
-  --ok: #0f8f61;
-  /* `warn` y `caution` se quedan en la familia cálida porque el significado lo
-     pide, pero son los dos tonos más apagados de la paleta clara y no hay
-     margen: el amarillo y el naranja no tienen forma oscura — oscurecerlos da
-     marrón, no un naranja intenso. Estos son los más vivos que llegan a 4.5:1
-     como texto plano (5.02 y 5.18 sobre blanco). Si algún día hacen falta más
-     vivos, la salida no es otro hex sino cambiar cómo se dibuja el badge:
-     relleno sólido con texto claro en vez de texto de color sobre un tinte. */
-  --warn: #c2410c;
-  --caution: #b45309;
-  --danger: #dc2626;
-  --info: #2563a8;
-  --special: #a21caf;
+  /* Tokens semánticos. Re-escalonados el 2026-09-03; antes de eso los seis
+     estaban calibrados contra la superficie equivocada y tres pares colisionaban.
+
+     ── Por qué se movieron ────────────────────────────────────────────────
+     El comentario anterior decía que estos valores eran "los más vivos que
+     llegan a 4.5:1 como texto plano". El número era cierto y la vara estaba
+     mal: un token semántico casi nunca se dibuja sobre superficie plana. El
+     patrón real, en decenas de call sites, es `text-danger` encima de
+     `bg-danger/10` — texto de un color sobre un tinte de SÍ MISMO, que es
+     exactamente lo que `stage.ts` ya contemplaba para los badges de etapa y
+     que este bloque afirmaba que "no tienen ese problema". Sí lo tenían.
+     Medidos contra su propio tinte al 13%, CUATRO DE LOS SEIS no llegaban:
+
+       ok 3.49 · danger 3.94 · caution 4.20 · warn 4.29   (vara 4.5)
+
+     `ok #0f8f61` ni siquiera llegaba como texto plano: 4.10 sobre blanco y
+     3.66 sobre `--surface-input`. Era una falta de WCAG 1.4.3 en producción.
+
+     Y esa vara equivocada era la causa de las colisiones: exigir 4.5:1 sobre
+     blanco los fijaba a todos en L≈0.55, y a luminosidad pareja el único eje
+     que queda para separar es el tono — con tres tokens (warn, caution,
+     danger) peleando por el mismo arco cálido. Bajarlos a donde el contraste
+     real lo pide libera el eje de luminosidad para hacer el trabajo.
+
+     ── Lo que sigue sin poder arreglarse ──────────────────────────────────
+     `warn` y `caution` NO llegan a ΔE 15 entre sí en tema claro, y no hay hex
+     que lo arregle: el arco cálido no da para tres. Lo que sí se puede, y se
+     hizo, es tratarlos como lo que son en `URGENCIA_CONFIG` (`TwinPanel.tsx`):
+     una RAMPA ORDINAL baja→media→alta, cuya vara no es ΔE 15 sino el escalón
+     de luminosidad. Pasaron de ΔL 0.002 (indistinguibles) a 0.061, y de OKLab
+     0.041 a 0.070 — por encima del 0.054 que el propio proyecto se puso.
+     Los dos consumidores que los ponen juntos ya llevan codificación
+     secundaria y TIENEN QUE SEGUIR LLEVÁNDOLA: `TwinPanel` cuenta barras
+     llenas 1/2/3 más la palabra, `InboxListItem` da glifo propio más palabra.
+
+     Igual que `caution`/`danger`, que llega a ΔE 15.2 en visión normal (el
+     piso duro) pero se queda en CVD 6.0 — la banda 6-8 que es legal sólo con
+     glifo + palabra, cosa que todos sus consumidores ya tienen.
+
+     ── Reproducir estos números ───────────────────────────────────────────
+       node scripts/verificar-paleta-clara.mjs
+     y contra el validador de la skill `dataviz`, sobre superficies reales:
+       node validate_palette.js "#097957,#863a00,#8f5509,#c52a4d,#2362a9,#ab25ab" \
+         --mode light --surface "#ffffff" --pairs all
+
+     antes → después, tema claro (ΔE OKLab x100; contraste sobre tinte 13%):
+       contraste       4 tokens por debajo de 4.5  →  0
+       caution/danger  normal  9.9 / CVD 2.8       →  15.2 / 6.0
+       warn/caution    OKLab   0.041, ΔL 0.002     →  0.070, ΔL 0.061
+       info/special    CVD     3.1                 →  6.1
+     tema oscuro:
+       ok/danger       CVD     6.5                 →  8.0
+       warn/danger     normal 10.6                 →  15.1
+       warn/caution    normal 11.2                 →  15.2
+       info/special    CVD     0.6                 →  8.3
+
+     Queda un par flojo que NO se arregla desde acá: `--info` contra
+     `--stage-requiere-humano` (CVD 3.5; era 3.1). Mezcla dos paletas
+     congeladas y el único consumidor que las pone en la misma barra apilada es
+     `src/components/metricas/PanelVendedores.tsx`. Se arregla ahí, no acá.
+     Mismo caso que `--brand` contra `--danger`, que en claro daban ΔE 1.6 —
+     el mismo color — en esa misma barra. */
+  --ok: #097957;
+  --warn: #863a00;
+  --caution: #8f5509;
+  --danger: #c52a4d;
+  --info: #2362a9;
+  --special: #ab25ab;
 
   /* Colores de las etapas del embudo. El badge (`stageBadgeBackground()` en
      `src/lib/ui/stage.ts`) pinta el texto sobre un `color-mix` al 13% del
      propio color de la etapa, no sobre superficie plana — ese tinte ya aclara
      el fondo hacia el mismo tono del texto, así que hace falta más oscuro que
-     lo que un texto plano necesitaría para llegar a 4.5:1. Por eso divergen de
-     los semánticos, que sientan sobre superficie plana y no tienen ese problema.
+     lo que un texto plano necesitaría para llegar a 4.5:1.
+
+     Este bloque decía además que por eso divergían de los semánticos, "que
+     sientan sobre superficie plana y no tienen ese problema". Era falso: los
+     semánticos se dibujan igual —`text-danger` sobre `bg-danger/10`— en
+     decenas de call sites. La diferencia era que las etapas estaban medidas
+     contra el fondo correcto y los semánticos no. Se corrigió el 2026-09-03;
+     ver el bloque de tokens semánticos más arriba. Las etapas no se tocaron.
 
      `negociando` y `esperando-pago` NO son la versión oscura de su color en
      tema oscuro (ámbar y naranja): cambian de tono a propósito. Oscurecer un
@@ -223,15 +284,18 @@
   --muted-foreground: #6b7280;
   --accent: #eceef1;
   --accent-foreground: #14161b;
-  --destructive: #dc2626;
+  --destructive: #c52a4d;
   --border: #dfe2e6;
   --input: #d5d9df;
   --ring: #d61f1f;
+  /* `--chart-*` no tiene un solo consumidor en `src/` (verificado con grep el
+     2026-09-03). Se mantienen alineados a los semánticos para que la promesa
+     de este bloque siga siendo cierta, pero son candidatos a borrarse. */
   --chart-1: #d61f1f;
-  --chart-2: #2563a8;
-  --chart-3: #0f8f61;
-  --chart-4: #a21caf;
-  --chart-5: #c2540f;
+  --chart-2: #2362a9;
+  --chart-3: #097957;
+  --chart-4: #ab25ab;
+  --chart-5: #863a00;
   --radius: 0.5625rem;
   --sidebar: #f6f7f8;
   --sidebar-foreground: #14161b;
@@ -280,12 +344,19 @@
   --surface-warm: #141116;
   --ink-warm-dim: #e4d9cb;
 
-  --ok: #34d399;
-  --warn: #fb923c;
-  --caution: #fbbf24;
-  --danger: #f87171;
-  --info: #7fb3f5;
-  --special: #e879f9;
+  /* Tokens semánticos, oscuro. Re-escalonados el 2026-09-03 junto con los
+     claros; acá sí entran las seis en las varas completas (ΔE >= 15 en visión
+     normal y >= 8 en daltonismo, entre todos los pares). Movimiento chico: el
+     tema oscuro tenía margen y sólo hizo falta empujar `caution` de ámbar a
+     amarillo puro para despegarlo de `warn`, y separar `ok`/`danger` —el par
+     rojo-verde clásico— por luminosidad, que es lo único que sobrevive a la
+     deuteranopía. Números y comando en el bloque de `:root`. */
+  --ok: #31d7a5;
+  --warn: #fe9d4a;
+  --caution: #f7d710;
+  --danger: #f9667c;
+  --info: #99cbfe;
+  --special: #e679f8;
 
   /* Colores de las etapas del embudo. Valores tal cual estaban antes en
      `stage.ts`, hoy tokenizados para que el tema claro pueda tener los suyos. */
@@ -315,15 +386,15 @@
   --muted-foreground: #8b909a;
   --accent: #15181e;
   --accent-foreground: #ecedef;
-  --destructive: #f87171;
+  --destructive: #f9667c;
   --border: #1c1f26;
   --input: #21242c;
   --ring: #d61f1f;
   --chart-1: #d61f1f;
-  --chart-2: #7fb3f5;
-  --chart-3: #34d399;
-  --chart-4: #e879f9;
-  --chart-5: #fb923c;
+  --chart-2: #99cbfe;
+  --chart-3: #31d7a5;
+  --chart-4: #e679f8;
+  --chart-5: #fe9d4a;
   --radius: 0.5625rem;
   --sidebar: #08090b;
   --sidebar-foreground: #ecedef;
