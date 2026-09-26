@@ -22,14 +22,23 @@
 --                  migración, siempre por plantilla).
 --   alta_dinamica  la fila la sumó la re-evaluación de una audiencia dinámica,
 --                  después de programar. La pantalla de envío las cuenta.
+--
+-- Reaplicable: `if not exists`, constraints que se borran antes de crearse y
+-- `create or replace`. Se puede correr a mano en el stack local sin romper un
+-- `db push` posterior.
 
 -- =========================================================================
 -- difusiones
 -- =========================================================================
 
 alter table public.difusiones
-  add column texto_libre              text,
-  add column audiencia_tanda_evaluada integer;
+  add column if not exists texto_libre              text,
+  add column if not exists audiencia_tanda_evaluada integer;
+
+alter table public.difusiones
+  drop constraint if exists difusiones_texto_libre_len,
+  drop constraint if exists difusiones_tanda_evaluada_no_negativa,
+  drop constraint if exists difusiones_tanda_evaluada_solo_dinamica;
 
 alter table public.difusiones
   add constraint difusiones_texto_libre_len
@@ -50,8 +59,13 @@ comment on column public.difusiones.audiencia_tanda_evaluada is
 -- =========================================================================
 
 alter table public.difusion_envios
-  add column salio_como    text,
-  add column alta_dinamica boolean not null default false;
+  add column if not exists salio_como    text,
+  add column if not exists alta_dinamica boolean not null default false;
+
+alter table public.difusion_envios
+  drop constraint if exists difusion_envios_salio_como_valores,
+  drop constraint if exists difusion_envios_texto_libre_en_ventana,
+  drop constraint if exists difusion_envios_salio_como_con_reserva;
 
 alter table public.difusion_envios
   add constraint difusion_envios_salio_como_valores
@@ -69,7 +83,7 @@ comment on column public.difusion_envios.alta_dinamica is
   'La sumo la re-evaluacion de una audiencia dinamica despues de programar.';
 
 -- La pantalla de envío cuenta las altas. Parcial: casi ninguna fila lo es.
-create index difusion_envios_altas
+create index if not exists difusion_envios_altas
   on public.difusion_envios (difusion_id)
   where alta_dinamica;
 
@@ -93,7 +107,7 @@ create index difusion_envios_altas
 -- SECURITY INVOKER: la llama el motor con el service-role. Pasa por los mismos
 -- CHECK y el trigger de transiciones que cualquier otra escritura.
 
-create function public.difusion_sumar_altas(p_difusion_id uuid, p_envios jsonb)
+create or replace function public.difusion_sumar_altas(p_difusion_id uuid, p_envios jsonb)
 returns integer
 language plpgsql
 security invoker

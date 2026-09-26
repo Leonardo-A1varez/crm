@@ -17,6 +17,7 @@
 import type { Calidad, EnvioSegunMeta, EstadoPlantillaLeida } from "@/components/ajustes/tipos";
 import type {
   CategoriaPlantilla,
+  ContenidoEnvio,
   EstadoDifusion,
   EstadoEnvio,
   MotivoExclusion,
@@ -104,6 +105,8 @@ export interface Destinatario {
   telefono: string;
   vehiculo: string | null;
   ruta: RutaEnvio;
+  /** Qué le sale según el plan: texto libre (ventana abierta y la difusión lo tiene) o plantilla. */
+  contenido: ContenidoEnvio;
   /** 0 = la primera tanda. */
   tanda: number;
   /** Contra el envío anterior; `null` si no se pidió o no hay con qué comparar. */

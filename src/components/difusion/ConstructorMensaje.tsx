@@ -159,6 +159,7 @@ export function ConstructorMensaje({
               elegidaId={plantilla?.id ?? null}
               porVentanaAbierta={porVentanaAbierta}
               porPlantilla={porPlantilla}
+              porTextoLibre={porTextoLibre ?? 0}
               onElegir={onElegirPlantilla}
               onDespausar={onDespausar}
             />
@@ -198,6 +199,7 @@ export function ConstructorMensaje({
           destinatarios={destinatarios}
           valoresPorLead={valoresPorLead}
           lineasCosto={lineasCosto}
+          textoLibre={textoLibre}
         />
       </div>
     </div>

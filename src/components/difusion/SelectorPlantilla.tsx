@@ -45,6 +45,7 @@ export function SelectorPlantilla({
   elegidaId,
   porVentanaAbierta,
   porPlantilla,
+  porTextoLibre = 0,
   onElegir,
   onDespausar,
 }: {
@@ -53,6 +54,8 @@ export function SelectorPlantilla({
   /** Reparto de la audiencia por ruta; `null` mientras no hay cálculo. */
   porVentanaAbierta: number | null;
   porPlantilla: number | null;
+  /** De los de ventana abierta, a cuántos les sale el texto libre. */
+  porTextoLibre?: number;
   onElegir: (id: string) => void;
   onDespausar: (plantilla: string) => void;
 }) {
@@ -79,7 +82,9 @@ export function SelectorPlantilla({
             <span className="font-mono tabular-nums" style={{ color: COLOR_RUTA.ventana_abierta }}>
               {formatearEntero(porVentanaAbierta)}
             </span>{" "}
-            tienen la ventana abierta y reciben la misma plantilla (con marketing, se cobra igual).
+            {porTextoLibre > 0
+              ? "tienen la ventana abierta y reciben el texto libre de abajo."
+              : "tienen la ventana abierta: reciben la misma plantilla (con marketing, se cobra igual) salvo que escribas un texto libre abajo."}
           </>
         ) : null}
       </p>

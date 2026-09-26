@@ -67,8 +67,9 @@ export function CostoEstimado({ lineas }: { lineas: readonly LineaCosto[] }) {
         </Nota>
       ) : null}
       <Nota>
-        Todos reciben la plantilla, también quien tiene la ventana de servicio abierta. Meta cobra
-        siempre las de marketing; las de utility son gratis dentro de la ventana abierta.
+        Con la ventana de servicio abierta sale el texto libre, si lo escribiste, y no se cobra; si
+        no, sale la plantilla. Meta cobra siempre las de marketing; las de utility son gratis dentro
+        de la ventana abierta.
       </Nota>
     </div>
   );

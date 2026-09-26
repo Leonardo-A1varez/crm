@@ -13,7 +13,13 @@ import {
 } from "@/components/ui/select";
 import { etiquetaCampo } from "./campos-mensaje";
 import { CostoEstimado } from "./CostoEstimado";
-import { camposFaltantes, componerTexto, type PiezaMensaje, type Resolucion } from "./mensaje";
+import {
+  camposFaltantes,
+  componerTexto,
+  textoLibrePara,
+  type PiezaMensaje,
+  type Resolucion,
+} from "./mensaje";
 import { CATEGORIA_PLANTILLA, COLOR_RUTA, tinte } from "./paleta";
 import { CodigoMeta, Nota, Punto } from "./primitivas";
 import { BadgeCategoria } from "./SelectorPlantilla";
@@ -68,6 +74,7 @@ export function VistaPreviaMensaje({
   destinatarios,
   valoresPorLead,
   lineasCosto,
+  textoLibre = "",
 }: {
   plantilla: Plantilla | null;
   config: ConfigMensaje | null;
@@ -75,6 +82,8 @@ export function VistaPreviaMensaje({
   destinatarios: readonly Destinatario[];
   valoresPorLead: Readonly<Record<string, ValoresLead>>;
   lineasCosto: readonly LineaCosto[] | null;
+  /** La versión en texto libre, como se escribe. Vacía = no hay. */
+  textoLibre?: string;
 }) {
   const [actual, setActual] = useState(0);
   const total = destinatarios.length;
@@ -175,7 +184,14 @@ export function VistaPreviaMensaje({
           <Nota>Todavía no hay nadie de la audiencia contra quien previsualizar.</Nota>
         )}
 
-        {plantilla === null ? (
+        {lead && lead.contenido === "texto_libre" && textoLibre.trim() !== "" ? (
+          <figure className="bg-surface-chat border-line-row flex flex-col gap-1 rounded-[11px] border p-3">
+            <figcaption className="sr-only">Texto libre como le llega a {lead.nombre}</figcaption>
+            <div className="bg-surface-bubble-in text-ink-body max-w-[94%] rounded-[10px] rounded-tl-[3px] px-3 py-2.5 text-[12px] leading-relaxed whitespace-pre-wrap">
+              {textoLibrePara(textoLibre.trim(), valoresPorLead[lead.leadId])}
+            </div>
+          </figure>
+        ) : plantilla === null ? (
           <div className="border-line-control flex flex-col items-center gap-1.5 rounded-[11px] border border-dashed px-4 py-8 text-center">
             <p className="text-ink-secondary text-[12px] font-[650]">Todavía no hay mensaje</p>
             <p className="text-ink-faint text-[11px] leading-relaxed text-balance">
@@ -303,15 +319,17 @@ function RutaDelLead({ lead, plantilla }: { lead: Destinatario; plantilla: Plant
   return (
     <p className="text-ink-dim flex items-center gap-1.5 text-[11px] leading-snug">
       <Punto color={COLOR_RUTA[lead.ruta]} />
-      {abierta
-        ? `Tiene la ventana abierta: le llega la misma plantilla${
-            plantilla && plantilla.categoria === "marketing" ? ", y se cobra igual" : ""
-          }.`
-        : `Fuera de la ventana: le llega como plantilla${
-            plantilla
-              ? ` de ${CATEGORIA_PLANTILLA[plantilla.categoria].etiqueta.toLowerCase()}`
-              : ""
-          }.`}
+      {abierta && lead.contenido === "texto_libre"
+        ? "Tiene la ventana abierta: le llega el texto libre, que no se cobra."
+        : abierta
+          ? `Tiene la ventana abierta: le llega la misma plantilla${
+              plantilla && plantilla.categoria === "marketing" ? ", y se cobra igual" : ""
+            }.`
+          : `Fuera de la ventana: le llega como plantilla${
+              plantilla
+                ? ` de ${CATEGORIA_PLANTILLA[plantilla.categoria].etiqueta.toLowerCase()}`
+                : ""
+            }.`}
     </p>
   );
 }

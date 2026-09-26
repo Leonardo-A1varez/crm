@@ -1,4 +1,5 @@
 import { seCobraConVentanaAbierta } from "@/lib/difusion/cobro-meta";
+import { interpolarVariables } from "@/lib/workflows/variables";
 import { CATEGORIA_PLANTILLA } from "./paleta";
 import type {
   AsignacionVariable,
@@ -318,4 +319,22 @@ export function totalCosto(lineas: readonly LineaCosto[]): number | null {
     total += l.usd;
   }
   return total;
+}
+
+/**
+ * El texto libre como le llega a un lead: el mismo interpolador que usa el
+ * motor, con los mismos datos. Un dato que falta sale vacío, como al mandar.
+ */
+export function textoLibrePara(texto: string, valores: ValoresLead | undefined): string {
+  const v = valores ?? {};
+  return interpolarVariables(texto, {
+    lead: {
+      nombre: v.nombre ?? null,
+      nombre_perfil: v.nombre_perfil ?? null,
+      vehiculo_marca: v.vehiculo_marca ?? null,
+      vehiculo_modelo: v.vehiculo_modelo ?? null,
+      vehiculo_anio: v.vehiculo_anio ?? null,
+    },
+    sesion: { consulta: v.consulta ?? null },
+  }).texto;
 }

@@ -20,6 +20,33 @@ async function sembrarDifusion(c: TestClient, nombre: string): Promise<string> {
   return data.id;
 }
 
+/**
+ * Una difusión dinámica en curso: la única a la que `difusion_sumar_altas()`
+ * le deja sumar altas. Programada y enviándose exige plantilla, idioma y fecha.
+ */
+async function sembrarDinamica(c: TestClient): Promise<string> {
+  const { data, error } = await c
+    .from("difusiones")
+    .insert({
+      nombre: "Contrato envios dinamica",
+      audiencia: AUDIENCIA,
+      audiencia_toda_la_base: true,
+      audiencia_modo: "dinamica",
+      plantilla_nombre: "promo",
+      plantilla_categoria: "marketing",
+      plantilla_idioma: "es",
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(`sembrar difusion dinamica fail: ${error.message}`);
+  const { error: e2 } = await c
+    .from("difusiones")
+    .update({ estado: "enviando", programada_para: new Date().toISOString() })
+    .eq("id", data.id);
+  if (e2) throw new Error(`poner en envio la dinamica fail: ${e2.message}`);
+  return data.id;
+}
+
 beforeAll(async () => {
   client = makeTestSupabaseClient();
   await cleanupTestDb(client);
@@ -27,6 +54,7 @@ beforeAll(async () => {
     difusiones: {
       d1: await sembrarDifusion(client, "Contrato envios 1"),
       d2: await sembrarDifusion(client, "Contrato envios 2"),
+      dinamica: await sembrarDinamica(client),
     },
     leads: {
       l1: await sembrarLead(client, "envios-1"),
@@ -49,11 +77,23 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
-  // Borradores: se borran y los envíos caen en cascada.
+  // Sólo un borrador se borra (trigger): la dinámica vuelve a borrador primero.
+  // Los envíos caen en cascada.
+  if (fixtures.difusiones.dinamica) {
+    await client
+      .from("difusiones")
+      .update({ estado: "borrador", programada_para: null })
+      .eq("id", fixtures.difusiones.dinamica);
+  }
   await client
     .from("difusiones")
     .delete()
-    .in("id", [fixtures.difusiones.d1, fixtures.difusiones.d2]);
+    .in(
+      "id",
+      [fixtures.difusiones.d1, fixtures.difusiones.d2, fixtures.difusiones.dinamica].filter(
+        (id): id is string => id !== undefined,
+      ),
+    );
   await cleanupTestDb(client);
 });
 

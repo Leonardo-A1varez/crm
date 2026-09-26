@@ -7,6 +7,7 @@ import {
   describirPendiente,
   disponibilidad,
   lineasCostoMensaje,
+  textoLibrePara,
   pendientesMensaje,
   resolverVariable,
   segmentar,
@@ -387,5 +388,23 @@ describe("totalCosto", () => {
         { cantidad: 0, concepto: "plantilla", usd: null },
       ]),
     ).toBe(0);
+  });
+});
+
+describe("textoLibrePara", () => {
+  it("resuelve las variables del texto libre con los datos del lead, como el motor", () => {
+    expect(
+      textoLibrePara("Hola {{lead.nombre}}, tu {{lead.vehiculo_modelo}}", {
+        nombre: "Ana",
+        vehiculo_modelo: "Aveo",
+      }),
+    ).toBe("Hola Ana, tu Aveo");
+  });
+
+  it("un dato que falta sale vacío, igual que al mandar", () => {
+    expect(textoLibrePara("Hola {{lead.nombre}}!", {})).toBe("Hola !");
+    expect(textoLibrePara("Sobre {{sesion.consulta}}", { consulta: "frenos" })).toBe(
+      "Sobre frenos",
+    );
   });
 });
