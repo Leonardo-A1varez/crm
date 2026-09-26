@@ -48,8 +48,13 @@ import type { CamposVivosDeps } from "./ejecutor.service";
  * la ventana de 24 h si el primer bloque que manda la necesita—, con las mismas
  * funciones: si algo lo impide, no intercepta y contesta el agente. La carrera
  * entre esta decisión y el envío la cierra la marca `$respuesta_de_turno`
- * (`lib/workflows/interceptar.ts`). El horario no descarta: fuera de hora el
- * envío del flujo se difiere, no se salta.
+ * (`lib/workflows/interceptar.ts`).
+ *
+ * Tampoco intercepta si la corrida no va a arrancar (política `ignorar` con
+ * una corrida viva del flujo para el lead) ni fuera de horario: el envío del
+ * flujo se diferiría hasta la apertura, y un flujo no puede prometer una
+ * respuesta que llega horas después. Fuera de horario contesta el pipeline con
+ * su respuesta de fuera de horario (decisión del dueño).
  */
 
 /** Por qué un interceptor que coincidía no contesta: lo que habría hecho saltar su envío. */
@@ -58,7 +63,11 @@ export type MotivoDescarte =
   /** El bloque que contestaría no tiene una config válida: al correr fallaría. */
   | "bloque_mal_configurado"
   /** Los topes no se pudieron evaluar por la config (sin horario, sin lista de bajas). */
-  | "no_verificable";
+  | "no_verificable"
+  /** Política `ignorar` y ya hay una corrida viva del flujo para el lead: la nueva no arranca. */
+  | "ya_hay_corrida_viva"
+  /** Fuera del horario de atención: el envío se diferiría. */
+  | "fuera_de_horario";
 
 export interface DecidirIntercepcionInput {
   leadId: UUID;
@@ -85,7 +94,7 @@ export type Intercepcion = Extract<DecisionIntercepcion, { tipo: "intercepta" }>
 
 export interface InterceptorTurnoDeps {
   workflows: Pick<WorkflowsRepository, "listarPublicadasPorDisparador">;
-  runs: Pick<WorkflowRunsRepository, "esperandoOpcion">;
+  runs: Pick<WorkflowRunsRepository, "esperandoOpcion" | "hayCorridaViva">;
   turnos: Pick<TurnosInterceptadosRepository, "registrar">;
   /** Los campos vivos de las condiciones y la zona del negocio (`camposVivosDeCondicion`). */
   camposVivos: CamposVivosDeps;
@@ -201,8 +210,18 @@ export class InterceptorTurnoService implements InterceptorTurno {
       const ganador = elegido.version;
       // Contesta uno solo; si él no puede, contesta el agente. Los topes que lo
       // frenan son del lead, así que frenarían igual a cualquier otro.
+      // Mismo criterio que `arrancar_workflow_run`: con `ignorar` y una viva
+      // del flujo para el lead, la corrida nueva no arranca y nadie contesta.
+      // `reiniciar` cancela la viva y arranca; `permitir` arranca igual.
+      const noArranca =
+        ganador.politica_concurrencia === "ignorar" &&
+        (await this.deps.runs.hayCorridaViva(ganador.workflow_id, input.leadId));
       const envio = primerEnvioDesde(ganador.grafo, elegido.nodo, esEnvio);
-      const motivo = envio ? await this.impedimento(input, envio, ahora) : null;
+      const motivo: MotivoDescarte | null = noArranca
+        ? "ya_hay_corrida_viva"
+        : envio
+          ? await this.impedimento(input, envio, ahora)
+          : null;
       if (motivo) return { tipo: "no", descartada: { workflowId: ganador.workflow_id, motivo } };
       return {
         tipo: "intercepta",
@@ -241,6 +260,7 @@ export class InterceptorTurnoService implements InterceptorTurno {
         "interceptar",
       );
       if (topes.tipo === "salto") return topes.salto.motivo;
+      if (topes.tipo === "diferir") return "fuera_de_horario";
     } catch (error) {
       // Una config que no deja evaluar los topes tampoco deja mandar: el envío
       // fallaría con el mismo error. Una falla de infraestructura se reintenta:

@@ -492,12 +492,15 @@ export async function onMessageReceivedHandler(
     }
 
     // ¿Contesta un flujo en lugar del agente? (decisión 2 del dueño). Va después
-    // de la baja —un BAJA corta antes que cualquier flujo— y antes del horario:
-    // el flujo que intercepta contesta a cualquier hora, y la plantilla de
-    // fuera de horario sería una segunda respuesta al mismo mensaje. Primero
-    // sin clasificar; si algún interceptor mira el intent, se vuelve a
-    // preguntar después de clasificar y antes del agente. No espera a que el
-    // flujo corra: la corrida la arranca `workflow-disparar` con el disparo de
+    // de la baja —un BAJA corta antes que cualquier flujo— y sólo dentro del
+    // horario de atención: fuera de horario el envío del flujo se diferiría
+    // hasta la apertura, y un flujo no puede prometer una respuesta que llega
+    // horas después. Fuera de horario contesta lo de siempre (la plantilla de
+    // `agente_config`, más abajo) y el flujo se entera como cualquier "Mensaje
+    // recibido", sin contestar el turno (decisión del dueño). Primero sin
+    // clasificar; si algún interceptor mira el intent, se vuelve a preguntar
+    // después de clasificar y antes del agente. No espera a que el flujo
+    // corra: la corrida la arranca `workflow-disparar` con el disparo de
     // siempre.
     //
     // El turno interceptado se clasifica igual (decisión del dueño): lo que se
@@ -506,9 +509,12 @@ export async function onMessageReceivedHandler(
     // mensaje no lo ven. La baja, que cortó arriba, sigue sin clasificar.
     //
     // Si el flujo que coincidía no va a poder responder —un tope saltaría su
-    // envío—, el interceptor no intercepta y contesta el agente
+    // envío, o la corrida no arrancaría por su política de concurrencia—, el
+    // interceptor no intercepta y contesta el agente
     // (`interceptor.service.ts`). Queda en el log con el motivo; en
     // `turnos_interceptados` sólo entran los turnos que contesta un flujo.
+    const config = await deps.configProvider.get();
+    const abierto = estaAbierto(config.horario, config.horario_timezone, new Date());
     const interceptor = deps.interceptor;
     const avisarDescarte = (decision: DecisionIntercepcion) => {
       if (decision.tipo === "no" && decision.descartada) {
@@ -519,7 +525,7 @@ export async function onMessageReceivedHandler(
       }
     };
     let intercepcion: DecisionIntercepcion = { tipo: "no" };
-    if (interceptor) {
+    if (interceptor && abierto) {
       intercepcion = await step.run("decidir-intercepcion", () =>
         interceptor.decidir({
           leadId: lead.id,
@@ -568,17 +574,12 @@ export async function onMessageReceivedHandler(
       };
     };
 
-    const config = await deps.configProvider.get();
-
     // Fuera de horario: no se invoca ningun LLM (ni classifier ni agente).
     // Con plantilla configurada se responde eso; sin ella, no se responde
     // nada y la sesion queda como esta para que el triage humano la retome.
-    // Un turno que ya contesta un flujo no pasa por acá: el flujo contesta a
-    // cualquier hora y la plantilla sería una segunda respuesta.
-    if (
-      intercepcion.tipo !== "intercepta" &&
-      !estaAbierto(config.horario, config.horario_timezone, new Date())
-    ) {
+    // Fuera de horario nunca hay turno interceptado: el interceptor ni se
+    // consulta (arriba), así que la plantilla es la única respuesta.
+    if (!abierto) {
       // Sin LLM no hay intent, pero el flujo se entera igual (y antes de la
       // plantilla, como en el camino normal antes de la respuesta del agente).
       await emitirMensajeRecibido(null);

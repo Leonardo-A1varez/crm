@@ -432,6 +432,68 @@ describe("on-message-received — nunca se silencia al agente si el flujo no pue
   });
 });
 
+/**
+ * Decisión del dueño: fuera de horario no se intercepta. El flujo no puede
+ * prometer una respuesta que después se difiere; contesta lo de siempre fuera
+ * de horario (la plantilla de `agente_config`). El flujo se dispara igual como
+ * "Mensaje recibido", sin contestar el turno.
+ */
+describe("on-message-received — fuera de horario no se intercepta", () => {
+  const SIN_HORARIO = { desde: "00:00", hasta: "00:00" };
+  const cerrado = {
+    ...CONFIG_DE_FABRICA,
+    horario: {
+      lun: [SIN_HORARIO],
+      mar: [SIN_HORARIO],
+      mie: [SIN_HORARIO],
+      jue: [SIN_HORARIO],
+      vie: [SIN_HORARIO],
+      sab: [SIN_HORARIO],
+      dom: [SIN_HORARIO],
+    },
+    plantilla_fuera_horario: "Estamos cerrados, te respondemos al abrir.",
+  };
+
+  /** Un interceptor que no manda nada: escala a una persona (avisa al equipo). */
+  function escalarHorario(): Grafo {
+    return {
+      nodos: [
+        nodo("t", "trigger_mensaje", {
+          interceptaLlm: true,
+          filtro: "contiene",
+          palabra: "horario",
+        }),
+        nodo("a", "int_notif_vendedor", { destinatario: "vendedor_asignado", mensaje: "ojo" }),
+        nodo("d", "logica_detener"),
+      ],
+      aristas: [
+        { desde: "t", hasta: "a", puerto: "salida" },
+        { desde: "a", hasta: "d", puerto: "salida" },
+      ],
+    };
+  }
+
+  test("contesta la plantilla de fuera de horario y el turno no queda interceptado", async () => {
+    const ctx = makeDeps([version(escalarHorario())]);
+    ctx.deps.configProvider = new StaticAgentConfigProvider(cerrado);
+
+    const r = await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+
+    expect(r.agentSource).toBe("handoff");
+    expect(r.sent).toBe(true);
+    const mensajes = await ctx.messages.listByConversacion(r.conversacionId);
+    expect(mensajes.filter((m) => m.direction === "out").map((m) => m.contenido)).toEqual([
+      cerrado.plantilla_fuera_horario,
+    ]);
+    const entrante = mensajes.find((m) => m.direction === "in")!;
+    expect(await ctx.turnos.listByMensajeIds([entrante.id])).toEqual([]);
+    // El flujo se entera como "Mensaje recibido", sin contestar el turno.
+    const [disparo] = disparosMensaje(ctx.emitted);
+    expect(disparo).toBeDefined();
+    expect(disparo?.data.interceptadoPor).toBeUndefined();
+  });
+});
+
 describe("on-message-received — el toque de un botón que un flujo espera", () => {
   let ctx: ReturnType<typeof makeDeps>;
 

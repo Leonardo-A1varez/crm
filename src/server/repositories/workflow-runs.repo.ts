@@ -214,6 +214,13 @@ export interface WorkflowRunsRepository {
     respondeA: string | null,
   ): Promise<{ runId: UUID; workflowId: UUID } | null>;
   /**
+   * ¿El lead tiene una corrida de producción viva (`corriendo`/`esperando`) de
+   * este workflow? Mismo predicado que `arrancar_workflow_run`: las de Probar
+   * no cuentan. Lo usa el interceptor: con política `ignorar` y una viva, la
+   * corrida nueva no arranca y no puede contestar el turno.
+   */
+  hayCorridaViva(workflowId: UUID, leadId: UUID): Promise<boolean>;
+  /**
    * Métricas de corridas por workflow, sólo las iniciadas después de `desde`.
    * Una llamada para TODOS los workflows a la vez (no una por workflow): es lo
    * que evita que la pantalla de listado sea un N+1 sobre `workflow_runs`.
@@ -358,6 +365,17 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
       };
     }
     return null;
+  }
+
+  async hayCorridaViva(workflowId: UUID, leadId: UUID): Promise<boolean> {
+    for (const r of this.runs.values()) {
+      if (r.lead_id !== leadId || !ESTADOS_VIVOS.includes(r.estado)) continue;
+      if (esContextoDePrueba(r.contexto)) continue;
+      // Sin resolver, la versión hace de workflow: mismo fallback que `esperandoOpcion`.
+      const deLaCorrida = this.resolverWorkflowId?.(r.workflow_version_id) ?? r.workflow_version_id;
+      if (deLaCorrida === workflowId) return true;
+    }
+    return false;
   }
 
   async registrarNoArrancada(

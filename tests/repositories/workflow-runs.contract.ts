@@ -506,5 +506,44 @@ export function runWorkflowRunsContract(
         expect(await repo.contarVivasPorVersion(workflowId)).toEqual([]);
       });
     });
+
+    // Lo que mira el interceptor antes de silenciar al agente: con política
+    // `ignorar`, una corrida viva del flujo para el lead no deja arrancar otra.
+    // Mismo predicado que `arrancar_workflow_run`.
+    describe("hayCorridaViva", () => {
+      it("corriendo o esperando cuenta; terminada no", async () => {
+        const { repo, versionId, leadId, workflowId } = await makeRepo();
+        expect(await repo.hayCorridaViva(workflowId, leadId)).toBe(false);
+
+        const { run } = await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });
+        expect(await repo.hayCorridaViva(workflowId, leadId)).toBe(true);
+        await repo.esperar(run!.id, "e", {}, 1);
+        expect(await repo.hayCorridaViva(workflowId, leadId)).toBe(true);
+        await repo.terminar(run!.id, 1);
+        expect(await repo.hayCorridaViva(workflowId, leadId)).toBe(false);
+      });
+
+      it("es por lead: la corrida viva de otro lead no cuenta", async () => {
+        const { repo, versionId, leadId, workflowId } = await makeRepo();
+        await repo.arrancar({
+          versionId,
+          leadId: "00000000-0000-4000-8000-00000000000d",
+          sessionId: null,
+          contexto: {},
+        });
+        expect(await repo.hayCorridaViva(workflowId, leadId)).toBe(false);
+      });
+
+      it("una corrida de Probar viva no cuenta: no frena un disparo de producción", async () => {
+        const { repo, versionId, leadId, workflowId } = await makeRepo();
+        await repo.arrancar({
+          versionId,
+          leadId,
+          sessionId: null,
+          contexto: { [MARCA_CORRIDA_DE_PRUEBA]: true },
+        });
+        expect(await repo.hayCorridaViva(workflowId, leadId)).toBe(false);
+      });
+    });
   });
 }

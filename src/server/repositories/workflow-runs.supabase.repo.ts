@@ -430,6 +430,26 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
   }
 
   /**
+   * Mismo predicado que `arrancar_workflow_run`: vivas de producción del
+   * workflow para el lead. Las de Probar se descartan en memoria, como en
+   * `esperandoOpcion` (filtrar por `$prueba` en PostgREST obliga a escapar el
+   * `$`). El tope es el mismo: más de 100 vivas de un workflow para un lead es
+   * un loop, y con una de producción ya alcanza.
+   */
+  async hayCorridaViva(workflowId: UUID, leadId: UUID): Promise<boolean> {
+    if (!isUuid(workflowId) || !isUuid(leadId)) return false;
+    const { data, error } = await this.db
+      .from("workflow_runs")
+      .select("id, contexto, workflow_versiones!inner(workflow_id)")
+      .eq("lead_id", leadId)
+      .eq("workflow_versiones.workflow_id", workflowId)
+      .in("estado", [...ESTADOS_VIVOS])
+      .range(0, MAX_ESPERANDO_POR_LEAD - 1);
+    if (error) throw mapPostgrestError(error, { resource: "workflow_runs" });
+    return ((data ?? []) as unknown as EsperandoRow[]).some((r) => !esContextoDePrueba(r.contexto));
+  }
+
+  /**
    * `workflow_id` no vive en `workflow_runs` (sólo `workflow_version_id`), así
    * que se embebe `workflow_versiones!inner(workflow_id)` -- un join, no una
    * segunda vuelta a la base. Mismo patrón que `listMensajesDesde` en

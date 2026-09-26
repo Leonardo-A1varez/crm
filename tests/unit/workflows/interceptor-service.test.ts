@@ -83,6 +83,8 @@ interface EstadoLead {
   bajas?: string[];
   etapa?: string;
   ultimoEntrante?: Date | null;
+  /** El sábado (el día de `AHORA`) sin horario de atención; el resto abierto. */
+  cerradoHoy?: boolean;
 }
 
 const AHORA = new Date("2026-09-26T15:00:00Z");
@@ -112,7 +114,7 @@ function puertosDeTopes(estado: EstadoLead = {}) {
             mie: TODO_EL_DIA,
             jue: TODO_EL_DIA,
             vie: TODO_EL_DIA,
-            sab: TODO_EL_DIA,
+            sab: estado.cerradoHoy ? [] : TODO_EL_DIA,
             dom: TODO_EL_DIA,
           },
           horario_timezone: "UTC",
@@ -399,6 +401,61 @@ describe("InterceptorTurnoService.decidir — el flujo tiene que poder responder
     ).toMatchObject({
       tipo: "no",
       descartada: { workflowId: "wf-botones", motivo: "tope_frecuencia" },
+    });
+  });
+});
+
+describe("InterceptorTurnoService.decidir — la corrida tiene que poder arrancar y mandar ya", () => {
+  const siempre = regla("lead.canal", "es", { tipo: "opcion", valor: "wa" });
+
+  async function conCorridaViva(workflowId: string) {
+    const runs = new InMemoryWorkflowRunsRepository((v) => v.replace(/^v-/, ""));
+    await runs.arrancar({
+      versionId: `v-${workflowId}`,
+      leadId: LEAD,
+      sessionId: SESION,
+      contexto: {},
+    });
+    return runs;
+  }
+
+  test("política ignorar con una corrida viva del flujo: no arranca, no intercepta", async () => {
+    const runs = await conCorridaViva("wf-a");
+    const { svc } = servicio([version("wf-a", responder(PALABRA, siempre))], runs);
+    expect(await svc.decidir(input())).toEqual({
+      tipo: "no",
+      descartada: { workflowId: "wf-a", motivo: "ya_hay_corrida_viva" },
+    });
+  });
+
+  test("política reiniciar con una corrida viva: la nueva arranca, intercepta", async () => {
+    const runs = await conCorridaViva("wf-a");
+    const { svc } = servicio(
+      [{ ...version("wf-a", responder(PALABRA, siempre)), politica_concurrencia: "reiniciar" }],
+      runs,
+    );
+    expect(await svc.decidir(input())).toMatchObject({ tipo: "intercepta", workflowId: "wf-a" });
+  });
+
+  test("la corrida viva de Probar no cuenta", async () => {
+    const runs = new InMemoryWorkflowRunsRepository((v) => v.replace(/^v-/, ""));
+    await runs.arrancar({
+      versionId: "v-wf-a",
+      leadId: LEAD,
+      sessionId: SESION,
+      contexto: { $prueba: true },
+    });
+    const { svc } = servicio([version("wf-a", responder(PALABRA, siempre))], runs);
+    expect(await svc.decidir(input())).toMatchObject({ tipo: "intercepta" });
+  });
+
+  test("fuera de horario no intercepta: el envío se diferiría", async () => {
+    const { svc } = servicio([version("wf-a", responder(PALABRA, siempre))], undefined, {
+      cerradoHoy: true,
+    });
+    expect(await svc.decidir(input())).toEqual({
+      tipo: "no",
+      descartada: { workflowId: "wf-a", motivo: "fuera_de_horario" },
     });
   });
 });
