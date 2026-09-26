@@ -1,5 +1,6 @@
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { configDeAccion, type CanalDeEnvio } from "@/lib/workflows/config-nodos";
+import { consumirRespuestaDeTurno } from "@/lib/workflows/interceptar";
 import { interpolarVariables } from "@/lib/workflows/variables";
 import type { AgenteConfigValores } from "@/types/agente";
 import type { Canal } from "@/types/domain";
@@ -13,9 +14,7 @@ import type { MetaApiService } from "@/server/services/meta-api.service";
 import type { EnvioPlantillaSinSesion } from "@/server/services/workflows/plantilla-sin-sesion.service";
 import { cargarDatosInterpolacion } from "@/server/services/workflows/acciones/datos-interpolacion";
 import type { AccionHandler, EntornoAccion } from "./registro";
-import { revisarTopesDeEnvio } from "./topes-de-envio";
-
-const VEINTICUATRO_HORAS_MS = 24 * 60 * 60 * 1000;
+import { revisarTopesDeEnvio, ventanaAbierta } from "./topes-de-envio";
 
 /**
  * Lo mínimo que esta acción necesita de la conversación activa del lead: por
@@ -157,12 +156,47 @@ function saltar(salto: SaltoDeTope): ResultadoAccion {
  * errores" por un flujo sano. Al despertar de una espera la acción vuelve a
  * correr entera, así que los topes se revalidan solos (PRD §6.4).
  */
-export function crearAccionEnviarMensaje(deps: AccionEnviarMensajeDeps): AccionHandler {
+export function crearAccionEnviarMensaje(
+  deps: AccionEnviarMensajeDeps,
+  /**
+   * «Enviar plantilla», para la categoría marketing: con la ventana cerrada, o
+   * sin texto libre escrito, el mensaje sale por la plantilla aprobada. Es el
+   * mismo handler del registro, con sus topes y su manejo del lead sin sesión.
+   */
+  enviarPlantilla?: AccionHandler,
+): AccionHandler {
   return async (nodo, entorno) => {
     // El texto y el canal, con las claves y el default con que los escribe el
     // panel (`config-nodos.ts`). El nodo legacy guarda el texto con su clave
     // de antes y se lee igual.
-    const { mensaje: textoRaw, canal: canalDelNodo } = configDeAccion("enviar_mensaje", nodo);
+    const config = configDeAccion("enviar_mensaje", nodo);
+    const { mensaje: textoRaw, canal: canalDelNodo, categoria } = config;
+
+    // Marketing por plantilla (decisión 1 del dueño): la plantilla aprobada es
+    // lo que puede salir siempre; el texto libre sólo con la ventana abierta.
+    const porPlantilla = async () => {
+      if (!enviarPlantilla) {
+        throw new ValidationError(
+          `el nodo "${nodo.id}" (enviar_mensaje) es de marketing y el motor no tiene cómo mandar su plantilla`,
+          "plantilla_no_cableada",
+        );
+      }
+      const r = await enviarPlantilla(
+        {
+          ...nodo,
+          tipo: "msg_plantilla",
+          config: {
+            templateName: config.templateName,
+            idioma: config.idioma,
+            parametros: config.parametros,
+          },
+        },
+        entorno,
+      );
+      return r.salida ? { ...r, salida: { ...r.salida, via: "plantilla" } } : r;
+    };
+    if (categoria === "marketing" && textoRaw.trim() === "") return porPlantilla();
+
     const canal = CANAL_DEL_NODO[canalDelNodo];
     const leadSessionId = requireLeadSessionId(nodo, entorno);
     // El reloj del motor, no el de la máquina: en "Probar" y en el simulador
@@ -205,10 +239,9 @@ export function crearAccionEnviarMensaje(deps: AccionEnviarMensajeDeps): AccionH
     // solo deja pasar plantillas aprobadas. Se salta y NO se degrada a una
     // plantilla -- elegir cuál le llega a un cliente no es decisión del
     // motor, es decisión de negocio.
-    if (
-      !conversacion.ultimo_entrante_at ||
-      ahora.getTime() - conversacion.ultimo_entrante_at.getTime() > VEINTICUATRO_HORAS_MS
-    ) {
+    if (!ventanaAbierta(conversacion.ultimo_entrante_at, ahora)) {
+      // Marketing no se salta: para eso tiene su plantilla aprobada.
+      if (categoria === "marketing") return porPlantilla();
       return saltar({
         motivo: "sin_ventana",
         detalle:
@@ -230,6 +263,14 @@ export function crearAccionEnviarMensaje(deps: AccionEnviarMensajeDeps): AccionH
       idempotencyKey: `wf:${entorno.runId}:${entorno.orden}`,
     });
 
-    return { puerto: "salida", salida: { mensaje_id: mensaje.id } };
+    const consumida = consumirRespuestaDeTurno(entorno.contexto);
+    return {
+      puerto: "salida",
+      salida: {
+        mensaje_id: mensaje.id,
+        ...(categoria === "marketing" ? { via: "texto_libre" } : {}),
+      },
+      ...(consumida ? { contexto: consumida } : {}),
+    };
   };
 }

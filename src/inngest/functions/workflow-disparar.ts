@@ -6,6 +6,11 @@ import { NoopLogger, type Logger } from "@/lib/observability/logger";
 import { MOTIVO_CADENA_CORTADA, conProfundidad, excedeCadena } from "@/lib/workflows/cadena";
 import { DISPARADORES_DIRIGIDOS } from "@/lib/workflows/catalogo";
 import { disparoCoincide } from "@/lib/workflows/recorrer";
+import {
+  MOTIVO_OTRO_INTERCEPTOR,
+  conRespuestaDeTurno,
+  esInterceptor,
+} from "@/lib/workflows/interceptar";
 import type {
   ArrancarWorkflowRunInput,
   WorkflowRunsRepository,
@@ -114,12 +119,31 @@ export async function arrancarPorDisparador(
   const profundidad = input.profundidad ?? 0;
 
   for (const version of versiones) {
+    // La corrida del interceptor elegido contesta el turno en lugar del agente:
+    // su primer envío ya quedó autorizado cuando el pipeline revisó los topes
+    // (`lib/workflows/interceptar.ts`, `CLAVE_RESPUESTA_DE_TURNO`).
+    const contestaElTurno =
+      input.interceptadoPor !== undefined && version.workflow_id === input.interceptadoPor;
+    const contexto = conProfundidad(input.contexto, profundidad);
     const arrancarInput: ArrancarWorkflowRunInput = {
       versionId: version.id,
       leadId: input.leadId,
       sessionId: input.leadSessionId ?? null,
-      contexto: conProfundidad(input.contexto, profundidad),
+      contexto: contestaElTurno ? conRespuestaDeTurno(contexto) : contexto,
     };
+    // Contesta un solo interceptor: el que eligió el pipeline de mensajes.
+    if (
+      input.interceptadoPor !== undefined &&
+      version.workflow_id !== input.interceptadoPor &&
+      esInterceptor(version.grafo)
+    ) {
+      const suprimida = await deps.runs.registrarNoArrancada(
+        arrancarInput,
+        MOTIVO_OTRO_INTERCEPTOR,
+      );
+      logger.info("interceptor-no-arranco", { version_id: version.id, run_id: suprimida.id });
+      continue;
+    }
     if (excedeCadena(profundidad)) {
       const cortada = await deps.runs.registrarNoArrancada(arrancarInput, MOTIVO_CADENA_CORTADA);
       logger.warn("cadena-de-disparos-cortada", {

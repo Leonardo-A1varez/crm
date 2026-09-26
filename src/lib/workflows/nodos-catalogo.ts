@@ -420,9 +420,9 @@ export const CATEGORIAS_NODOS: CategoriaNodos[] = [
     nodos: [
       {
         tipo: "int_notif_vendedor",
-        nombre: "Notificar vendedor",
+        nombre: "Avisar al equipo",
         icono: Bell,
-        descripcion: "Aviso al asignado",
+        descripcion: "Aviso en el panel al vendedor asignado o a los admins",
       },
       {
         tipo: "int_notif_grupo",

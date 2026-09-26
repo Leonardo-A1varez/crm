@@ -17,6 +17,8 @@ import { SupabaseSessionRecordatoriosRepository } from "@/server/repositories/se
 import { SupabaseTagsRepository } from "@/server/repositories/tags.supabase.repo";
 import { SupabaseToolExecutionsRepository } from "@/server/repositories/tool-executions.supabase.repo";
 import { SupabaseTurnClassificationsRepository } from "@/server/repositories/turn-classifications.supabase.repo";
+import { SupabaseTurnosInterceptadosRepository } from "@/server/repositories/turnos-interceptados.supabase.repo";
+import { SupabaseWorkflowsRepository } from "@/server/repositories/workflows.supabase.repo";
 import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultInboxService } from "@/server/services/inbox/default-inbox.service";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
@@ -94,6 +96,7 @@ export function makeInboxService(db: AppClient): InboxService {
     fbAccessToken: env.META_FB_PAGE_ACCESS_TOKEN,
   });
 
+  const workflows = new SupabaseWorkflowsRepository(db);
   return new DefaultInboxService({
     leads: new SupabaseLeadsRepository(db),
     sessions,
@@ -124,6 +127,10 @@ export function makeInboxService(db: AppClient): InboxService {
     recordatorios: new SupabaseSessionRecordatoriosRepository(db),
     programarAviso: programarAvisoRecordatorio,
     cancelarAviso: cancelarAvisoRecordatorio,
+    // Los entrantes que contestó un flujo en lugar del agente. Solo lectura:
+    // los escribe el pipeline con service-role; vendedor y admin tienen SELECT.
+    turnosInterceptados: new SupabaseTurnosInterceptadosRepository(db),
+    nombreDeFlujo: async (id) => (await workflows.findWorkflow(id))?.nombre ?? null,
   });
 }
 

@@ -1,10 +1,12 @@
 import { estaAbierto, proximaApertura } from "@/lib/agente/horario";
 import { normalizarTelefonoWhatsApp } from "@/lib/difusion/telefono";
 import { IllegalStateError, NotFoundError, ValidationError } from "@/lib/errors";
+import { configDeAccion } from "@/lib/workflows/config-nodos";
+import { esRespuestaDeTurno } from "@/lib/workflows/interceptar";
 import type { Lead } from "@/types/entities";
-import type { SaltoDeTope } from "@/types/workflows";
+import type { Nodo, SaltoDeTope } from "@/types/workflows";
 import type { AccionEnviarMensajeDeps } from "./enviar-mensaje";
-import type { EntornoAccion } from "./registro";
+import { accionDeNodo, type EntornoAccion } from "./registro";
 
 const VEINTICUATRO_HORAS_MS = 24 * 60 * 60 * 1000;
 
@@ -12,6 +14,41 @@ export type DepsTopesDeEnvio = Pick<
   AccionEnviarMensajeDeps,
   "sessions" | "leads" | "supresiones" | "configProvider" | "messages" | "plantillasSinSesion"
 >;
+
+/**
+ * La ventana de servicio de Meta: texto libre y mensajes ricos sólo salen hasta
+ * 24 h después del último mensaje del lead. Una sola regla para las acciones que
+ * mandan y para el interceptor, que la mira antes de silenciar al agente.
+ */
+export function ventanaAbierta(ultimoEntranteAt: Date | null, ahora: Date): boolean {
+  return (
+    ultimoEntranteAt !== null &&
+    ahora.getTime() - ultimoEntranteAt.getTime() <= VEINTICUATRO_HORAS_MS
+  );
+}
+
+/**
+ * ¿El bloque necesita la ventana de 24 h para mandar? `null` = no manda nada.
+ * Texto de servicio y mensajes ricos sí; una plantilla aprobada no, y el texto
+ * de marketing tampoco, porque con la ventana cerrada sale por su plantilla
+ * (`enviar-mensaje.ts`). Una config inválida tira `ValidationError`, igual que
+ * la acción al correr.
+ */
+export function envioRequiereVentana(nodo: Nodo): boolean | null {
+  switch (accionDeNodo(nodo)) {
+    case "enviar_mensaje":
+      return configDeAccion("enviar_mensaje", nodo).categoria !== "marketing";
+    case "enviar_plantilla":
+      return false;
+    case "enviar_botones":
+    case "enviar_lista":
+    case "enviar_imagen":
+    case "enviar_ubicacion":
+      return true;
+    default:
+      return null;
+  }
+}
 
 /**
  * Qué dicen los topes antes de mandarle algo a un lead:
@@ -38,11 +75,15 @@ export type ResultadoTopes =
  *      mensaje que igual se iba a saltar esperaría horas para nada.
  *
  * La ventana de 24 h de Meta NO está acá: sólo aplica al texto libre, y es
- * justamente lo que una plantilla aprobada puede cruzar.
+ * justamente lo que una plantilla aprobada puede cruzar (`ventanaAbierta`).
+ *
+ * La respuesta de un turno interceptado (`$respuesta_de_turno`,
+ * `lib/workflows/interceptar.ts`) no vuelve a contar la frecuencia: el
+ * interceptor ya la contó con esta misma función al decidir el turno.
  */
 export async function revisarTopesDeEnvio(
   deps: DepsTopesDeEnvio,
-  entorno: EntornoAccion,
+  entorno: Pick<EntornoAccion, "leadId" | "contexto">,
   ahora: Date,
   accion: string,
 ): Promise<ResultadoTopes> {
@@ -88,14 +129,17 @@ export async function revisarTopesDeEnvio(
     }
   }
 
-  // 2. TOPE DE FRECUENCIA.
+  // 2. TOPE DE FRECUENCIA. La respuesta de un turno interceptado ya pasó por
+  // acá al decidirse el turno: contarla de nuevo es lo que dejaba al cliente
+  // sin respuesta cuando otro flujo del mismo mensaje mandaba primero.
   const cfg = await deps.configProvider.activa();
   const desde = new Date(ahora.getTime() - VEINTICUATRO_HORAS_MS);
   // Las plantillas que salieron sin sesión no están en `mensajes` hasta que
   // el lead responde; una vez anotadas en el hilo ya las cuenta la primera.
-  const usados =
-    (await deps.messages.contarSalientesAutomaticos(entorno.leadId, desde)) +
-    (await deps.plantillasSinSesion.contarNoAnotadasDesde(entorno.leadId, desde));
+  const usados = esRespuestaDeTurno(entorno.contexto)
+    ? 0
+    : (await deps.messages.contarSalientesAutomaticos(entorno.leadId, desde)) +
+      (await deps.plantillasSinSesion.contarNoAnotadasDesde(entorno.leadId, desde));
   if (usados >= cfg.max_salientes_automaticos_24h) {
     return {
       tipo: "salto",

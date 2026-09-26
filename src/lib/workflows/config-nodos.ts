@@ -98,6 +98,9 @@ function textoObligatorio(mensaje: string) {
 
 const UNIDADES_DE_TIEMPO = ["minutos", "horas", "dias"] as const;
 
+/** Los idiomas que el panel ofrece para una plantilla de Meta. */
+const IDIOMAS_DE_PLANTILLA = ["es", "es_MX", "es_AR", "pt_BR", "en"] as const;
+
 /** Por dónde manda `msg_texto`. "inferir" = por el canal de la conversación activa. */
 export const CANALES_DE_ENVIO = ["inferir", "whatsapp", "instagram", "messenger"] as const;
 export type CanalDeEnvio = (typeof CANALES_DE_ENVIO)[number];
@@ -110,16 +113,49 @@ const CABECERA = z.object({ key: z.string(), value: z.string() });
 // Las acciones que el motor ejecuta
 // ──────────────────────────────────────────────────────────────────────────
 
+/**
+ * La categoría de «Enviar mensaje» (decisión 1 del dueño, lado flujos):
+ * - `servicio`: texto libre, sólo con la ventana de 24 h abierta.
+ * - `marketing`: sale con una plantilla aprobada; con la ventana abierta y un
+ *   texto libre escrito, sale el texto, que Meta no cobra ("All non-template
+ *   messages are free", developers.facebook.com/docs/whatsapp/pricing,
+ *   leída el 2026-09-26).
+ */
+export const CATEGORIAS_DE_MENSAJE = ["servicio", "marketing"] as const;
+export type CategoriaDeMensaje = (typeof CATEGORIAS_DE_MENSAJE)[number];
+
+const MENSAJE_VACIO = "El mensaje no puede estar vacío";
+const MARKETING_SIN_PLANTILLA =
+  "Un mensaje de marketing necesita una plantilla aprobada para cuando la ventana de 24 h esté cerrada";
+
 const ENVIAR_MENSAJE = espec(
-  z.object({
-    canal: z
-      .enum(CANALES_DE_ENVIO, {
-        error: (iss) =>
-          `El canal ${JSON.stringify(iss.input)} no es uno de los que ofrece el bloque`,
-      })
-      .default("inferir"),
-    mensaje: textoObligatorio("El mensaje no puede estar vacío"),
-  }),
+  z
+    .object({
+      canal: z
+        .enum(CANALES_DE_ENVIO, {
+          error: (iss) =>
+            `El canal ${JSON.stringify(iss.input)} no es uno de los que ofrece el bloque`,
+        })
+        .default("inferir"),
+      categoria: z.enum(CATEGORIAS_DE_MENSAJE).default("servicio"),
+      // En servicio, obligatorio. En marketing, el texto libre opcional que
+      // sale gratis si la ventana está abierta.
+      mensaje: z.string({ error: MENSAJE_VACIO }).default(""),
+      // La plantilla de marketing: mismas claves que «Enviar plantilla».
+      templateName: z.string().default(""),
+      idioma: z.enum(IDIOMAS_DE_PLANTILLA).default("es"),
+      parametros: z
+        .array(textoObligatorio("Una variable de la plantilla está vacía"))
+        .default(() => []),
+    })
+    .superRefine((c, ctx) => {
+      if (c.categoria === "servicio" && c.mensaje.trim() === "") {
+        ctx.addIssue({ code: "custom", path: ["mensaje"], message: MENSAJE_VACIO });
+      }
+      if (c.categoria === "marketing" && c.templateName.trim() === "") {
+        ctx.addIssue({ code: "custom", path: ["templateName"], message: MARKETING_SIN_PLANTILLA });
+      }
+    }),
   { alias: { mensaje: ["texto"] } },
 );
 
@@ -208,7 +244,7 @@ const REPARTIR_ROUND_ROBIN = espec(
 const ENVIAR_PLANTILLA = espec(
   z.object({
     templateName: textoObligatorio("Selecciona una plantilla HSM"),
-    idioma: z.enum(["es", "es_MX", "es_AR", "pt_BR", "en"]).default("es"),
+    idioma: z.enum(IDIOMAS_DE_PLANTILLA).default("es"),
     parametros: z
       .array(textoObligatorio("Una variable de la plantilla está vacía"))
       .default(() => []),
@@ -531,6 +567,26 @@ const SEGUN_EL_VALOR = espec(
  * Qué config lee cada acción del motor. `satisfies` contra `AccionWorkflow`:
  * una acción nueva en el catálogo sin su schema no compila.
  */
+const MENSAJE_SIN_AVISO = "Escribí qué tiene que saber el equipo";
+/** Tope de la columna `notificaciones.texto` (CHECK de 1 a 500). */
+export const MAX_TEXTO_AVISO = 500;
+
+/**
+ * "Avisar al equipo" (decisión 3 del dueño): un aviso en el panel. A quién: el
+ * vendedor asignado —sin uno, los admins— o una persona elegida. El texto se
+ * guarda tal cual, sin variables: la notificación referencia al lead, no copia
+ * sus datos.
+ */
+const AVISAR_EQUIPO = espec(
+  z.object({
+    // "vendedor_asignado" o el id de un usuario.
+    destinatario: z.string().default("vendedor_asignado"),
+    mensaje: textoObligatorio(MENSAJE_SIN_AVISO).refine((s) => s.trim().length <= MAX_TEXTO_AVISO, {
+      error: `El aviso no puede pasar de ${MAX_TEXTO_AVISO} caracteres`,
+    }),
+  }),
+);
+
 export const ESPEC_CONFIG_POR_ACCION = {
   enviar_mensaje: ENVIAR_MENSAJE,
   poner_etiqueta: PONER_ETIQUETA,
@@ -544,6 +600,7 @@ export const ESPEC_CONFIG_POR_ACCION = {
   enviar_imagen: ENVIAR_IMAGEN,
   enviar_ubicacion: ENVIAR_UBICACION,
   actualizar_campo_twin: ACTUALIZAR_CAMPO_TWIN,
+  avisar_equipo: AVISAR_EQUIPO,
 } as const satisfies Record<AccionWorkflow, EspecConfig>;
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -596,6 +653,9 @@ export const ESPEC_CONFIG_POR_TIPO = {
       canal: z.enum(["todos", "whatsapp", "instagram", "messenger"]).default("todos"),
       filtro: z.enum(["todos", "solo_texto", "solo_media", "contiene"]).default("todos"),
       palabra: z.string().optional(),
+      // "Intercepta el LLM" (`lib/workflows/interceptar.ts`): si el mensaje
+      // cumple la condición del flujo, contesta el flujo y no el agente.
+      interceptaLlm: z.boolean().default(false),
     }),
   ),
   // Sólo lectura en el panel: la URL y el secreto los genera el sistema.
@@ -929,17 +989,7 @@ export const ESPEC_CONFIG_POR_TIPO = {
   ia_delegar: espec(z.object({})),
 
   // ── Internos ──────────────────────────────────────────────────────────
-  int_notif_vendedor: espec(
-    z.object({
-      // "vendedor_asignado" o el id de un usuario.
-      destinatario: z.string().default("vendedor_asignado"),
-      titulo: z.string().optional(),
-      mensaje: z.string().optional(),
-      urgencia: z.enum(["baja", "normal", "alta", "urgente"]).default("normal"),
-      enviarPush: z.boolean().default(true),
-      enviarEmail: z.boolean().default(false),
-    }),
-  ),
+  int_notif_vendedor: AVISAR_EQUIPO,
   int_notif_grupo: espec(
     z.object({
       canalId: z.string().optional(),

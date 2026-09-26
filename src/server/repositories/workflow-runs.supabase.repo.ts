@@ -14,7 +14,8 @@ import type {
   WorkflowRunEstado,
   WorkflowRunPaso,
 } from "@/types/entities";
-import { esMotivoSalto, type MotivoSalto } from "@/types/workflows";
+import { esperaOpcionCoincide } from "@/lib/workflows/respuesta-interactiva";
+import { esContextoDePrueba, esMotivoSalto, type MotivoSalto } from "@/types/workflows";
 import { saltosEnCero } from "./workflow-runs.repo";
 import type {
   ArrancarWorkflowRunInput,
@@ -35,6 +36,19 @@ const COLS_RUN =
   "id, workflow_version_id, lead_id, lead_session_id, estado, nodo_actual, contexto, pasos_ejecutados, error, started_at, ended_at, intentos";
 
 const ESTADOS_VIVOS: readonly WorkflowRunEstado[] = ["corriendo", "esperando"];
+
+/**
+ * Tope de `esperandoOpcion`. Un lead con más de 100 corridas esperando a la vez
+ * es un flujo en loop, no un caso real; el tope es para que PostgREST no corte
+ * en silencio en 1.000 (AGENTS.md, lección 12).
+ */
+const MAX_ESPERANDO_POR_LEAD = 100;
+
+interface EsperandoRow {
+  id: string;
+  contexto: Record<string, unknown>;
+  workflow_versiones: { workflow_id: string };
+}
 
 /**
  * Tope de `metricasPorWorkflow`, mismo motivo que `MAX_WORKFLOWS_ACTIVOS` en
@@ -385,6 +399,34 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
       .maybeSingle();
     if (error) throw mapPostgrestError(error, { resource: "workflow_runs" });
     return data ? mapRun(data as WorkflowRunRow) : null;
+  }
+
+  /**
+   * Las vivas de un lead son pocas y las encuentra `workflow_runs_vivas`
+   * (índice parcial por `lead_id`): se traen y se filtra la espera en JS con el
+   * mismo predicado que la impl en memoria. Filtrar por la clave del jsonb en
+   * PostgREST obligaría a escapar el `$` de `$espera_opcion` en la URL.
+   */
+  async esperandoOpcion(
+    leadId: UUID,
+    respondeA: string | null,
+  ): Promise<{ runId: UUID; workflowId: UUID } | null> {
+    if (!isUuid(leadId)) return null;
+    const { data, error } = await this.db
+      .from("workflow_runs")
+      .select("id, contexto, workflow_versiones!inner(workflow_id)")
+      .eq("lead_id", leadId)
+      .eq("estado", "esperando")
+      .order("started_at", { ascending: true })
+      .range(0, MAX_ESPERANDO_POR_LEAD - 1);
+    if (error) throw mapPostgrestError(error, { resource: "workflow_runs" });
+    for (const r of (data ?? []) as unknown as EsperandoRow[]) {
+      if (esContextoDePrueba(r.contexto)) continue;
+      if (esperaOpcionCoincide(r.contexto, respondeA)) {
+        return { runId: r.id, workflowId: r.workflow_versiones.workflow_id };
+      }
+    }
+    return null;
   }
 
   /**

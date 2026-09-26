@@ -60,6 +60,8 @@ import { arreglosDeResolver, problemasDelEditor } from "@/lib/workflows/problema
 import { puertosDe, puertosDeNodo } from "@/lib/workflows/validar-grafo";
 import { CAMPOS_SWITCH } from "@/lib/workflows/condiciones";
 import { editorDeConfig } from "@/lib/workflows/config-nodos";
+import { disparadorDe } from "@/lib/workflows/recorrer";
+import { esInterceptor } from "@/lib/workflows/interceptar";
 import { campoHoraEnZona } from "@/lib/zona-horaria";
 import {
   NODO_TIPOS,
@@ -536,6 +538,11 @@ export function EditorWorkflowCliente({
   const aristasRef = useRef(aristas);
 
   const grafo = useMemo(() => aGrafo(nodos, aristas), [nodos, aristas]);
+  // El chip de la barra: sólo "Mensaje recibido" puede contestar por el agente.
+  const intercepcion = useMemo(() => {
+    if (disparadorDe(grafo)?.tipo !== "trigger_mensaje") return null;
+    return esInterceptor(grafo) ? "intercepta" : "no_intercepta";
+  }, [grafo]);
 
   useEffect(() => {
     nodosRef.current = nodos;
@@ -1197,6 +1204,7 @@ export function EditorWorkflowCliente({
           onConectar={conectar}
           categorias={categorias}
           disparadorActual={disparadorActual}
+          intercepcion={intercepcion}
           problemasPorNodo={problemasPorNodo}
           nodoSeleccionado={nodoSeleccionado}
           onSeleccionar={setSeleccionId}

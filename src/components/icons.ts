@@ -15,6 +15,7 @@
 export {
   ArrowRight as ArrowForward,
   BarChart3 as BarChartIcon,
+  Bell as NotificationsIcon,
   Bot as SmartToy,
   BrainCircuit as Psychology,
   Car as DirectionsCar,

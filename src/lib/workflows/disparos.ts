@@ -51,6 +51,13 @@ export type DispararWorkflowInput = {
    * corrida más uno. Pasado `MAX_PROFUNDIDAD_CADENA` no arranca nada.
    */
   profundidad?: number;
+  /**
+   * Sólo "Mensaje recibido": el flujo que contesta este mensaje en lugar del
+   * agente (`lib/workflows/interceptar.ts`). Los OTROS flujos marcados
+   * "intercepta el LLM" no arrancan con este disparo: contesta uno solo, como
+   * las reglas IF/THEN a las que reemplazan.
+   */
+  interceptadoPor?: UUID;
 };
 
 /** Un disparo listo para mandar. `id` es la clave de deduplicación de Inngest. */

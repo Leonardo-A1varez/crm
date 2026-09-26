@@ -205,6 +205,13 @@ export function crearSandboxDePrueba(entrada: EntradaSandbox): SandboxDePrueba {
       },
     },
     avisos: { vendedorAsignado: async () => {} },
+    // "Avisar al equipo": la prueba no le deja avisos a nadie, sólo lo anota.
+    avisarEquipo: {
+      avisar: async (pedido) => {
+        anotar("avisar_equipo", { destinatario: pedido.destinatario });
+        return { destinatarios: 1, para: "vendedor_asignado" };
+      },
+    },
     // La prueba no firma nada en Storage: la imagen no sale.
     imagenesDeFlujo: { urlFirmada: async (ruta) => `simulado://mensajes_media/${ruta}` },
     candadoReparto: new NoopSessionLock(),

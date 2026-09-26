@@ -56,6 +56,7 @@ const PUERTOS = {
   candadoReparto: true,
   plantillasSinSesion: true,
   imagenesDeFlujo: true,
+  avisarEquipo: true,
 } as const satisfies Record<keyof PuertosAcciones, true>;
 
 function faltantes(puertos: PuertosAcciones): string[] {

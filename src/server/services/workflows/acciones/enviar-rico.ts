@@ -5,6 +5,7 @@ import {
   esperaDeOpcionDe,
   marcarEsperaDeOpcion,
 } from "@/lib/workflows/respuesta-interactiva";
+import { consumirRespuestaDeTurno } from "@/lib/workflows/interceptar";
 import { interpolarVariables, type DatosInterpolacion } from "@/lib/workflows/variables";
 import type { ContenidoRico, MetaApiService } from "@/server/services/meta-api.service";
 import {
@@ -17,9 +18,7 @@ import type { UUID } from "@/types/entities";
 import { cargarDatosInterpolacion } from "./datos-interpolacion";
 import type { AccionEnviarMensajeDeps } from "./enviar-mensaje";
 import type { AccionHandler, EntornoAccion } from "./registro";
-import { revisarTopesDeEnvio } from "./topes-de-envio";
-
-const VEINTICUATRO_HORAS_MS = 24 * 60 * 60 * 1000;
+import { revisarTopesDeEnvio, ventanaAbierta } from "./topes-de-envio";
 
 const MS_POR_UNIDAD = {
   minutos: 60_000,
@@ -229,10 +228,7 @@ function crearAccionRica(accion: AccionRica, deps: AccionesMensajeriaRicaDeps): 
         "mensaje_rico_fuera_de_whatsapp",
       );
     }
-    if (
-      !conversacion.ultimo_entrante_at ||
-      ahora.getTime() - conversacion.ultimo_entrante_at.getTime() > VEINTICUATRO_HORAS_MS
-    ) {
+    if (!ventanaAbierta(conversacion.ultimo_entrante_at, ahora)) {
       return {
         puerto: "salida",
         salto: {
@@ -270,6 +266,8 @@ function crearAccionRica(accion: AccionRica, deps: AccionesMensajeriaRicaDeps): 
       idempotencyKey: `wf:${entorno.runId}:${entorno.orden}`,
     });
 
+    // Salió: si era la respuesta de un turno interceptado, la marca se consume.
+    const consumida = consumirRespuestaDeTurno(entorno.contexto) ?? {};
     if (accion === "enviar_botones" || accion === "enviar_lista") {
       const { timeout, unidadTimeout } = config as ConfigDeAccion<"enviar_botones">;
       const respondeA = mensaje.meta_message_id ?? null;
@@ -279,11 +277,15 @@ function crearAccionRica(accion: AccionRica, deps: AccionesMensajeriaRicaDeps): 
           hasta: new Date(ahora.getTime() + timeout * MS_POR_UNIDAD[unidadTimeout]),
           respondeA,
         },
-        contexto: marcarEsperaDeOpcion(nodo.id, respondeA),
+        contexto: { ...marcarEsperaDeOpcion(nodo.id, respondeA), ...consumida },
         salida: { mensaje_id: mensaje.id },
       };
     }
-    return { puerto: "salida", salida: { mensaje_id: mensaje.id } };
+    return {
+      puerto: "salida",
+      salida: { mensaje_id: mensaje.id },
+      ...(Object.keys(consumida).length > 0 ? { contexto: consumida } : {}),
+    };
   };
 }
 

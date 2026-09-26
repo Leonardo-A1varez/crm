@@ -1,4 +1,5 @@
 import { NotFoundError } from "@/lib/errors";
+import { esperaOpcionCoincide } from "@/lib/workflows/respuesta-interactiva";
 import {
   MOTIVOS_SALTO,
   esContextoDePrueba,
@@ -202,6 +203,17 @@ export interface WorkflowRunsRepository {
   relanzar(runId: UUID): Promise<RelanzarWorkflowRunResult>;
   findRun(id: UUID): Promise<WorkflowRun | null>;
   /**
+   * La corrida del lead que está esperando la opción que acaba de tocar (botón
+   * o fila de lista de un mensaje que mandó un flujo), con el workflow al que
+   * pertenece. `null` si ninguna la espera. Es lo que usa el pipeline de
+   * mensajes para no hacer contestar al agente un toque que es del flujo
+   * (`services/workflows/interceptor.service.ts`). Las de Probar no cuentan.
+   */
+  esperandoOpcion(
+    leadId: UUID,
+    respondeA: string | null,
+  ): Promise<{ runId: UUID; workflowId: UUID } | null>;
+  /**
    * Métricas de corridas por workflow, sólo las iniciadas después de `desde`.
    * Una llamada para TODOS los workflows a la vez (no una por workflow): es lo
    * que evita que la pantalla de listado sea un N+1 sobre `workflow_runs`.
@@ -330,6 +342,22 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
     };
     this.runs.set(run.id, run);
     return { run: clonarRun(run), cancelados };
+  }
+
+  async esperandoOpcion(
+    leadId: UUID,
+    respondeA: string | null,
+  ): Promise<{ runId: UUID; workflowId: UUID } | null> {
+    for (const r of this.runs.values()) {
+      if (r.lead_id !== leadId || r.estado !== "esperando") continue;
+      if (esContextoDePrueba(r.contexto)) continue;
+      if (!esperaOpcionCoincide(r.contexto, respondeA)) continue;
+      return {
+        runId: r.id,
+        workflowId: this.resolverWorkflowId?.(r.workflow_version_id) ?? r.workflow_version_id,
+      };
+    }
+    return null;
   }
 
   async registrarNoArrancada(

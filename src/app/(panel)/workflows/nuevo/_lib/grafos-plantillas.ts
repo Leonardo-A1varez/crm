@@ -95,7 +95,10 @@ const PLANTILLAS_ARMADAS: ReadonlyMap<string, () => PlantillaArmada> = new Map<
     () => ({
       grafo: {
         nodos: [
-          paso("n1", "trigger_mensaje", 0),
+          // Reemplaza a las reglas IF/THEN, que contestaban en lugar del
+          // agente: si la condición se cumple contesta el flujo y el agente
+          // calla ese turno ("intercepta el LLM"). Si no, sigue el agente.
+          paso("n1", "trigger_mensaje", 0, { interceptaLlm: true }),
           paso("n2", "logica_condicion", 1),
           paso("n3", "msg_texto", 2),
           paso("n4", "logica_detener", 3),
@@ -140,19 +143,23 @@ const PLANTILLAS_ARMADAS: ReadonlyMap<string, () => PlantillaArmada> = new Map<
           paso("n1", "trigger_mensaje", 0),
           paso("n2", "logica_condicion", 1),
           // El bloque de escalado: pausa al agente en la conversación y, por
-          // defecto, le avisa al cliente. Avisarle al vendedor no va: el motor
-          // no tiene canal para hacerlo (`int_notif_vendedor` en
-          // `NO_DISPONIBLES`), y una plantilla que nace sin poder publicarse
-          // obliga a borrar un bloque antes de usarla.
+          // defecto, le avisa al cliente.
           paso("n3", "crm_escalar_humano", 2),
-          paso("n4", "logica_detener", 3),
-          salidaNo("n5", 2),
+          // "Avisar al equipo": un aviso en el panel para el vendedor
+          // asignado o, sin uno, para los admins.
+          paso("n4", "int_notif_vendedor", 3, {
+            destinatario: "vendedor_asignado",
+            mensaje: "Una conversación pasó a una persona. Revisala en el Inbox.",
+          }),
+          paso("n5", "logica_detener", 4),
+          salidaNo("n6", 2),
         ],
         aristas: [
           arista("n1", "n2"),
           arista("n2", "n3", "verdadero"),
           arista("n3", "n4"),
-          arista("n2", "n5", "falso"),
+          arista("n4", "n5"),
+          arista("n2", "n6", "falso"),
         ],
       },
       pendiente: "decidir en la condición cuándo escalar",

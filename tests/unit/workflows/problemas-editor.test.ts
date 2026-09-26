@@ -165,7 +165,7 @@ describe("problemasDelEditor", () => {
     const g = grafo(
       [
         n("n1", "trigger_manual"),
-        n("n2", "int_notif_vendedor", { mensaje: "hola" }),
+        n("n2", "int_notif_grupo", { mensaje: "hola" }),
         n("n3", "logica_detener"),
       ],
       [arista("n1", "n2"), arista("n2", "n3")],
@@ -216,7 +216,7 @@ describe("arreglosDeResolver", () => {
     const g = grafo(
       [
         n("n1", "trigger_manual"),
-        n("n2", "int_notif_vendedor", { mensaje: "hola" }),
+        n("n2", "int_notif_grupo", { mensaje: "hola" }),
         n("n3", "logica_detener"),
       ],
       [arista("n1", "n2"), arista("n2", "n3")],

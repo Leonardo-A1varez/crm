@@ -1,10 +1,12 @@
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { configDeAccion } from "@/lib/workflows/config-nodos";
+import { consumirRespuestaDeTurno } from "@/lib/workflows/interceptar";
 import { interpolarVariables } from "@/lib/workflows/variables";
 import type { MetaApiService } from "@/server/services/meta-api.service";
 import type { EnvioPlantillaSinSesion } from "@/server/services/workflows/plantilla-sin-sesion.service";
 import { cargarDatosInterpolacion } from "./datos-interpolacion";
 import type { AccionEnviarMensajeDeps } from "./enviar-mensaje";
+import type { ResultadoAccion } from "@/types/workflows";
 import type { AccionHandler } from "./registro";
 import { revisarTopesDeEnvio } from "./topes-de-envio";
 
@@ -87,6 +89,11 @@ export function crearAccionEnviarPlantilla(deps: AccionEnviarPlantillaDeps): Acc
 
     const plantilla = { nombre: templateName, idioma, parametrosCuerpo };
     const idempotencyKey = `wf:${entorno.runId}:${entorno.orden}`;
+    // Salió: si era la respuesta de un turno interceptado, la marca se consume.
+    const conMarcaConsumida = (r: ResultadoAccion): ResultadoAccion => {
+      const consumida = consumirRespuestaDeTurno(entorno.contexto);
+      return consumida ? { ...r, contexto: consumida } : r;
+    };
     if (leadSessionId === null) {
       const envio = await deps.plantillasSinSesion.enviar({
         idempotencyKey,
@@ -96,7 +103,7 @@ export function crearAccionEnviarPlantilla(deps: AccionEnviarPlantillaDeps): Acc
         to: lead.telefono,
         plantilla,
       });
-      return { puerto: "salida", salida: { envio_sin_sesion_id: envio.id } };
+      return conMarcaConsumida({ puerto: "salida", salida: { envio_sin_sesion_id: envio.id } });
     }
 
     const mensaje = await deps.metaApi.sendTemplate({
@@ -108,6 +115,6 @@ export function crearAccionEnviarPlantilla(deps: AccionEnviarPlantillaDeps): Acc
       idempotencyKey,
     });
 
-    return { puerto: "salida", salida: { mensaje_id: mensaje.id } };
+    return conMarcaConsumida({ puerto: "salida", salida: { mensaje_id: mensaje.id } });
   };
 }

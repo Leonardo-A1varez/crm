@@ -1,3 +1,4 @@
+import type { TurnosInterceptadosRepository } from "@/server/repositories/turnos-interceptados.repo";
 import { conDatoExtra, excedeTope, MAX_DATOS_EXTRA, sinDatoExtra } from "@/lib/datos-extra";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { calcularSinResponder } from "@/lib/sin-responder";
@@ -44,6 +45,7 @@ import type {
   GastoSesion,
   GastoTurno,
   SesionesPrevias,
+  TurnoInterceptadoVista,
 } from "@/types/inbox";
 import type { EtiquetaOpcion } from "@/types/leads";
 import type {
@@ -180,6 +182,12 @@ export interface DefaultInboxServiceDeps {
   cancelarAviso?: CancelarAvisoRecordatorioFn;
   /** Inyectable para poder testear el vencimiento sin esperar dos días. */
   now?: () => Date;
+  /**
+   * Los turnos que contestó un flujo en lugar del agente, y el nombre de ese
+   * flujo. Opcionales: sin ellos el hilo no marca nada, como antes.
+   */
+  turnosInterceptados?: Pick<TurnosInterceptadosRepository, "listByMensajeIds">;
+  nombreDeFlujo?: (workflowId: UUID) => Promise<string | null>;
 }
 
 /** El recordatorio como lo consume la bandeja, o `null` si no hay ninguno vivo. */
@@ -417,6 +425,7 @@ export class DefaultInboxService implements InboxService {
       : false;
 
     const sesionesPrevias = contarSesionesPrevias(todasLasSesiones, session);
+    const interceptados = await this.resolverInterceptados(messages);
 
     return {
       lead,
@@ -439,6 +448,7 @@ export class DefaultInboxService implements InboxService {
       sesionesPrevias,
       gastoIa,
       recordatorio,
+      interceptados,
       handoffStatus:
         ultimoHandoff && !reanudacionPosterior
           ? {
@@ -452,6 +462,34 @@ export class DefaultInboxService implements InboxService {
             }
           : null,
     };
+  }
+
+  /**
+   * Los entrantes del hilo que contestó un flujo, con el nombre del flujo. Una
+   * lectura por hilo y una por flujo distinto —en un hilo son uno o dos—.
+   */
+  private async resolverInterceptados(
+    messages: readonly Mensaje[],
+  ): Promise<Record<string, TurnoInterceptadoVista>> {
+    const repo = this.deps.turnosInterceptados;
+    const entrantes = messages.filter((m) => m.direction === "in").map((m) => m.id);
+    if (!repo || entrantes.length === 0) return {};
+    const turnos = await repo.listByMensajeIds(entrantes);
+    if (turnos.length === 0) return {};
+
+    const ids = [...new Set(turnos.map((t) => t.workflow_id).filter((id) => id !== null))];
+    const nombres = new Map<string, string | null>();
+    await Promise.all(
+      ids.map(async (id) => nombres.set(id, (await this.deps.nombreDeFlujo?.(id)) ?? null)),
+    );
+    const resultado: Record<string, TurnoInterceptadoVista> = {};
+    for (const t of turnos) {
+      resultado[t.mensaje_id] = {
+        flujo: t.workflow_id ? (nombres.get(t.workflow_id) ?? null) : null,
+        motivo: t.motivo,
+      };
+    }
+    return resultado;
   }
 
   async programarRecordatorio(

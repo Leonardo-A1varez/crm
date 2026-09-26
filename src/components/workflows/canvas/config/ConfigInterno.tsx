@@ -8,7 +8,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { editorDeConfig } from "@/lib/workflows/config-nodos";
+import { Textarea } from "@/components/ui/textarea";
+import { MAX_TEXTO_AVISO, editorDeConfig } from "@/lib/workflows/config-nodos";
+import { cn } from "@/lib/utils";
 import { TextareaConVariables } from "./TextareaConVariables";
 
 interface ConfigInternoProps {
@@ -43,11 +45,22 @@ export function ConfigInterno({
   switch (tipo) {
     case "int_notif_vendedor": {
       const c = editorDeConfig("int_notif_vendedor", config);
+      const mensaje = String(c.valores.mensaje ?? "");
+      const largo = mensaje.trim().length;
       return (
         <div className="flex flex-col gap-3">
+          <p className="text-ink-secondary text-[11px] leading-relaxed text-pretty">
+            Deja un aviso en el panel, en la campanita de quien lo recibe. No sale por WhatsApp ni
+            gasta cupo de Meta.
+          </p>
           <label className="block">
-            <span className={labelClass}>Notificar a</span>
+            <span className={labelClass}>Avisar a</span>
             <Select
+              // Sin `items` el Select muestra el valor crudo ("vendedor_asignado").
+              items={{
+                vendedor_asignado: "Vendedor asignado",
+                ...Object.fromEntries(vendedores.map((v) => [v.id, v.nombre])),
+              }}
               value={String(c.valores.destinatario)}
               onValueChange={(v) => onChange(c.con("destinatario", v))}
               disabled={readonly}
@@ -64,69 +77,36 @@ export function ConfigInterno({
                 ))}
               </SelectContent>
             </Select>
+            <span className="text-ink-faint mt-1 block text-[10.5px] leading-snug">
+              Si no hay vendedor asignado, o la persona elegida ya no está activa, el aviso les
+              llega a los admins.
+            </span>
           </label>
 
           <label className="block">
-            <span className={labelClass}>Titulo</span>
-            <TextareaConVariables
-              value={String(c.valores.titulo ?? "")}
-              onChange={(v) => onChange(c.con("titulo", v))}
-              placeholder="Nuevo lead: {{lead.nombre}}"
-              rows={1}
-              className={`${inputClass} h-auto`}
-            />
-          </label>
-
-          <label className="block">
-            <span className={labelClass}>Mensaje</span>
-            <TextareaConVariables
-              value={String(c.valores.mensaje ?? "")}
-              onChange={(v) => onChange(c.con("mensaje", v))}
-              placeholder="{{lead.nombre}} está en la etapa {{lead.etapa}}"
+            <span className="mb-1 flex items-baseline justify-between">
+              <span className="text-ink-secondary text-[11px]">Qué tiene que saber el equipo</span>
+              <span
+                className={cn(
+                  "font-mono text-[10px] tabular-nums",
+                  largo > MAX_TEXTO_AVISO ? "text-danger" : "text-ink-faint",
+                )}
+              >
+                {largo}/{MAX_TEXTO_AVISO}
+              </span>
+            </span>
+            <Textarea
+              value={mensaje}
+              onChange={(e) => onChange(c.con("mensaje", e.target.value))}
+              placeholder="Pidió hablar con una persona: revisá la conversación."
               rows={3}
-              className={`${inputClass} h-auto min-h-[80px] resize-y`}
-            />
-          </label>
-
-          <label className="block">
-            <span className={labelClass}>Urgencia</span>
-            <Select
-              value={String(c.valores.urgencia)}
-              onValueChange={(v) => onChange(c.con("urgencia", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="baja">Baja</SelectItem>
-                <SelectItem value="normal">Normal</SelectItem>
-                <SelectItem value="alta">Alta</SelectItem>
-                <SelectItem value="urgente">Urgente</SelectItem>
-              </SelectContent>
-            </Select>
-          </label>
-
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={Boolean(c.valores.enviarPush)}
-              onChange={(e) => onChange(c.con("enviarPush", e.target.checked))}
-              disabled={readonly}
-              className="h-4 w-4 rounded"
+              className={cn(inputClass, "h-auto min-h-[80px] resize-y")}
             />
-            <span className="text-ink-secondary text-[11px]">Enviar notificacion push</span>
-          </label>
-
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={Boolean(c.valores.enviarEmail)}
-              onChange={(e) => onChange(c.con("enviarEmail", e.target.checked))}
-              disabled={readonly}
-              className="h-4 w-4 rounded"
-            />
-            <span className="text-ink-secondary text-[11px]">Enviar tambien por email</span>
+            <span className="text-ink-faint mt-1 block text-[10.5px] leading-snug">
+              Se guarda tal cual, sin variables: el aviso enlaza a la conversación y no copia datos
+              del cliente.
+            </span>
           </label>
         </div>
       );

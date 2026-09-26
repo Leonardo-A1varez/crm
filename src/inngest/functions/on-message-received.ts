@@ -25,6 +25,11 @@ import {
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { RespuestaDifusionService } from "@/server/services/difusion/respuesta.service";
 import type { AnotarPlantillasSinSesion } from "@/server/services/workflows/plantilla-sin-sesion.service";
+import type {
+  DecisionIntercepcion,
+  Intercepcion,
+  InterceptorTurno,
+} from "@/server/services/workflows/interceptor.service";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { RuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
@@ -127,6 +132,14 @@ export interface OnMessageReceivedDeps {
    */
   plantillasSinSesion: Pick<AnotarPlantillasSinSesion, "registrar">;
   /**
+   * Decide si este turno lo contesta un flujo en lugar del agente
+   * (`services/workflows/interceptor.service.ts`): un flujo "intercepta el
+   * LLM" cuya condición se cumple, o el toque de un botón que una corrida
+   * espera. Opcional: sin él contesta siempre el agente, que es el
+   * comportamiento de antes; `bootstrap.ts` lo wirea.
+   */
+  interceptor?: InterceptorTurno;
+  /**
    * Para apagar el seguimiento cuando el cliente vuelve solo. Opcional con
    * default Noop —mismo criterio que `dispatches` en el cron de reactivación—
    * para que los callers viejos sigan compilando; `bootstrap.ts` lo wirea.
@@ -151,8 +164,9 @@ export interface OnMessageReceivedResult {
   /**
    * `baja`: el mensaje era una palabra de baja registrable y el turno cortó
    * antes del agente (ver `ResultadoBaja`).
+   * `flujo`: lo contesta un flujo en lugar del agente (ver `interceptor`).
    */
-  agentSource: "rule" | "llm" | "handoff" | "baja";
+  agentSource: "rule" | "llm" | "handoff" | "baja" | "flujo";
   sent: boolean;
   duplicate: boolean;
 }
@@ -397,7 +411,12 @@ export async function onMessageReceivedHandler(
     // sale después de clasificar —o, en los caminos que no clasifican (baja,
     // fuera de horario) o si la clasificación falla, con `null`: el turno no
     // tiene intent—. Nunca deja de salir por falta de intent.
-    const emitirMensajeRecibido = (intentNombre: string | null) =>
+    const datosMensaje = {
+      canal: parsed.canal,
+      tipoMensaje: parsed.tipo,
+      texto: parsed.contenido,
+    };
+    const emitirMensajeRecibido = (intentNombre: string | null, interceptadoPor?: UUID) =>
       step.run("emit-workflow-mensaje", async () => {
         const intent = intentNombre !== null ? await deps.intents.findByNombre(intentNombre) : null;
         await deps.emit({
@@ -417,7 +436,8 @@ export async function onMessageReceivedHandler(
                 mensajeAt: new Date(inbound.created_at).toISOString(),
               },
             }),
-            datos: { canal: parsed.canal, tipoMensaje: parsed.tipo, texto: parsed.contenido },
+            datos: datosMensaje,
+            ...(interceptadoPor !== undefined ? { interceptadoPor } : {}),
           },
         });
       });
@@ -471,12 +491,94 @@ export async function onMessageReceivedHandler(
       };
     }
 
+    // ¿Contesta un flujo en lugar del agente? (decisión 2 del dueño). Va después
+    // de la baja —un BAJA corta antes que cualquier flujo— y antes del horario:
+    // el flujo que intercepta contesta a cualquier hora, y la plantilla de
+    // fuera de horario sería una segunda respuesta al mismo mensaje. Primero
+    // sin clasificar; si algún interceptor mira el intent, se vuelve a
+    // preguntar después de clasificar y antes del agente. No espera a que el
+    // flujo corra: la corrida la arranca `workflow-disparar` con el disparo de
+    // siempre.
+    //
+    // El turno interceptado se clasifica igual (decisión del dueño): lo que se
+    // ahorra es la respuesta del agente, no la clasificación, que es barata. Sin
+    // el intent no se cuelgan las etiquetas automáticas y los demás flujos del
+    // mensaje no lo ven. La baja, que cortó arriba, sigue sin clasificar.
+    //
+    // Si el flujo que coincidía no va a poder responder —un tope saltaría su
+    // envío—, el interceptor no intercepta y contesta el agente
+    // (`interceptor.service.ts`). Queda en el log con el motivo; en
+    // `turnos_interceptados` sólo entran los turnos que contesta un flujo.
+    const interceptor = deps.interceptor;
+    const avisarDescarte = (decision: DecisionIntercepcion) => {
+      if (decision.tipo === "no" && decision.descartada) {
+        logger.info("intercepcion-descartada", {
+          workflow_id: decision.descartada.workflowId,
+          motivo: decision.descartada.motivo,
+        });
+      }
+    };
+    let intercepcion: DecisionIntercepcion = { tipo: "no" };
+    if (interceptor) {
+      intercepcion = await step.run("decidir-intercepcion", () =>
+        interceptor.decidir({
+          leadId: lead.id,
+          leadSessionId: session.id,
+          datos: datosMensaje,
+          contexto: contextoDeDisparo({
+            lead,
+            sesion: session,
+            canal: parsed.canal,
+            respondio: true,
+          }),
+          intentConocido: false,
+          respuestaInteractiva: respuestaInteractiva
+            ? { respondeA: respuestaInteractiva.responde_a }
+            : null,
+        }),
+      );
+      avisarDescarte(intercepcion);
+    }
+
+    // El turno lo contesta el flujo: queda anotado (auditable desde el Inbox),
+    // el flujo se entera por el disparo con `interceptadoPor` —que además deja
+    // afuera a los otros interceptores— y el turno termina después de etiquetar.
+    // Sin respuesta del agente no hay `turn.completed`: extraer el Twin sería
+    // otra llamada al LLM.
+    const registrarIntercepcion = (decision: Intercepcion) =>
+      step.run("registrar-intercepcion", () => interceptor!.registrar(inbound.id, decision));
+    const cortarPorFlujo = async (decision: Intercepcion): Promise<OnMessageReceivedResult> => {
+      await registrarIntercepcion(decision);
+      logger.info("pipeline-complete", {
+        duplicate: false,
+        sent: false,
+        skipped: "interceptado_por_flujo",
+        motivo: decision.motivo,
+        workflow_id: decision.workflowId,
+      });
+      return {
+        leadId: lead.id,
+        leadCreated,
+        sessionId: session.id,
+        sessionCreated,
+        conversacionId: conv.id,
+        agentSource: "flujo",
+        sent: false,
+        duplicate: false,
+      };
+    };
+
     const config = await deps.configProvider.get();
 
     // Fuera de horario: no se invoca ningun LLM (ni classifier ni agente).
     // Con plantilla configurada se responde eso; sin ella, no se responde
     // nada y la sesion queda como esta para que el triage humano la retome.
-    if (!estaAbierto(config.horario, config.horario_timezone, new Date())) {
+    // Un turno que ya contesta un flujo no pasa por acá: el flujo contesta a
+    // cualquier hora y la plantilla sería una segunda respuesta.
+    if (
+      intercepcion.tipo !== "intercepta" &&
+      !estaAbierto(config.horario, config.horario_timezone, new Date())
+    ) {
       // Sin LLM no hay intent, pero el flujo se entera igual (y antes de la
       // plantilla, como en el camino normal antes de la respuesta del agente).
       await emitirMensajeRecibido(null);
@@ -523,7 +625,9 @@ export async function onMessageReceivedHandler(
     //
     // Si la clasificación falla del todo (Inngest ya agotó sus reintentos y
     // tira el `StepError` acá), el flujo se entera igual, sin intent, y
-    // después el turno falla como fallaba antes: no se contesta sin clasificar.
+    // después el turno falla como fallaba antes: el agente no contesta sin
+    // clasificar. Un turno que ya contesta un flujo lo sigue contestando: su
+    // respuesta no depende del intent, y queda anotado antes de fallar.
     let classification: Awaited<ReturnType<typeof deps.intentClassifier.classify>>;
     try {
       classification = await step.run("classify", () =>
@@ -533,10 +637,39 @@ export async function onMessageReceivedHandler(
         }),
       );
     } catch (error) {
-      await emitirMensajeRecibido(null);
+      const yaDecidida = intercepcion.tipo === "intercepta" ? intercepcion : null;
+      await emitirMensajeRecibido(null, yaDecidida?.workflowId);
+      if (yaDecidida) await registrarIntercepcion(yaDecidida);
       throw error;
     }
-    await emitirMensajeRecibido(classification.intent_nombre);
+    if (intercepcion.tipo === "necesita_intent" && interceptor) {
+      intercepcion = await step.run("decidir-intercepcion-con-intent", async () => {
+        const intent =
+          classification.intent_nombre !== null
+            ? await deps.intents.findByNombre(classification.intent_nombre)
+            : null;
+        return interceptor.decidir({
+          leadId: lead.id,
+          leadSessionId: session.id,
+          datos: datosMensaje,
+          contexto: contextoDeDisparo({
+            lead,
+            sesion: session,
+            canal: parsed.canal,
+            respondio: true,
+            intent: {
+              id: intent?.id ?? null,
+              mensajeAt: new Date(inbound.created_at).toISOString(),
+            },
+          }),
+          intentConocido: true,
+          respuestaInteractiva: null,
+        });
+      });
+      avisarDescarte(intercepcion);
+    }
+    const interceptadoPor = intercepcion.tipo === "intercepta" ? intercepcion : null;
+    await emitirMensajeRecibido(classification.intent_nombre, interceptadoPor?.workflowId);
     logger.info("classified", {
       intent: classification.intent_nombre,
       confidence: classification.confidence,
@@ -592,6 +725,10 @@ export async function onMessageReceivedHandler(
         }
       });
     }
+
+    // Lo contesta el flujo: las etiquetas de arriba ya quedaron, pero ni el
+    // agente ni las reglas IF/THEN contestan.
+    if (interceptadoPor) return cortarPorFlujo(interceptadoPor);
 
     const conversationTurn = await step.run("build-turn", () =>
       buildConversationTurn(

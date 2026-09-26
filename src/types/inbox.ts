@@ -185,10 +185,23 @@ export interface ConversationView {
    * ninguno y el Twin ofrece programarlo.
    */
   recordatorio: SessionRecordatorio | null;
+  /**
+   * Los entrantes que contestó un flujo en lugar del agente, por id de
+   * mensaje. El hilo los marca: sin la marca, un mensaje del cliente sin
+   * respuesta del agente se lee como un turno que se cayó.
+   */
+  interceptados: Record<string, TurnoInterceptadoVista>;
   handoffStatus: {
     motivo: import("@/types/entities").HandoffEvent["reason_code"];
     aviso: "enviado" | "pendiente" | "no_aplica";
   } | null;
+}
+
+/** Qué flujo contestó un entrante, y por qué el agente no. */
+export interface TurnoInterceptadoVista {
+  /** `null` si el flujo ya no existe (se borró después). */
+  flujo: string | null;
+  motivo: import("@/types/entities").MotivoIntercepcion;
 }
 
 /**

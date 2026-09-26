@@ -16,6 +16,8 @@
  */
 
 import { vi } from "vitest";
+import { AvisarEquipoService } from "@/server/services/workflows/avisar-equipo.service";
+import { InMemoryNotificacionesRepository } from "@/server/repositories/notificaciones.repo";
 import { InMemoryRuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
 import { InMemoryTurnClassificationsRepository } from "@/server/repositories/turn-classifications.repo";
 import { DefaultAiAgentService } from "@/server/services/ai-agent.service";
@@ -268,6 +270,12 @@ export function makeSmokeBundle(): SmokeBundle {
     }),
     avisos: makeAvisosDeAsignacion(makeEmitirDisparoWorkflow(inngestClient)),
     candadoReparto: new InMemorySessionLock(),
+    avisarEquipo: new AvisarEquipoService({
+      users,
+      sessions,
+      conversations: makeConversationsParaEnviarMensaje({ conversations, messages }),
+      notificaciones: new InMemoryNotificacionesRepository(),
+    }),
   });
 
   // ===== Callbacks =====

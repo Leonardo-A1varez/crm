@@ -99,6 +99,12 @@ describe("config-nodos — configDeAccion (lo que lee cada acción)", () => {
     expect(configDeAccion("enviar_mensaje", nodo("msg_texto", { mensaje: "hola" }))).toEqual({
       mensaje: "hola",
       canal: "inferir",
+      // Sin categoría es servicio; los campos de la plantilla de marketing
+      // quedan en su default.
+      categoria: "servicio",
+      templateName: "",
+      idioma: "es",
+      parametros: [],
     });
   });
 
@@ -224,7 +230,14 @@ describe("config-nodos — lo que reciben los servicios de asignación", () => {
 describe("config-nodos — editorDeConfig (lo que usa el formulario)", () => {
   it("pinta las claves viejas en su campo y los defaults del schema", () => {
     const editor = editorDeConfig("msg_texto", { texto: "hola" });
-    expect(editor.valores).toEqual({ mensaje: "hola", canal: "inferir" });
+    expect(editor.valores).toEqual({
+      mensaje: "hola",
+      canal: "inferir",
+      categoria: "servicio",
+      templateName: "",
+      idioma: "es",
+      parametros: [],
+    });
   });
 
   it("al escribir, guarda sólo el campo tocado con la clave del panel", () => {

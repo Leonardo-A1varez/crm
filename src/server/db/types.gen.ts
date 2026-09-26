@@ -401,8 +401,8 @@ export type Database = {
           audiencia_modo: Database["public"]["Enums"]["difusion_audiencia_modo"]
           audiencia_tanda_evaluada: number | null
           audiencia_toda_la_base: boolean
-          canary_revisado_at: string | null
           canary_continuada_at: string | null
+          canary_revisado_at: string | null
           canary_tamano: number | null
           creada_por: string | null
           created_at: string
@@ -1226,6 +1226,71 @@ export type Database = {
         }
         Relationships: []
       }
+      notificaciones: {
+        Row: {
+          clave: string
+          conversacion_id: string | null
+          created_at: string
+          id: string
+          lead_id: string | null
+          leida_at: string | null
+          texto: string
+          usuario_id: string
+          workflow_run_id: string | null
+        }
+        Insert: {
+          clave: string
+          conversacion_id?: string | null
+          created_at?: string
+          id?: string
+          lead_id?: string | null
+          leida_at?: string | null
+          texto: string
+          usuario_id: string
+          workflow_run_id?: string | null
+        }
+        Update: {
+          clave?: string
+          conversacion_id?: string | null
+          created_at?: string
+          id?: string
+          lead_id?: string | null
+          leida_at?: string | null
+          texto?: string
+          usuario_id?: string
+          workflow_run_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notificaciones_conversacion_id_fkey"
+            columns: ["conversacion_id"]
+            isOneToOne: false
+            referencedRelation: "conversaciones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notificaciones_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notificaciones_usuario_id_fkey"
+            columns: ["usuario_id"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notificaciones_workflow_run_id_fkey"
+            columns: ["workflow_run_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       productos: {
         Row: {
           activo: boolean
@@ -1627,6 +1692,65 @@ export type Database = {
           },
         ]
       }
+      turnos_interceptados: {
+        Row: {
+          created_at: string
+          id: string
+          mensaje_id: string
+          motivo: string
+          workflow_id: string | null
+          workflow_run_id: string | null
+          workflow_version_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          mensaje_id: string
+          motivo: string
+          workflow_id?: string | null
+          workflow_run_id?: string | null
+          workflow_version_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          mensaje_id?: string
+          motivo?: string
+          workflow_id?: string | null
+          workflow_run_id?: string | null
+          workflow_version_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "turnos_interceptados_mensaje_id_fkey"
+            columns: ["mensaje_id"]
+            isOneToOne: true
+            referencedRelation: "mensajes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "turnos_interceptados_workflow_id_fkey"
+            columns: ["workflow_id"]
+            isOneToOne: false
+            referencedRelation: "workflows"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "turnos_interceptados_workflow_run_id_fkey"
+            columns: ["workflow_run_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_runs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "turnos_interceptados_workflow_version_id_fkey"
+            columns: ["workflow_version_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_versiones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       usuarios: {
         Row: {
           activo: boolean
@@ -1653,50 +1777,6 @@ export type Database = {
           rol?: Database["public"]["Enums"]["rol_usuario_enum"]
         }
         Relationships: []
-      }
-      workflow_run_pasos: {
-        Row: {
-          created_at: string
-          entrada: Json | null
-          error: string | null
-          id: string
-          motivo_salto: string | null
-          nodo_id: string
-          orden: number
-          run_id: string
-          salida: Json | null
-        }
-        Insert: {
-          created_at?: string
-          entrada?: Json | null
-          error?: string | null
-          id?: string
-          motivo_salto?: string | null
-          nodo_id: string
-          orden: number
-          run_id: string
-          salida?: Json | null
-        }
-        Update: {
-          created_at?: string
-          entrada?: Json | null
-          error?: string | null
-          id?: string
-          motivo_salto?: string | null
-          nodo_id?: string
-          orden?: number
-          run_id?: string
-          salida?: Json | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "workflow_run_pasos_run_id_fkey"
-            columns: ["run_id"]
-            isOneToOne: false
-            referencedRelation: "workflow_runs"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       whatsapp_numeros_rol: {
         Row: {
@@ -1810,6 +1890,50 @@ export type Database = {
           {
             foreignKeyName: "workflow_plantillas_sin_sesion_workflow_run_id_fkey"
             columns: ["workflow_run_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workflow_run_pasos: {
+        Row: {
+          created_at: string
+          entrada: Json | null
+          error: string | null
+          id: string
+          motivo_salto: string | null
+          nodo_id: string
+          orden: number
+          run_id: string
+          salida: Json | null
+        }
+        Insert: {
+          created_at?: string
+          entrada?: Json | null
+          error?: string | null
+          id?: string
+          motivo_salto?: string | null
+          nodo_id: string
+          orden: number
+          run_id: string
+          salida?: Json | null
+        }
+        Update: {
+          created_at?: string
+          entrada?: Json | null
+          error?: string | null
+          id?: string
+          motivo_salto?: string | null
+          nodo_id?: string
+          orden?: number
+          run_id?: string
+          salida?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_run_pasos_run_id_fkey"
+            columns: ["run_id"]
             isOneToOne: false
             referencedRelation: "workflow_runs"
             referencedColumns: ["id"]
@@ -1984,6 +2108,7 @@ export type Database = {
           p_version_id: string
         }
         Returns: {
+          cancelados: string[]
           error_code: string
           run_id: string
         }[]
@@ -2062,9 +2187,12 @@ export type Database = {
           motivo_exclusion: Database["public"]["Enums"]["difusion_motivo_exclusion"]
         }[]
       }
-      difusion_sumar_altas: {
-        Args: { p_difusion_id: string; p_envios: Json }
-        Returns: number
+      difusion_envios_fallos: {
+        Args: { p_difusion_id: string }
+        Returns: {
+          cantidad: number
+          error_codigo: string
+        }[]
       }
       difusion_envios_muestra: {
         Args: { p_difusion_id: string; p_hasta: string }
@@ -2072,13 +2200,6 @@ export type Database = {
           cantidad: number
           error_codigo: string
           estado: Database["public"]["Enums"]["difusion_envio_estado"]
-        }[]
-      }
-      difusion_envios_fallos: {
-        Args: { p_difusion_id: string }
-        Returns: {
-          cantidad: number
-          error_codigo: string
         }[]
       }
       difusion_envios_resumen: {
@@ -2121,6 +2242,10 @@ export type Database = {
           ultimo_entrante_at: string
           vehiculo: string
         }[]
+      }
+      difusion_sumar_altas: {
+        Args: { p_difusion_id: string; p_envios: Json }
+        Returns: number
       }
       difusion_supresiones_activas: {
         Args: { p_hashes: string[] }
@@ -2253,6 +2378,7 @@ export type Database = {
       relanzar_workflow_run: {
         Args: { p_run_id: string }
         Returns: {
+          cancelados: string[]
           error_code: string
           run_id: string
         }[]
@@ -2311,11 +2437,25 @@ export type Database = {
         }[]
       }
       workflow_condicion_coincidencias: {
-        Args: { p_ahora: string; p_arbol: Json; p_muestra?: number; p_zona: string }
+        Args: {
+          p_ahora: string
+          p_arbol: Json
+          p_muestra?: number
+          p_zona: string
+        }
         Returns: Json
       }
       workflow_condicion_predicado: {
-        Args: { p_ahora: string; p_nivel?: number; p_nodo: Json; p_zona: string }
+        Args: {
+          p_ahora: string
+          p_nivel?: number
+          p_nodo: Json
+          p_zona: string
+        }
+        Returns: string
+      }
+      workflow_condicion_regla: {
+        Args: { p_ahora: string; p_regla: Json; p_zona: string }
         Returns: string
       }
       workflow_corridas_por_nodo: {

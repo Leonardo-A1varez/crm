@@ -1,3 +1,4 @@
+import { InMemoryTurnosInterceptadosRepository } from "@/server/repositories/turnos-interceptados.repo";
 import { beforeEach, describe, expect, test } from "vitest";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
@@ -456,6 +457,42 @@ describe("DefaultInboxService.getConversation", () => {
     const view = await svc.getConversation(lead.id);
 
     expect(view.messages.map((m) => m.id)).toEqual([own.id]);
+  });
+});
+
+describe("DefaultInboxService.getConversation — turnos que contestó un flujo", () => {
+  test("marca el entrante interceptado con el nombre del flujo y el motivo", async () => {
+    const leads = new InMemoryLeadsRepository();
+    const sessions = new InMemoryLeadSessionRepository();
+    const convs = new InMemoryConversationsRepository();
+    const messages = new InMemoryMessagesRepository();
+    const turnos = new InMemoryTurnosInterceptadosRepository();
+    const svc = new DefaultInboxService({
+      ...makeReadOnlyDeps(leads, sessions, convs, messages),
+      turnosInterceptados: turnos,
+      nombreDeFlujo: async (id) => (id === "wf-horario" ? "Horario de atención" : null),
+    });
+    const lead = await makeLead(leads);
+    const session = await makeSession(sessions, lead.id);
+    const conv = await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: "wa-9" });
+    const entrante = await messages.create(
+      msgInsert(conv.id, session.id, { contenido: "horario?" }),
+    );
+    const otro = await messages.create(msgInsert(conv.id, session.id, { contenido: "gracias" }));
+    await turnos.registrar({
+      mensaje_id: entrante.id,
+      workflow_id: "wf-horario",
+      workflow_version_id: "v-1",
+      workflow_run_id: null,
+      motivo: "condicion",
+    });
+
+    const view = await svc.getConversation(lead.id);
+
+    expect(view.interceptados).toEqual({
+      [entrante.id]: { flujo: "Horario de atención", motivo: "condicion" },
+    });
+    expect(view.interceptados[otro.id]).toBeUndefined();
   });
 });
 

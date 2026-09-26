@@ -178,6 +178,10 @@ export function resumenDe(
     const campo = campoDeSwitch(nodo, catalogos);
     if (campo) return `Según ${campo.etiqueta.toLowerCase()}`;
   }
+  // Se ve en el lienzo sin abrir el panel: este flujo calla al agente.
+  if (nodo.tipo === "trigger_mensaje" && nodo.config["interceptaLlm"] === true) {
+    return `${CATALOGO.get(nodo.tipo)?.descripcion ?? "Mensaje recibido"} · intercepta el LLM`;
+  }
   return CATALOGO.get(nodo.tipo)?.descripcion;
 }
 

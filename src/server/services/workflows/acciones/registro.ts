@@ -8,6 +8,7 @@ import { crearAccionEnviarMensaje, type AccionEnviarMensajeDeps } from "./enviar
 import { crearAccionEnviarPlantilla, type AccionEnviarPlantillaDeps } from "./enviar-plantilla";
 import { crearAccionesDeMensajeriaRica, type AccionesMensajeriaRicaDeps } from "./enviar-rico";
 import { crearAccionesInternas, type AccionesInternasDeps } from "./internas";
+import { crearAccionAvisarEquipo, type AccionAvisarEquipoDeps } from "./avisar-equipo";
 
 /** Todo lo que una acción necesita saber de la corrida que la invoca. */
 export interface EntornoAccion {
@@ -108,7 +109,8 @@ export type PuertosAcciones = AccionesInternasDeps &
   AccionEnviarPlantillaDeps &
   AccionesMensajeriaRicaDeps &
   AccionesAsignacionDeps &
-  AccionActualizarCampoTwinDeps;
+  AccionActualizarCampoTwinDeps &
+  AccionAvisarEquipoDeps;
 
 /**
  * **EL registro de acciones.** Hay uno solo en el proyecto y se arma acá.
@@ -122,12 +124,15 @@ export type PuertosAcciones = AccionesInternasDeps &
  * un handler fuera del catálogo, no compila.
  */
 export function crearRegistroDeAcciones(puertos: PuertosAcciones): RegistroDeAcciones {
+  const enviarPlantilla = crearAccionEnviarPlantilla(puertos);
   const handlers = {
     ...crearAccionesInternas(puertos),
     ...crearAccionesDeAsignacion(puertos),
-    enviar_mensaje: crearAccionEnviarMensaje(puertos),
-    enviar_plantilla: crearAccionEnviarPlantilla(puertos),
+    // Marketing con la ventana cerrada sale por la plantilla: el mismo handler.
+    enviar_mensaje: crearAccionEnviarMensaje(puertos, enviarPlantilla),
+    enviar_plantilla: enviarPlantilla,
     actualizar_campo_twin: crearAccionActualizarCampoTwin(puertos),
+    avisar_equipo: crearAccionAvisarEquipo(puertos),
     ...crearAccionesDeMensajeriaRica(puertos),
   } satisfies Record<AccionWorkflow, AccionHandler>;
   return crearRegistro(handlers);

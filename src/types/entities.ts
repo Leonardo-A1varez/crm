@@ -357,6 +357,39 @@ export interface TurnClassification {
 }
 
 /**
+ * Por qué calló el agente: `condicion`, un flujo marcado "intercepta el LLM"
+ * cuya condición cumplió el mensaje; `respuesta_esperada`, el lead tocó un
+ * botón o eligió una fila que una corrida estaba esperando.
+ */
+export const MOTIVOS_INTERCEPCION = ["condicion", "respuesta_esperada"] as const;
+export type MotivoIntercepcion = (typeof MOTIVOS_INTERCEPCION)[number];
+
+/** Un turno que contestó un flujo en lugar del agente de IA (`turnos_interceptados`). */
+export interface TurnoInterceptado {
+  id: UUID;
+  /** El mensaje ENTRANTE del turno. */
+  mensaje_id: UUID;
+  workflow_id: UUID | null;
+  workflow_version_id: UUID | null;
+  workflow_run_id: UUID | null;
+  motivo: MotivoIntercepcion;
+  created_at: Date;
+}
+
+/** Un aviso del panel ("Avisar al equipo"). Referencias y el texto del flujo, sin datos del lead. */
+export interface Notificacion {
+  id: UUID;
+  usuario_id: UUID;
+  lead_id: UUID | null;
+  conversacion_id: UUID | null;
+  workflow_run_id: UUID | null;
+  texto: string;
+  clave: string;
+  leida_at: Date | null;
+  created_at: Date;
+}
+
+/**
  * Un dato que identifica a un lead. Varios por lead.
  *
  * La columna `leads.telefono` sigue siendo la identidad canónica de WhatsApp

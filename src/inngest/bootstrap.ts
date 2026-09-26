@@ -51,6 +51,10 @@ import { SupabaseWorkflowsRepository } from "@/server/repositories/workflows.sup
 import { SupabaseWorkflowRunsRepository } from "@/server/repositories/workflow-runs.supabase.repo";
 import { SupabaseCondicionWorkflowRepository } from "@/server/repositories/condicion-workflow.supabase.repo";
 import { camposVivosDeCondicion } from "@/server/services/workflows/campos-vivos";
+import { InterceptorTurnoService } from "@/server/services/workflows/interceptor.service";
+import { AvisarEquipoService } from "@/server/services/workflows/avisar-equipo.service";
+import { SupabaseNotificacionesRepository } from "@/server/repositories/notificaciones.supabase.repo";
+import { SupabaseTurnosInterceptadosRepository } from "@/server/repositories/turnos-interceptados.supabase.repo";
 import { SupabaseUsersRepository } from "@/server/repositories/users.supabase.repo";
 
 import { makeCostTracker } from "@/lib/observability/upstash-cost-tracker";
@@ -290,6 +294,13 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     asignacion,
     avisos: makeAvisosDeAsignacion(makeEmitirDisparoWorkflow(inngest)),
     candadoReparto,
+    // "Avisar al equipo": aviso en el panel, no sale por Meta.
+    avisarEquipo: new AvisarEquipoService({
+      users,
+      sessions,
+      conversations: makeConversationsParaEnviarMensaje({ conversations, messages }),
+      notificaciones: new SupabaseNotificacionesRepository(db),
+    }),
     // "Enviar imagen" subida desde el panel: se firma al mandar.
     imagenesDeFlujo: new SupabaseImagenesDeFlujoRepository(db),
   });
@@ -419,6 +430,29 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       plantillasSinSesion: new DefaultAnotarPlantillasSinSesion({
         repo: plantillasSinSesionRepo,
         messages,
+      }),
+      // "Intercepta el LLM" y el toque de un botón que una corrida espera:
+      // ese turno lo contesta el flujo, no el agente.
+      interceptor: new InterceptorTurnoService({
+        workflows,
+        runs: workflowRuns,
+        turnos: new SupabaseTurnosInterceptadosRepository(db),
+        camposVivos: camposVivosDeCondicion(
+          new SupabaseCondicionWorkflowRepository(db),
+          agenteConfigProvider,
+        ),
+        // Los mismos puertos que los topes de los envíos del registro de
+        // acciones: el interceptor no silencia al agente si el envío del flujo
+        // saltaría, y lo decide con la misma función.
+        topes: {
+          sessions,
+          leads,
+          supresiones,
+          configProvider: configProviderParaEnviarMensaje,
+          messages,
+          plantillasSinSesion,
+        },
+        conversations: makeConversationsParaEnviarMensaje({ conversations, messages }),
       }),
       // Apaga el seguimiento apenas el cliente vuelve a escribir.
       recordatorios,

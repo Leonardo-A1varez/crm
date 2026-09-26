@@ -10,7 +10,14 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2 } from "lucide-react";
-import { CANALES_DE_ENVIO, editorDeConfig, type CanalDeEnvio } from "@/lib/workflows/config-nodos";
+import {
+  CANALES_DE_ENVIO,
+  CATEGORIAS_DE_MENSAJE,
+  editorDeConfig,
+  type CanalDeEnvio,
+  type CategoriaDeMensaje,
+} from "@/lib/workflows/config-nodos";
+import { cn } from "@/lib/utils";
 import {
   ConfigBotones,
   ConfigImagen,
@@ -37,6 +44,12 @@ const ETIQUETA_CANAL_DE_ENVIO: Readonly<Record<CanalDeEnvio, string>> = {
   messenger: "Messenger",
 };
 
+/** Cómo se llama en pantalla cada categoría de «Enviar mensaje». */
+const ETIQUETA_CATEGORIA: Readonly<Record<CategoriaDeMensaje, string>> = {
+  servicio: "Servicio",
+  marketing: "Marketing",
+};
+
 /**
  * Formularios de los bloques de mensajería.
  *
@@ -60,6 +73,7 @@ export function ConfigMensajeria({
     case "msg_texto": {
       const c = editorDeConfig("msg_texto", config);
       const mensaje = String(c.valores.mensaje ?? "");
+      const categoria = c.valores.categoria === "marketing" ? "marketing" : "servicio";
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
@@ -82,10 +96,58 @@ export function ConfigMensajeria({
             </Select>
           </label>
 
+          <fieldset className="flex flex-col gap-1.5">
+            <legend className={labelClass}>Categoría</legend>
+            <div role="radiogroup" aria-label="Categoría del mensaje" className="flex gap-2">
+              {CATEGORIAS_DE_MENSAJE.map((opcion) => {
+                const elegida = categoria === opcion;
+                return (
+                  <button
+                    key={opcion}
+                    type="button"
+                    role="radio"
+                    aria-checked={elegida}
+                    disabled={readonly}
+                    onClick={() => onChange(c.con("categoria", opcion))}
+                    className={cn(
+                      "focus-visible:ring-brand/60 h-[30px] flex-1 rounded-[8px] border text-[11.5px] font-medium outline-none focus-visible:ring-2",
+                      "transition-[color,background-color,border-color,transform] duration-150 ease-out active:scale-[0.97]",
+                      elegida
+                        ? "border-ink-primary bg-surface-hover text-ink-primary"
+                        : "border-line-control text-ink-faint hover:text-ink-secondary",
+                    )}
+                  >
+                    {ETIQUETA_CATEGORIA[opcion]}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-ink-faint text-[10.5px] leading-snug text-pretty">
+              {categoria === "servicio"
+                ? "Texto libre, sin costo. Sólo sale con la ventana de 24 h abierta: cerrada, el paso se salta."
+                : "Sale con una plantilla aprobada, que Meta cobra como marketing. Si la ventana de 24 h está abierta y escribís un texto libre, sale el texto, sin costo."}
+            </p>
+          </fieldset>
+
+          {categoria === "marketing" ? (
+            <CamposPlantilla
+              valores={c.valores}
+              cambiar={(campo, v) => onChange(c.con(campo, v))}
+              readonly={readonly}
+              labelClass={labelClass}
+              inputClass={inputClass}
+              selectClass={selectClass}
+            />
+          ) : null}
+
           {/* Nota 01 del diseño: las variables se eligen de una lista y se ven
               como chips; nunca se escribe una llave a mano. */}
           <EditorConVariables
-            etiqueta="Mensaje"
+            etiqueta={
+              categoria === "marketing"
+                ? "Texto libre con la ventana abierta (opcional)"
+                : "Mensaje"
+            }
             value={mensaje}
             onChange={(v) => onChange(c.con("mensaje", v))}
             placeholder="Hola, gracias por escribir. Contame qué repuesto necesitás."
@@ -196,98 +258,16 @@ export function ConfigMensajeria({
 
     case "msg_plantilla": {
       const c = editorDeConfig("msg_plantilla", config);
-      const parametros = Array.isArray(c.valores.parametros)
-        ? (c.valores.parametros as string[])
-        : [];
       return (
         <div className="flex flex-col gap-3">
-          <label className="block">
-            <span className={labelClass}>Nombre de la plantilla</span>
-            <Input
-              className={inputClass}
-              value={String(c.valores.templateName ?? "")}
-              onChange={(e) => onChange(c.con("templateName", e.target.value))}
-              placeholder="hello_world"
-              disabled={readonly}
-            />
-          </label>
-
-          <label className="block">
-            <span className={labelClass}>Idioma</span>
-            <Select
-              value={String(c.valores.idioma)}
-              onValueChange={(v) => onChange(c.con("idioma", v))}
-              disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="es">Espanol</SelectItem>
-                <SelectItem value="es_MX">Espanol (Mexico)</SelectItem>
-                <SelectItem value="es_AR">Espanol (Argentina)</SelectItem>
-                <SelectItem value="pt_BR">Portugues (Brasil)</SelectItem>
-                <SelectItem value="en">Ingles</SelectItem>
-              </SelectContent>
-            </Select>
-          </label>
-
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <span className={labelClass}>Variables del cuerpo, en orden</span>
-              {!readonly && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 px-2 text-[10px]"
-                  onClick={() => onChange(c.con("parametros", [...parametros, ""]))}
-                >
-                  <Plus className="mr-1 h-3 w-3" />
-                  Agregar
-                </Button>
-              )}
-            </div>
-            <div className="space-y-2">
-              {parametros.map((valor, idx) => (
-                <div key={idx} className="flex items-end gap-2">
-                  <EditorConVariables
-                    className="flex-1"
-                    etiqueta={`Valor de la variable ${idx + 1}`}
-                    value={valor}
-                    onChange={(v) => {
-                      const siguientes = [...parametros];
-                      siguientes[idx] = v;
-                      onChange(c.con("parametros", siguientes));
-                    }}
-                    placeholder="Texto fijo o una variable"
-                    unaLinea
-                    readonly={readonly}
-                  />
-                  {!readonly && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      aria-label={`Quitar la variable ${idx + 1}`}
-                      className="h-8 w-8 p-0 text-red-500"
-                      onClick={() =>
-                        onChange(
-                          c.con(
-                            "parametros",
-                            parametros.filter((_, i) => i !== idx),
-                          ),
-                        )
-                      }
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
+          <CamposPlantilla
+            valores={c.valores}
+            cambiar={(campo, v) => onChange(c.con(campo, v))}
+            readonly={readonly}
+            labelClass={labelClass}
+            inputClass={inputClass}
+            selectClass={selectClass}
+          />
           <div className="text-ink-faint bg-surface-hover rounded-md p-2 text-[10px]">
             Las plantillas deben estar aprobadas en Meta Business Manager. Se mandan también fuera
             de la ventana de 24 h, y sólo por WhatsApp.
@@ -340,4 +320,117 @@ export function ConfigMensajeria({
         </p>
       );
   }
+}
+
+type CampoPlantilla = "templateName" | "idioma" | "parametros";
+
+/**
+ * La plantilla aprobada de Meta: nombre, idioma y variables del cuerpo. La
+ * comparten «Enviar plantilla» y «Enviar mensaje» de marketing, que escriben
+ * las mismas claves y las lee el mismo handler.
+ */
+function CamposPlantilla({
+  valores,
+  cambiar,
+  readonly,
+  labelClass,
+  inputClass,
+  selectClass,
+}: {
+  valores: { templateName?: unknown; idioma?: unknown; parametros?: unknown };
+  cambiar: (campo: CampoPlantilla, valor: unknown) => void;
+  readonly?: boolean;
+  labelClass: string;
+  inputClass: string;
+  selectClass: string;
+}) {
+  const parametros = Array.isArray(valores.parametros) ? (valores.parametros as string[]) : [];
+  return (
+    <>
+      <label className="block">
+        <span className={labelClass}>Nombre de la plantilla</span>
+        <Input
+          className={inputClass}
+          value={String(valores.templateName ?? "")}
+          onChange={(e) => cambiar("templateName", e.target.value)}
+          placeholder="hello_world"
+          disabled={readonly}
+        />
+      </label>
+
+      <label className="block">
+        <span className={labelClass}>Idioma</span>
+        <Select
+          value={String(valores.idioma ?? "es")}
+          onValueChange={(v) => cambiar("idioma", v)}
+          disabled={readonly}
+        >
+          <SelectTrigger className={selectClass}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="es">Espanol</SelectItem>
+            <SelectItem value="es_MX">Espanol (Mexico)</SelectItem>
+            <SelectItem value="es_AR">Espanol (Argentina)</SelectItem>
+            <SelectItem value="pt_BR">Portugues (Brasil)</SelectItem>
+            <SelectItem value="en">Ingles</SelectItem>
+          </SelectContent>
+        </Select>
+      </label>
+
+      <div>
+        <div className="mb-2 flex items-center justify-between">
+          <span className={labelClass}>Variables del cuerpo, en orden</span>
+          {!readonly && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[10px]"
+              onClick={() => cambiar("parametros", [...parametros, ""])}
+            >
+              <Plus className="mr-1 h-3 w-3" />
+              Agregar
+            </Button>
+          )}
+        </div>
+        <div className="space-y-2">
+          {parametros.map((valor, idx) => (
+            <div key={idx} className="flex items-end gap-2">
+              <EditorConVariables
+                className="flex-1"
+                etiqueta={`Valor de la variable ${idx + 1}`}
+                value={valor}
+                onChange={(v) => {
+                  const siguientes = [...parametros];
+                  siguientes[idx] = v;
+                  cambiar("parametros", siguientes);
+                }}
+                placeholder="Texto fijo o una variable"
+                unaLinea
+                readonly={readonly}
+              />
+              {!readonly && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-label={`Quitar la variable ${idx + 1}`}
+                  className="h-8 w-8 p-0 text-red-500"
+                  onClick={() =>
+                    cambiar(
+                      "parametros",
+                      parametros.filter((_, i) => i !== idx),
+                    )
+                  }
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
 }

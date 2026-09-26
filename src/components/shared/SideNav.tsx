@@ -14,10 +14,12 @@ import {
   SettingsSuggest,
   SmartToy,
 } from "@/components/icons";
+import { CampanaAvisos } from "@/components/shared/CampanaAvisos";
 import { InitialsAvatar } from "@/components/shared/InitialsAvatar";
 import { ThemeToggle } from "@/components/shared/ThemeToggle";
 import { cn } from "@/lib/utils";
 import type { ActionResult } from "@/types/inbox";
+import type { PanelNotificaciones } from "@/types/notificaciones";
 import type { ComponentType } from "react";
 
 interface NavItem {
@@ -53,10 +55,19 @@ export function SideNav({
   user,
   onLogout,
   bandejaCount,
+  avisos,
 }: {
   user: { nombre: string; rol: string };
   onLogout: () => Promise<ActionResult>;
   bandejaCount?: number;
+  /** La campanita de "Avisar al equipo": lo que trajo el servidor y cómo pedir más. */
+  avisos: {
+    usuarioId: string | null;
+    inicial: PanelNotificaciones | null;
+    onLeer: () => Promise<PanelNotificaciones | null>;
+    onMarcarLeida: (input: { id: string }) => Promise<ActionResult>;
+    onMarcarTodas: () => Promise<ActionResult>;
+  };
 }) {
   const pathname = usePathname();
 
@@ -72,7 +83,7 @@ export function SideNav({
         >
           <SettingsSuggest className="text-brand-ink" size={19} strokeWidth={1.75} />
         </span>
-        <span className="min-w-0">
+        <span className="min-w-0 flex-1">
           <span className="text-ink-primary block truncate text-[13.5px] leading-tight font-[650] tracking-[-0.01em]">
             Repuestos
           </span>
@@ -80,6 +91,9 @@ export function SideNav({
             CRM · single-org
           </span>
         </span>
+        {/* Arriba y no en el pie: el pie ya tiene al usuario, el tema y salir, y
+            un cuarto botón le comía el nombre. Acá se ve al entrar. */}
+        <CampanaAvisos {...avisos} />
       </div>
 
       {/* min-h-0 es obligatorio: sin él, el flex-1 del nav empuja el footer

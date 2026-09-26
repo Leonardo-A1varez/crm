@@ -45,6 +45,20 @@ export function esperaDeOpcionDe(contexto: ContextoRun, nodoId: string): EsperaD
   return { nodoId, respondeA, ...(respuesta ? { respuesta } : {}) };
 }
 
+/**
+ * ¿Esta corrida está esperando la opción que el lead acaba de tocar? Mismo
+ * criterio que `filtroDeRespuestaInteractiva` en `workflow-segmento`: si Meta
+ * devolvió el wamid del mensaje con botones, la respuesta tiene que ser a ESE
+ * mensaje; si no lo devolvió, cualquier respuesta interactiva del lead sirve.
+ * Una espera ya resuelta (con `respuesta`) no espera nada.
+ */
+export function esperaOpcionCoincide(contexto: ContextoRun, respondeA: string | null): boolean {
+  const v = contexto[CLAVE_ESPERA_OPCION];
+  if (!esObjeto(v) || v["respuesta"] !== undefined) return false;
+  const esperado = typeof v["respondeA"] === "string" ? v["respondeA"] : null;
+  return esperado === null || esperado === respondeA;
+}
+
 /** Lo que deja la primera pasada: qué nodo espera y a qué mensaje. */
 export function marcarEsperaDeOpcion(nodoId: string, respondeA: string | null): ContextoRun {
   return { [CLAVE_ESPERA_OPCION]: { nodoId, respondeA } };

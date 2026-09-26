@@ -116,6 +116,9 @@ export const ACCIONES = [
   // "Actualizar campo del Twin" (tanda 4b): escribe un campo editable de la
   // sesión con su procedencia, como «Cambiar etapa».
   "actualizar_campo_twin",
+  // "Avisar al equipo": un aviso en el panel para el vendedor asignado o, sin
+  // uno, para los admins. No sale por Meta.
+  "avisar_equipo",
 ] as const;
 export type AccionWorkflow = (typeof ACCIONES)[number];
 
@@ -143,6 +146,7 @@ export const ACCION_DE_TIPO: Partial<Record<NodoTipo, AccionWorkflow>> = {
   msg_imagen: "enviar_imagen",
   msg_ubicacion: "enviar_ubicacion",
   crm_campo: "actualizar_campo_twin",
+  int_notif_vendedor: "avisar_equipo",
 };
 
 /** Cómo se nombra cada cosa en pantalla. */
@@ -172,6 +176,7 @@ export const ETIQUETA_ACCION: Record<AccionWorkflow, string> = {
   enviar_imagen: "Enviar una imagen",
   enviar_ubicacion: "Enviar una ubicación",
   actualizar_campo_twin: "Actualizar un campo del Twin",
+  avisar_equipo: "Avisar al equipo",
 };
 
 export const ETIQUETA_NODO: Record<NodoTipo, string> = {
@@ -244,7 +249,7 @@ export const ETIQUETA_NODO: Record<NodoTipo, string> = {
   ia_spam: "Verificar spam",
   ia_delegar: "Delegar al agente",
   // Internos (4)
-  int_notif_vendedor: "Notificar vendedor",
+  int_notif_vendedor: "Avisar al equipo",
   int_notif_grupo: "Notificar grupo",
   int_comentario: "Comentario interno",
   int_debug: "Log/Debug",

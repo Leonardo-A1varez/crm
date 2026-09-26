@@ -101,8 +101,6 @@ export const NO_DISPONIBLES: Readonly<Partial<Record<NodoTipo, string>>> = {
     "El motor todavía no sabe cederle un tramo al agente y observarlo: le faltan las cinco salidas del bloque y un aviso por cada turno del agente.",
 
   // ── Internos ──────────────────────────────────────────────────────────
-  int_notif_vendedor:
-    "No hay ningún canal para avisarle a un vendedor (ni push, ni email, ni aviso en el panel): el aviso de escalado que existe le escribe al cliente.",
   int_notif_grupo: "No hay canales de grupo conectados.",
   int_comentario: "El CRM no tiene comentarios internos: no hay dónde guardarlo.",
   int_debug:

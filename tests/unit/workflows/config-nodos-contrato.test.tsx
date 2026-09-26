@@ -2,7 +2,7 @@ import { useState, type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { opcionesDeEtapas } from "@/app/(panel)/workflows/[id]/_lib/opciones-editor";
-import { ConfigCRM, ConfigMensajeria } from "@/components/workflows/canvas/config";
+import { ConfigCRM, ConfigInterno, ConfigMensajeria } from "@/components/workflows/canvas/config";
 import { ACCION_DE_TIPO } from "@/lib/workflows/catalogo";
 import { validarWorkflow } from "@/lib/workflows/validar-workflow";
 import { puertosDeNodo } from "@/lib/workflows/validar-grafo";
@@ -300,6 +300,24 @@ const RECETAS: Readonly<Record<string, Receta>> = {
     ),
     completar: () => elegirPrimeraOpcion("Agregar vendedor..."),
     efecto: { accion: "repartir_round_robin", detalle: { vendedor_id: "ven-ana" } },
+  },
+  int_notif_vendedor: {
+    formulario: (config, onChange) => (
+      <ConfigInterno
+        tipo="int_notif_vendedor"
+        config={config}
+        onChange={onChange}
+        vendedores={VENDEDORES}
+        canales={[]}
+      />
+    ),
+    completar: async () => {
+      fireEvent.change(screen.getByRole("textbox", { name: /qué tiene que saber el equipo/i }), {
+        target: { value: "Pidió hablar con una persona" },
+      });
+    },
+    // En Probar no se le deja un aviso a nadie: se anota a quién iba.
+    efecto: { accion: "avisar_equipo", detalle: { destinatario: "vendedor_asignado" } },
   },
 };
 

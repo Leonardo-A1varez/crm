@@ -87,7 +87,11 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
         {view.session ? (
           <>
             <div className="flex-1 overflow-hidden">
-              <ChatThread messages={view.messages} onAuditoria={auditoriaTurnoAction} />
+              <ChatThread
+                messages={view.messages}
+                onAuditoria={auditoriaTurnoAction}
+                interceptados={view.interceptados}
+              />
             </div>
             <MessageInput
               leadId={view.lead.id}

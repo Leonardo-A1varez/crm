@@ -98,6 +98,7 @@ const CAMINOS: Record<string, NodoTipo[]> = {
     "trigger_mensaje",
     "logica_condicion",
     "crm_escalar_humano",
+    "int_notif_vendedor",
     "logica_detener",
   ],
   "reactivar-perdidos": [
@@ -278,7 +279,7 @@ describe("armarPlantilla", () => {
     primero.grafo.aristas.pop();
 
     const segundo = armado("responder-automatico");
-    expect(segundo.grafo.nodos[0]!.config).toEqual({});
+    expect(segundo.grafo.nodos[0]!.config).toEqual({ interceptaLlm: true });
     expect(validarGrafo(segundo.grafo)).toEqual([]);
   });
 
@@ -302,13 +303,13 @@ describe("bloquesQueNoCorren", () => {
     const g: Grafo = {
       nodos: [
         { id: "n1", tipo: "trigger_mensaje", config: {}, posicion: { x: 0, y: 0 } },
-        { id: "n2", tipo: "int_notif_vendedor", config: {}, posicion: { x: 0, y: 144 } },
-        { id: "n3", tipo: "int_notif_vendedor", config: {}, posicion: { x: 0, y: 288 } },
+        { id: "n2", tipo: "int_notif_grupo", config: {}, posicion: { x: 0, y: 144 } },
+        { id: "n3", tipo: "int_notif_grupo", config: {}, posicion: { x: 0, y: 288 } },
         { id: "n4", tipo: "logica_detener", config: {}, posicion: { x: 0, y: 432 } },
       ],
       aristas: [],
     };
-    expect(bloquesQueNoCorren(g)).toEqual(["Notificar vendedor"]);
+    expect(bloquesQueNoCorren(g)).toEqual(["Notificar grupo"]);
   });
 });
 
@@ -325,12 +326,22 @@ describe("las tarjetas de la galería no prometen lo que el lienzo no arma", () 
     expect(caminoPrincipal(armado("bienvenida-agente").grafo)).not.toContain("ia_delegar");
   });
 
-  it("responder automático no promete clasificar, buscar reglas ni pasar al agente", () => {
-    expect(texto("responder-automatico")).not.toMatch(/clasific|regla|agente|modelo/);
+  it("responder automático no promete clasificar ni buscar reglas", () => {
+    expect(texto("responder-automatico")).not.toMatch(/clasific|regla|modelo/);
   });
 
-  it("escalar a humano no promete avisar al vendedor: no hay canal para hacerlo", () => {
-    expect(texto("escalar-a-humano")).not.toMatch(/vendedor/);
+  it("responder automático dice que contesta en lugar del agente, y el lienzo lo intercepta", () => {
+    expect(texto("responder-automatico")).toMatch(/agente/);
+    expect(nodoPorId(armado("responder-automatico").grafo, "n1").config).toEqual({
+      interceptaLlm: true,
+    });
+  });
+
+  it("escalar a humano promete avisar al vendedor, y el lienzo trae «Avisar al equipo»", () => {
+    expect(texto("escalar-a-humano")).toMatch(/vendedor/);
+    const aviso = nodoPorId(armado("escalar-a-humano").grafo, "n4");
+    expect(aviso.tipo).toBe("int_notif_vendedor");
+    expect(aviso.config).toMatchObject({ destinatario: "vendedor_asignado" });
   });
 
   it("reactivar perdidos no promete agrupar por motivo ni una plantilla por motivo", () => {

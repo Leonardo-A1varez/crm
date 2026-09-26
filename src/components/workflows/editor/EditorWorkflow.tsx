@@ -48,6 +48,11 @@ export interface EditorWorkflowProps {
   cambiosSinPublicar: number;
   /** Hora del último guardado, formateada ("14:07"). Va en mono. */
   guardadoA?: string;
+  /**
+   * Si el flujo contesta en lugar del agente ("intercepta el LLM"). `null`:
+   * el disparador no es "Mensaje recibido" y la pregunta no aplica.
+   */
+  intercepcion?: "intercepta" | "no_intercepta" | null;
 
   nodos: NodoEditor[];
   aristas: AristaEditor[];
@@ -171,6 +176,7 @@ function EditorConLienzo(props: EditorWorkflowProps) {
     versionPublicada,
     cambiosSinPublicar,
     guardadoA,
+    intercepcion = null,
     nodos,
     aristas,
     onNodosChange,
@@ -343,6 +349,11 @@ function EditorConLienzo(props: EditorWorkflowProps) {
             ) : (
               <ChipEstado tono="aviso">sin versión publicada</ChipEstado>
             )}
+            {intercepcion === "intercepta" ? (
+              <ChipEstado tono="aviso">intercepta el LLM</ChipEstado>
+            ) : intercepcion === "no_intercepta" ? (
+              <ChipEstado tono="ok">no intercepta el LLM</ChipEstado>
+            ) : null}
             {cambiosSinPublicar > 0 ? (
               <ChipEstado tono="info">
                 borrador con <span className="font-mono tabular-nums">{cambiosSinPublicar}</span>{" "}

@@ -105,6 +105,27 @@ export function ConfigTrigger({
               />
             </label>
           )}
+
+          <label className="border-line-card bg-surface-root flex items-start gap-2.5 rounded-[9px] border px-2.5 py-2.5">
+            <input
+              type="checkbox"
+              checked={c.valores.interceptaLlm === true}
+              onChange={(e) => onChange(c.con("interceptaLlm", e.target.checked))}
+              disabled={readonly}
+              className="accent-brand mt-[2px] h-4 w-4 shrink-0 rounded"
+            />
+            <span className="flex flex-col gap-1">
+              <span className="text-ink-primary text-[11.5px] font-medium">
+                Contestar en lugar del agente
+              </span>
+              <span className="text-ink-faint text-[10.5px] leading-snug text-pretty">
+                Si el mensaje pasa este filtro y cumple las condiciones que siguen, contesta este
+                flujo y el agente de IA no responde ese mensaje. Si no las cumple, contesta el
+                agente como siempre. Si dos flujos lo hacen con el mismo mensaje, contesta el
+                publicado hace más tiempo.
+              </span>
+            </span>
+          </label>
         </div>
       );
     }

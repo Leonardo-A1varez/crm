@@ -5,10 +5,11 @@ import { AuditoriaTurno } from "@/components/inbox/AuditoriaTurno";
 import { BuscadorHilo } from "@/components/inbox/BuscadorHilo";
 import { MessageBubble } from "@/components/inbox/MessageBubble";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { AccountTree } from "@/components/icons";
 import { indexarHilo } from "@/lib/ui/busqueda-hilo";
 import type { AuditoriaTurnoInput } from "@/lib/validation/inbox.schema";
 import type { Mensaje } from "@/types/entities";
-import type { ResultadoAuditoria } from "@/types/inbox";
+import type { ResultadoAuditoria, TurnoInterceptadoVista } from "@/types/inbox";
 
 /**
  * Thread de mensajes anclado al fondo sin JS: `flex-col-reverse` + array
@@ -23,8 +24,11 @@ import type { ResultadoAuditoria } from "@/types/inbox";
 export function ChatThread({
   messages,
   onAuditoria,
+  interceptados = {},
 }: {
   messages: Mensaje[];
+  /** Los entrantes que contestó un flujo en lugar del agente, por id de mensaje. */
+  interceptados?: Readonly<Record<string, TurnoInterceptadoVista>>;
   /**
    * Lectura de la auditoría de un turno. Se dispara al desplegar una burbuja
    * del agente, nunca al abrir la conversación. `null` deja las burbujas sin
@@ -162,10 +166,33 @@ export function ChatThread({
               {onAuditoria && m.sender === "ia" ? (
                 <AuditoriaTurno mensajeId={m.id} onCargar={onAuditoria} />
               ) : null}
+              {m.direction === "in" && interceptados[m.id] ? (
+                <MarcaFlujo turno={interceptados[m.id]!} />
+              ) : null}
             </div>
           );
         })}
       </div>
     </div>
+  );
+}
+
+/**
+ * Debajo del mensaje del cliente que contestó un flujo: por qué el agente no
+ * respondió. Sin esto, un entrante sin respuesta de la IA se lee como un turno
+ * que se cayó. Del lado del cliente, alineada con su burbuja, porque habla de
+ * ese mensaje y no de la respuesta.
+ */
+function MarcaFlujo({ turno }: { turno: TurnoInterceptadoVista }) {
+  const flujo = turno.flujo ? `«${turno.flujo}»` : "un flujo que ya no existe";
+  const texto =
+    turno.motivo === "respuesta_esperada"
+      ? `Opción que esperaba el flujo ${flujo}. El agente no respondió este mensaje.`
+      : `Lo contestó el flujo ${flujo}. El agente no respondió este mensaje.`;
+  return (
+    <p className="text-ink-faint flex max-w-[62%] items-center gap-1.5 pl-1 text-[10.5px] leading-snug text-pretty">
+      <AccountTree aria-hidden size={11} className="text-ink-ghost shrink-0" />
+      {texto}
+    </p>
   );
 }
