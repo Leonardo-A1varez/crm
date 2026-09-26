@@ -5,16 +5,33 @@ import {
   type DifusionEnvio,
   type EstadoDifusion,
 } from "@/lib/difusion/modelo";
-import { camposUsados, resolverParametros, type CampoParametro } from "@/lib/difusion/parametros";
+import {
+  camposEnTexto,
+  camposUsados,
+  resolverParametros,
+  type CampoParametro,
+} from "@/lib/difusion/parametros";
+import {
+  CONVERSACION_ACTIVA_MINUTOS,
+  MARGEN_VENTANA_MINUTOS,
+  contenidoDe,
+  motivoConversacional,
+  saturaAlSalir,
+  type EstadoConversacional,
+} from "@/lib/difusion/planificador";
 import { reaccionAFallo, type OrigenFallo } from "@/lib/difusion/reacciones";
 import { errorDeGraph } from "@/lib/meta/error-graph";
 import type { Logger } from "@/lib/observability/logger";
-import type { DatosInterpolacion } from "@/lib/workflows/variables";
-import type { DifusionEnviosRepository } from "@/server/repositories/difusion-envios.repo";
+import { interpolarVariables, type DatosInterpolacion } from "@/lib/workflows/variables";
+import type {
+  DifusionEnviosRepository,
+  SalidaEnvio,
+} from "@/server/repositories/difusion-envios.repo";
 import type { DifusionSupresionesRepository } from "@/server/repositories/difusion-supresiones.repo";
 import type { DifusionesRepository } from "@/server/repositories/difusiones.repo";
-import type { MetaApiClient } from "@/server/services/meta-api.service";
+import type { MetaApiClient, MetaApiService } from "@/server/services/meta-api.service";
 import type { UUID } from "@/types/entities";
+import type { AltasDinamicasService } from "./altas-dinamicas.service";
 import type { LecturaTope } from "./difusion.service";
 
 /**
@@ -48,11 +65,46 @@ import type { LecturaTope } from "./difusion.service";
  * 1. Las bajas se vuelven a leer: una baja registrada entre la programación y
  *    el envío gana, y la fila pasa a excluida con su motivo. Sin claves HMAC
  *    la lectura lanza y no sale nada (falla cerrado).
- * 2. Una persona que rebotó con 131049 hace menos de 24 h no recibe marketing.
- * 3. Nadie recibe dos mensajes en menos de 6 s (131056): quien recibió algo
+ * 2. El estado conversacional se vuelve a leer con la MISMA regla que usó el
+ *    planificador (`motivoConversacional`): quien pasó a una persona
+ *    (`requiere_humano`) o empezó a hablar (sesión abierta y un entrante de
+ *    hace a lo sumo `CONVERSACION_ACTIVA_MINUTOS`) queda excluido con ese
+ *    motivo. Entre programar y mandar pueden pasar días (las tandas).
+ * 3. Una persona que rebotó con 131049 hace menos de 24 h no recibe marketing.
+ * 4. Nadie recibe dos mensajes en menos de 6 s (131056): quien recibió algo
  *    del agente, de un vendedor o de un workflow espera al lote siguiente.
- * 4. El cupo se lee de Meta en cada lote (el escalón) y lo usado se cuenta con
+ * 5. El cupo se lee de Meta en cada lote (el escalón) y lo usado se cuenta con
  *    los envíos de este CRM; la reserva para conversaciones vivas no se toca.
+ *
+ * La regla conversacional se evalúa por el lead de la fila, no por todos los
+ * leads que comparten el teléfono como hace el planificador: la fila es la del
+ * representante, que es el lead donde vive la conversación de ese número.
+ *
+ * ────────────────────────────────────────────────────────────────────────
+ * TEXTO LIBRE O PLANTILLA: SE DECIDE AL MANDAR (PRD §7.3.5)
+ * ────────────────────────────────────────────────────────────────────────
+ *
+ * La ventana de 24 h se vuelve a mirar al mandar, con el mismo margen que el
+ * planificador (`MARGEN_VENTANA_MINUTOS`): el plan pudo quedar viejo en días.
+ * Con la ventana abierta y texto libre en la difusión sale el texto libre; si
+ * no, la plantilla. La ruta de ese momento se anota en la fila junto con la
+ * reserva, porque es la que dice si consumió cupo: Meta cuenta "outside of a
+ * customer service window" (doc de messaging limits, leída 2026-09-26), así
+ * que con la ventana abierta no se consume, sea texto o plantilla.
+ *
+ * El texto libre sale por el hilo (`sendOutbound`) si el lead tiene sesión
+ * activa, y queda en el Inbox como cualquier saliente. Sin sesión sale por el
+ * cliente de Meta con la misma reserva que la plantilla, y entra al hilo
+ * cuando el lead responde (`respuesta.service.ts`).
+ *
+ * ────────────────────────────────────────────────────────────────────────
+ * AUDIENCIA DINÁMICA (decisión del dueño 2026-09-26)
+ * ────────────────────────────────────────────────────────────────────────
+ *
+ * Antes de cada tanda —la primera vez que vence una fila de esa tanda— se
+ * vuelve a resolver la audiencia y los que empezaron a coincidir pasan por el
+ * planificador y se suman a la cola (`AltasDinamicasService`). Una congelada
+ * no cambia.
  */
 
 export interface PoliticaMotor {
@@ -66,6 +118,10 @@ export interface PoliticaMotor {
   reservaVencidaMs: number;
   /** Cuánto se respeta un 131049 antes de volver a intentar marketing (PRD §4.3). */
   esperaSaturadoMs: number;
+  /** La misma ventana que usa el planificador para "conversación activa". */
+  conversacionActivaMinutos: number;
+  /** El mismo margen que el planificador: una ventana que cierra antes se trata como cerrada. */
+  margenVentanaMinutos: number;
 }
 
 /**
@@ -79,7 +135,12 @@ export const POLITICA_MOTOR: Readonly<PoliticaMotor> = Object.freeze({
   separacionDestinatarioMs: 6_000,
   reservaVencidaMs: 10 * 60_000,
   esperaSaturadoMs: 24 * 3_600_000,
+  conversacionActivaMinutos: CONVERSACION_ACTIVA_MINUTOS,
+  margenVentanaMinutos: MARGEN_VENTANA_MINUTOS,
 });
+
+/** La ventana de servicio de WhatsApp: 24 h desde el último mensaje del cliente. */
+const VENTANA_SERVICIO_MS = 24 * 3_600_000;
 
 export interface MotorDifusionDeps {
   difusiones: DifusionesRepository;
@@ -87,11 +148,28 @@ export interface MotorDifusionDeps {
   supresiones: Pick<DifusionSupresionesRepository, "activasPorTelefonos" | "registrar">;
   /** Destinatarios únicos a los que este CRM les mandó plantilla desde `desde`. */
   usoCupoDesde: (desde: Date) => Promise<number>;
-  meta: Pick<MetaApiClient, "sendTemplate">;
+  meta: Pick<MetaApiClient, "sendTemplate" | "sendText">;
+  /** El texto libre a un lead con sesión activa sale por el hilo: queda en el Inbox. */
+  metaApi: Pick<MetaApiService, "sendOutbound">;
+  /** La conversación de WhatsApp y la sesión activa del lead. `null` = sin sesión activa. */
+  hiloActivo: (leadId: UUID) => Promise<{ conversacionId: UUID; leadSessionId: UUID } | null>;
+  /** Re-evalúa una audiencia dinámica antes de cada tanda. */
+  altas: Pick<AltasDinamicasService, "sumar">;
   /** El escalón de mensajería que devuelve Meta por API. */
   leerTopeMensajeria: () => Promise<LecturaTope>;
   /** Los datos con que se resuelven las variables de la plantilla para un lead. */
   datosDelLead: (leadId: UUID, campos: ReadonlySet<CampoParametro>) => Promise<DatosInterpolacion>;
+  /**
+   * Etapa de la sesión activa y último entrante por WhatsApp de cada lead,
+   * contando sólo entrantes desde `entranteDesde` (uno más viejo no cambia ni
+   * la regla ni la ventana). Un lead ausente del mapa no tiene ni sesión
+   * abierta ni entrante. Obligatoria: sin ella, un lead que pasó a una persona
+   * recibiría la promo.
+   */
+  estadoConversacional: (
+    leadIds: readonly UUID[],
+    entranteDesde: Date,
+  ) => Promise<Map<UUID, EstadoConversacional>>;
   esperar: (ms: number) => Promise<void>;
   logger: Logger;
   ahora?: () => Date;
@@ -256,7 +334,14 @@ export class DefaultMotorDifusionService implements MotorDifusionService {
       limite = Math.min(limite, d.canary_tamano - salidos);
     }
 
-    const vencidas = await this.deps.envios.pendientesParaEnviar(d.id, ahora, limite);
+    let vencidas = await this.deps.envios.pendientesParaEnviar(d.id, ahora, limite);
+    if (d.audiencia_modo === "dinamica" && vencidas.length > 0) {
+      const tanda = Math.min(...vencidas.map((e) => e.tanda ?? 0));
+      if (d.audiencia_tanda_evaluada === null || d.audiencia_tanda_evaluada < tanda) {
+        await this.reevaluarAudiencia(d, tanda, ahora);
+        vencidas = await this.deps.envios.pendientesParaEnviar(d.id, ahora, limite);
+      }
+    }
     if (vencidas.length === 0) {
       if (conteo.porEstado.en_cola === 0) {
         await this.deps.difusiones.actualizarSiEstado(d.id, ["enviando"], {
@@ -267,8 +352,10 @@ export class DefaultMotorDifusionService implements MotorDifusionService {
       return null;
     }
 
-    const excluidos = await this.excluirPorBajasYSaturacion(d, vencidas, ahora);
+    const excluidos = await this.excluirAlSalir(d, vencidas, ahora);
     const vigentes = vencidas.filter((e) => !excluidos.ids.has(e.id));
+    const salidaDe = (e: DifusionEnvio): SalidaEnvio =>
+      excluidos.salidas.get(e.id) ?? { ruta: "plantilla", contenido: "plantilla" };
 
     const conSaliente = await this.deps.envios.leadsConSalienteDesde(
       vigentes.flatMap((e) => (e.lead_id === null ? [] : [e.lead_id])),
@@ -281,7 +368,7 @@ export class DefaultMotorDifusionService implements MotorDifusionService {
       return !esperar;
     });
 
-    const aMandar = await this.limitarPorCupo(listos, ahora);
+    const aMandar = await this.limitarPorCupo(listos, salidaDe, ahora);
     if (aMandar === null || (aMandar.length === 0 && listos.length > 0)) {
       return { tipo: "esperando_cupo", difusionId: d.id };
     }
@@ -295,7 +382,7 @@ export class DefaultMotorDifusionService implements MotorDifusionService {
     let fallidos = 0;
     for (const [i, envio] of aMandar.entries()) {
       if (i > 0) await this.deps.esperar(this.politica.intervaloEnvioMs);
-      const r = await this.enviarUno(actual, envio);
+      const r = await this.enviarUno(actual, envio, salidaDe(envio));
       if (r.tipo === "aceptado") aceptados += 1;
       else if (r.tipo === "fallido") fallidos += 1;
       else if (r.tipo === "diferido") diferidos += 1;
@@ -309,6 +396,35 @@ export class DefaultMotorDifusionService implements MotorDifusionService {
       excluidos: excluidos.ids.size,
       diferidos,
     };
+  }
+
+  /**
+   * Los que empezaron a coincidir, sumados a la cola. Si falla, la tanda sale
+   * igual con lo que ya estaba y queda anotada como evaluada: los que no
+   * entraron ahora entran en la siguiente, si siguen coincidiendo.
+   */
+  private async reevaluarAudiencia(d: Difusion, tanda: number, ahora: Date): Promise<void> {
+    try {
+      const r = await this.deps.altas.sumar(d, tanda, ahora);
+      this.deps.logger.info("difusion.audiencia_reevaluada", {
+        difusionId: d.id,
+        tanda,
+        coinciden: r.coinciden,
+        nuevos: r.nuevos,
+        sumadas: r.sumadas,
+        ...(r.motivo ? { motivo: r.motivo } : {}),
+      });
+    } catch (e) {
+      this.deps.logger.error("difusion.reevaluacion_fallida", {
+        difusionId: d.id,
+        tanda,
+        tipo: e instanceof Error ? e.name : typeof e,
+        detalle: e instanceof Error ? e.message : String(e),
+      });
+    }
+    await this.deps.difusiones.actualizarSiEstado(d.id, ["enviando"], {
+      audiencia_tanda_evaluada: tanda,
+    });
   }
 
   private async cerrarReservasHuerfanas(difusionId: UUID, ahora: Date): Promise<void> {
@@ -329,11 +445,16 @@ export class DefaultMotorDifusionService implements MotorDifusionService {
     }
   }
 
-  private async excluirPorBajasYSaturacion(
+  /**
+   * Bajas, estado conversacional y saturación, en ese orden de precedencia.
+   * Para los que quedan, cómo salen: la ruta según la ventana de ahora y el
+   * contenido (texto libre o plantilla).
+   */
+  private async excluirAlSalir(
     d: Difusion,
     filas: readonly DifusionEnvio[],
     ahora: Date,
-  ): Promise<{ ids: Set<UUID> }> {
+  ): Promise<{ ids: Set<UUID>; salidas: Map<UUID, SalidaEnvio> }> {
     const telefonos = filas.flatMap((e) => (e.telefono === null ? [] : [e.telefono]));
     // Sin claves HMAC esto lanza: no se manda nada que dependa de la lista.
     const bajas = await this.deps.supresiones.activasPorTelefonos(telefonos);
@@ -345,6 +466,16 @@ export class DefaultMotorDifusionService implements MotorDifusionService {
         motivoPorTelefono.set(b.telefono, motivo);
       }
     }
+    const leadIds = filas.flatMap((e) => (e.lead_id === null ? [] : [e.lead_id]));
+    // Los entrantes de la ventana de 24 h: con el último sale la ventana, y la
+    // regla de conversación activa (una hora) cabe adentro.
+    const conversacional =
+      leadIds.length === 0
+        ? new Map<UUID, EstadoConversacional>()
+        : await this.deps.estadoConversacional(
+            leadIds,
+            new Date(ahora.getTime() - VENTANA_SERVICIO_MS),
+          );
     const saturados =
       d.plantilla_categoria === "marketing"
         ? await this.deps.envios.saturadosDesde(
@@ -354,50 +485,74 @@ export class DefaultMotorDifusionService implements MotorDifusionService {
         : new Map<string, Date>();
 
     const ids = new Set<UUID>();
+    const salidas = new Map<UUID, SalidaEnvio>();
+    const margenMs = this.politica.margenVentanaMinutos * 60_000;
     for (const e of filas) {
       if (e.telefono === null) continue;
+      const estado = e.lead_id === null ? undefined : conversacional.get(e.lead_id);
+      const ultimo = estado?.ultimoEntranteAt ?? null;
+      // Abierta y con margen, igual que el planificador.
+      const ventanaAbierta =
+        ultimo !== null && ahora.getTime() - ultimo.getTime() < VENTANA_SERVICIO_MS - margenMs;
+      const ruta = ventanaAbierta ? ("ventana_abierta" as const) : ("plantilla" as const);
+      const contenido = contenidoDe(ruta, d.texto_libre !== null);
       const motivo =
         motivoPorTelefono.get(e.telefono) ??
-        (saturados.has(e.telefono) ? ("saturado_meta" as const) : null);
-      if (motivo === null) continue;
+        (estado
+          ? motivoConversacional(estado, ahora, this.politica.conversacionActivaMinutos)
+          : null) ??
+        (saturados.has(e.telefono) && saturaAlSalir(contenido, d.plantilla_categoria)
+          ? ("saturado_meta" as const)
+          : null);
+      if (motivo === null) {
+        salidas.set(e.id, { ruta, contenido });
+        continue;
+      }
       if (await this.deps.envios.marcarExcluido(e.id, motivo)) ids.add(e.id);
     }
-    return { ids };
+    return { ids, salidas };
   }
 
   /**
    * Las filas que entran en el cupo de hoy. `null` = no se sabe el escalón, y
-   * sin él no sale ninguna plantilla.
+   * sin él no sale ninguna plantilla fuera de la ventana.
    *
-   * Todas las filas salen con la plantilla (ver `enviarUno`), pero sólo las de
-   * ruta `plantilla` consumen cupo: a quien tiene la ventana de servicio
-   * abierta, Meta no se lo cuenta contra el límite de destinatarios.
+   * Sólo consume cupo lo que sale con la ventana cerrada (ruta `plantilla` de
+   * ahora, no la del plan): Meta cuenta los destinatarios "outside of a
+   * customer service window" (doc de messaging limits, leída 2026-09-26). El
+   * texto libre sale siempre con la ventana abierta, así que nunca consume.
    */
   private async limitarPorCupo(
     filas: readonly DifusionEnvio[],
+    salidaDe: (e: DifusionEnvio) => SalidaEnvio,
     ahora: Date,
   ): Promise<DifusionEnvio[] | null> {
-    const conCupo = filas.filter((e) => e.ruta === "plantilla");
+    const consume = (e: DifusionEnvio) => salidaDe(e).ruta === "plantilla";
+    const conCupo = filas.filter(consume);
     if (conCupo.length === 0) return [...filas];
 
     const tope = await this.deps.leerTopeMensajeria();
     if (tope.estado !== "ok") {
       this.deps.logger.warn("difusion.sin_escalon_de_meta", { motivo: tope.motivo });
-      const sinCupo = filas.filter((e) => e.ruta !== "plantilla");
+      const sinCupo = filas.filter((e) => !consume(e));
       return sinCupo.length > 0 ? sinCupo : null;
     }
     const usado24h = await this.deps.usoCupoDesde(new Date(ahora.getTime() - 24 * 3_600_000));
     const cupo = cupoParaPlanificar({ tope: tope.tope, usado24h });
     let disponible = Math.max(0, cupo.restante - cupo.reserva);
     return filas.filter((e) => {
-      if (e.ruta !== "plantilla") return true;
+      if (!consume(e)) return true;
       if (disponible <= 0) return false;
       disponible -= 1;
       return true;
     });
   }
 
-  private async enviarUno(d: Difusion, envio: DifusionEnvio): Promise<Resultado> {
+  private async enviarUno(
+    d: Difusion,
+    envio: DifusionEnvio,
+    salida: SalidaEnvio,
+  ): Promise<Resultado> {
     if (envio.telefono === null || envio.lead_id === null) {
       // El plan no deja filas en cola sin teléfono; un lead borrado después sí
       // deja `lead_id` nulo. No hay a quién resolverle las variables.
@@ -413,6 +568,10 @@ export class DefaultMotorDifusionService implements MotorDifusionService {
       const motivo = "La difusión no tiene plantilla o idioma: no hay con qué mandar.";
       await this.detener(d.id, motivo);
       return { tipo: "cortar", resultado: { tipo: "frenada", difusionId: d.id, motivo } };
+    }
+
+    if (salida.contenido === "texto_libre" && d.texto_libre !== null) {
+      return this.enviarTextoLibre(d, envio, envio.lead_id, envio.telefono, d.texto_libre, salida);
     }
 
     let parametrosCuerpo: string[] = [];
@@ -432,7 +591,7 @@ export class DefaultMotorDifusionService implements MotorDifusionService {
       parametrosCuerpo = r.valores;
     }
 
-    if (!(await this.deps.envios.reservar(envio.id, this.ahora()))) {
+    if (!(await this.deps.envios.reservar(envio.id, this.ahora(), salida))) {
       // Otro proceso la tomó, o salió de la cola en el medio.
       return { tipo: "diferido" };
     }
@@ -448,6 +607,72 @@ export class DefaultMotorDifusionService implements MotorDifusionService {
       return this.fallaAlMandar(d, envio, e);
     }
     // Fuera del try: si anotar falla, la reserva queda y el reintento no reenvía.
+    await this.deps.envios.marcarAceptado(envio.id, wamid);
+    return { tipo: "aceptado" };
+  }
+
+  /**
+   * El texto libre, con las variables resueltas por el mismo interpolador que
+   * los workflows. Misma reserva, idempotencia y reacciones que la plantilla.
+   */
+  private async enviarTextoLibre(
+    d: Difusion,
+    envio: DifusionEnvio,
+    leadId: UUID,
+    telefono: string,
+    plantillaTexto: string,
+    salida: SalidaEnvio,
+  ): Promise<Resultado> {
+    const campos = camposEnTexto(plantillaTexto);
+    const datos = campos.size > 0 ? await this.deps.datosDelLead(leadId, campos) : {};
+    const texto = interpolarVariables(plantillaTexto, datos).texto.trim();
+    if (texto === "") {
+      await this.deps.envios.marcarFallido(envio.id, {
+        codigo: "texto_vacio",
+        detalle: "El texto libre quedó vacío para este lead: todas sus variables estaban sin dato.",
+      });
+      return { tipo: "fallido" };
+    }
+
+    const reservadoAt = this.ahora();
+    if (!(await this.deps.envios.reservar(envio.id, reservadoAt, salida))) {
+      return { tipo: "diferido" };
+    }
+
+    let wamid: string | null;
+    try {
+      const hilo = await this.deps.hiloActivo(leadId);
+      if (hilo) {
+        // Por el hilo: queda en el Inbox. La clave es por reserva: dentro de
+        // una reserva, si la fila de `mensajes` ya existe, `sendOutbound` no
+        // vuelve a llamar a Meta. Una reserva nueva sólo existe después de
+        // `liberarReserva`, que es "Meta dijo que no salió".
+        const m = await this.deps.metaApi.sendOutbound({
+          conversacionId: hilo.conversacionId,
+          leadSessionId: hilo.leadSessionId,
+          canal: "wa",
+          to: telefono,
+          contenido: texto,
+          sender: "sistema",
+          idempotencyKey: `difusion:${envio.id}:${reservadoAt.getTime()}`,
+        });
+        wamid = m.meta_message_id;
+      } else {
+        const r = await this.deps.meta.sendText({ canal: "wa", to: telefono, text: texto });
+        wamid = r.meta_message_id;
+      }
+    } catch (e) {
+      return this.fallaAlMandar(d, envio, e);
+    }
+    if (wamid === null) {
+      // La fila del hilo ya existía sin wamid: un intento anterior quedó sin
+      // desenlace. No se reenvía.
+      await this.deps.envios.marcarFallido(envio.id, {
+        codigo: "desenlace_desconocido",
+        detalle: "El texto ya se había intentado por el hilo y no se sabe si Meta lo recibió.",
+      });
+      return { tipo: "fallido" };
+    }
     await this.deps.envios.marcarAceptado(envio.id, wamid);
     return { tipo: "aceptado" };
   }

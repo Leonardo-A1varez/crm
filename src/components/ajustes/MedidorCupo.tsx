@@ -36,12 +36,14 @@ type EstadoCondicion = "cumplida" | "falta" | "sin-dato";
  *      una ventana móvil.
  *
  * Lo que se dibuja en cambio: las dos condiciones como dos filas unidas por
- * una "y" que se ve, el uso como VENTANA (piso y techo, con la zona que
- * descalifica rayada) y un veredicto en una línea que nombra cuál frena.
+ * una "y" que se ve, el uso como siete días contra el cupo (con el mínimo
+ * como línea) y un veredicto en una línea que nombra cuál frena.
  *
  * ====================== LO QUE LA API NO DICE ======================
  *
- * Meta expone el peldaño, no el uso. Cuando una condición no se puede leer,
+ * Meta expone el peldaño, no el uso. El uso se reconstruye con lo que salió
+ * por este CRM (`uso_cupo_whatsapp`), día por día contra el cupo, y la
+ * condición dice siempre qué envíos no ve. Cuando una condición no se puede leer,
  * se dibuja en gris con "sin dato" y el motivo: ni verde ni ámbar, porque
  * cualquiera de los dos afirmaría algo que nadie midió. Y en el primer peldaño
  * no hay condiciones sino vías de desbloqueo, así que se muestran esas.
@@ -105,7 +107,6 @@ export function MedidorCupo({ estado }: { estado: EstadoCupo }) {
           <Veredicto
             calidad={calidad}
             uso={uso}
-            minimoPct={minimoPct}
             ventanaDias={ventanaDias}
             siguiente={siguiente.etiqueta}
           />
@@ -292,115 +293,123 @@ function CondicionDeUso({
     return <Condicion numero={2} titulo={titulo} estado="sin-dato" detalle={uso.motivo} />;
   }
 
-  const alcanza = uso.pct >= minimoPct;
-  const sostenido = uso.diasFaltantes === null || uso.diasFaltantes <= 0;
-  const cumplida = alcanza && sostenido;
-  const diasHechos =
-    uso.diasFaltantes === null ? ventanaDias : Math.max(0, ventanaDias - uso.diasFaltantes);
+  const total = formatearEntero(uso.totalVentana);
+  const minimo = formatearEntero(uso.minimo);
+  const detalle =
+    uso.veredicto === "cumplida"
+      ? `Todos los días pasaron el mínimo de ${minimo} destinatarios: se cumple la mida como la mida Meta.`
+      : uso.veredicto === "falta"
+        ? `Ni sumando los ${formatearEntero(ventanaDias)} días se llega a ${minimo} destinatarios distintos (fueron ${total}). Mandando de menos el ascenso queda congelado, aunque la calidad esté impecable.`
+        : `En los ${formatearEntero(ventanaDias)} días hubo ${total} destinatarios distintos, pero no todos los días pasaron el mínimo de ${minimo}. Meta no dice si mide un día, el promedio o el total de la semana, así que depende de cómo lo mida Meta.`;
 
   return (
     <Condicion
       numero={2}
       titulo={titulo}
-      estado={cumplida ? "cumplida" : "falta"}
-      detalle={
-        cumplida
-          ? "El uso viene alcanzando el mínimo en toda la ventana."
-          : !alcanza
-            ? `Mandando de menos. Con ${formatearEntero(uso.pct)}% del cupo el ascenso queda congelado, aunque la calidad esté impecable.`
-            : `El uso de hoy alcanza. Faltan ${formatearEntero(uso.diasFaltantes ?? 0)} días sosteniéndolo.`
-      }
+      // `depende` no es ni verde ni ámbar: afirmar cualquiera de los dos
+      // sería elegir por Meta una lectura que Meta no publicó.
+      estado={uso.veredicto === "depende" ? "sin-dato" : uso.veredicto}
+      detalle={detalle}
     >
-      <VentanaDeUso usoPct={uso.pct} minimoPct={minimoPct} />
-      <DiasSostenidos hechos={diasHechos} total={ventanaDias} />
+      <UsoPorDia uso={uso} />
+      <p className="text-ink-ghost order-last text-[10.5px] leading-relaxed text-pretty">
+        {uso.noCapturado}
+      </p>
     </Condicion>
   );
 }
 
+/** Alto del área de barras. Siete columnas angostas: más alto las haría agujas. */
+const ALTO_BARRAS = 64;
+
 /**
- * El uso como ventana y no como progreso. La zona rayada es la que
- * descalifica; se dibuja con rayas y no con un color más pálido porque las
- * rayas siguen estando cuando el color no: impresión en gris, daltonismo,
- * forced-colors.
+ * Los destinatarios de cada día contra el cupo diario, como columnas.
+ *
+ * Es una TABLA con aspecto de gráfico y no un gráfico con una tabla aparte: el
+ * lector de pantalla recorre día y cifra en el mismo lugar, y la cifra visible
+ * debajo de cada barra es la vista de tabla que pide un gráfico chico. La fila
+ * de días es el `thead`, dibujado abajo con `table-footer-group`.
+ *
+ * Escala: el techo es el cupo del nivel, no el día más alto. Así una semana
+ * floja se ve floja; escalar al máximo haría que 10 destinatarios parezcan
+ * una columna llena. El mínimo va como una línea punteada que cruza las
+ * siete celdas. Las barras van en tinta neutra: el color de estado lo lleva
+ * el veredicto de la condición, no cada día.
  */
-function VentanaDeUso({ usoPct, minimoPct }: { usoPct: number; minimoPct: number }) {
-  const cortado = Math.max(0, Math.min(100, usoPct));
-  const piso = Math.max(0, Math.min(100, minimoPct));
-  const alcanza = usoPct >= minimoPct;
-  const color = alcanza ? OK : FALTA;
+function UsoPorDia({ uso }: { uso: Extract<UsoDelCupo, { disponible: true }> }) {
+  const proporcion = (n: number) => Math.max(0, Math.min(1, n / uso.limite));
+  const piso = proporcion(uso.minimo);
+  const ultimo = uso.dias.length - 1;
 
   return (
-    <div className="flex flex-col gap-1.5">
-      {/*
-        El orden de las capas es el mensaje: primero el relleno —cuánto se
-        mandó— y ENCIMA el rayado de la zona que no califica. Al revés, el
-        relleno tapa el rayado apenas se manda algo.
-      */}
-      <div className="bg-surface-input relative h-[22px] overflow-hidden rounded-[7px]">
-        <span
-          aria-hidden
-          className="absolute inset-y-0 left-0 rounded-r-[3px]"
-          style={{ width: `${cortado}%`, backgroundColor: tinte(color, 55) }}
-        />
-        <span
-          aria-hidden
-          className="absolute inset-y-0 left-0"
-          style={{
-            width: `${piso}%`,
-            backgroundImage:
-              "repeating-linear-gradient(45deg, color-mix(in srgb, var(--color-ink-primary) 30%, transparent) 0 1.5px, transparent 1.5px 6px)",
-          }}
-        />
-        <span
-          aria-hidden
-          className="absolute inset-y-0 w-[2px]"
-          style={{ left: `${piso}%`, backgroundColor: "var(--color-ink-primary)" }}
-        />
-      </div>
-
-      <div className="relative h-[13px]">
-        <span
-          className="text-ink-primary absolute top-0 -translate-x-1/2 font-mono text-[9.5px] whitespace-nowrap tabular-nums"
-          style={{ left: `${piso}%` }}
-        >
-          {formatearEntero(minimoPct)}% mínimo
-        </span>
-        <span className="text-ink-ghost absolute top-0 right-0 font-mono text-[9.5px]">cupo</span>
-      </div>
-
-      <p className="text-[11px] leading-none">
-        <span className="font-mono font-semibold tabular-nums" style={{ color }}>
-          {formatearEntero(usoPct)}%
+    <table
+      aria-label={`Destinatarios por día fuera de la ventana de servicio, contra un cupo de ${formatearEntero(uso.limite)} por día`}
+      className="w-full table-fixed border-separate border-spacing-x-[2px] border-spacing-y-0"
+    >
+      <thead className="[display:table-footer-group]">
+        <tr>
+          {uso.dias.map((d, i) => (
+            <th
+              key={d.etiqueta}
+              scope="col"
+              className={cn(
+                "pt-1 text-center font-mono text-[9.5px] font-normal whitespace-nowrap",
+                i === ultimo ? "text-ink-secondary" : "text-ink-ghost",
+              )}
+            >
+              {d.etiqueta}
+              {i === ultimo ? <span className="sr-only"> (hoy, incompleto)</span> : null}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          {uso.dias.map((d, i) => (
+            <td key={d.etiqueta} className="p-0 align-bottom">
+              <div aria-hidden className="relative" style={{ height: ALTO_BARRAS }}>
+                <span
+                  className="absolute inset-x-0 border-t border-dashed"
+                  style={{
+                    bottom: `${piso * 100}%`,
+                    borderColor: "color-mix(in srgb, var(--color-ink-primary) 45%, transparent)",
+                  }}
+                />
+                {d.destinatarios > 0 ? (
+                  <span
+                    className="absolute bottom-0 left-1/2 w-full max-w-[22px] -translate-x-1/2 rounded-t-[4px]"
+                    style={{
+                      // Un día con envíos nunca se dibuja invisible: 2px de piso.
+                      height: `max(2px, ${proporcion(d.destinatarios) * 100}%)`,
+                      backgroundColor:
+                        i === ultimo
+                          ? "color-mix(in srgb, var(--color-ink-secondary) 30%, transparent)"
+                          : "color-mix(in srgb, var(--color-ink-secondary) 55%, transparent)",
+                    }}
+                  />
+                ) : null}
+                <span className="bg-line-control absolute inset-x-0 bottom-0 h-px" />
+              </div>
+              <span
+                className={cn(
+                  "block pt-1 text-center font-mono text-[10px] tabular-nums",
+                  d.destinatarios > 0 ? "text-ink-primary" : "text-ink-ghost",
+                )}
+              >
+                {formatearEntero(d.destinatarios)}
+              </span>
+            </td>
+          ))}
+        </tr>
+      </tbody>
+      <caption className="text-ink-faint caption-bottom pt-1.5 text-left text-[10.5px] leading-relaxed text-pretty">
+        Línea punteada: el mínimo de{" "}
+        <span className="text-ink-primary font-mono tabular-nums">
+          {formatearEntero(uso.minimo)}
         </span>{" "}
-        <span className="text-ink-faint">
-          del cupo usado {alcanza ? "— arriba del mínimo" : "— debajo del mínimo"}
-        </span>
-      </p>
-    </div>
-  );
-}
-
-/** Los días de uso sostenido, uno por casilla: son pocos y discretos. */
-function DiasSostenidos({ hechos, total }: { hechos: number; total: number }) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <span
-        className="flex gap-0.5"
-        role="img"
-        aria-label={`${formatearEntero(hechos)} de ${formatearEntero(total)} días de uso sostenido`}
-      >
-        {Array.from({ length: total }, (_, i) => (
-          <span
-            key={i}
-            className={cn("h-[10px] w-[10px] rounded-[3px]", i >= hechos && "bg-surface-input")}
-            style={i < hechos ? { backgroundColor: tinte(OK, 70) } : undefined}
-          />
-        ))}
-      </span>
-      <span className="text-ink-faint font-mono text-[10.5px] tabular-nums">
-        {formatearEntero(hechos)}/{formatearEntero(total)} días
-      </span>
-    </div>
+        por día. Techo: el cupo de {formatearEntero(uso.limite)}. Hoy va incompleto.
+      </caption>
+    </table>
   );
 }
 
@@ -420,13 +429,11 @@ interface TonoVeredicto {
 function Veredicto({
   calidad,
   uso,
-  minimoPct,
   ventanaDias,
   siguiente,
 }: {
   calidad: CondicionCalidad;
   uso: UsoDelCupo;
-  minimoPct: number;
   ventanaDias: number;
   siguiente: string;
 }) {
@@ -454,7 +461,7 @@ function Veredicto({
       };
     }
 
-    if (uso.disponible && uso.pct < minimoPct) {
+    if (uso.disponible && uso.veredicto === "falta") {
       return {
         texto:
           "La calidad ya está. Falta volumen: el cupo se sube usándolo, y con este ritmo el nivel no se mueve.",
@@ -463,12 +470,13 @@ function Veredicto({
         neutro: false,
       };
     }
-    if (uso.disponible && uso.diasFaltantes !== null && uso.diasFaltantes > 0) {
+    if (uso.disponible && uso.veredicto === "depende") {
       return {
-        texto: `Las dos condiciones van bien. Falta que el uso se sostenga ${formatearEntero(uso.diasFaltantes)} días más.`,
-        color: FALTA,
-        Glifo: Warning,
-        neutro: false,
+        texto:
+          "La calidad ya está. Con el uso no alcanza para afirmarlo: si Meta cuenta el total de la semana ya se cumple; si cuenta cada día, todavía no.",
+        color: SIN_DATO,
+        Glifo: HelpIcon,
+        neutro: true,
       };
     }
     return {

@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { NODO_TIPOS, PUERTOS } from "@/types/workflows";
+import { ArbolCondicionSchema } from "@/lib/workflows/condiciones.schema";
+import { NODO_TIPOS, esPuerto, type Puerto } from "@/types/workflows";
 
 /**
  * Forma del grafo, no su sentido.
@@ -24,7 +25,10 @@ export const NodoSchema = z.object({
 export const AristaSchema = z.object({
   desde: NodoIdSchema,
   hasta: NodoIdSchema,
-  puerto: z.enum(PUERTOS),
+  // Los fijos (`salida`, `verdadero`, `falso`, `otro`) o el de un caso de
+  // "Según el valor" (`caso:<id>`). Que el nodo tenga ese puerto lo decide
+  // `validarGrafo`, que conoce los casos.
+  puerto: z.custom<Puerto>(esPuerto, { error: "Puerto inválido" }),
 });
 
 /**
@@ -83,6 +87,15 @@ export const ProbarWorkflowSchema = z.object({
   leadId: z.string().uuid(),
 });
 export type ProbarWorkflowActionInput = z.infer<typeof ProbarWorkflowSchema>;
+
+/**
+ * "Ejecutar hasta acá": Probar, frenando al llegar a `hastaNodo` sin correrlo.
+ * Que el nodo esté en el grafo lo revisa el servicio, que tiene el grafo.
+ */
+export const ProbarHastaAcaSchema = ProbarWorkflowSchema.extend({
+  hastaNodo: z.string().min(1).max(64),
+});
+export type ProbarHastaAcaActionInput = z.infer<typeof ProbarHastaAcaSchema>;
 
 export const PublicarVersionSchema = z.object({
   versionId: z.string().uuid(),
@@ -167,3 +180,14 @@ export const CorridaIdSchema = z.object({
   runId: z.string().uuid(),
 });
 export type CorridaIdInput = z.infer<typeof CorridaIdSchema>;
+
+/**
+ * El contador del panel de Condición: el árbol como lo arma el constructor y
+ * cuántos leads traer para "Ver la lista". La forma la valida
+ * `ArbolCondicionSchema`; que esté completa, el servicio.
+ */
+export const CoincidenciasCondicionSchema = z.object({
+  arbol: ArbolCondicionSchema,
+  muestra: z.number().int().min(0).max(200).default(0),
+});
+export type CoincidenciasCondicionInput = z.infer<typeof CoincidenciasCondicionSchema>;

@@ -558,7 +558,7 @@ describe("DefaultWorkflowsAdminService.probar", () => {
       grafo: {
         nodos: [
           { id: "t", tipo: "trigger_manual", config: {}, posicion: { x: 0, y: 0 } },
-          { id: "b", tipo: "msg_botones", config: {}, posicion: { x: 1, y: 0 } },
+          { id: "b", tipo: "msg_documento", config: {}, posicion: { x: 1, y: 0 } },
           { id: "fin", tipo: "logica_detener", config: {}, posicion: { x: 2, y: 0 } },
         ],
         aristas: [
@@ -572,7 +572,7 @@ describe("DefaultWorkflowsAdminService.probar", () => {
     });
 
     expect(resultado).toMatchObject({ tipo: "fallado", nodoId: "b" });
-    expect(resultado.tipo === "fallado" ? resultado.error : "").toContain("msg_botones");
+    expect(resultado.tipo === "fallado" ? resultado.error : "").toContain("msg_documento");
     expect((await workflowRuns.findRun(runId))?.estado).toBe("fallado");
   });
 
@@ -785,5 +785,82 @@ describe("DefaultWorkflowsAdminService.saltosRecientes", () => {
       conversacion_activa: 0,
       requiere_humano: 0,
     });
+  });
+});
+
+describe("DefaultWorkflowsAdminService.probar: ejecutar hasta acá", () => {
+  it("frena antes del nodo elegido: no lo corre y la corrida queda cancelada con el motivo", async () => {
+    const { service, workflowRuns, leads } = buildConRuns();
+    const w = await service.crear({ nombre: "W", descripcion: null });
+    const lead = await crearLeadDePrueba(leads);
+
+    const { runId, resultado, salientes } = await service.probar({
+      workflowId: w.id,
+      grafo: GRAFO_PROBAR_SIMPLE,
+      maxPasos: 50,
+      leadId: lead.id,
+      userId: null,
+      hastaNodo: "m",
+    });
+
+    expect(resultado).toEqual({ tipo: "detenido", nodoId: "m", pasos: 1 });
+    expect(salientes).toBe(0);
+    expect((await workflowRuns.pasosDeRun(runId)).map((p) => p.nodo_id)).toEqual(["t"]);
+    const run = await workflowRuns.findRun(runId);
+    expect(run?.estado).toBe("cancelado");
+    expect(run?.error).toBe('Probar se detuvo antes de "m", como se pidió (Ejecutar hasta acá).');
+  });
+
+  it("un nodo que no existe en el grafo es un error, no una prueba completa", async () => {
+    const { service, leads } = buildConRuns();
+    const w = await service.crear({ nombre: "W", descripcion: null });
+    const lead = await crearLeadDePrueba(leads);
+    await expect(
+      service.probar({
+        workflowId: w.id,
+        grafo: GRAFO_PROBAR_SIMPLE,
+        maxPasos: 50,
+        leadId: lead.id,
+        userId: null,
+        hastaNodo: "no-existe",
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("si el recorrido no pasa por ese nodo, la prueba corre entera", async () => {
+    const { service, leads } = buildConRuns();
+    const w = await service.crear({ nombre: "W", descripcion: null });
+    const lead = await crearLeadDePrueba(leads);
+    // La condición no se cumple (el lead se llama "Lead de prueba"): el
+    // recorrido va por "no" y nunca llega a "m".
+    const grafo: Grafo = {
+      nodos: [
+        { id: "t", tipo: "trigger_manual", config: {}, posicion: { x: 0, y: 0 } },
+        {
+          id: "c",
+          tipo: "logica_condicion",
+          config: { campo: "lead.nombre", operador: "es", valor: "Otro" },
+          posicion: { x: 1, y: 0 },
+        },
+        { id: "m", tipo: "msg_texto", config: { mensaje: "hola" }, posicion: { x: 2, y: 0 } },
+        { id: "fin", tipo: "logica_detener", config: {}, posicion: { x: 3, y: 0 } },
+        { id: "fin2", tipo: "logica_detener", config: {}, posicion: { x: 2, y: 1 } },
+      ],
+      aristas: [
+        { desde: "t", hasta: "c", puerto: "salida" },
+        { desde: "c", hasta: "m", puerto: "verdadero" },
+        { desde: "c", hasta: "fin2", puerto: "falso" },
+        { desde: "m", hasta: "fin", puerto: "salida" },
+      ],
+    };
+    const { resultado } = await service.probar({
+      workflowId: w.id,
+      grafo,
+      maxPasos: 50,
+      leadId: lead.id,
+      userId: null,
+      hastaNodo: "m",
+    });
+    expect(resultado.tipo).toBe("completado");
   });
 });

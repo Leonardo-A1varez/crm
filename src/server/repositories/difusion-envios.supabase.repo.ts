@@ -3,6 +3,7 @@ import {
   ESTADOS_QUE_SALIERON,
   conteoVacio,
   estadosPrevios,
+  type ContenidoEnvio,
   type ConteoEnvios,
   type DifusionEnvio,
   type EstadoEnvio,
@@ -10,7 +11,7 @@ import {
 } from "@/lib/difusion/modelo";
 import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
-import type { Database } from "@/server/db/types.gen";
+import type { Database, Json } from "@/server/db/types.gen";
 import { isUuid } from "@/server/db/uuid";
 import type { UUID } from "@/types/entities";
 import { LIMITE_MAX_PAGINA, exigirPagina } from "./_paginacion";
@@ -18,15 +19,18 @@ import {
   CODIGO_META_SATURADO,
   LOTE_RESUMEN,
   exigirErrorMeta,
+  exigirSalida,
   exigirWamid,
   resumenVacio,
   telefonosNormalizados,
   yaSalieron,
   type DifusionEnvioInsert,
   type DifusionEnviosRepository,
+  type ConteoMuestra,
   type ErrorMeta,
   type FalloPorCodigo,
   type ResumenEnvios,
+  type SalidaEnvio,
   type TandaPersistida,
 } from "./difusion-envios.repo";
 
@@ -333,13 +337,19 @@ export class SupabaseDifusionEnviosRepository implements DifusionEnviosRepositor
     return (data ?? []).map(mapRow);
   }
 
-  async reservar(id: UUID, at: Date): Promise<boolean> {
+  async reservar(id: UUID, at: Date, salida?: SalidaEnvio): Promise<boolean> {
+    if (salida) exigirSalida(salida);
     if (!isUuid(id)) return false;
     // Un solo UPDATE condicional: dos procesos que intentan reservar la misma
     // fila se serializan en la fila y el segundo no encuentra `intento_at` nulo.
+    // La ruta y el contenido van en el mismo UPDATE: lo que se reservó es lo
+    // que se decidió mandar.
     const { data, error } = await this.db
       .from("difusion_envios")
-      .update({ intento_at: at.toISOString() })
+      .update({
+        intento_at: at.toISOString(),
+        ...(salida ? { ruta: salida.ruta, salio_como: salida.contenido } : {}),
+      })
       .eq("id", id)
       .eq("estado", "en_cola")
       .is("intento_at", null)
@@ -353,7 +363,7 @@ export class SupabaseDifusionEnviosRepository implements DifusionEnviosRepositor
     if (!isUuid(id)) return;
     const { error } = await this.db
       .from("difusion_envios")
-      .update({ intento_at: null })
+      .update({ intento_at: null, salio_como: null })
       .eq("id", id)
       .eq("estado", "en_cola");
     if (error) throw mapPostgrestError(error, { resource: "difusion_envio" });
@@ -406,6 +416,143 @@ export class SupabaseDifusionEnviosRepository implements DifusionEnviosRepositor
     return con;
   }
 
+  async ultimoSalidoParaLead(leadId: UUID, desde: Date): Promise<DifusionEnvio | null> {
+    if (!isUuid(leadId)) return null;
+    const { data, error } = await this.db
+      .from("difusion_envios")
+      .select()
+      .eq("lead_id", leadId)
+      .in("estado", [...ESTADOS_QUE_SALIERON])
+      .gte("intento_at", desde.toISOString())
+      .order("intento_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw mapPostgrestError(error, { resource: "difusion_envio" });
+    return data ? mapRow(data as Row) : null;
+  }
+
+  async marcarRespondido(id: UUID, wamid: string, at: Date): Promise<boolean> {
+    if (!isUuid(id)) return false;
+    // CAS: sólo la marca el primer entrante. Si no movió nada, se relee para
+    // distinguir el reintento del mismo entrante de otro que llegó después.
+    const { data, error } = await this.db
+      .from("difusion_envios")
+      .update({ respondido_at: at.toISOString(), respuesta_meta_message_id: wamid })
+      .eq("id", id)
+      .is("respondido_at", null)
+      .select("id")
+      .maybeSingle();
+    if (error) throw mapPostgrestError(error, { resource: "difusion_envio" });
+    if (data) return true;
+    const actual = await this.findById(id);
+    return actual?.respuesta_meta_message_id === wamid;
+  }
+
+  async respondidos(difusionId: UUID, limite: number): Promise<DifusionEnvio[]> {
+    exigirPagina(limite, 0);
+    if (!isUuid(difusionId)) return [];
+    const { data, error } = await this.db
+      .from("difusion_envios")
+      .select()
+      .eq("difusion_id", difusionId)
+      .not("respondido_at", "is", null)
+      .order("respondido_at", { ascending: false })
+      .range(0, limite - 1);
+    if (error) throw mapPostgrestError(error, { resource: "difusion_envio" });
+    return (data ?? []).map((r) => mapRow(r as Row));
+  }
+
+  async contarRespondidos(difusionId: UUID): Promise<number> {
+    if (!isUuid(difusionId)) return 0;
+    const { count, error } = await this.db
+      .from("difusion_envios")
+      .select("id", { count: "exact", head: true })
+      .eq("difusion_id", difusionId)
+      .not("respondido_at", "is", null);
+    if (error) throw mapPostgrestError(error, { resource: "difusion_envio" });
+    return count ?? 0;
+  }
+
+  async contarReservadosDesde(difusionId: UUID, desde: Date): Promise<number> {
+    if (!isUuid(difusionId)) return 0;
+    const { count, error } = await this.db
+      .from("difusion_envios")
+      .select("id", { count: "exact", head: true })
+      .eq("difusion_id", difusionId)
+      .gte("intento_at", desde.toISOString());
+    if (error) throw mapPostgrestError(error, { resource: "difusion_envio" });
+    return count ?? 0;
+  }
+
+  async conteoMuestra(difusionId: UUID, hasta: Date): Promise<ConteoMuestra[]> {
+    if (!isUuid(difusionId)) return [];
+    const { data, error } = await this.db.rpc("difusion_envios_muestra", {
+      p_difusion_id: difusionId,
+      p_hasta: hasta.toISOString(),
+    });
+    if (error) throw mapPostgrestError(error, { resource: "difusion_envio" });
+    // El generador tipa las columnas de RETURNS TABLE como no nulas; el código
+    // es null en todo lo que no falló.
+    return (data ?? []).map((f) => ({
+      estado: f.estado,
+      codigo: (f.error_codigo as string | null) ?? null,
+      cantidad: f.cantidad,
+    }));
+  }
+
+  async sumarAltas(filas: readonly DifusionEnvioInsert[]): Promise<number> {
+    const porDifusion = new Map<UUID, DifusionEnvioInsert[]>();
+    for (const f of filas) {
+      const lista = porDifusion.get(f.difusion_id) ?? [];
+      lista.push(f);
+      porDifusion.set(f.difusion_id, lista);
+    }
+    let escritas = 0;
+    for (const [difusionId, lista] of porDifusion) {
+      for (let i = 0; i < lista.length; i += LOTE_PLAN) {
+        const lote = lista.slice(i, i + LOTE_PLAN).map(aInsert);
+        const { data, error } = await this.db.rpc("difusion_sumar_altas", {
+          p_difusion_id: difusionId,
+          p_envios: lote as unknown as Json,
+        });
+        if (error) throw mapPostgrestError(error, { resource: "difusion_envio" });
+        escritas += data ?? 0;
+      }
+    }
+    return escritas;
+  }
+
+  async leadsDeLaDifusion(difusionId: UUID): Promise<Set<UUID>> {
+    const leads = new Set<UUID>();
+    if (!isUuid(difusionId)) return leads;
+    // Hasta una página vacía: PostgREST corta en 1.000 sin avisar (lección 12).
+    for (let desde = 0; ; desde += LIMITE_MAX_PAGINA) {
+      const { data, error } = await this.db
+        .from("difusion_envios")
+        .select("lead_id")
+        .eq("difusion_id", difusionId)
+        .order("id")
+        .range(desde, desde + LIMITE_MAX_PAGINA - 1);
+      if (error) throw mapPostgrestError(error, { resource: "difusion_envio" });
+      const pagina = data ?? [];
+      if (pagina.length === 0) break;
+      for (const f of pagina) if (f.lead_id !== null) leads.add(f.lead_id);
+    }
+    return leads;
+  }
+
+  async contarAltas(difusionId: UUID): Promise<number> {
+    if (!isUuid(difusionId)) return 0;
+    const { count, error } = await this.db
+      .from("difusion_envios")
+      .select("id", { count: "exact", head: true })
+      .eq("difusion_id", difusionId)
+      .eq("alta_dinamica", true);
+    if (error) throw mapPostgrestError(error, { resource: "difusion_envio" });
+    return count ?? 0;
+  }
+
   /** Corre un UPDATE ... RETURNING de una fila; `null` si no movió ninguna. */
   private async transicionar(
     consulta: ReturnType<ReturnType<AppClient["from"]>["update"]>,
@@ -446,5 +593,14 @@ function mapRow(r: Row): DifusionEnvio {
     intento_at: r.intento_at === null ? null : new Date(r.intento_at),
     created_at: new Date(r.created_at),
     estado_at: new Date(r.estado_at),
+    respondido_at: r.respondido_at === null ? null : new Date(r.respondido_at),
+    respuesta_meta_message_id: r.respuesta_meta_message_id,
+    salio_como: contenidoDe(r.salio_como),
+    alta_dinamica: r.alta_dinamica,
   };
+}
+
+/** La columna es `text` con CHECK: lo que no sea uno de los dos no se toma. */
+function contenidoDe(v: string | null): ContenidoEnvio | null {
+  return v === "plantilla" || v === "texto_libre" ? v : null;
 }

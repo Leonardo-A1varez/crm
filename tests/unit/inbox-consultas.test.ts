@@ -142,6 +142,9 @@ describe("Costo en consultas del Inbox", () => {
         sendTemplate: async () => {
           throw new Error("sendTemplate no debe invocarse acá");
         },
+        sendRico: async () => {
+          throw new Error("sendRico no debe invocarse acá");
+        },
         sendText: async () => {
           throw new Error("sendText no debe invocarse midiendo el read path");
         },

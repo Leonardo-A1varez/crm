@@ -32,9 +32,10 @@
  * `alias` lista, por clave, cómo se llamó antes. Se aceptan las que aceptaba
  * algún lector de antes —la acción o el validador—, así nada que funcionaba
  * deja de funcionar. En los tipos que lee código que no pasa por este módulo
- * (los disparadores, que lee `lib/workflows/recorrer.ts`, y las esperas, que
- * lee `ejecutor.service.ts`) no hay alias: validar una clave que ese código
- * ignora haría que el validador apruebe algo distinto de lo que corre.
+ * (los disparadores, que lee `lib/workflows/recorrer.ts`) no hay alias:
+ * validar una clave que ese código ignora haría que el validador apruebe algo
+ * distinto de lo que corre. Las esperas sí pasan por acá: el ejecutor las lee
+ * con `leerConfigDeTipo`.
  *
  * Si están la clave vieja y la nueva, gana la nueva: es la que escribe el
  * panel, o sea lo último que alguien eligió. El panel reescribe el bloque con
@@ -50,7 +51,9 @@ import { z } from "zod";
 import { ValidationError } from "@/lib/errors";
 import { CURRENT_STAGE, ETAPAS_EMBUDO } from "@/types/domain";
 import { ACCIONES, DISPARADORES, EVENTOS_ESPERABLES, type AccionWorkflow } from "./catalogo";
-import type { Nodo, NodoTipo } from "@/types/workflows";
+import { ID_DE_CASO, ID_DE_OPCION, type Nodo, type NodoTipo } from "@/types/workflows";
+import { esCampoTwinEditable, leerValorCampoTwin, tieneVariables } from "./campo-twin";
+import { CAMPOS_SWITCH } from "./condiciones";
 import type { DatosInterpolacion } from "./variables";
 
 /** No impide publicar, pero quien publica tiene que verla. */
@@ -213,6 +216,317 @@ const ENVIAR_PLANTILLA = espec(
   { alias: { templateName: ["template_name", "nombre"] } },
 );
 
+// ── Mensajes interactivos y multimedia (WhatsApp) ────────────────────────
+// Los límites son los de la documentación de Meta, leída el 2026-09-26
+// (business-messaging/whatsapp/messages). Un mensaje que los pasa, Meta lo
+// rechaza con un 400: se frena acá, antes de publicar, con el motivo.
+
+const MENSAJE_SIN_BOTONES = "Debes agregar al menos un botón";
+const MENSAJE_SIN_SECCIONES = "Debes agregar al menos una sección a la lista";
+const MENSAJE_TIEMPO_MAXIMO = "Define cuánto esperar la respuesta: el tiempo máximo es obligatorio";
+
+/** Texto obligatorio con tope de largo. El mensaje del tope nombra el número. */
+function textoConTope(mensajeVacio: string, max: number, mensajeLargo: string) {
+  return textoObligatorio(mensajeVacio).refine((s) => s.length <= max, { error: mensajeLargo });
+}
+
+/** Texto opcional con tope de largo. */
+function opcionalConTope(max: number, mensajeLargo: string) {
+  return z.string().max(max, { error: mensajeLargo }).optional();
+}
+
+/**
+ * El id de una opción: es el sufijo del puerto (`opcion:<id>`) y lo que Meta
+ * devuelve en `button_reply.id`/`list_reply.id`. Lo genera el panel.
+ */
+const ID_OPCION = z
+  .string({ error: "Una opción no tiene id: volvé a crearla desde el panel" })
+  .regex(ID_DE_OPCION, {
+    error: "Una opción tiene un id inválido: volvé a crearla desde el panel",
+  });
+
+/**
+ * Cuánto espera la respuesta antes de salir por «sin respuesta». Obligatorio
+ * y positivo, como en "Esperar respuesta": ninguna espera es indefinida.
+ */
+const TIEMPO_MAXIMO = {
+  timeout: z
+    .number({ error: MENSAJE_TIEMPO_MAXIMO })
+    .positive({ error: MENSAJE_TIEMPO_MAXIMO })
+    .default(24),
+  unidadTimeout: z.enum(UNIDADES_DE_TIEMPO).default("horas"),
+};
+
+/** Dos opciones con el mismo id serían dos líneas por la misma respuesta. */
+function sinIdsRepetidos(
+  ids: readonly string[],
+  ctx: z.core.$RefinementCtx,
+  path: (string | number)[],
+) {
+  const vistos = new Set<string>();
+  for (const id of ids) {
+    if (vistos.has(id)) {
+      ctx.addIssue({ code: "custom", path, message: `El id de opción «${id}» está repetido` });
+      return;
+    }
+    vistos.add(id);
+  }
+}
+
+/**
+ * "Mensaje con botones": hasta 3 botones de respuesta. El flujo espera que el
+ * lead toque uno y sale por la línea de ese botón; si no responde antes del
+ * tiempo máximo, por «sin respuesta». Los botones de URL o de llamar son otro
+ * tipo de mensaje de Meta (un solo botón), y no están acá.
+ */
+const ENVIAR_BOTONES = espec(
+  z
+    .object({
+      mensaje: textoConTope(
+        "El mensaje con botones necesita un texto",
+        1024,
+        "El mensaje con botones no puede pasar de 1024 caracteres",
+      ),
+      botones: z
+        .array(
+          z.object({
+            id: ID_OPCION,
+            texto: textoConTope(
+              "Cada botón necesita un texto",
+              20,
+              "El texto de un botón no puede pasar de 20 caracteres",
+            ),
+          }),
+          { error: MENSAJE_SIN_BOTONES },
+        )
+        .min(1, { error: MENSAJE_SIN_BOTONES })
+        .max(3, { error: "WhatsApp permite hasta 3 botones" }),
+      ...TIEMPO_MAXIMO,
+    })
+    .superRefine((c, ctx) =>
+      sinIdsRepetidos(
+        c.botones.map((b) => b.id),
+        ctx,
+        ["botones"],
+      ),
+    ),
+);
+
+/**
+ * "Mensaje de lista": hasta 10 filas entre todas las secciones. Sale por la
+ * línea de la fila elegida, o por «sin respuesta».
+ */
+const ENVIAR_LISTA = espec(
+  z
+    .object({
+      // El título de la lista. El validador de antes lo pedía como `titulo`,
+      // que ningún formulario escribió nunca: el panel lo guarda en `header`.
+      header: opcionalConTope(60, "El título de la lista no puede pasar de 60 caracteres"),
+      body: textoConTope(
+        "La lista necesita un mensaje",
+        4096,
+        "El mensaje de la lista no puede pasar de 4096 caracteres",
+      ),
+      footer: opcionalConTope(60, "El pie de la lista no puede pasar de 60 caracteres"),
+      botonTexto: textoConTope(
+        "El botón que abre la lista necesita un texto",
+        20,
+        "El botón que abre la lista no puede pasar de 20 caracteres",
+      ).default("Ver opciones"),
+      secciones: z
+        .array(
+          z.object({
+            titulo: z
+              .string()
+              .max(24, { error: "El título de una sección no puede pasar de 24 caracteres" })
+              .default(""),
+            items: z
+              .array(
+                z.object({
+                  id: ID_OPCION,
+                  titulo: textoConTope(
+                    "Cada opción de la lista necesita un título",
+                    24,
+                    "El título de una opción no puede pasar de 24 caracteres",
+                  ),
+                  descripcion: z
+                    .string()
+                    .max(72, {
+                      error: "La descripción de una opción no puede pasar de 72 caracteres",
+                    })
+                    .default(""),
+                }),
+              )
+              .min(1, { error: "Cada sección necesita al menos una opción" }),
+          }),
+          { error: MENSAJE_SIN_SECCIONES },
+        )
+        .min(1, { error: MENSAJE_SIN_SECCIONES })
+        .max(10, { error: "WhatsApp permite hasta 10 secciones" }),
+      ...TIEMPO_MAXIMO,
+    })
+    .superRefine((c, ctx) => {
+      const ids = c.secciones.flatMap((s) => s.items.map((i) => i.id));
+      if (ids.length > 10) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["secciones"],
+          message: `WhatsApp permite hasta 10 opciones entre todas las secciones; hay ${ids.length}`,
+        });
+      }
+      sinIdsRepetidos(ids, ctx, ["secciones"]);
+    }),
+  { alias: { header: ["titulo"] } },
+);
+
+/**
+ * La ruta de una imagen subida desde el panel (`subirImagenDeFlujoAction`):
+ * `flujos/<uuid>.<jpg|png>` en el bucket `mensajes_media`. Cualquier otra
+ * ruta —otra carpeta, `..`— no la subió el panel y no se firma.
+ */
+export const RUTA_IMAGEN_DE_FLUJO =
+  /^flujos\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png)$/;
+
+/**
+ * "Enviar imagen": por URL pública (https) o subida a Storage. Meta acepta
+ * JPEG y PNG de hasta 5 MB y descarga la imagen al mandar.
+ */
+const ENVIAR_IMAGEN = espec(
+  z
+    .object({
+      tipoMedia: z.enum(["url", "archivo"]).default("url"),
+      url: z.string().optional(),
+      archivo: z.string().optional(),
+      caption: opcionalConTope(1024, "El pie de la imagen no puede pasar de 1024 caracteres"),
+    })
+    .superRefine((c, ctx) => {
+      if (c.tipoMedia === "url") {
+        if (!c.url || c.url.trim() === "") {
+          ctx.addIssue({ code: "custom", path: ["url"], message: "La imagen necesita una URL" });
+        } else if (!esUrlHttps(c.url)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["url"],
+            message: "La URL de la imagen tiene que empezar con https://",
+          });
+        }
+      } else if (!c.archivo || !RUTA_IMAGEN_DE_FLUJO.test(c.archivo)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["archivo"],
+          message: "Subí la imagen desde el panel",
+        });
+      }
+    }),
+  { alias: { url: ["media_url"] } },
+);
+
+function esUrlHttps(valor: string): boolean {
+  try {
+    return new URL(valor).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** "Enviar ubicación": un punto en el mapa, con nombre y dirección opcionales. */
+const ENVIAR_UBICACION = espec(
+  z.object({
+    lat: z
+      .number({ error: "Falta la latitud" })
+      .min(-90, { error: "La latitud va de -90 a 90" })
+      .max(90, { error: "La latitud va de -90 a 90" }),
+    lon: z
+      .number({ error: "Falta la longitud" })
+      .min(-180, { error: "La longitud va de -180 a 180" })
+      .max(180, { error: "La longitud va de -180 a 180" }),
+    nombre: opcionalConTope(1000, "El nombre del lugar es demasiado largo"),
+    direccion: opcionalConTope(1000, "La dirección es demasiado larga"),
+  }),
+);
+
+/**
+ * "Actualizar campo del Twin". `campo` es uno de los que una persona corrige
+ * con el lápiz del Twin (`campo-twin.ts`); `valor` admite variables
+ * (`{{lead.nombre}}`), que resuelve la acción al correr. Un número escrito a
+ * mano en un campo numérico se revisa acá, antes de publicar; uno que sale de
+ * una variable, recién al correr.
+ */
+const ACTUALIZAR_CAMPO_TWIN = espec(
+  z
+    .object({
+      campo: z
+        .string({ error: "Elegí qué campo del Twin actualizar" })
+        .refine(esCampoTwinEditable, {
+          error: "Elegí un campo del Twin que se pueda editar",
+        }),
+      valor: z.string().default(""),
+    })
+    .superRefine((c, ctx) => {
+      if (!esCampoTwinEditable(c.campo) || tieneVariables(c.valor)) return;
+      const lectura = leerValorCampoTwin(c.campo, c.valor);
+      if (!lectura.ok) ctx.addIssue({ code: "custom", path: ["valor"], message: lectura.error });
+    }),
+  {
+    advertencias: (c) =>
+      typeof c.valor !== "string" || c.valor.trim() === ""
+        ? [{ mensaje: "El valor está vacío: el bloque borra lo que haya en el campo" }]
+        : [],
+  },
+);
+
+const MENSAJE_SIN_CASOS = "Agregá al menos un caso: sin casos todo sale por «Otro»";
+
+/**
+ * "Según el valor": compara `campo` contra el valor de cada caso, en orden, con
+ * el mismo evaluador de las condiciones (un `es` por caso), y sigue por el
+ * primero que coincide o por «Otro». El `id` de cada caso es su puerto
+ * (`caso:<id>`), así que tiene que caber en uno.
+ */
+const SEGUN_EL_VALOR = espec(
+  z
+    .object({
+      campo: z
+        .string({ error: "Elegí qué campo mirar" })
+        .refine((c) => (CAMPOS_SWITCH as readonly string[]).includes(c), {
+          error: "«Según el valor» compara por igualdad: elegí un campo de texto o de opciones",
+        }),
+      casos: z
+        .array(
+          z.object({
+            id: z.string().regex(ID_DE_CASO, { error: "Un caso tiene un id inválido" }),
+            valor: z.string().refine((v) => v.trim() !== "", { error: "Hay un caso sin valor" }),
+          }),
+          { error: MENSAJE_SIN_CASOS },
+        )
+        .min(1, { error: MENSAJE_SIN_CASOS })
+        .default(() => []),
+    })
+    .superRefine((c, ctx) => {
+      const ids = new Set<string>();
+      const valores = new Set<string>();
+      for (const caso of c.casos) {
+        if (ids.has(caso.id)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["casos"],
+            message: "Dos casos tienen el mismo id",
+          });
+        }
+        ids.add(caso.id);
+        const valor = caso.valor.trim();
+        if (valor !== "" && valores.has(valor)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["casos"],
+            message: `Dos casos tienen el valor «${valor}»: el segundo no se alcanzaría nunca`,
+          });
+        }
+        valores.add(valor);
+      }
+    }),
+);
+
 /**
  * Qué config lee cada acción del motor. `satisfies` contra `AccionWorkflow`:
  * una acción nueva en el catálogo sin su schema no compila.
@@ -225,6 +539,11 @@ export const ESPEC_CONFIG_POR_ACCION = {
   asignar_vendedor: ASIGNAR_VENDEDOR,
   repartir_round_robin: REPARTIR_ROUND_ROBIN,
   enviar_plantilla: ENVIAR_PLANTILLA,
+  enviar_botones: ENVIAR_BOTONES,
+  enviar_lista: ENVIAR_LISTA,
+  enviar_imagen: ENVIAR_IMAGEN,
+  enviar_ubicacion: ENVIAR_UBICACION,
+  actualizar_campo_twin: ACTUALIZAR_CAMPO_TWIN,
 } as const satisfies Record<AccionWorkflow, EspecConfig>;
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -248,8 +567,6 @@ function media(mensajeSinUrl: string) {
 
 const MENSAJE_SIN_ESPERA = "Define cuánto tiempo esperar";
 const MENSAJE_SIN_INACTIVIDAD = "Define el tiempo de inactividad que dispara el workflow";
-const MENSAJE_SIN_BOTONES = "Debes agregar al menos un botón";
-const MENSAJE_SIN_SECCIONES = "Debes agregar al menos una sección a la lista";
 const MENSAJE_SIN_CRON = "Define la frecuencia de ejecución (expresión cron)";
 const MENSAJE_SIN_ETIQUETA_DISPARADORA = "Selecciona qué etiqueta dispara el workflow";
 
@@ -260,8 +577,16 @@ const MENSAJE_SIN_ETIQUETA_DISPARADORA = "Selecciona qué etiqueta dispara el wo
 export const ESPEC_CONFIG_POR_TIPO = {
   // ── Legacy ────────────────────────────────────────────────────────────
   disparador: espec(z.object({ disparador: z.enum(DISPARADORES).optional() })),
-  // `ejecutor.service.ts` lee `minutos`; ausente, espera 60.
-  espera: espec(z.object({ minutos: z.number().optional() })),
+  // Sin formulario en el panel: lo que vale sin config lo fijaba el ejecutor,
+  // 60 minutos. Un valor que no sea positivo falla, como en `logica_esperar`.
+  espera: espec(
+    z.object({
+      minutos: z
+        .number({ error: MENSAJE_SIN_ESPERA })
+        .positive({ error: MENSAJE_SIN_ESPERA })
+        .default(60),
+    }),
+  ),
   fin: espec(z.object({})),
 
   // ── Disparadores ──────────────────────────────────────────────────────
@@ -327,68 +652,20 @@ export const ESPEC_CONFIG_POR_TIPO = {
     { alias: { duracion: ["tiempo"] } },
   ),
   trigger_formulario: espec(z.object({})),
+  // "Cuál campaña" (PRD §4.1). Vacío = la respuesta a cualquier difusión:
+  // es lo que el panel muestra elegido sin escribirlo.
+  trigger_difusion_respondida: espec(z.object({ difusionId: z.string().default("") })),
 
   // ── Mensajería ────────────────────────────────────────────────────────
   msg_texto: ENVIAR_MENSAJE,
-  msg_botones: espec(
-    z.object({
-      mensaje: textoObligatorio("El mensaje con botones necesita un texto"),
-      botones: z
-        .array(
-          z.object({
-            texto: z.string(),
-            accion: z.enum(["responder", "url", "llamar"]),
-            valor: z.string(),
-          }),
-          { error: MENSAJE_SIN_BOTONES },
-        )
-        .min(1, { error: MENSAJE_SIN_BOTONES }),
-    }),
-    {
-      advertencias: (c) =>
-        Array.isArray(c.botones) && c.botones.length > 3
-          ? [{ mensaje: "WhatsApp solo permite hasta 3 botones" }]
-          : [],
-    },
-  ),
-  msg_lista: espec(
-    z.object({
-      // El título de la lista. El validador de antes lo pedía como `titulo`,
-      // que ningún formulario escribió nunca: el panel lo guarda en `header`.
-      header: textoObligatorio("La lista necesita un título"),
-      body: z.string().optional(),
-      footer: z.string().optional(),
-      botonTexto: z.string().default("Ver opciones"),
-      secciones: z
-        .array(
-          z.object({
-            titulo: z.string(),
-            items: z.array(z.object({ titulo: z.string(), descripcion: z.string() })),
-          }),
-          { error: MENSAJE_SIN_SECCIONES },
-        )
-        .min(1, { error: MENSAJE_SIN_SECCIONES }),
-    }),
-    { alias: { header: ["titulo"] } },
-  ),
-  msg_imagen: espec(
-    media("La imagen necesita una URL").extend({ caption: z.string().optional() }),
-    {
-      alias: { url: ["media_url"] },
-    },
-  ),
+  msg_botones: ENVIAR_BOTONES,
+  msg_lista: ENVIAR_LISTA,
+  msg_imagen: ENVIAR_IMAGEN,
   msg_documento: espec(
     media("El documento necesita una URL").extend({ nombreArchivo: z.string().optional() }),
     { alias: { url: ["media_url"] } },
   ),
-  msg_ubicacion: espec(
-    z.object({
-      lat: z.number().optional(),
-      lon: z.number().optional(),
-      nombre: z.string().optional(),
-      direccion: z.string().optional(),
-    }),
-  ),
+  msg_ubicacion: ENVIAR_UBICACION,
   msg_plantilla: ENVIAR_PLANTILLA,
   msg_reaccion: espec(z.object({ emoji: z.string().optional() })),
 
@@ -399,18 +676,7 @@ export const ESPEC_CONFIG_POR_TIPO = {
   crm_vendedor: ASIGNAR_VENDEDOR,
   crm_round_robin: REPARTIR_ROUND_ROBIN,
   crm_escalar_humano: ESCALAR_A_HUMANO,
-  crm_campo: espec(
-    z.object({
-      campo: textoObligatorio("Selecciona qué campo actualizar"),
-      valor: z.string().optional(),
-    }),
-    {
-      advertencias: (c) =>
-        c.valor === undefined || c.valor === null || c.valor === ""
-          ? [{ mensaje: "El valor del campo está vacío" }]
-          : [],
-    },
-  ),
+  crm_campo: ACTUALIZAR_CAMPO_TWIN,
   crm_tarea: espec(
     z.object({
       titulo: z.string().optional(),
@@ -432,18 +698,7 @@ export const ESPEC_CONFIG_POR_TIPO = {
   ),
 
   // ── Lógica ────────────────────────────────────────────────────────────
-  logica_switch: espec(
-    z.object({
-      campo: textoObligatorio("Selecciona un campo para el switch"),
-      casos: z.array(z.object({ valor: z.string(), id: z.string() })).default(() => []),
-    }),
-    {
-      advertencias: (c) =>
-        Array.isArray(c.casos) && c.casos.length > 0
-          ? []
-          : [{ mensaje: "El switch no tiene casos definidos" }],
-    },
-  ),
+  logica_switch: SEGUN_EL_VALOR,
   logica_validacion: espec(
     z.object({
       campo: z.string().optional(),
@@ -454,7 +709,6 @@ export const ESPEC_CONFIG_POR_TIPO = {
       mensajeError: z.string().optional(),
     }),
   ),
-  // `ejecutor.service.ts` lee `duracion` y `unidad`, con estos mismos defaults.
   logica_esperar: espec(
     z.object({
       duracion: z
@@ -518,7 +772,9 @@ export const ESPEC_CONFIG_POR_TIPO = {
     }),
   ),
   logica_grupo: espec(z.object({})),
-  logica_goto: espec(z.object({ nodoDestino: z.string().optional() })),
+  // Que el destino exista lo mira `validarGrafo` (`ir_a_destino`): esta config
+  // no ve el resto del grafo.
+  logica_goto: espec(z.object({ nodoDestino: textoObligatorio("Elegí a qué paso ir") })),
   logica_detener: espec(
     z.object({
       resultado: z.enum(["exito", "error", "cancelado"]).default("exito"),
@@ -705,6 +961,16 @@ export const ESPEC_CONFIG_POR_TIPO = {
       pausar: z.boolean().default(false),
     }),
   ),
+
+  // ── Difusión ──────────────────────────────────────────────────────────
+  // No corren (`disponibilidad.ts`): sin campos que inventar. Un schema vacío
+  // deja el bloque en el lienzo sin que la revisión de config lo rompa; lo que
+  // impide publicarlo es la disponibilidad, con su motivo.
+  dif_audiencia: espec(z.object({})),
+  dif_enviar: espec(z.object({})),
+  dif_excluir: espec(z.object({})),
+  dif_esperar_respuesta: espec(z.object({})),
+  dif_dividir: espec(z.object({})),
 } as const satisfies Record<TipoConfigurable, EspecConfig>;
 
 type EspecDeTipo<T extends TipoConfigurable> = (typeof ESPEC_CONFIG_POR_TIPO)[T];
@@ -845,6 +1111,23 @@ export function configDeAccion<A extends AccionWorkflow>(
     );
   }
   return resultado.data as ConfigDeAccion<A>;
+}
+
+/**
+ * La config de un nodo de control de flujo (las esperas), normalizada y
+ * validada con sus defaults. A diferencia de `configDeAccion` no lanza: quien
+ * lee —el ejecutor— convierte el fallo en una corrida fallada con su motivo.
+ */
+export function leerConfigDeTipo<T extends TipoConfigurable>(
+  tipo: T,
+  config: Record<string, unknown>,
+): z.ZodSafeParseResult<ConfigDeTipo<T>> {
+  const especTipo: EspecConfig = ESPEC_CONFIG_POR_TIPO[tipo];
+  // El schema de `tipo` produce `ConfigDeTipo<T>`; TypeScript no lo sigue a
+  // través del `EspecConfig` genérico.
+  return especTipo.schema.safeParse(normalizarCon(especTipo, config)) as z.ZodSafeParseResult<
+    ConfigDeTipo<T>
+  >;
 }
 
 // ──────────────────────────────────────────────────────────────────────────

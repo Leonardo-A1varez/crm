@@ -10,6 +10,7 @@ import {
   Psychology,
   SendIcon,
   SettingsSuggest,
+  Campaign,
 } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import {
@@ -68,6 +69,7 @@ const ICONO_CATEGORIA: Record<CategoriaVisual, IconoNodo> = {
   integracion: Handyman,
   ia: Psychology,
   interno: SettingsSuggest,
+  difusion: Campaign,
 };
 
 /** Una salida del nodo. El tono se deriva del `id`; ver `tonoDePuerto`. */

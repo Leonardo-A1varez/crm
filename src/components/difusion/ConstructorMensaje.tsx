@@ -7,6 +7,7 @@ import { AccionesBotones } from "./AccionesBotones";
 import { CabeceraDifusion } from "./CabeceraDifusion";
 import { describirPendiente, pendientesMensaje, variablesDe } from "./mensaje";
 import { SelectorPlantilla } from "./SelectorPlantilla";
+import { TextoLibreMensaje } from "./TextoLibreMensaje";
 import { VariablesPlantilla } from "./VariablesPlantilla";
 import { VistaPreviaMensaje } from "./VistaPreviaMensaje";
 import type {
@@ -50,6 +51,9 @@ export function ConstructorMensaje({
   etiquetas,
   porVentanaAbierta,
   porPlantilla,
+  porTextoLibre,
+  textoLibre,
+  onCambiarTextoLibre,
   lineasCosto,
   guardando,
   error,
@@ -71,6 +75,11 @@ export function ConstructorMensaje({
   etiquetas: readonly OpcionCampo[];
   porVentanaAbierta: number | null;
   porPlantilla: number | null;
+  /** A cuántos les sale el texto libre según el plan. `null` sin cálculo. */
+  porTextoLibre: number | null;
+  /** La versión en texto libre, como se escribe (vacía = sin texto libre). */
+  textoLibre: string;
+  onCambiarTextoLibre: (texto: string) => void;
   /** El costo con la plantilla elegida. `null` sin plantilla o sin reparto. */
   lineasCosto: readonly LineaCosto[] | null;
   guardando: boolean;
@@ -170,6 +179,14 @@ export function ConstructorMensaje({
                 acciones={config.botones}
                 etiquetas={etiquetas}
                 onCambiar={cambiarBoton}
+              />
+            ) : null}
+
+            {plantilla ? (
+              <TextoLibreMensaje
+                valor={textoLibre}
+                onCambiar={onCambiarTextoLibre}
+                porTextoLibre={porTextoLibre}
               />
             ) : null}
           </div>

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   ParametrosPlantillaSchema,
+  TextoLibreSchema,
+  camposEnTexto,
   campoDeToken,
   resolverParametros,
   tokenDeCampo,
@@ -63,5 +65,32 @@ describe("resolverParametros", () => {
 
   it("sin parámetros no hay nada que resolver", () => {
     expect(resolverParametros([], {})).toEqual({ ok: true, valores: [] });
+  });
+});
+
+describe("camposEnTexto — qué datos cargar para el texto libre", () => {
+  it("los datos del lead que aparecen en el texto, sin repetir", () => {
+    expect(
+      camposEnTexto("Hola {{lead.nombre}}, tu {{lead.vehiculo_modelo}} ({{lead.nombre}})"),
+    ).toEqual(new Set(["nombre", "vehiculo_modelo"]));
+  });
+
+  it("sin variables, ninguno", () => {
+    expect(camposEnTexto("Llegaron frenos")).toEqual(new Set());
+  });
+});
+
+describe("TextoLibreSchema", () => {
+  it("acepta un texto con las variables de la lista cerrada y lo recorta", () => {
+    expect(TextoLibreSchema.parse("  Hola {{lead.nombre}}  ")).toBe("Hola {{lead.nombre}}");
+  });
+
+  it("rechaza una variable que el motor no carga: saldría vacía", () => {
+    expect(TextoLibreSchema.safeParse("Hola {{vendedor.nombre}}").success).toBe(false);
+  });
+
+  it("rechaza el texto vacío y el de más de 4096 caracteres", () => {
+    expect(TextoLibreSchema.safeParse("   ").success).toBe(false);
+    expect(TextoLibreSchema.safeParse("x".repeat(4097)).success).toBe(false);
   });
 });

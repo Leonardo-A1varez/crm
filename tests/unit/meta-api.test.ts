@@ -288,3 +288,132 @@ describe("MetaApiService", () => {
     });
   });
 });
+
+describe("MetaApiService — sendRico", () => {
+  let conversations: InMemoryConversationsRepository;
+  let messages: InMemoryMessagesRepository;
+  let client: FakeMetaApiClient;
+  let svc: DefaultMetaApiService;
+
+  beforeEach(() => {
+    conversations = new InMemoryConversationsRepository();
+    messages = new InMemoryMessagesRepository();
+    client = new FakeMetaApiClient();
+    svc = new DefaultMetaApiService(conversations, messages, client);
+  });
+
+  const botones = {
+    tipo: "botones" as const,
+    cuerpo: "¿Te lo reservo?",
+    botones: [
+      { id: "si", titulo: "Sí" },
+      { id: "no", titulo: "No" },
+    ],
+  };
+
+  test("botones: sale por el cliente y queda como interactive con el contenido en metadata", async () => {
+    const conv = await seedConv(conversations);
+    const msg = await svc.sendRico({
+      conversacionId: conv.id,
+      leadSessionId: crypto.randomUUID(),
+      to: "549110",
+      contenido: botones,
+      sender: "sistema",
+      idempotencyKey: "wf:r:3",
+    });
+    expect(client.ricoCalls).toEqual([{ to: "549110", contenido: botones }]);
+    expect(msg).toMatchObject({
+      tipo: "interactive",
+      contenido: "¿Te lo reservo?",
+      meta_message_id: "wamid.fake-1",
+      media_url: null,
+    });
+    expect(msg.metadata).toEqual({ rico: botones });
+  });
+
+  test("imagen por archivo: el hilo guarda la ruta de Storage, nunca la URL firmada", async () => {
+    const conv = await seedConv(conversations);
+    const msg = await svc.sendRico({
+      conversacionId: conv.id,
+      leadSessionId: crypto.randomUUID(),
+      to: "549110",
+      contenido: {
+        tipo: "imagen",
+        url: "https://storage.test/firmada?token=SECRETO",
+        caption: "Mirá",
+      },
+      archivo: "flujos/a.jpg",
+      sender: "sistema",
+    });
+    expect(client.ricoCalls[0]?.contenido).toMatchObject({
+      url: expect.stringContaining("SECRETO"),
+    });
+    expect(msg.tipo).toBe("image");
+    expect(msg.media_url).toBeNull();
+    expect(msg.contenido).toBe("Mirá");
+    expect(JSON.stringify(msg.metadata)).not.toContain("SECRETO");
+    expect(msg.metadata).toEqual({
+      rico: { tipo: "imagen", url: null, archivo: "flujos/a.jpg", caption: "Mirá" },
+    });
+  });
+
+  test("imagen por URL pública: queda en media_url", async () => {
+    const conv = await seedConv(conversations);
+    const msg = await svc.sendRico({
+      conversacionId: conv.id,
+      leadSessionId: crypto.randomUUID(),
+      to: "549110",
+      contenido: { tipo: "imagen", url: "https://x.test/a.jpg", caption: null },
+      sender: "sistema",
+    });
+    expect(msg.media_url).toBe("https://x.test/a.jpg");
+    expect(msg.contenido).toBeNull();
+  });
+
+  test("ubicación: tipo location, el texto es el nombre y la dirección", async () => {
+    const conv = await seedConv(conversations);
+    const msg = await svc.sendRico({
+      conversacionId: conv.id,
+      leadSessionId: crypto.randomUUID(),
+      to: "549110",
+      contenido: { tipo: "ubicacion", lat: 1, lon: 2, nombre: "Local", direccion: "Av. 1" },
+      sender: "sistema",
+    });
+    expect(msg.tipo).toBe("location");
+    expect(msg.contenido).toBe("Local · Av. 1");
+  });
+
+  test("misma clave dos veces: Meta recibe uno solo", async () => {
+    const conv = await seedConv(conversations);
+    const input = {
+      conversacionId: conv.id,
+      leadSessionId: crypto.randomUUID(),
+      to: "549110",
+      contenido: botones,
+      sender: "sistema" as const,
+      idempotencyKey: "wf:r:9",
+    };
+    const a = await svc.sendRico(input);
+    const b = await svc.sendRico(input);
+    expect(b.id).toBe(a.id);
+    expect(client.ricoCalls).toHaveLength(1);
+  });
+
+  test("recordInbound guarda la opción elegida en metadata", async () => {
+    const conv = await seedConv(conversations);
+    const msg = await svc.recordInbound({
+      conversacionId: conv.id,
+      leadSessionId: crypto.randomUUID(),
+      parsed: parsedFixture({
+        meta_message_id: "wamid.IN",
+        contenido: "Sí",
+        respuesta_interactiva: { id: "si", titulo: "Sí", responde_a: "wamid.OUT" },
+      }),
+    });
+    expect(msg.metadata.respuesta_interactiva).toEqual({
+      id: "si",
+      titulo: "Sí",
+      responde_a: "wamid.OUT",
+    });
+  });
+});

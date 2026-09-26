@@ -150,6 +150,7 @@ describe("SupabaseWorkflowRunsRepository.relanzar", () => {
     expect(await repo.relanzar("run-fallada")).toEqual({
       run: null,
       motivo: "ya_hay_corrida_viva",
+      cancelados: [],
     });
   });
 });

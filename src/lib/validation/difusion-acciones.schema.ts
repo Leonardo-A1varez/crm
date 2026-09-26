@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { CATEGORIA_PLANTILLA, MODO_AUDIENCIA } from "@/lib/difusion/modelo";
-import { IdiomaPlantillaSchema, ParametrosPlantillaSchema } from "@/lib/difusion/parametros";
+import {
+  IdiomaPlantillaSchema,
+  ParametrosPlantillaSchema,
+  TextoLibreSchema,
+} from "@/lib/difusion/parametros";
 import { AudienciaSchema } from "./difusion.schema";
 import { UUIDSchema } from "./schemas";
 
@@ -56,11 +60,14 @@ export const GuardarBorradorSchema = z.strictObject({
     })
     .nullable()
     .optional(),
+  // La versión para quien tiene la ventana abierta. `null` la saca.
+  textoLibre: TextoLibreSchema.nullable().optional(),
 });
 
 export const CalcularAlcanceSchema = z.strictObject({
   ...audiencia,
   plantillaCategoria: z.enum(CATEGORIA_PLANTILLA).nullable(),
+  textoLibre: z.boolean().optional(),
   muestra: z.strictObject({
     desde: z.number().int().min(0).max(1_000_000),
     limite: z.number().int().min(1).max(200),
@@ -84,4 +91,19 @@ export const DifusionIdSchema = z.strictObject({ id: UUIDSchema });
 export const DetenerSchema = z.strictObject({
   id: UUIDSchema,
   motivo: z.string().trim().min(1).max(500).optional(),
+});
+
+/**
+ * "Enviar de prueba a mi número". Un número por pedido: la forma del campo lo
+ * deja en un string corto; que sea un teléfono de WhatsApp lo decide el
+ * servicio con la misma normalización que el resto de Difusión.
+ */
+export const PruebaDifusionSchema = z.strictObject({
+  id: UUIDSchema,
+  telefono: z
+    .string()
+    .trim()
+    .min(6, { error: "Escribí el número con código de país." })
+    .max(24, { error: "Un número por vez." }),
+  leadId: UUIDSchema,
 });

@@ -75,11 +75,11 @@ export function SelectorPlantilla({
             <span className="font-mono tabular-nums" style={{ color: COLOR_RUTA.plantilla }}>
               {formatearEntero(porPlantilla)}
             </span>{" "}
-            de esta audiencia les llega la plantilla; los otros{" "}
+            de esta audiencia les llega fuera de la ventana; los otros{" "}
             <span className="font-mono tabular-nums" style={{ color: COLOR_RUTA.ventana_abierta }}>
               {formatearEntero(porVentanaAbierta)}
             </span>{" "}
-            tienen la ventana abierta y les sale como texto libre, gratis.
+            tienen la ventana abierta y reciben la misma plantilla (con marketing, se cobra igual).
           </>
         ) : null}
       </p>

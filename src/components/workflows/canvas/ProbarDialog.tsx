@@ -27,6 +27,17 @@ type ProbarFn = (
   | { ok: false; error: string }
 >;
 
+type ProbarHastaAcaFn = (raw: unknown) => Promise<
+  | {
+      ok: true;
+      runId: string;
+      tipo: "detenido" | "completado" | "fallado" | "cancelado";
+      nodoId?: string;
+      error?: string;
+    }
+  | { ok: false; error: string }
+>;
+
 type ObtenerDetalleRunFn = (
   raw: unknown,
 ) => Promise<{ ok: true; data: WorkflowRunDetalle | null } | { ok: false; error: string }>;
@@ -40,6 +51,16 @@ interface ProbarDialogProps {
   onBuscarLeads: BuscarLeadsFn;
   onProbar: ProbarFn;
   onObtenerDetalleRun: ObtenerDetalleRunFn;
+  /**
+   * "Ejecutar hasta acá": con un nodo, el modal corre el flujo contra el lead
+   * elegido y frena justo antes de ese nodo (`probarHastaAcaAction`, mismo
+   * input que Probar más `hastaNodo`). En vez de mostrar el resultado acá,
+   * abre la pantalla de la corrida con `onIrACorrida`: ahí se ve el lienzo
+   * pintado hasta donde llegó.
+   */
+  hastaNodo?: { id: string; nombre: string } | null;
+  onProbarHastaAca?: ProbarHastaAcaFn;
+  onIrACorrida?: (runId: string) => void;
 }
 
 const ETIQUETA_ESTADO: Record<string, string> = {
@@ -67,7 +88,11 @@ export function ProbarDialog({
   onBuscarLeads,
   onProbar,
   onObtenerDetalleRun,
+  hastaNodo = null,
+  onProbarHastaAca,
+  onIrACorrida,
 }: ProbarDialogProps) {
+  const modoHasta = hastaNodo !== null && onProbarHastaAca !== undefined ? hastaNodo : null;
   const [query, setQuery] = useState("");
   const [resultados, setResultados] = useState<LeadListItem[]>([]);
   const [leadElegido, setLeadElegido] = useState<LeadListItem | null>(null);
@@ -111,6 +136,23 @@ export function ProbarDialog({
   const handleProbar = () => {
     if (!leadElegido) return;
     setError(null);
+    if (modoHasta && onProbarHastaAca) {
+      startEjecutar(async () => {
+        const r = await onProbarHastaAca({
+          workflowId,
+          grafo,
+          maxPasos,
+          leadId: leadElegido.leadId,
+          hastaNodo: modoHasta.id,
+        });
+        if (!r.ok) {
+          setError(r.error);
+          return;
+        }
+        onIrACorrida?.(r.runId);
+      });
+      return;
+    }
     startEjecutar(async () => {
       const r = await onProbar({ workflowId, grafo, maxPasos, leadId: leadElegido.leadId });
       if (!r.ok) {
@@ -129,11 +171,15 @@ export function ProbarDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Probar workflow</DialogTitle>
-          <DialogDescription>
-            {mostrandoResultado
-              ? "Esto es lo que hizo el motor. Los mensajes y cambios al lead no se enviaron de verdad — sólo se simularon."
-              : "Elegí un lead real para correr el flujo contra él. No se manda ningún WhatsApp ni se toca el lead: sólo se simula."}
+          <DialogTitle className="text-balance">
+            {modoHasta ? `Ejecutar hasta «${modoHasta.nombre}»` : "Probar workflow"}
+          </DialogTitle>
+          <DialogDescription className="text-pretty">
+            {modoHasta
+              ? "Elegí un lead real. El flujo corre contra él y frena justo antes de este bloque; después se abre la corrida para ver hasta dónde llegó. No se manda ningún WhatsApp ni se toca el lead: sólo se simula."
+              : mostrandoResultado
+                ? "Esto es lo que hizo el motor. Los mensajes y cambios al lead no se enviaron de verdad — sólo se simularon."
+                : "Elegí un lead real para correr el flujo contra él. No se manda ningún WhatsApp ni se toca el lead: sólo se simula."}
           </DialogDescription>
         </DialogHeader>
 
@@ -188,7 +234,11 @@ export function ProbarDialog({
               </div>
             )}
 
-            {error && <p className="text-[12px] text-red-600 dark:text-red-400">{error}</p>}
+            {error && (
+              <p role="alert" className="text-[12px] text-red-600 dark:text-red-400">
+                {error}
+              </p>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-3">
@@ -250,7 +300,13 @@ export function ProbarDialog({
                 Cancelar
               </Button>
               <Button onClick={handleProbar} disabled={!leadElegido || ejecutando}>
-                {ejecutando ? "Probando…" : "Probar"}
+                {modoHasta
+                  ? ejecutando
+                    ? "Ejecutando…"
+                    : "Ejecutar hasta acá"
+                  : ejecutando
+                    ? "Probando…"
+                    : "Probar"}
               </Button>
             </>
           )}

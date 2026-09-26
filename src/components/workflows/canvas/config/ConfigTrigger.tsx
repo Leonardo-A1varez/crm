@@ -19,8 +19,13 @@ interface ConfigTriggerProps {
   onChange: (config: Record<string, unknown>) => void;
   tags: ReadonlyArray<{ id: string; nombre: string }>;
   etapas: ReadonlyArray<{ id: string; nombre: string }>;
+  /** Las difusiones que salieron o van a salir: las que alguien puede responder. */
+  difusiones?: ReadonlyArray<{ id: string; nombre: string }>;
   readonly?: boolean;
 }
+
+/** Radix no admite `""` como valor de un ítem: "cualquiera" viaja con este. */
+const CUALQUIER_DIFUSION = "__cualquiera__";
 
 /**
  * Formularios de los disparadores.
@@ -36,6 +41,7 @@ export function ConfigTrigger({
   onChange,
   tags,
   etapas,
+  difusiones = [],
   readonly,
 }: ConfigTriggerProps) {
   const [showSecret, setShowSecret] = useState(false);
@@ -374,6 +380,41 @@ export function ConfigTrigger({
               </Select>
             </div>
           </label>
+        </div>
+      );
+    }
+
+    case "trigger_difusion_respondida": {
+      const c = editorDeConfig("trigger_difusion_respondida", config);
+      const elegida = String(c.valores.difusionId ?? "");
+      return (
+        <div className="flex flex-col gap-3">
+          <label className="block">
+            <span className={labelClass}>Cuando alguien responde</span>
+            <Select
+              value={elegida === "" ? CUALQUIER_DIFUSION : elegida}
+              onValueChange={(v) =>
+                onChange(c.con("difusionId", v === CUALQUIER_DIFUSION ? "" : v))
+              }
+              disabled={readonly}
+            >
+              <SelectTrigger className={selectClass}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={CUALQUIER_DIFUSION}>Cualquier difusión</SelectItem>
+                {difusiones.map((d) => (
+                  <SelectItem key={d.id} value={d.id}>
+                    {d.nombre}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+          <p className="text-ink-faint text-[11px] leading-snug text-pretty">
+            Arranca con el primer mensaje que el lead manda después de recibir la difusión, hasta 7
+            días después. Los mensajes siguientes de esa conversación no lo vuelven a disparar.
+          </p>
         </div>
       );
     }

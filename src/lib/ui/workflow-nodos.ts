@@ -144,6 +144,8 @@ const COLOR: Record<CategoriaVisual, string> = {
   integracion: "var(--stage-identificando)",
   ia: "var(--special)",
   interno: "var(--ink-muted)",
+  // El handoff: "Difusión → warn".
+  difusion: "var(--warn)",
 };
 
 const LABEL: Record<CategoriaVisual, string> = {
@@ -154,6 +156,7 @@ const LABEL: Record<CategoriaVisual, string> = {
   integracion: "Integración",
   ia: "IA",
   interno: "Interno",
+  difusion: "Difusión",
 };
 
 /** Qué hace la categoría, en una línea. Para el `title` y el lector de pantalla. */
@@ -165,6 +168,7 @@ const DESCRIPCION: Record<CategoriaVisual, string> = {
   integracion: "Llama a un sistema externo",
   ia: "Le pregunta al modelo",
   interno: "Anota o avisa, no actúa sobre el lead",
+  difusion: "Le habla a un grupo de leads",
 };
 
 export const CATEGORIAS_NODO = [
@@ -175,6 +179,7 @@ export const CATEGORIAS_NODO = [
   "integracion",
   "ia",
   "interno",
+  "difusion",
 ] as const satisfies readonly CategoriaVisual[];
 
 export function categoriaColor(categoria: CategoriaVisual): string {

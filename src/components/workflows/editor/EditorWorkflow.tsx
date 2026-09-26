@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import {
   ReactFlowProvider,
   useReactFlow,
@@ -11,7 +19,9 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { BarraEditor, ChipEstado, ChipVersion } from "./BarraEditor";
-import { LienzoEditor, useEncuadrarNodo } from "./LienzoEditor";
+import { esAtajoBuscar, esCampoEditable, siguienteNodo } from "./atajos";
+import { GloboEnLienzo } from "./GloboEnLienzo";
+import { BotonLienzo, LienzoEditor, useEncuadrarNodo } from "./LienzoEditor";
 import { PaletaBloques, PaletaFlotante, type CategoriaBloques } from "./PaletaBloques";
 import { PanelConfig } from "./PanelConfig";
 import { ResumenValidacion } from "./Validacion";
@@ -69,14 +79,33 @@ export interface EditorWorkflowProps {
   ajustesFlujo?: ReactNode;
   /** Ancho del panel de configuración. Ver `PanelConfig.ancho`. */
   anchoPanelConfig?: number;
+  /** «Después de esto» del bloque seleccionado. Ver `PanelConfig.despuesDeEsto`. */
+  despuesDeEsto?: ReactNode;
+  /** «Resolver» del bloque seleccionado. Ver `PanelConfig.onResolver`. */
+  onResolver?: () => void;
+  resolverDescripcion?: string;
 
-  onAgregarBloque: (tipo: string, posicion?: { x: number; y: number }) => void;
+  /**
+   * Agrega un bloque. Con `desde`, queda conectado al puerto del que salió el
+   * cable que se soltó en el vacío.
+   */
+  onAgregarBloque: (
+    tipo: string,
+    posicion?: { x: number; y: number },
+    desde?: { nodoId: string; puerto: string },
+  ) => void;
   onInsertarEnArista: (tipo: string, aristaId: string) => void;
   onBorrarNodo: (nodoId: string) => void;
   onPrevisualizarBorrado: (nodoId: string | null) => void;
   onIrANodo?: (nodoId: string) => void;
 
   onProbar: () => void;
+  /**
+   * "Ejecutar hasta acá" del panel, con el id del bloque seleccionado. Sin
+   * esto el botón no aparece: abrir el Probar completo con ese rótulo corría
+   * el flujo entero.
+   */
+  onProbarHastaAca?: (nodoId: string) => void;
   onGuardar: () => void;
   onPublicar: () => void;
   onVolver: () => void;
@@ -155,12 +184,16 @@ function EditorConLienzo(props: EditorWorkflowProps) {
     formularioNodo,
     ajustesFlujo,
     anchoPanelConfig,
+    despuesDeEsto,
+    onResolver,
+    resolverDescripcion,
     onAgregarBloque,
     onInsertarEnArista,
     onBorrarNodo,
     onPrevisualizarBorrado,
     onIrANodo,
     onProbar,
+    onProbarHastaAca,
     onGuardar,
     onPublicar,
     onVolver,
@@ -169,7 +202,10 @@ function EditorConLienzo(props: EditorWorkflowProps) {
   } = props;
 
   const encuadrarNodo = useEncuadrarNodo();
-  const { getNodes } = useReactFlow<NodoEditor, AristaEditor>();
+  const { getNodes, screenToFlowPosition } = useReactFlow<NodoEditor, AristaEditor>();
+  const busquedaRef = useRef<HTMLInputElement>(null);
+  const lienzoRef = useRef<HTMLDivElement>(null);
+  const esMac = useSyncExternalStore(sinSuscripcion, leerEsMac, () => false);
 
   /**
    * De dónde salió el cable que se soltó en el vacío, y en qué punto de la
@@ -231,6 +267,61 @@ function EditorConLienzo(props: EditorWorkflowProps) {
     },
     [problemasPorNodo, encuadrarNodo, seleccionarEnLienzo, onIrANodo, onSeleccionar],
   );
+
+  /** Selecciona un bloque en el lienzo y en el panel, y lo trae a la vista. */
+  const irANodo = useCallback(
+    (nodoId: string) => {
+      encuadrarNodo(nodoId);
+      seleccionarEnLienzo(nodoId);
+      onSeleccionar(nodoId);
+      // El foco va al nodo: el Tab siguiente sigue desde acá, y el lector de
+      // pantalla anuncia a dónde se llegó.
+      lienzoRef.current
+        ?.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(nodoId)}"]`)
+        ?.focus({ preventScroll: true });
+    },
+    [encuadrarNodo, seleccionarEnLienzo, onSeleccionar],
+  );
+
+  /** Pasa al bloque siguiente o anterior. `false` = no había más: que siga el Tab normal. */
+  const pasarDeBloque = useCallback(
+    (atras: boolean): boolean => {
+      const siguiente = siguienteNodo(getNodes(), nodoSeleccionado?.id ?? null, atras);
+      if (siguiente === null) return false;
+      irANodo(siguiente);
+      return true;
+    },
+    [getNodes, nodoSeleccionado, irANodo],
+  );
+
+  const irABusqueda = useCallback(() => {
+    busquedaRef.current?.focus();
+    busquedaRef.current?.select();
+  }, []);
+
+  /**
+   * ⌘K / Ctrl+K y Tab. Se escucha en `document` porque ⌘K vale con el foco en
+   * cualquier parte del editor. Ninguno actúa con el foco en un campo de
+   * texto: ahí las teclas son del campo. Tab, además, sólo con el foco dentro
+   * del lienzo, y deja pasar la tecla al llegar al último bloque para no
+   * atrapar el teclado (WCAG 2.1.2).
+   */
+  useEffect(() => {
+    const alTeclear = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || esCampoEditable(e.target)) return;
+      if (esAtajoBuscar(e)) {
+        e.preventDefault();
+        irABusqueda();
+        return;
+      }
+      if (e.key !== "Tab" || e.ctrlKey || e.metaKey || e.altKey) return;
+      const lienzo = lienzoRef.current;
+      if (!lienzo || !(e.target instanceof Node) || !lienzo.contains(e.target)) return;
+      if (pasarDeBloque(e.shiftKey)) e.preventDefault();
+    };
+    document.addEventListener("keydown", alTeclear);
+    return () => document.removeEventListener("keydown", alTeclear);
+  }, [irABusqueda, pasarDeBloque]);
 
   const problemasSeleccionado = nodoSeleccionado
     ? (problemasPorNodo.get(nodoSeleccionado.id) ?? SIN_PROBLEMAS)
@@ -313,22 +404,48 @@ function EditorConLienzo(props: EditorWorkflowProps) {
           // bloques se repintan en cada frame de un arrastre y el memo no
           // sirve de nada.
           onAgregar={agregarAlFinal}
+          busquedaRef={busquedaRef}
+          atajoBusqueda={esMac ? "⌘K" : "Ctrl K"}
         />
 
-        <LienzoEditor
-          nodos={nodos}
-          aristas={aristas}
-          onNodosChange={onNodosChange}
-          onAristasChange={onAristasChange}
-          onConectar={onConectar}
-          onSoltarBloque={(tipo, pos) => onAgregarBloque(tipo, pos)}
-          onInsertarEnArista={onInsertarEnArista}
-          onConectarAlVacio={(origen, punto) => setCableSuelto({ origen, punto })}
-          onBorrarNodo={onBorrarNodo}
-          onPrevisualizarBorrado={onPrevisualizarBorrado}
-          onSeleccionar={onSeleccionar}
-          editable={editable}
-        />
+        <div ref={lienzoRef} className="flex min-w-0 flex-1">
+          <LienzoEditor
+            nodos={nodos}
+            aristas={aristas}
+            onNodosChange={onNodosChange}
+            onAristasChange={onAristasChange}
+            onConectar={onConectar}
+            onSoltarBloque={(tipo, pos) => onAgregarBloque(tipo, pos)}
+            onInsertarEnArista={onInsertarEnArista}
+            onConectarAlVacio={(origen, punto) => setCableSuelto({ origen, punto })}
+            onBorrarNodo={onBorrarNodo}
+            onPrevisualizarBorrado={onPrevisualizarBorrado}
+            onSeleccionar={onSeleccionar}
+            editable={editable}
+            herramientas={
+              <>
+                <BotonLienzo
+                  etiqueta={`Buscar un bloque (${esMac ? "⌘K" : "Ctrl+K"})`}
+                  atajo="Control+K Meta+K"
+                  onClick={irABusqueda}
+                >
+                  {esMac ? "⌘K" : "Ctrl K"}
+                </BotonLienzo>
+                <BotonLienzo
+                  etiqueta="Ir al bloque siguiente (Tab, con el foco en el lienzo)"
+                  atajo="Tab"
+                  onClick={() => pasarDeBloque(false)}
+                >
+                  Tab
+                </BotonLienzo>
+              </>
+            }
+          >
+            {nodoSeleccionado ? (
+              <GloboEnLienzo nodoId={nodoSeleccionado.id} problemas={problemasSeleccionado} />
+            ) : null}
+          </LienzoEditor>
+        </div>
 
         <PanelConfig
           nodo={nodoSeleccionado}
@@ -336,7 +453,14 @@ function EditorConLienzo(props: EditorWorkflowProps) {
           ajustesFlujo={ajustesFlujo}
           ancho={anchoPanelConfig}
           onEliminar={nodoSeleccionado ? () => onBorrarNodo(nodoSeleccionado.id) : undefined}
-          onProbarHastaAca={nodoSeleccionado ? onProbar : undefined}
+          despuesDeEsto={nodoSeleccionado ? despuesDeEsto : undefined}
+          onResolver={nodoSeleccionado ? onResolver : undefined}
+          resolverDescripcion={resolverDescripcion}
+          onProbarHastaAca={
+            nodoSeleccionado && onProbarHastaAca
+              ? () => onProbarHastaAca(nodoSeleccionado.id)
+              : undefined
+          }
         >
           {formularioNodo}
         </PanelConfig>
@@ -348,7 +472,10 @@ function EditorConLienzo(props: EditorWorkflowProps) {
           posicion={cableSuelto.punto}
           titulo={`Qué sigue después de la salida «${cableSuelto.origen.puerto}»`}
           onElegir={(tipo) => {
-            onAgregarBloque(tipo, cableSuelto.punto);
+            // El punto llega en píxeles de pantalla y el bloque se ubica en
+            // coordenadas del lienzo: sin convertir, con zoom o desplazamiento
+            // el bloque caía lejos de donde se soltó el cable.
+            onAgregarBloque(tipo, screenToFlowPosition(cableSuelto.punto), cableSuelto.origen);
             setCableSuelto(null);
           }}
           onCerrar={() => setCableSuelto(null)}
@@ -356,6 +483,15 @@ function EditorConLienzo(props: EditorWorkflowProps) {
       ) : null}
     </div>
   );
+}
+
+function sinSuscripcion(): () => void {
+  return () => {};
+}
+
+/** Si es una Mac, para rotular el atajo como ⌘K en vez de Ctrl K. */
+function leerEsMac(): boolean {
+  return /Mac|iPhone|iPad/.test(globalThis.navigator?.platform ?? "");
 }
 
 /**

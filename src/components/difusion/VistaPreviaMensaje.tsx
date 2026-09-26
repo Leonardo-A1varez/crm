@@ -304,7 +304,9 @@ function RutaDelLead({ lead, plantilla }: { lead: Destinatario; plantilla: Plant
     <p className="text-ink-dim flex items-center gap-1.5 text-[11px] leading-snug">
       <Punto color={COLOR_RUTA[lead.ruta]} />
       {abierta
-        ? "Tiene la ventana abierta: le sale como texto libre, gratis."
+        ? `Tiene la ventana abierta: le llega la misma plantilla${
+            plantilla && plantilla.categoria === "marketing" ? ", y se cobra igual" : ""
+          }.`
         : `Fuera de la ventana: le llega como plantilla${
             plantilla
               ? ` de ${CATEGORIA_PLANTILLA[plantilla.categoria].etiqueta.toLowerCase()}`

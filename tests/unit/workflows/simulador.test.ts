@@ -106,16 +106,16 @@ describe("simular", () => {
   });
 
   it("corre con el registro de producción: un nodo que producción no sabe ejecutar falla igual", async () => {
-    const conBotones: Grafo = {
-      nodos: [nodo("t", "trigger_mensaje"), nodo("b", "msg_botones"), nodo("f", "fin")],
+    const conDocumento: Grafo = {
+      nodos: [nodo("t", "trigger_mensaje"), nodo("b", "msg_documento"), nodo("f", "fin")],
       aristas: [
         { desde: "t", hasta: "b", puerto: "salida" },
         { desde: "b", hasta: "f", puerto: "salida" },
       ],
     };
-    const r = await simular(conBotones, { maxPasos: 10, desde: new Date() });
+    const r = await simular(conDocumento, { maxPasos: 10, desde: new Date() });
     expect(r.desenlace).toBe("fallado");
-    expect(r.error).toContain("msg_botones");
+    expect(r.error).toContain("msg_documento");
   });
 
   it("los efectos no salen: quedan interceptados y se informan con el paso que los produjo", async () => {

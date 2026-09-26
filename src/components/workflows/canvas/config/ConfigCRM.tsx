@@ -11,8 +11,10 @@ import {
 } from "@/components/ui/select";
 import { X } from "lucide-react";
 import { editorDeConfig } from "@/lib/workflows/config-nodos";
-import { ETAPAS_EMBUDO } from "@/types/domain";
+import { ETIQUETA_CAMPO_TWIN } from "@/lib/workflows/campo-twin";
+import { CAMPOS_TWIN_EDITABLES, ETAPAS_EMBUDO } from "@/types/domain";
 import { TextareaConVariables } from "./TextareaConVariables";
+import { EditorConVariables } from "./EditorConVariables";
 import { Badge } from "@/components/ui/badge";
 
 /**
@@ -31,7 +33,6 @@ interface ConfigCRMProps {
   tags: ReadonlyArray<{ id: string; nombre: string; color?: string }>;
   etapas: ReadonlyArray<{ id: string; nombre: string }>;
   vendedores: ReadonlyArray<{ id: string; nombre: string }>;
-  campos: ReadonlyArray<{ key: string; label: string; tipo: string }>;
   readonly?: boolean;
 }
 
@@ -51,7 +52,6 @@ export function ConfigCRM({
   tags,
   etapas,
   vendedores,
-  campos,
   readonly,
 }: ConfigCRMProps) {
   const idTope = useId();
@@ -327,35 +327,41 @@ export function ConfigCRM({
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
-            <span className={labelClass}>Campo a actualizar</span>
+            <span className={labelClass}>Campo del Twin</span>
             <Select
               value={String(c.valores.campo ?? "")}
               onValueChange={(v) => onChange(c.con("campo", v))}
               disabled={readonly}
+              items={ETIQUETA_CAMPO_TWIN}
             >
               <SelectTrigger className={selectClass}>
-                <SelectValue placeholder="Seleccionar campo" />
+                <SelectValue placeholder="Elegí un campo" />
               </SelectTrigger>
               <SelectContent>
-                {campos.map((campo) => (
-                  <SelectItem key={campo.key} value={campo.key}>
-                    {campo.label}
+                {CAMPOS_TWIN_EDITABLES.map((campo) => (
+                  <SelectItem key={campo} value={campo}>
+                    {ETIQUETA_CAMPO_TWIN[campo]}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </label>
 
-          <label className="block">
-            <span className={labelClass}>Nuevo valor</span>
-            <TextareaConVariables
-              value={String(c.valores.valor ?? "")}
-              onChange={(v) => onChange(c.con("valor", v))}
-              placeholder="Valor o variable {{lead.nombre}}"
-              rows={2}
-              className={`${inputClass} h-auto min-h-[60px] resize-y`}
-            />
-          </label>
+          <EditorConVariables
+            etiqueta="Nuevo valor"
+            value={String(c.valores.valor ?? "")}
+            onChange={(v) => onChange(c.con("valor", v))}
+            placeholder="Un texto o un número. Las variables, con «+ Variable»."
+            maxLength={2000}
+            unaLinea
+            readonly={readonly}
+          />
+
+          <p className="text-ink-faint text-[11px] text-pretty">
+            Son los mismos campos que se corrigen con el lápiz del Twin. Queda anotado que lo
+            escribió un flujo; si el cliente dice otra cosa en el turno siguiente, la IA lo puede
+            volver a cambiar. Vacío borra el dato.
+          </p>
         </div>
       );
     }

@@ -2,6 +2,7 @@ import { NonRetriableError } from "inngest";
 import { inngest } from "@/inngest/client";
 import { operationalReceived } from "@/inngest/events";
 import { isNonRetriable } from "@/lib/errors";
+import { interpretarAccountUpdate } from "@/lib/meta/account-update";
 import { NoopLogger, type Logger } from "@/lib/observability/logger";
 import type { MetaOperationalEventsRepository } from "@/server/repositories/meta-operational-events.repo";
 
@@ -28,7 +29,19 @@ export interface OnOperationalReceivedInput {
  * alguien lo mire. Un `THROUGHPUT_UPGRADE` es una buena noticia; una plantilla
  * rechazada frena una campaña.
  */
-const EVENTOS_QUE_DUELEN = new Set(["REJECTED", "DISABLED", "FLAGGED", "PAUSED", "LOCKED"]);
+const EVENTOS_QUE_DUELEN = new Set([
+  "REJECTED",
+  "DISABLED",
+  "FLAGGED",
+  "PAUSED",
+  "LOCKED",
+  // `account_update`: los de la escalera de sanciones y los que cortan la cuenta.
+  "ACCOUNT_VIOLATION",
+  "ACCOUNT_RESTRICTION",
+  "DISABLED_UPDATE",
+  "ACCOUNT_OFFBOARDED",
+  "ACCOUNT_DELETED",
+]);
 
 export async function operationalReceivedHandler(
   input: OnOperationalReceivedInput,
@@ -44,6 +57,16 @@ export async function operationalReceivedHandler(
     payload: input.payload,
     ocurrido_at: input.ocurrido_at === null ? null : new Date(input.ocurrido_at),
   });
+
+  // Se valida DESPUÉS de guardar: el crudo es la fuente de verdad y una forma
+  // que Meta cambió sin avisar no puede perder el evento. Lo que no cumple el
+  // contrato se avisa para que alguien mire la fila.
+  if (input.campo === "account_update") {
+    const leido = interpretarAccountUpdate(input.payload);
+    if (leido.tipo === "ilegible") {
+      logger.warn("meta.operational.account_update.ilegible", { evento: leido.evento });
+    }
+  }
 
   // Sin PII: estos eventos son sobre la cuenta y sus plantillas, nunca sobre
   // un lead, así que `campo`/`evento`/`objeto_nombre` no llevan datos de una

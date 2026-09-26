@@ -95,6 +95,9 @@ export const TIPO_MENSAJE = [
   "doc",
   "location",
   "template",
+  // Salientes con botones o de lista (`mensajes.metadata.rico`). Las respuestas
+  // del lead a esos mensajes entran como `text`: el título elegido.
+  "interactive",
 ] as const;
 export type TipoMensaje = (typeof TIPO_MENSAJE)[number];
 

@@ -14,15 +14,29 @@ import { Plus, Trash2 } from "lucide-react";
 import { TextareaConVariables } from "./TextareaConVariables";
 import { CAMPOS_CONDICION, OPERADORES } from "@/lib/workflows/condiciones";
 import { editorDeConfig, type ConfigDeTipo } from "@/lib/workflows/config-nodos";
+import type { CampoCondicion as CampoDelConstructor } from "@/lib/ui/condiciones";
 
 interface ConfigLogicaProps {
   tipo: string;
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
+  /**
+   * Los campos que puede mirar "Según el valor", con su nombre y, los de
+   * opciones, sus valores posibles (intents incluidos): los arma la pantalla,
+   * igual que para la condición.
+   */
+  camposSwitch?: readonly CampoDelConstructor[];
+  /** A qué pasos puede saltar "Ir a": los del flujo menos el disparador y él mismo. */
+  pasos?: readonly { id: string; nombre: string }[];
   readonly?: boolean;
 }
 
 type CasoSwitch = ConfigDeTipo<"logica_switch">["casos"][number];
+
+/** Un id para un caso nuevo. Es su puerto (`caso:<id>`): corto, único y sin posición. */
+function idDeCasoNuevo(): string {
+  return `caso_${crypto.randomUUID().replaceAll("-", "").slice(0, 10)}`;
+}
 
 /**
  * Formularios de los bloques de lógica.
@@ -36,7 +50,14 @@ type CasoSwitch = ConfigDeTipo<"logica_switch">["casos"][number];
  * que define otro stream. Hasta que llegue, conserva su formulario y su
  * `handleChange` tal como estaban.
  */
-export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaProps) {
+export function ConfigLogica({
+  tipo,
+  config,
+  onChange,
+  camposSwitch = [],
+  pasos = [],
+  readonly,
+}: ConfigLogicaProps) {
   // Sólo lo usa la condición, que está fuera del contrato de config.
   const handleChange = useCallback(
     (campo: string, valor: unknown) => {
@@ -136,68 +157,93 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
     case "logica_switch": {
       const c = editorDeConfig("logica_switch", config);
       const casos = Array.isArray(c.valores.casos) ? (c.valores.casos as CasoSwitch[]) : [];
+      const campoId = String(c.valores.campo ?? "");
+      const campo = camposSwitch.find((x) => x.id === campoId);
+      const opciones = campo?.opciones;
+      const cambiarCaso = (idx: number, valor: string) =>
+        onChange(
+          c.con(
+            "casos",
+            casos.map((k, i) => (i === idx ? { ...k, valor } : k)),
+          ),
+        );
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
-            <span className={labelClass}>Campo a evaluar</span>
+            <span className={labelClass}>Campo que mira</span>
             <Select
-              value={String(c.valores.campo ?? "")}
+              value={campoId}
               onValueChange={(v) => onChange(c.con("campo", v))}
               disabled={readonly}
+              // Base UI muestra el valor crudo (`lead.canal`) si no sabe su etiqueta.
+              items={Object.fromEntries(camposSwitch.map((x) => [x.id, x.etiqueta]))}
             >
               <SelectTrigger className={selectClass}>
-                <SelectValue placeholder="Seleccionar campo" />
+                <SelectValue placeholder="Elegí un campo" />
               </SelectTrigger>
               <SelectContent>
-                {CAMPOS_CONDICION.map((campo) => (
-                  <SelectItem key={campo} value={campo}>
-                    {campo}
+                {camposSwitch.map((x) => (
+                  <SelectItem key={x.id} value={x.id}>
+                    {x.grupo ? `${x.grupo} · ${x.etiqueta}` : x.etiqueta}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </label>
 
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <span className={labelClass}>Casos</span>
-              {!readonly && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 px-2 text-[10px]"
-                  onClick={() =>
-                    onChange(c.con("casos", [...casos, { valor: "", id: `caso_${Date.now()}` }]))
-                  }
-                >
-                  <Plus className="mr-1 h-3 w-3" />
-                  Agregar caso
-                </Button>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              {casos.map((caso, idx) => (
+          <fieldset className="flex flex-col gap-2">
+            <legend className={labelClass}>Casos</legend>
+            {casos.length === 0 ? (
+              <p className="text-ink-faint text-[11px] text-pretty">
+                Sin casos, todo sale por «Otro». Agregá uno por cada valor que lleve a otro camino.
+              </p>
+            ) : null}
+            {casos.map((caso, idx) => {
+              const valor = caso.valor.trim();
+              const nombre =
+                valor === ""
+                  ? `caso ${idx + 1}`
+                  : (opciones?.find((o) => o.valor === valor)?.etiqueta ?? valor);
+              return (
                 <div key={caso.id} className="flex items-center gap-2">
-                  <span className="text-ink-faint w-6 text-right text-[10px]">{idx + 1}.</span>
-                  <Input
-                    className={`${inputClass} flex-1`}
-                    value={caso.valor}
-                    onChange={(e) => {
-                      const newCasos = [...casos];
-                      newCasos[idx] = { ...caso, valor: e.target.value };
-                      onChange(c.con("casos", newCasos));
-                    }}
-                    placeholder={`Valor caso ${idx + 1}`}
-                    disabled={readonly}
-                  />
+                  {opciones ? (
+                    <Select
+                      value={caso.valor}
+                      onValueChange={(v) => cambiarCaso(idx, v ?? "")}
+                      disabled={readonly}
+                      items={Object.fromEntries(opciones.map((o) => [o.valor, o.etiqueta]))}
+                    >
+                      <SelectTrigger
+                        className={`${selectClass} flex-1`}
+                        aria-label={`Valor del caso ${idx + 1}`}
+                      >
+                        <SelectValue placeholder="Elegí un valor" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {opciones.map((o) => (
+                          <SelectItem key={o.valor} value={o.valor}>
+                            {o.etiqueta}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      className={`${inputClass} flex-1`}
+                      value={caso.valor}
+                      onChange={(e) => cambiarCaso(idx, e.target.value)}
+                      placeholder="Valor exacto"
+                      aria-label={`Valor del caso ${idx + 1}`}
+                      disabled={readonly}
+                    />
+                  )}
                   {!readonly && (
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="h-8 w-8 p-0 text-red-500"
+                      className="text-ink-faint hover:text-danger h-8 w-8 shrink-0 p-0"
+                      aria-label={`Quitar el caso «${nombre}»`}
                       onClick={() =>
                         onChange(
                           c.con(
@@ -207,17 +253,33 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
                         )
                       }
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden />
                     </Button>
                   )}
                 </div>
-              ))}
-            </div>
+              );
+            })}
+            {!readonly && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 self-start px-2 text-[11px]"
+                onClick={() =>
+                  onChange(c.con("casos", [...casos, { id: idDeCasoNuevo(), valor: "" }]))
+                }
+              >
+                <Plus className="mr-1 h-3 w-3" aria-hidden />
+                Agregar caso
+              </Button>
+            )}
+          </fieldset>
 
-            <div className="text-ink-faint mt-2 text-[10px]">
-              Cada caso genera una salida separada. Si ninguno coincide, sigue por Default.
-            </div>
-          </div>
+          <p className="text-ink-faint text-[11px] text-pretty">
+            Cada caso es una salida del bloque. Sigue por el primero cuyo valor es igual al
+            {campo ? ` de «${campo.etiqueta}»` : " del campo"}; si ninguno coincide, sale por
+            «Otro».
+          </p>
         </div>
       );
     }
@@ -476,22 +538,52 @@ export function ConfigLogica({ tipo, config, onChange, readonly }: ConfigLogicaP
 
     case "logica_goto": {
       const c = editorDeConfig("logica_goto", config);
+      const destino = String(c.valores.nodoDestino ?? "");
+      const existe = destino === "" || pasos.some((x) => x.id === destino);
+      // Dos bloques del mismo tipo se llaman igual: el id los distingue.
+      const repetidos = new Set(
+        pasos
+          .filter((x, i) => pasos.findIndex((y) => y.nombre === x.nombre) !== i)
+          .map((x) => x.nombre),
+      );
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
-            <span className={labelClass}>Ir al nodo</span>
-            <Input
-              className={inputClass}
-              value={String(c.valores.nodoDestino ?? "")}
-              onChange={(e) => onChange(c.con("nodoDestino", e.target.value))}
-              placeholder="ID del nodo destino"
+            <span className={labelClass}>Paso al que salta</span>
+            <Select
+              value={existe ? destino : ""}
+              onValueChange={(v) => onChange(c.con("nodoDestino", v))}
               disabled={readonly}
-            />
+              items={Object.fromEntries(
+                pasos.map((x) => [
+                  x.id,
+                  repetidos.has(x.nombre) ? `${x.nombre} (${x.id})` : x.nombre,
+                ]),
+              )}
+            >
+              <SelectTrigger className={selectClass}>
+                <SelectValue placeholder="Elegí un paso" />
+              </SelectTrigger>
+              <SelectContent>
+                {pasos.map((x) => (
+                  <SelectItem key={x.id} value={x.id}>
+                    {repetidos.has(x.nombre) ? `${x.nombre} (${x.id})` : x.nombre}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </label>
 
-          <div className="text-ink-faint text-[10px]">
-            Conecta visualmente este nodo al destino en el canvas para seleccionarlo.
-          </div>
+          {!existe ? (
+            <p role="alert" className="text-danger text-[11px] text-pretty">
+              El paso al que saltaba ya no está en el flujo. Elegí otro.
+            </p>
+          ) : null}
+
+          <p className="text-ink-faint text-[11px] text-pretty">
+            La corrida sigue desde ese paso. Para volver a un tramo anterior tiene que haber una
+            espera en el medio: sin ella el flujo giraría sin freno y no se puede guardar.
+          </p>
         </div>
       );
     }

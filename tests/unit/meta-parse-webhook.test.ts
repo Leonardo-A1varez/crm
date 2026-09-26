@@ -278,3 +278,91 @@ describe("parseMetaWebhook — nombre de perfil", () => {
     expect(fb[0].nombre_perfil).toBeNull();
   });
 });
+
+describe("parseMetaWebhook — respuesta a un mensaje interactivo", () => {
+  // Formas tomadas del ejemplo oficial de Meta (interactive-reply-buttons-messages
+  // e interactive-list-messages, leídas el 2026-09-26).
+  test("button_reply: sale como texto con el título y la respuesta estructurada", () => {
+    const [m] = parseMetaWebhook(
+      waPayload([
+        {
+          from: "16505551234",
+          id: "wamid.IN1",
+          timestamp: "1714510003",
+          type: "interactive",
+          context: { from: "15550783881", id: "wamid.OUT1" },
+          interactive: {
+            type: "button_reply",
+            button_reply: { id: "si", title: "Sí, quiero" },
+          },
+        },
+      ]),
+    );
+    expect(m?.tipo).toBe("text");
+    expect(m?.contenido).toBe("Sí, quiero");
+    expect(m?.respuesta_interactiva).toEqual({
+      id: "si",
+      titulo: "Sí, quiero",
+      responde_a: "wamid.OUT1",
+    });
+  });
+
+  test("list_reply: toma el id y el título de la fila elegida", () => {
+    const [m] = parseMetaWebhook(
+      waPayload([
+        {
+          from: "16505551234",
+          id: "wamid.IN2",
+          timestamp: "1714510003",
+          type: "interactive",
+          context: { from: "15550783881", id: "wamid.OUT2" },
+          interactive: {
+            type: "list_reply",
+            list_reply: { id: "filtro", title: "Filtro de aceite", description: "Todos" },
+          },
+        },
+      ]),
+    );
+    expect(m?.contenido).toBe("Filtro de aceite");
+    expect(m?.respuesta_interactiva).toEqual({
+      id: "filtro",
+      titulo: "Filtro de aceite",
+      responde_a: "wamid.OUT2",
+    });
+  });
+
+  test("sin context: responde_a queda en null, no se inventa", () => {
+    const [m] = parseMetaWebhook(
+      waPayload([
+        {
+          from: "1",
+          id: "wamid.IN3",
+          timestamp: "1714510003",
+          type: "interactive",
+          interactive: { type: "button_reply", button_reply: { id: "no", title: "No" } },
+        },
+      ]),
+    );
+    expect(m?.respuesta_interactiva).toEqual({ id: "no", titulo: "No", responde_a: null });
+  });
+
+  test("un interactive de otro subtipo se sigue descartando", () => {
+    const r = parseMetaWebhook(
+      waPayload([
+        {
+          from: "1",
+          id: "wamid.IN4",
+          timestamp: "1714510003",
+          type: "interactive",
+          interactive: { type: "nfm_reply", nfm_reply: {} },
+        },
+      ]),
+    );
+    expect(r).toEqual([]);
+  });
+
+  test("un texto común no trae respuesta interactiva", () => {
+    const [m] = parseMetaWebhook(waPayload([waTexto("1", "wamid.T")]));
+    expect(m?.respuesta_interactiva).toBeUndefined();
+  });
+});

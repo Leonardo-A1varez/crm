@@ -3,8 +3,10 @@ import { ACCION_DE_TIPO, type AccionWorkflow } from "@/lib/workflows/catalogo";
 import type { ContextoRun, Nodo, ResultadoAccion } from "@/types/workflows";
 import type { UUID } from "@/types/entities";
 import { crearAccionesDeAsignacion, type AccionesAsignacionDeps } from "./asignacion";
+import { crearAccionActualizarCampoTwin, type AccionActualizarCampoTwinDeps } from "./campo-twin";
 import { crearAccionEnviarMensaje, type AccionEnviarMensajeDeps } from "./enviar-mensaje";
 import { crearAccionEnviarPlantilla, type AccionEnviarPlantillaDeps } from "./enviar-plantilla";
+import { crearAccionesDeMensajeriaRica, type AccionesMensajeriaRicaDeps } from "./enviar-rico";
 import { crearAccionesInternas, type AccionesInternasDeps } from "./internas";
 
 /** Todo lo que una acción necesita saber de la corrida que la invoca. */
@@ -104,7 +106,9 @@ export function crearRegistro(handlers: Record<string, AccionHandler>): Registro
 export type PuertosAcciones = AccionesInternasDeps &
   AccionEnviarMensajeDeps &
   AccionEnviarPlantillaDeps &
-  AccionesAsignacionDeps;
+  AccionesMensajeriaRicaDeps &
+  AccionesAsignacionDeps &
+  AccionActualizarCampoTwinDeps;
 
 /**
  * **EL registro de acciones.** Hay uno solo en el proyecto y se arma acá.
@@ -123,6 +127,8 @@ export function crearRegistroDeAcciones(puertos: PuertosAcciones): RegistroDeAcc
     ...crearAccionesDeAsignacion(puertos),
     enviar_mensaje: crearAccionEnviarMensaje(puertos),
     enviar_plantilla: crearAccionEnviarPlantilla(puertos),
+    actualizar_campo_twin: crearAccionActualizarCampoTwin(puertos),
+    ...crearAccionesDeMensajeriaRica(puertos),
   } satisfies Record<AccionWorkflow, AccionHandler>;
   return crearRegistro(handlers);
 }

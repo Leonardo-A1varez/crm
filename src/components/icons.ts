@@ -36,6 +36,7 @@ export {
   LayoutDashboard as Dashboard,
   LockKeyhole as LockClock,
   LogOut as Logout,
+  Megaphone as Campaign,
   Minus as Remove,
   Moon as DarkMode,
   PiggyBank as Savings,

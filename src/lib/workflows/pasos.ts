@@ -8,6 +8,7 @@ import {
   type DisparadorWorkflow,
 } from "./catalogo";
 import { disparadorDe } from "./recorrer";
+import { aristasDeSalto, puertosDeNodo } from "./validar-grafo";
 import type { Grafo, Nodo, Puerto } from "@/types/workflows";
 
 /**
@@ -24,9 +25,6 @@ import type { Grafo, Nodo, Puerto } from "@/types/workflows";
  *     inalcanzables— y la pantalla igual tiene que dibujarse, porque es donde
  *     el usuario va a ir a arreglarlo.
  */
-
-/** El orden en que se recorren las salidas de un nodo. */
-const ORDEN_PUERTOS: readonly Puerto[] = ["salida", "verdadero", "falso"];
 
 export interface PasoDelGrafo {
   nodo: Nodo;
@@ -52,6 +50,12 @@ export interface LecturaDelGrafo {
   inalcanzables: Nodo[];
 }
 
+/** Un puerto que el nodo no tiene (una línea huérfana) va al final. */
+function indice(orden: readonly Puerto[], puerto: Puerto): number {
+  const i = orden.indexOf(puerto);
+  return i === -1 ? orden.length : i;
+}
+
 export function pasosDelGrafo(grafo: Grafo): LecturaDelGrafo {
   const porId = new Map(grafo.nodos.map((n) => [n.id, n]));
   // `disparadorDe` y no una búsqueda propia: con el literal legacy, un grafo
@@ -66,6 +70,7 @@ export function pasosDelGrafo(grafo: Grafo): LecturaDelGrafo {
 
   const pasos: PasoDelGrafo[] = [];
   const visitados = new Set<string>();
+  const saltos = aristasDeSalto(grafo);
 
   const recorrer = (nodo: Nodo, profundidad: number, puerto: Puerto | null): void => {
     if (visitados.has(nodo.id)) {
@@ -75,9 +80,13 @@ export function pasosDelGrafo(grafo: Grafo): LecturaDelGrafo {
     visitados.add(nodo.id);
     pasos.push({ nodo, profundidad, puerto, repetido: false });
 
-    const salientes = grafo.aristas
-      .filter((a) => a.desde === nodo.id)
-      .sort((a, b) => ORDEN_PUERTOS.indexOf(a.puerto) - ORDEN_PUERTOS.indexOf(b.puerto));
+    // En el orden de los puertos del nodo (Sí antes que No, los casos en su
+    // orden, «Otro» al final). El salto de un "Ir a" cuenta como su salida.
+    const orden = puertosDeNodo(nodo);
+    const salientes = [
+      ...grafo.aristas.filter((a) => a.desde === nodo.id),
+      ...saltos.filter((a) => a.desde === nodo.id),
+    ].sort((a, b) => indice(orden, a.puerto) - indice(orden, b.puerto));
 
     for (const arista of salientes) {
       const destino = porId.get(arista.hasta);

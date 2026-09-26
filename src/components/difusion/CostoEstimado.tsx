@@ -4,9 +4,9 @@ import { Cifra, Nota } from "./primitivas";
 import type { LineaCosto } from "./tipos";
 
 /**
- * Cuánto sale, separando lo gratis de lo pago: esa línea es accionable. Si
- * mucha gente cae en "plantilla", conviene esperar a que se abran ventanas de
- * servicio en vez de pagar por todos.
+ * Cuánto sale, separando quien tiene la ventana abierta de quien no. Todos
+ * reciben la plantilla: con marketing pagan todos; con utility, la ventana
+ * abierta sale gratis (`lib/difusion/cobro-meta.ts`).
  *
  * Sin tarifa no hay precio: la línea paga dice "sin tarifa" y el total queda
  * en "—". Un cero ahí se leería como "gratis", y una suma parcial, como el
@@ -67,8 +67,8 @@ export function CostoEstimado({ lineas }: { lineas: readonly LineaCosto[] }) {
         </Nota>
       ) : null}
       <Nota>
-        Se prefiere lo gratis sobre lo pago, destinatario por destinatario: quien tenga la ventana
-        de servicio abierta recibe texto libre y no cuenta contra el tope de marketing de Meta.
+        Todos reciben la plantilla, también quien tiene la ventana de servicio abierta. Meta cobra
+        siempre las de marketing; las de utility son gratis dentro de la ventana abierta.
       </Nota>
     </div>
   );

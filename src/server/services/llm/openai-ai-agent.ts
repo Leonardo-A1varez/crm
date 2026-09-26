@@ -1,4 +1,5 @@
 import { generateText, stepCountIs, tool, type LanguageModel } from "ai";
+import { difusionRespondidaDe } from "@/lib/difusion/respuesta";
 import type { CostTracker } from "@/lib/observability/cost-tracker";
 import type { Logger } from "@/lib/observability/logger";
 import { withSpan } from "@/lib/observability/tracing";
@@ -113,6 +114,10 @@ export class OpenAiAgentLLM implements AgentLLM {
           // Acá lo dejamos a discreción del LLM extraer del turn.
         },
         context_summary: input.session.context_summary,
+        // A qué difusión respondió el cliente en esta sesión, o null. La
+        // plantilla también está en el turno, pero sale de la ventana de
+        // mensajes a los pocos turnos; esto dura toda la sesión.
+        difusion_respondida: difusionRespondidaDe(input.session.extras),
       },
       null,
       2,

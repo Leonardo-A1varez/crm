@@ -1,12 +1,14 @@
 import { AvisoLectura } from "@/components/ajustes/AvisoLectura";
 import { EscaleraSanciones } from "@/components/ajustes/EscaleraSanciones";
 import { MedidorCupo } from "@/components/ajustes/MedidorCupo";
+import type { GuardarRolDeNumero } from "@/components/ajustes/RolDelNumero";
 import { TablaNumeros } from "@/components/ajustes/TablaNumeros";
 import { TablaPlantillas } from "@/components/ajustes/TablaPlantillas";
 import type {
   EnvioSegunMeta,
   EscalonSancion,
   EstadoCupo,
+  EventoDeSancion,
   Lectura,
   NumeroWhatsApp,
   PlantillaMeta,
@@ -35,19 +37,26 @@ export function PanelSalud({
   cupo,
   escalones,
   posicion,
+  historial,
+  notaHistorial,
   envio,
   notaSanciones,
   numeros,
+  guardarRol,
   plantillas,
   fuente,
 }: {
   cupo: Lectura<EstadoCupo>;
   escalones: readonly EscalonSancion[];
   posicion: PosicionEnEscalera;
+  historial: readonly EventoDeSancion[];
+  notaHistorial: string | null;
   /** El `health_status` agregado de la cuenta. */
   envio: EnvioSegunMeta;
   notaSanciones: string;
   numeros: Lectura<{ numeros: readonly NumeroWhatsApp[]; nota: string | null }>;
+  /** `null` si quien mira no es admin. */
+  guardarRol: GuardarRolDeNumero | null;
   plantillas: Lectura<{ plantillas: readonly PlantillaMeta[]; nota: string | null }>;
   /** De dónde y cuándo se leyó todo esto. */
   fuente: string;
@@ -63,13 +72,19 @@ export function PanelSalud({
         <EscaleraSanciones
           escalones={escalones}
           posicion={posicion}
+          historial={historial}
+          notaHistorial={notaHistorial}
           envio={envio}
           nota={notaSanciones}
         />
       </div>
 
       {numeros.estado === "ok" ? (
-        <TablaNumeros numeros={numeros.datos.numeros} nota={numeros.datos.nota} />
+        <TablaNumeros
+          numeros={numeros.datos.numeros}
+          nota={numeros.datos.nota}
+          guardarRol={guardarRol}
+        />
       ) : (
         <AvisoLectura titulo="Números" lectura={numeros} />
       )}

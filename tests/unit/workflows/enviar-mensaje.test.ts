@@ -55,6 +55,7 @@ function horarioCerradoHoyAbiertoOtroDia(): Horario {
 function deps(salientesPrevios: number) {
   return {
     messages: { contarSalientesAutomaticos: vi.fn(async () => salientesPrevios) },
+    plantillasSinSesion: { contarNoAnotadasDesde: vi.fn(async () => 0) },
     metaApi: { sendOutbound: vi.fn(async () => ({ id: "m1" })) },
     conversations: {
       findActivaByLead: vi.fn(async () => ({
@@ -116,6 +117,7 @@ interface DepsOverrides {
 function construirDeps(overrides: DepsOverrides = {}) {
   return {
     messages: { contarSalientesAutomaticos: vi.fn(async () => overrides.salientesPrevios ?? 0) },
+    plantillasSinSesion: { contarNoAnotadasDesde: vi.fn(async () => 0) },
     metaApi: { sendOutbound: vi.fn(async () => ({ id: "m1" })) },
     conversations: {
       findActivaByLead: vi.fn(async () =>

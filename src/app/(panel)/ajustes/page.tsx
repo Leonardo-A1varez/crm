@@ -9,13 +9,16 @@ import {
   UsuariosYRoles,
 } from "@/components/ajustes";
 import { getLogger } from "@/lib/observability/get-logger";
+import { getCurrentRol } from "@/server/auth/guards";
 import { getAgenteConfigServiceForRequest } from "@/server/bootstrap/agente-bootstrap";
 import {
   getEmpresaServiceForRequest,
+  getRegistrosWhatsAppServiceForRequest,
   getSaludWhatsAppService,
 } from "@/server/bootstrap/ajustes-bootstrap";
 import { getUsuariosServiceForRequest } from "@/server/bootstrap/usuarios-bootstrap";
 import { getWorkflowsAdminServiceForRequest } from "@/server/bootstrap/workflows-bootstrap";
+import { guardarRolNumeroAction } from "./_actions/rol-numero.action";
 import { leerSeccion } from "./_lib/leer-seccion";
 import { NOTA_SANCIONES } from "./_lib/politica-meta";
 import {
@@ -25,6 +28,7 @@ import {
   vistaSaltos,
   vistaSalud,
   vistaUsuarios,
+  type RegistrosDeLaBase,
   type VistaSalud,
 } from "./_lib/vistas";
 import type { Lectura, PestanaAjustes } from "@/components/ajustes";
@@ -38,8 +42,10 @@ export const dynamic = "force-dynamic";
  * De dónde sale cada pestaña, sin datos de ejemplo:
  *
  *   - Salud de WhatsApp → Graph API de Meta, sólo GET, con el token del
- *     servidor (`getSaludWhatsAppService`). Lo que Meta no expone por API se
- *     dice en pantalla con su motivo.
+ *     servidor (`getSaludWhatsAppService`). Lo que Meta no expone por API
+ *     sale de la base (`getRegistrosWhatsAppServiceForRequest`): la escalera
+ *     de sanciones de los webhooks `account_update`, el uso del cupo de los
+ *     envíos propios y el rol que el admin le pone a cada número.
  *   - Empresa → tabla `empresas`. La zona horaria es la del agente.
  *   - Usuarios y roles → tabla `usuarios`.
  *   - Horario de atención → `agente_config` activa (horario + timezone).
@@ -70,11 +76,30 @@ function zonaDe(agente: Lectura<AgenteConfig | null>): string | null {
   return agente.estado === "ok" && agente.datos !== null ? agente.datos.horario_timezone : null;
 }
 
+/**
+ * Lo que la salud lee de la base, cada cosa por su lado: que no se pueda
+ * calcular el uso no apaga la escalera, ni al revés.
+ */
+async function leerRegistros(zona: string, logger: Logger): Promise<RegistrosDeLaBase> {
+  const servicio = await getRegistrosWhatsAppServiceForRequest();
+  const [sanciones, uso, roles] = await Promise.all([
+    leerSeccion("sanciones", () => servicio.sanciones(), logger),
+    leerSeccion("uso-cupo", () => servicio.usoDelCupo(zona), logger),
+    leerSeccion("roles-numeros", () => servicio.roles(), logger),
+  ]);
+  return { sanciones, uso, roles };
+}
+
 async function contenidoDe(
   pestana: PestanaAjustes,
-  ctx: { salud: VistaSalud; agente: Lectura<AgenteConfig | null>; logger: Logger },
+  ctx: {
+    salud: VistaSalud;
+    agente: Lectura<AgenteConfig | null>;
+    esAdmin: boolean;
+    logger: Logger;
+  },
 ): Promise<ReactNode> {
-  const { salud, agente, logger } = ctx;
+  const { salud, agente, esAdmin, logger } = ctx;
 
   switch (pestana) {
     case "salud":
@@ -83,9 +108,12 @@ async function contenidoDe(
           cupo={salud.cupo}
           escalones={salud.escalones}
           posicion={salud.posicion}
+          historial={salud.historial}
+          notaHistorial={salud.notaHistorial}
           envio={salud.envio}
           notaSanciones={NOTA_SANCIONES}
           numeros={salud.numeros}
+          guardarRol={esAdmin ? guardarRolNumeroAction : null}
           plantillas={salud.plantillas}
           fuente={salud.fuente}
         />
@@ -185,12 +213,19 @@ export default async function AjustesPage({
 
   // La salud se lee en las cuatro pestañas porque el badge de la suya está en
   // todas. La config del agente, porque de ella sale la zona horaria.
-  const [salud, agente] = await Promise.all([
+  const [salud, agente, rol] = await Promise.all([
     getSaludWhatsAppService().leer(),
     leerSeccion("agente", async () => (await getAgenteConfigServiceForRequest()).activa(), logger),
+    getCurrentRol(),
   ]);
-  const vista = vistaSalud(salud, zonaDe(agente) ?? "UTC");
-  const contenido = await contenidoDe(pestana, { salud: vista, agente, logger });
+  const zona = zonaDe(agente) ?? "UTC";
+  const vista = vistaSalud(salud, zona, await leerRegistros(zona, logger));
+  const contenido = await contenidoDe(pestana, {
+    salud: vista,
+    agente,
+    esAdmin: rol === "admin",
+    logger,
+  });
 
   return (
     <div className="bg-surface-root flex h-full flex-col overflow-hidden">

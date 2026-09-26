@@ -1,10 +1,19 @@
 import { ETIQUETA_NODO } from "@/lib/workflows/catalogo";
 import { disponibilidadDeTipo } from "@/lib/workflows/disponibilidad";
 import { CATEGORIAS_NODOS } from "@/lib/workflows/nodos-catalogo";
-import { puertosDe } from "@/lib/workflows/validar-grafo";
+import { esperaOpcion } from "@/lib/workflows/opciones-interactivas";
 import {
+  casosDeSwitch,
+  etiquetaDePuerto,
+  puertosDe,
+  puertosDeNodo,
+} from "@/lib/workflows/validar-grafo";
+import {
+  casoDePuerto,
   categoriaDeTipo,
   esCondicion,
+  esSalto,
+  esSwitch,
   esTrigger,
   type CategoriaVisual,
   type Grafo,
@@ -12,7 +21,11 @@ import {
   type NodoTipo,
   type Puerto,
 } from "@/types/workflows";
-import { resumenDeConfigCondicion } from "./campos-condicion";
+import {
+  camposDeCondicion,
+  resumenDeConfigCondicion,
+  type CatalogosDeCondicion,
+} from "./campos-condicion";
 
 import type { SalidaNodo } from "@/components/workflows/canvas/nodos/NodoBase";
 import type {
@@ -75,23 +88,51 @@ export const ETIQUETAS_CONFIG: Readonly<Record<string, string>> = {
   valor: "Valor",
 };
 
-/** Cómo se rotula cada puerto en el chip del nodo y en la etiqueta de la línea. */
-export const ETIQUETA_PUERTO: Readonly<Record<Puerto, string>> = {
-  salida: "",
-  verdadero: "Sí",
-  falso: "No",
-};
+/** El campo que mira un "Según el valor", como lo nombra el constructor de condiciones. */
+function campoDeSwitch(nodo: Pick<Nodo, "config">, catalogos?: CatalogosDeCondicion) {
+  const campo = nodo.config["campo"];
+  return typeof campo === "string"
+    ? camposDeCondicion(catalogos).find((c) => c.id === campo)
+    : undefined;
+}
+
+/**
+ * Cómo se rotula un puerto en el chip del nodo y en la etiqueta de la línea.
+ * La salida única no lleva rótulo. El de un caso es su valor, y si el campo es
+ * de opciones (una etapa, un intent), el nombre de la opción: el intent se
+ * guarda por id y nadie lee un id.
+ */
+export function etiquetaDePuertoEnLienzo(
+  nodo: Pick<Nodo, "tipo" | "config">,
+  puerto: Puerto,
+  catalogos?: CatalogosDeCondicion,
+): string {
+  if (puerto === "salida") return "";
+  const casoId = casoDePuerto(puerto);
+  if (casoId !== null && esSwitch(nodo.tipo)) {
+    const caso = casosDeSwitch(nodo.config).find((c) => c.id === casoId);
+    const opcion = campoDeSwitch(nodo, catalogos)?.opciones?.find(
+      (o) => o.valor === caso?.valor.trim(),
+    );
+    if (opcion) return opcion.etiqueta;
+  }
+  return etiquetaDePuerto(nodo, puerto);
+}
 
 /**
  * Las salidas de un nodo, en el idioma de `NodoBase`.
  *
- * `undefined` = un único puerto centrado y sin chip (el caso de 55 de los 57
- * tipos). `[]` = terminal, sin conector abajo. Un array con dos = una condición.
+ * `undefined` = un único puerto centrado y sin chip (el caso de la mayoría de
+ * los tipos). `[]` = terminal, sin conector abajo. Un array con dos = una
+ * condición; "Según el valor" da uno por caso más «Otro».
  */
-export function salidasDe(tipo: NodoTipo): SalidaNodo[] | undefined {
-  const puertos = puertosDe(tipo);
+export function salidasDe(
+  nodo: Pick<Nodo, "tipo" | "config">,
+  catalogos?: CatalogosDeCondicion,
+): SalidaNodo[] | undefined {
+  const puertos = puertosDeNodo(nodo);
   if (puertos.length === 1 && puertos[0] === "salida") return undefined;
-  return puertos.map((p) => ({ id: p, label: ETIQUETA_PUERTO[p] }));
+  return puertos.map((p) => ({ id: p, label: etiquetaDePuertoEnLienzo(nodo, p, catalogos) }));
 }
 
 /**
@@ -115,10 +156,27 @@ export function nombreDeTipo(tipo: NodoTipo): string {
  * descripción del catálogo — escribir una frase con los valores de `config`
  * para los 57 tipos es una pieza de presentación que todavía no existe.
  */
-export function resumenDe(nodo: Pick<Nodo, "tipo" | "config">): string | undefined {
+/** El ícono de un tipo de nodo, el mismo que dibuja el lienzo. */
+export function iconoDeTipo(tipo: NodoTipo): InfoTipo["icono"] | undefined {
+  return CATALOGO.get(tipo)?.icono;
+}
+
+/**
+ * Con `catalogos`, la condición nombra los intents y las etiquetas que mira
+ * ("Intent detectado es Pide precio"); sin ellos dice "un intent", porque el
+ * árbol sólo guarda ids.
+ */
+export function resumenDe(
+  nodo: Pick<Nodo, "tipo" | "config">,
+  catalogos?: CatalogosDeCondicion,
+): string | undefined {
   if (esCondicion(nodo.tipo)) {
-    const frase = resumenDeConfigCondicion(nodo.config);
+    const frase = resumenDeConfigCondicion(nodo.config, catalogos);
     if (frase) return frase;
+  }
+  if (esSwitch(nodo.tipo)) {
+    const campo = campoDeSwitch(nodo, catalogos);
+    if (campo) return `Según ${campo.etiqueta.toLowerCase()}`;
   }
   return CATALOGO.get(nodo.tipo)?.descripcion;
 }
@@ -155,15 +213,27 @@ export function problemasConNombre(
   }));
 }
 
-export function presentacionDe(nodo: Nodo): PresentacionNodo {
+export function presentacionDe(nodo: Nodo, catalogos?: CatalogosDeCondicion): PresentacionNodo {
   return {
     nombre: nombreDeTipo(nodo.tipo),
     categoria: categoriaDeTipo(nodo.tipo) ?? CATEGORIA_LEGACY[nodo.tipo] ?? "interno",
     icono: CATALOGO.get(nodo.tipo)?.icono,
-    resumen: resumenDe(nodo),
-    salidas: salidasDe(nodo.tipo),
+    resumen: resumenDe(nodo, catalogos),
+    salidas: salidasDe(nodo, catalogos),
     sinEntrada: esTrigger(nodo.tipo),
   };
+}
+
+/**
+ * Lo que la paleta dice de las salidas de un tipo. "Según el valor" tiene una
+ * por caso, y "Ir a" ninguna propia —sigue en el paso que elige—: los dos se
+ * dicen aparte, porque su número no sale del tipo.
+ */
+function salidasEnPaleta(tipo: NodoTipo): number | "n" | "salto" | "opciones" {
+  if (esSwitch(tipo)) return "n";
+  if (esperaOpcion(tipo)) return "opciones";
+  if (esSalto(tipo)) return "salto";
+  return puertosDe(tipo).length;
 }
 
 /**
@@ -186,6 +256,10 @@ const CATEGORIAS_PALETA: readonly CategoriaBloques[] = CATEGORIAS_NODOS.map((c) 
       nombre: n.nombre,
       descripcion: n.descripcion,
       icono: n.icono,
+      // De la misma definición de puertos que dibuja el nodo y que exige el
+      // validador: un número a mano acá se desalinearía el día que cambie.
+      // "Según el valor" tiene una por caso: la cantidad la decide su config.
+      salidas: salidasEnPaleta(n.tipo as NodoTipo),
       ...(d.disponible ? {} : { motivoNoAplica: d.motivo }),
     };
   }),

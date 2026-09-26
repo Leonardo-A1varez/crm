@@ -76,12 +76,18 @@ import { InMemoryWorkflowRunsRepository } from "@/server/repositories/workflow-r
 import { InMemoryWorkflowsRepository } from "@/server/repositories/workflows.repo";
 import type { ConfigProviderParaEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
 import { crearRegistroDeAcciones } from "@/server/services/workflows/acciones/registro";
+import { InMemoryWorkflowPlantillasSinSesionRepository } from "@/server/repositories/workflow-plantillas-sin-sesion.repo";
+import {
+  DefaultAnotarPlantillasSinSesion,
+  DefaultEnvioPlantillaSinSesion,
+} from "@/server/services/workflows/plantilla-sin-sesion.service";
 import { InMemorySessionLock } from "@/server/lock/session-lock";
 import { DefaultAsignacionService } from "@/server/services/asignacion/asignacion.service";
 import { DefaultUsuariosService } from "@/server/services/usuarios/usuarios.service";
 import { InMemoryMetaOperationalEventsRepository } from "@/server/repositories/meta-operational-events.repo";
 import { InMemoryDifusionEnviosRepository } from "@/server/repositories/difusion-envios.repo";
 import { InMemoryDifusionesRepository } from "@/server/repositories/difusiones.repo";
+import { DefaultRespuestaDifusionService } from "@/server/services/difusion/respuesta.service";
 import { DefaultMotorDifusionService } from "@/server/services/difusion/motor.service";
 import { cargarDatosDelLeadParaDifusion } from "@/server/services/difusion/datos-lead";
 
@@ -117,6 +123,9 @@ function makeMockMetaClient(): { client: MetaApiClient; send: ReturnType<typeof 
       sendText: send,
       sendTemplate: async () => {
         throw new Error("el smoke no manda plantillas");
+      },
+      sendRico: async () => {
+        throw new Error("el smoke no manda botones, listas, imágenes ni ubicaciones");
       },
     },
     send,
@@ -211,19 +220,37 @@ export function makeSmokeBundle(): SmokeBundle {
   // como en producción (`inngest/bootstrap.ts`).
   const supresiones = new InMemoryDifusionSupresionesRepository();
   // El mismo motor que producción, con repos en memoria y el Meta de mentira.
+  const difusiones = new InMemoryDifusionesRepository();
+  const difusionEnvios = new InMemoryDifusionEnviosRepository();
+  const respuestaDifusion = new DefaultRespuestaDifusionService({
+    envios: difusionEnvios,
+    difusiones,
+    messages,
+    sessions,
+  });
   const motorDifusion = new DefaultMotorDifusionService({
-    difusiones: new InMemoryDifusionesRepository(),
-    envios: new InMemoryDifusionEnviosRepository(),
+    difusiones,
+    envios: difusionEnvios,
     supresiones,
     usoCupoDesde: async () => 0,
     meta: metaClient,
+    metaApi,
+    hiloActivo: async () => null,
+    // Sin resolver de audiencia en memoria (lo resuelve el SQL): la re-evaluación no suma a nadie.
+    altas: { sumar: async () => ({ coinciden: 0, nuevos: 0, sumadas: 0 }) },
     leerTopeMensajeria: async () => ({ estado: "ok", tope: 250 }),
     datosDelLead: (leadId, campos) =>
       cargarDatosDelLeadParaDifusion({ leads, vehiculos, sessions }, leadId, campos),
+    estadoConversacional: async () => new Map(),
     esperar: async () => {},
     logger,
   });
+  const plantillasSinSesionRepo = new InMemoryWorkflowPlantillasSinSesionRepository();
   const registroDeAcciones = crearRegistroDeAcciones({
+    plantillasSinSesion: new DefaultEnvioPlantillaSinSesion({
+      repo: plantillasSinSesionRepo,
+      meta: metaClient,
+    }),
     tags,
     sessions,
     handoff,
@@ -234,6 +261,7 @@ export function makeSmokeBundle(): SmokeBundle {
     users,
     configProvider: configProviderParaEnviarMensaje,
     supresiones,
+    imagenesDeFlujo: { urlFirmada: async (ruta) => `smoke://mensajes_media/${ruta}` },
     asignacion: new DefaultAsignacionService({
       sessions,
       usuarios: new DefaultUsuariosService({ users }),
@@ -276,12 +304,21 @@ export function makeSmokeBundle(): SmokeBundle {
       intents,
       identificadores,
       supresiones,
+      respuestaDifusion,
+      plantillasSinSesion: new DefaultAnotarPlantillasSinSesion({
+        repo: plantillasSinSesionRepo,
+        messages,
+      }),
       recordatorios,
       configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
       emit,
       logger,
     },
-    onStatusReceived: { messages, difusion: motorDifusion },
+    onStatusReceived: {
+      messages,
+      difusion: motorDifusion,
+      plantillasSinSesion: plantillasSinSesionRepo,
+    },
     onOperationalReceived: { eventos: new InMemoryMetaOperationalEventsRepository() },
     updateLeadTwin: {
       twinExtractor,
@@ -321,6 +358,9 @@ export function makeSmokeBundle(): SmokeBundle {
           name: "workflow/segmento.pendiente",
           data: { runId, desdePaso },
         });
+      },
+      emitirCancelacion: async (runId) => {
+        await inngestClient.send({ name: "workflow/corrida.cancelada", data: { runId } });
       },
       logger,
     },

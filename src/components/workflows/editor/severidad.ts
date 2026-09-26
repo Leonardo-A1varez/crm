@@ -38,6 +38,11 @@ export interface ProblemaNodo {
    */
   regla?: string;
   /**
+   * Cómo se resuelve, en una línea: la solución al lado del problema. Cuando
+   * no hay arreglo automático correcto, es lo único que se ofrece.
+   */
+  ayuda?: string;
+  /**
    * Arreglos de un clic. El globo del lienzo los ofrece como botones.
    * Sin esto un error rojo es un reproche; con esto es una tarea.
    */

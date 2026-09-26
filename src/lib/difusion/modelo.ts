@@ -66,6 +66,17 @@ export const RUTA_ENVIO = ["ventana_abierta", "plantilla"] as const;
 export type RutaEnvio = (typeof RUTA_ENVIO)[number];
 
 /**
+ * Qué le sale a un destinatario. El texto libre sólo con la ventana abierta y
+ * si la difusión tiene uno; si no, la plantilla. La ruta dice si consume cupo
+ * (fuera de la ventana); el contenido dice qué se manda y si se cobra.
+ */
+export const CONTENIDO_ENVIO = ["plantilla", "texto_libre"] as const;
+export type ContenidoEnvio = (typeof CONTENIDO_ENVIO)[number];
+
+/** Meta acepta hasta 4096 caracteres en `text.body` (doc "Text messages", leída 2026-09-26). */
+export const LARGO_MAXIMO_TEXTO_LIBRE = 4096;
+
+/**
  * Por qué un lead de la audiencia no recibe. **El orden del array es la
  * precedencia**: si a un lead le aplican dos motivos, se informa el primero.
  *
@@ -175,11 +186,21 @@ export interface Difusion {
   plantilla_idioma: string | null;
   /** Las variables del cuerpo en orden: la 0 es `{{1}}`. */
   plantilla_parametros: ParametroPlantilla[];
+  /**
+   * La versión en texto libre para quien tiene la ventana de 24 h abierta al
+   * mandar, con las mismas variables (`{{lead.nombre}}`). `null` = todos
+   * reciben la plantilla.
+   */
+  texto_libre: string | null;
+  /** Audiencia dinámica: la última tanda antes de la cual se re-evaluó. `null` = nunca. */
+  audiencia_tanda_evaluada: number | null;
   incluir_en_negociacion: boolean;
   exenta_tope_frecuencia: boolean;
   canary_tamano: number | null;
   /** La muestra salió y se frenó para revisarla: al reanudar no se vuelve a frenar. */
   canary_revisado_at: Date | null;
+  /** Una persona reanudó después de revisar la muestra. */
+  canary_continuada_at: Date | null;
   programada_para: Date | null;
   iniciada_at: Date | null;
   finalizada_at: Date | null;
@@ -216,6 +237,14 @@ export interface DifusionEnvio {
   created_at: Date;
   /** Cuándo entró al estado actual. Sólo lo mueve un cambio de estado. */
   estado_at: Date;
+  /** El primer mensaje del lead después de la difusión. Null = no respondió. */
+  respondido_at: Date | null;
+  /** El wamid de ese mensaje: hace idempotente la marca. */
+  respuesta_meta_message_id: string | null;
+  /** Qué se mandó: lo escribe el motor al reservar. `null` = no salió todavía. */
+  salio_como: ContenidoEnvio | null;
+  /** La sumó la re-evaluación de una audiencia dinámica, después de programar. */
+  alta_dinamica: boolean;
 }
 
 /**

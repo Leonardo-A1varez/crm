@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { armarPlantilla } from "@/app/(panel)/workflows/nuevo/_lib/grafos-plantillas";
+import {
+  armarPlantilla,
+  bloquesQueNoCorren,
+} from "@/app/(panel)/workflows/nuevo/_lib/grafos-plantillas";
 import { MEDIDAS } from "@/components/workflows/editor/tokens-editor";
 import { PLANTILLAS } from "@/components/workflows/lista/plantillas";
 import { GrafoSchema } from "@/lib/validation/workflows.schema";
@@ -81,9 +84,7 @@ function leFaltaAlgo(n: Nodo): boolean {
  * nombrándolo, y quien la usa tiene que sacarlo. Se listan acá para que sea
  * una decisión a la vista y no un error que aparece al publicar.
  */
-const NO_DISPONIBLES_POR_PLANTILLA: Record<string, NodoTipo[]> = {
-  "escalar-a-humano": ["int_notif_vendedor"],
-};
+const NO_DISPONIBLES_POR_PLANTILLA: Record<string, NodoTipo[]> = {};
 
 const CAMINOS: Record<string, NodoTipo[]> = {
   "responder-automatico": ["trigger_mensaje", "logica_condicion", "msg_texto", "logica_detener"],
@@ -97,7 +98,6 @@ const CAMINOS: Record<string, NodoTipo[]> = {
     "trigger_mensaje",
     "logica_condicion",
     "crm_escalar_humano",
-    "int_notif_vendedor",
     "logica_detener",
   ],
   "reactivar-perdidos": [
@@ -288,4 +288,52 @@ describe("armarPlantilla", () => {
       expect(armarPlantilla(id)).toBeNull();
     },
   );
+
+  it.each(PLANTILLAS.map((p) => p.id))(
+    "%s: ningún bloque del lienzo queda sin ejecutar, así que se puede publicar una vez completo",
+    (id) => {
+      expect(bloquesQueNoCorren(armado(id).grafo)).toEqual([]);
+    },
+  );
+});
+
+describe("bloquesQueNoCorren", () => {
+  it("nombra los bloques que el motor no ejecuta, una vez cada uno, como se leen en el lienzo", () => {
+    const g: Grafo = {
+      nodos: [
+        { id: "n1", tipo: "trigger_mensaje", config: {}, posicion: { x: 0, y: 0 } },
+        { id: "n2", tipo: "int_notif_vendedor", config: {}, posicion: { x: 0, y: 144 } },
+        { id: "n3", tipo: "int_notif_vendedor", config: {}, posicion: { x: 0, y: 288 } },
+        { id: "n4", tipo: "logica_detener", config: {}, posicion: { x: 0, y: 432 } },
+      ],
+      aristas: [],
+    };
+    expect(bloquesQueNoCorren(g)).toEqual(["Notificar vendedor"]);
+  });
+});
+
+describe("las tarjetas de la galería no prometen lo que el lienzo no arma", () => {
+  const tarjeta = (id: string) => PLANTILLAS.find((p) => p.id === id)!;
+  const texto = (id: string) => {
+    const t = tarjeta(id);
+    return [t.nombre, t.descripcion, t.disparador, ...t.pasos].join(" ").toLowerCase();
+  };
+
+  it("bienvenida no promete delegar al agente, esperar respuesta ni guardar el vehículo", () => {
+    const t = texto("bienvenida-agente");
+    expect(t).not.toMatch(/delega|agente|esperar la respuesta|guardar el vehículo/);
+    expect(caminoPrincipal(armado("bienvenida-agente").grafo)).not.toContain("ia_delegar");
+  });
+
+  it("responder automático no promete clasificar, buscar reglas ni pasar al agente", () => {
+    expect(texto("responder-automatico")).not.toMatch(/clasific|regla|agente|modelo/);
+  });
+
+  it("escalar a humano no promete avisar al vendedor: no hay canal para hacerlo", () => {
+    expect(texto("escalar-a-humano")).not.toMatch(/vendedor/);
+  });
+
+  it("reactivar perdidos no promete agrupar por motivo ni una plantilla por motivo", () => {
+    expect(texto("reactivar-perdidos")).not.toMatch(/motivo/);
+  });
 });

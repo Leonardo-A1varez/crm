@@ -11,6 +11,17 @@ export type MensajeInsert = Insert<
   "id" | "created_at" | "estado_entrega" | "estado_entrega_at" | "error_entrega"
 >;
 
+/**
+ * Un saliente que ya salió por otro camino y se anota después en el hilo: la
+ * plantilla de una difusión, que el motor manda sin sesión y se registra cuando
+ * el lead responde. Trae su hora real de envío y el estado que Meta ya informó.
+ */
+export type MensajeYaEnviadoInsert = MensajeInsert & {
+  created_at: Date;
+  estado_entrega: EstadoEntrega | null;
+  estado_entrega_at: Date | null;
+};
+
 export interface EstadoEntregaPatch {
   estado: EstadoEntrega;
   at: Date;
@@ -67,11 +78,24 @@ function cloneMensaje(m: Mensaje): Mensaje {
 
 export interface MessagesRepository {
   create(input: MensajeInsert): Promise<Mensaje>;
+  /**
+   * Como `create`, pero con la hora de envío y el estado de entrega que trae el
+   * saliente (ver `MensajeYaEnviadoInsert`). Mismas unicidades: un wamid que
+   * ya está es `ConflictError`.
+   */
+  registrarSalienteYaEnviado(input: MensajeYaEnviadoInsert): Promise<Mensaje>;
   findById(id: UUID): Promise<Mensaje | null>;
   // Dedup webhook Meta. Null cuando meta_message_id no fue persistido.
   findByMetaMessageId(metaMessageId: string): Promise<Mensaje | null>;
   // Dedup outbound retry. Espeja UNIQUE partial WHERE direction='out' AND idempotency_key IS NOT NULL.
   findByIdempotencyKey(key: string): Promise<Mensaje | null>;
+  /**
+   * El primer entrante que eligió una opción del saliente `respondeA` (su
+   * wamid, `metadata.respuesta_interactiva.responde_a`). Lo usa un flujo que
+   * esperaba la respuesta y venció: para no perder una que llegó antes de que
+   * la espera quedara registrada.
+   */
+  findRespuestaInteractiva(respondeA: string): Promise<Mensaje | null>;
   // Timeline inbox: orden created_at DESC. limit default 50.
   listByConversacion(conversacionId: UUID, filter?: ListByConversacionFilter): Promise<Mensaje[]>;
   // Thread de la sesión cruzando conversaciones (multi-canal). Orden ASC
@@ -183,6 +207,26 @@ export class InMemoryMessagesRepository implements MessagesRepository {
   constructor(private readonly resolverLeadId?: (leadSessionId: UUID) => UUID | undefined) {}
 
   async create(input: MensajeInsert): Promise<Mensaje> {
+    return this.insertar(input, {
+      created_at: new Date(),
+      estado_entrega: null,
+      estado_entrega_at: null,
+    });
+  }
+
+  async registrarSalienteYaEnviado(input: MensajeYaEnviadoInsert): Promise<Mensaje> {
+    const { created_at, estado_entrega, estado_entrega_at, ...resto } = input;
+    return this.insertar(resto, {
+      created_at: new Date(created_at),
+      estado_entrega,
+      estado_entrega_at: estado_entrega_at === null ? null : new Date(estado_entrega_at),
+    });
+  }
+
+  private async insertar(
+    input: MensajeInsert,
+    extra: Pick<Mensaje, "created_at" | "estado_entrega" | "estado_entrega_at">,
+  ): Promise<Mensaje> {
     if (
       input.direction === "out" &&
       input.idempotency_key !== null &&
@@ -210,9 +254,7 @@ export class InMemoryMessagesRepository implements MessagesRepository {
       platform_created_at: input.platform_created_at ?? null,
       metadata: structuredClone(input.metadata),
       id: crypto.randomUUID(),
-      created_at: new Date(),
-      estado_entrega: null,
-      estado_entrega_at: null,
+      ...extra,
       error_entrega: null,
     };
     this.store.set(msg.id, msg);
@@ -231,6 +273,15 @@ export class InMemoryMessagesRepository implements MessagesRepository {
       }
     }
     return null;
+  }
+
+  async findRespuestaInteractiva(respondeA: string): Promise<Mensaje | null> {
+    const candidatos = [...this.store.values()]
+      .filter(
+        (m) => m.direction === "in" && m.metadata.respuesta_interactiva?.responde_a === respondeA,
+      )
+      .sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
+    return candidatos[0] ? cloneMensaje(candidatos[0]) : null;
   }
 
   async findByIdempotencyKey(key: string): Promise<Mensaje | null> {

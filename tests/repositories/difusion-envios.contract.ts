@@ -7,8 +7,12 @@ import type {
 import type { UUID } from "@/types/entities";
 
 export interface DifusionEnviosContractFixtures {
-  /** Dos difusiones que existan (la FK lo exige en Supabase). */
-  difusiones: { d1: UUID; d2: UUID };
+  /**
+   * Dos difusiones que existan (la FK lo exige en Supabase). `dinamica`, una
+   * con audiencia dinámica que no terminó: la única a la que la base le deja
+   * sumar altas. Sin ella se usa `d1` (el in-memory no mira la difusión).
+   */
+  difusiones: { d1: UUID; d2: UUID; dinamica?: UUID };
   /** Cuatro leads que existan. */
   leads: { l1: UUID; l2: UUID; l3: UUID; l4: UUID };
   /** Un id que no existe en `difusion_envios`. */
@@ -466,6 +470,152 @@ export function runDifusionEnviosContract(
       expect([...con]).toEqual([f.leads.l1]);
       const despues = await repo.leadsConSalienteDesde([f.leads.l1], new Date(HOY.getTime() + 1));
       expect(despues.size).toBe(0);
+    });
+
+    // ---- La respuesta a una difusión ----------------------------------------
+
+    test("ultimoSalidoParaLead trae el envío que llegó a Meta más reciente desde la fecha", async () => {
+      await repo.registrarPlan([
+        enCola(d1, f.leads.l1, T1),
+        enCola(f.difusiones.d2, f.leads.l1, T1),
+      ]);
+      const [viejo] = await repo.pendientesParaEnviar(d1, HOY, 10);
+      const [nuevo] = await repo.pendientesParaEnviar(f.difusiones.d2, HOY, 10);
+      await repo.reservar(viejo!.id, new Date(HOY.getTime() - 60_000));
+      await repo.marcarAceptado(viejo!.id, "wamid.viejo");
+      await repo.reservar(nuevo!.id, HOY);
+      await repo.marcarAceptado(nuevo!.id, "wamid.nuevo");
+      await repo.aplicarEstadoMeta("wamid.nuevo", "leido");
+
+      const r = await repo.ultimoSalidoParaLead(f.leads.l1, new Date(HOY.getTime() - 3_600_000));
+      expect(r?.id).toBe(nuevo!.id);
+      expect(r?.estado).toBe("leido");
+      expect(r?.meta_message_id).toBe("wamid.nuevo");
+      expect(r?.intento_at?.toISOString()).toBe(HOY.toISOString());
+    });
+
+    test("ultimoSalidoParaLead ignora lo que salió antes de la fecha, lo fallido y lo que no salió", async () => {
+      await repo.registrarPlan([enCola(d1, f.leads.l1, T1), enCola(d1, f.leads.l2, T2)]);
+      const pendientes = await repo.pendientesParaEnviar(d1, HOY, 10);
+      const uno = pendientes.find((e) => e.lead_id === f.leads.l1)!;
+      const dos = pendientes.find((e) => e.lead_id === f.leads.l2)!;
+      await repo.reservar(uno.id, HOY);
+      await repo.marcarAceptado(uno.id, "wamid.uno");
+      await repo.reservar(dos.id, HOY);
+      await repo.marcarFallido(dos.id, { codigo: "131026" });
+
+      expect(await repo.ultimoSalidoParaLead(f.leads.l1, new Date(HOY.getTime() + 1))).toBeNull();
+      expect(await repo.ultimoSalidoParaLead(f.leads.l2, new Date(HOY.getTime() - 1))).toBeNull();
+      expect(await repo.ultimoSalidoParaLead(f.leads.l3, new Date(HOY.getTime() - 1))).toBeNull();
+    });
+
+    test("marcarRespondido: la marca el primer entrante; el mismo la repite, otro no", async () => {
+      await repo.registrarPlan([enCola(d1, f.leads.l1, T1)]);
+      const [e] = await repo.pendientesParaEnviar(d1, HOY, 10);
+      await repo.reservar(e!.id, HOY);
+      await repo.marcarAceptado(e!.id, "wamid.r1");
+
+      expect(await repo.marcarRespondido(e!.id, "wamid.in-1", HOY)).toBe(true);
+      expect(await repo.marcarRespondido(e!.id, "wamid.in-1", HOY)).toBe(true);
+      expect(await repo.marcarRespondido(e!.id, "wamid.in-2", HOY)).toBe(false);
+
+      const fila = await repo.findById(e!.id);
+      expect(fila?.respuesta_meta_message_id).toBe("wamid.in-1");
+      expect(fila?.respondido_at?.toISOString()).toBe(HOY.toISOString());
+      expect(await repo.contarRespondidos(d1)).toBe(1);
+      expect((await repo.respondidos(d1, 10)).map((r) => r.id)).toEqual([e!.id]);
+    });
+
+    test("contarReservadosDesde y conteoMuestra cuentan lo reservado por fecha", async () => {
+      await repo.registrarPlan([enCola(d1, f.leads.l1, T1), enCola(d1, f.leads.l2, T2)]);
+      const [a, b] = await repo.pendientesParaEnviar(d1, HOY, 10);
+      await repo.reservar(a!.id, new Date(HOY.getTime() - 60_000));
+      await repo.marcarAceptado(a!.id, "wamid.m1");
+      await repo.reservar(b!.id, HOY);
+      await repo.marcarFallido(b!.id, { codigo: "131050" });
+
+      expect(await repo.contarReservadosDesde(d1, new Date(HOY.getTime() - 1))).toBe(1);
+      expect(await repo.conteoMuestra(d1, new Date(HOY.getTime() - 1))).toEqual([
+        { estado: "aceptado", codigo: null, cantidad: 1 },
+      ]);
+      expect(await repo.conteoMuestra(d1, HOY)).toEqual(
+        expect.arrayContaining([
+          { estado: "aceptado", codigo: null, cantidad: 1 },
+          { estado: "fallido", codigo: "131050", cantidad: 1 },
+        ]),
+      );
+    });
+    // ---- Texto libre y audiencia dinámica -----------------------------------
+
+    test("reservar con la salida anota la ruta de ese momento y qué salió", async () => {
+      const id = await unoEnCola();
+      expect(
+        await repo.reservar(id, HOY, { ruta: "ventana_abierta", contenido: "texto_libre" }),
+      ).toBe(true);
+      const e = await repo.findById(id);
+      expect(e?.ruta).toBe("ventana_abierta");
+      expect(e?.salio_como).toBe("texto_libre");
+      expect(e?.alta_dinamica).toBe(false);
+    });
+
+    test("el texto libre sin la ventana abierta se rechaza", async () => {
+      const id = await unoEnCola();
+      await expect(
+        repo.reservar(id, HOY, { ruta: "plantilla", contenido: "texto_libre" }),
+      ).rejects.toBeInstanceOf(ValidationError);
+    });
+
+    test("liberarReserva borra también qué salió: no salió nada", async () => {
+      const id = await unoEnCola();
+      await repo.reservar(id, HOY, { ruta: "plantilla", contenido: "plantilla" });
+      await repo.liberarReserva(id);
+      const e = await repo.findById(id);
+      expect(e?.intento_at).toBeNull();
+      expect(e?.salio_como).toBeNull();
+    });
+
+    test("sumarAltas escribe las nuevas marcadas como altas y no toca a quien ya estaba", async () => {
+      const d = f.difusiones.dinamica ?? d1;
+      await repo.registrarPlan([enCola(d, f.leads.l1, T1)]);
+      const sumadas = await repo.sumarAltas([
+        enCola(d, f.leads.l1, T1, { tanda: 1 }),
+        enCola(d, f.leads.l2, T2, { tanda: 1 }),
+        excluido(d, f.leads.l3, T3, "baja_propia"),
+      ]);
+      expect(sumadas).toBe(2);
+
+      const filas = await repo.listarPorDifusion(d, { limite: 10 });
+      const porLead = new Map(filas.map((x) => [x.lead_id, x]));
+      expect(porLead.get(f.leads.l1)).toMatchObject({ tanda: 0, alta_dinamica: false });
+      expect(porLead.get(f.leads.l2)).toMatchObject({
+        estado: "en_cola",
+        tanda: 1,
+        alta_dinamica: true,
+      });
+      expect(porLead.get(f.leads.l3)).toMatchObject({ estado: "excluido", alta_dinamica: true });
+      expect(await repo.contarAltas(d)).toBe(2);
+      expect(await repo.leadsDeLaDifusion(d)).toEqual(
+        new Set([f.leads.l1, f.leads.l2, f.leads.l3]),
+      );
+
+      // Idempotente: la misma alta otra vez no suma nada.
+      expect(await repo.sumarAltas([enCola(d, f.leads.l2, T2, { tanda: 1 })])).toBe(0);
+    });
+
+    test("un alta con el teléfono de un envío vivo entra excluida por duplicado", async () => {
+      const d = f.difusiones.dinamica ?? d1;
+      await repo.registrarPlan([enCola(d, f.leads.l1, T1)]);
+      expect(await repo.sumarAltas([enCola(d, f.leads.l2, T1, { tanda: 1 })])).toBe(1);
+      const fila = (await repo.listarPorDifusion(d, { limite: 10 })).find(
+        (x) => x.lead_id === f.leads.l2,
+      );
+      expect(fila).toMatchObject({
+        estado: "excluido",
+        motivo_exclusion: "duplicado_telefono",
+        ruta: null,
+        tanda: null,
+        alta_dinamica: true,
+      });
     });
   });
 }

@@ -4,7 +4,7 @@ import { FILAS_POR_PAGINA, leerPorKeyset } from "@/server/db/paginar";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { escaparLike } from "@/server/db/postgrest-like";
 import { isUuid } from "@/server/db/uuid";
-import { esAvance } from "@/lib/entrega";
+import { estadosQueAvanzanA } from "@/lib/entrega";
 import type { Direction, EstadoEntrega, Sender, TipoMensaje } from "@/types/domain";
 import type { Mensaje, MensajeMetadata, UUID } from "@/types/entities";
 import type {
@@ -15,6 +15,7 @@ import type {
   ListBySessionFilter,
   InboxRecentMessage,
   MensajeInsert,
+  MensajeYaEnviadoInsert,
   MessagesRepository,
 } from "./messages.repo";
 
@@ -43,9 +44,30 @@ export class SupabaseMessagesRepository implements MessagesRepository {
   constructor(private readonly db: AppClient) {}
 
   async create(input: MensajeInsert): Promise<Mensaje> {
+    return this.insertar(input, {});
+  }
+
+  async registrarSalienteYaEnviado(input: MensajeYaEnviadoInsert): Promise<Mensaje> {
+    const { created_at, estado_entrega, estado_entrega_at, ...resto } = input;
+    return this.insertar(resto, {
+      created_at: created_at.toISOString(),
+      estado_entrega,
+      estado_entrega_at: estado_entrega_at === null ? null : estado_entrega_at.toISOString(),
+    });
+  }
+
+  private async insertar(
+    input: MensajeInsert,
+    extra: {
+      created_at?: string;
+      estado_entrega?: EstadoEntrega | null;
+      estado_entrega_at?: string | null;
+    },
+  ): Promise<Mensaje> {
     const { data, error } = await this.db
       .from("mensajes")
       .insert({
+        ...extra,
         conversacion_id: input.conversacion_id,
         lead_session_id: input.lead_session_id,
         direction: input.direction,
@@ -100,6 +122,21 @@ export class SupabaseMessagesRepository implements MessagesRepository {
       .from("mensajes")
       .select()
       .eq("meta_message_id", metaMessageId)
+      .maybeSingle();
+    if (error) throw mapPostgrestError(error, { resource: "mensaje" });
+    return data ? mapRow(data) : null;
+  }
+
+  async findRespuestaInteractiva(respondeA: string): Promise<Mensaje | null> {
+    // Índice parcial sobre la misma expresión
+    // (`20260926130500_mensajeria_rica.sql`).
+    const { data, error } = await this.db
+      .from("mensajes")
+      .select()
+      .eq("direction", "in")
+      .eq("metadata->respuesta_interactiva->>responde_a", respondeA)
+      .order("created_at", { ascending: true })
+      .limit(1)
       .maybeSingle();
     if (error) throw mapPostgrestError(error, { resource: "mensaje" });
     return data ? mapRow(data) : null;
@@ -335,9 +372,14 @@ export class SupabaseMessagesRepository implements MessagesRepository {
     metaMessageId: string,
     patch: EstadoEntregaPatch,
   ): Promise<Mensaje | null> {
-    const actual = await this.findByMetaMessageId(metaMessageId);
-    if (!actual) return null;
-    if (!esAvance(actual.estado_entrega, patch.estado)) return actual;
+    // La guarda de avance va en el WHERE del mismo UPDATE, no en un read previo:
+    // con read-then-write, "entregado" y "leído" concurrentes leían los dos
+    // `enviado` y el último UPDATE en llegar ganaba aunque retrocediera. Postgres
+    // re-evalúa el WHERE sobre la fila bloqueada, así que el segundo UPDATE ve
+    // lo que escribió el primero.
+    const previos = estadosQueAvanzanA(patch.estado);
+    const guarda = ["estado_entrega.is.null"];
+    if (previos.length > 0) guarda.push(`estado_entrega.in.(${previos.join(",")})`);
 
     const { data, error } = await this.db
       .from("mensajes")
@@ -346,11 +388,16 @@ export class SupabaseMessagesRepository implements MessagesRepository {
         estado_entrega_at: patch.at.toISOString(),
         error_entrega: patch.error,
       })
-      .eq("id", actual.id)
+      .eq("meta_message_id", metaMessageId)
+      .or(guarda.join(","))
       .select()
-      .single();
+      .maybeSingle();
     if (error) throw mapPostgrestError(error, { resource: "mensajes" });
-    return mapRow(data as MensajeRow);
+    if (data) return mapRow(data as MensajeRow);
+
+    // No se movió: el wamid no es nuestro (null) o el estado que llegó ya no
+    // es avance y la fila queda como está.
+    return this.findByMetaMessageId(metaMessageId);
   }
 }
 

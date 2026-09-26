@@ -29,7 +29,6 @@ function montar(inicial: Config = { candidatos: ["u1"] }): () => Config {
         tags={[]}
         etapas={[]}
         vendedores={[{ id: "u1", nombre: "Ana" }]}
-        campos={[]}
       />
     );
   }

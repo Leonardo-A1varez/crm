@@ -32,6 +32,7 @@ export function vistaAlcance(a: Alcance, tz: string): VistaAlcance {
       exclusiones: a.exclusiones,
       porVentanaAbierta: a.porRuta.ventana_abierta,
       porPlantilla: a.porRuta.plantilla,
+      porTextoLibre: a.porContenido.texto_libre,
       muestra: a.muestra,
       categoriaSupuesta: a.categoriaSupuesta,
     },

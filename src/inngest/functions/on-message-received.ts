@@ -23,6 +23,8 @@ import {
   type LeadIdentificadoresRepository,
 } from "@/server/repositories/lead-identificadores.repo";
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
+import type { RespuestaDifusionService } from "@/server/services/difusion/respuesta.service";
+import type { AnotarPlantillasSinSesion } from "@/server/services/workflows/plantilla-sin-sesion.service";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { RuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
@@ -62,6 +64,12 @@ export type EmittedEvent =
       name: "workflow/disparo.recibido";
       data: DispararWorkflowInput;
       /** Deduplicación de Inngest: la reentrega del step no arranca dos corridas. */
+      id: string;
+    }
+  | {
+      name: "workflow/respuesta.interactiva";
+      data: { leadId: UUID; respondeA: string | null; opcionId: string; titulo: string };
+      /** Deduplicación de Inngest: `respuesta-interactiva:<wamid del entrante>`. */
       id: string;
     };
 
@@ -104,6 +112,20 @@ export interface OnMessageReceivedDeps {
    * alguien que pidió no recibirlo.
    */
   supresiones: Pick<DifusionSupresionesRepository, "registrar" | "activasPorTelefonos">;
+  /**
+   * Si el entrante responde a una difusión, anota la plantilla en el hilo y en
+   * la sesión (`services/difusion/respuesta.service.ts`). Obligatoria: sin ella
+   * el vendedor no ve qué se le mandó al cliente y el agente contesta sin
+   * saber a qué responde.
+   */
+  respuestaDifusion: Pick<RespuestaDifusionService, "registrar">;
+  /**
+   * Las plantillas que un flujo le mandó al lead sin sesión ("Reactivar
+   * perdidos") entran al hilo cuando responde
+   * (`services/workflows/plantilla-sin-sesion.service.ts`). Obligatoria por lo
+   * mismo que `respuestaDifusion`.
+   */
+  plantillasSinSesion: Pick<AnotarPlantillasSinSesion, "registrar">;
   /**
    * Para apagar el seguimiento cuando el cliente vuelve solo. Opcional con
    * default Noop —mismo criterio que `dispatches` en el cron de reactivación—
@@ -204,6 +226,34 @@ export async function onMessageReceivedHandler(
     );
     if (sessionCreated) logger.info("session-created", { session_id: session.id });
 
+    // La difusión salió por el motor, sin sesión: si este mensaje le responde,
+    // la plantilla se anota ahora en esta sesión, con la hora en que salió, así
+    // queda antes del entrante en el hilo y en el turno del agente. Sólo por
+    // WhatsApp: es el único canal por el que sale una difusión.
+    let respondida: Awaited<ReturnType<RespuestaDifusionService["registrar"]>> = null;
+    if (parsed.canal === "wa") {
+      respondida = await step.run("registrar-respuesta-difusion", () =>
+        deps.respuestaDifusion.registrar({
+          leadId: lead.id,
+          conversacionId: conv.id,
+          leadSessionId: session.id,
+          ahora: parsed.platform_created_at ?? new Date(),
+          entranteMetaMessageId: parsed.meta_message_id,
+        }),
+      );
+      if (respondida) logger.info("difusion-respondida", { difusion_id: respondida.difusionId });
+      // Lo mismo con las plantillas que un flujo mandó sin sesión.
+      const anotadas = await step.run("registrar-plantillas-sin-sesion", () =>
+        deps.plantillasSinSesion.registrar({
+          leadId: lead.id,
+          conversacionId: conv.id,
+          leadSessionId: session.id,
+          ahora: parsed.platform_created_at ?? new Date(),
+        }),
+      );
+      if (anotadas > 0) logger.info("plantillas-de-flujo-anotadas", { cantidad: anotadas });
+    }
+
     const inbound = await step.run("record-inbound", () =>
       deps.metaApi.recordInbound({
         conversacionId: conv.id,
@@ -249,6 +299,27 @@ export async function onMessageReceivedHandler(
         sent: false,
         duplicate: true,
       };
+    }
+
+    // El lead tocó un botón o eligió una fila de una lista: el flujo que
+    // mandó ese mensaje la está esperando (`workflow-segmento`). Va antes de
+    // la baja, del horario y del agente, como los disparos: la opción cuenta
+    // aunque el agente no conteste. Ya está en el hilo (`record-inbound`), que
+    // es donde la busca la espera si vence en el hueco.
+    const respuestaInteractiva = parsed.respuesta_interactiva;
+    if (respuestaInteractiva) {
+      await step.run("emit-respuesta-interactiva", () =>
+        deps.emit({
+          name: "workflow/respuesta.interactiva",
+          id: `respuesta-interactiva:${parsed.meta_message_id}`,
+          data: {
+            leadId: lead.id,
+            respondeA: respuestaInteractiva.responde_a,
+            opcionId: respuestaInteractiva.id,
+            titulo: respuestaInteractiva.titulo,
+          },
+        }),
+      );
     }
 
     // Baja propia: el mensaje es "BAJA", "SALIR", "PARAR" o "SAIR" solos. Va
@@ -320,24 +391,62 @@ export async function onMessageReceivedHandler(
       );
     }
 
-    await step.run("emit-workflow-mensaje", () =>
-      deps.emit({
-        name: "workflow/disparo.recibido",
-        id: `workflow-disparo:mensaje:${inbound.id}`,
-        data: {
-          disparador: "mensaje_recibido",
-          leadId: lead.id,
-          leadSessionId: session.id,
-          contexto: contextoDeDisparo({
-            lead,
-            sesion: session,
-            canal: parsed.canal,
-            respondio: true,
-          }),
-          datos: { canal: parsed.canal, tipoMensaje: parsed.tipo, texto: parsed.contenido },
-        },
-      }),
-    );
+    // El disparo "Mensaje recibido" lleva el intent de ESTE turno: la base
+    // recién lo escribe cuando contesta el agente, así que una condición
+    // "Intent detectado" que lo leyera de ahí vería el turno anterior. Por eso
+    // sale después de clasificar —o, en los caminos que no clasifican (baja,
+    // fuera de horario) o si la clasificación falla, con `null`: el turno no
+    // tiene intent—. Nunca deja de salir por falta de intent.
+    const emitirMensajeRecibido = (intentNombre: string | null) =>
+      step.run("emit-workflow-mensaje", async () => {
+        const intent = intentNombre !== null ? await deps.intents.findByNombre(intentNombre) : null;
+        await deps.emit({
+          name: "workflow/disparo.recibido",
+          id: `workflow-disparo:mensaje:${inbound.id}`,
+          data: {
+            disparador: "mensaje_recibido",
+            leadId: lead.id,
+            leadSessionId: session.id,
+            contexto: contextoDeDisparo({
+              lead,
+              sesion: session,
+              canal: parsed.canal,
+              respondio: true,
+              intent: {
+                id: intent?.id ?? null,
+                mensajeAt: new Date(inbound.created_at).toISOString(),
+              },
+            }),
+            datos: { canal: parsed.canal, tipoMensaje: parsed.tipo, texto: parsed.contenido },
+          },
+        });
+      });
+
+    // Los flujos con trigger "Difusión respondida" (PRD §4.1, §7.6): sólo con
+    // LA respuesta —el primer entrante después de la difusión—, no con cada
+    // mensaje de la conversación que abrió. Va junto al de "Mensaje recibido"
+    // y por la misma razón: el flujo decide, no lo que conteste la IA.
+    if (respondida?.primera) {
+      const r = respondida;
+      await step.run("emit-workflow-difusion-respondida", () =>
+        deps.emit({
+          name: "workflow/disparo.recibido",
+          id: `workflow-disparo:difusion-respondida:${r.envioId}:${parsed.meta_message_id}`,
+          data: {
+            disparador: "difusion_respondida",
+            leadId: lead.id,
+            leadSessionId: session.id,
+            contexto: contextoDeDisparo({
+              lead,
+              sesion: session,
+              canal: parsed.canal,
+              respondio: true,
+            }),
+            datos: { canal: parsed.canal, difusionId: r.difusionId },
+          },
+        }),
+      );
+    }
 
     // Baja registrada: el turno termina acá (decisión del dueño). Quien acaba
     // de pedir que no le escriban recibe la confirmación y nada más; si ya
@@ -346,6 +455,8 @@ export async function onMessageReceivedHandler(
     // en la lista. Tampoco se emite `turn.completed`: sin respuesta del agente
     // no hay turno que extraer al Twin, y extraerlo sería otra llamada al LLM.
     if (resultadoBaja === "nueva" || resultadoBaja === "repetida") {
+      // La baja corta antes del LLM: no se clasifica.
+      await emitirMensajeRecibido(null);
       const sent = resultadoBaja === "nueva";
       logger.info("pipeline-complete", { duplicate: false, sent, skipped: "baja" });
       return {
@@ -366,6 +477,9 @@ export async function onMessageReceivedHandler(
     // Con plantilla configurada se responde eso; sin ella, no se responde
     // nada y la sesion queda como esta para que el triage humano la retome.
     if (!estaAbierto(config.horario, config.horario_timezone, new Date())) {
+      // Sin LLM no hay intent, pero el flujo se entera igual (y antes de la
+      // plantilla, como en el camino normal antes de la respuesta del agente).
+      await emitirMensajeRecibido(null);
       let templateSent = false;
       if (config.plantilla_fuera_horario !== "") {
         await step.run("send", () =>
@@ -406,12 +520,23 @@ export async function onMessageReceivedHandler(
     // El entrante viaja junto al texto: no cambia la clasificación, pero es lo
     // que hace que el gasto del clasificador quede atribuido a esta sesión en
     // vez de aparecer como costo sin dueño en el reporte por lead.
-    const classification = await step.run("classify", () =>
-      deps.intentClassifier.classify(parsed.contenido ?? "", {
-        mensajeId: inbound.id,
-        leadSessionId: session.id,
-      }),
-    );
+    //
+    // Si la clasificación falla del todo (Inngest ya agotó sus reintentos y
+    // tira el `StepError` acá), el flujo se entera igual, sin intent, y
+    // después el turno falla como fallaba antes: no se contesta sin clasificar.
+    let classification: Awaited<ReturnType<typeof deps.intentClassifier.classify>>;
+    try {
+      classification = await step.run("classify", () =>
+        deps.intentClassifier.classify(parsed.contenido ?? "", {
+          mensajeId: inbound.id,
+          leadSessionId: session.id,
+        }),
+      );
+    } catch (error) {
+      await emitirMensajeRecibido(null);
+      throw error;
+    }
+    await emitirMensajeRecibido(classification.intent_nombre);
     logger.info("classified", {
       intent: classification.intent_nombre,
       confidence: classification.confidence,
@@ -436,6 +561,22 @@ export async function onMessageReceivedHandler(
     // fallo al mandar el evento no repita las escrituras.
     if (etiquetasNuevas.length > 0) {
       await step.run("emit-workflow-etiquetas", async () => {
+        // El intent de ESTE turno, como en «Mensaje recibido»: la base recién
+        // lo escribe cuando contesta el agente, y una condición «Intent
+        // detectado» en el flujo leería el turno anterior.
+        const intent =
+          classification.intent_nombre !== null
+            ? await deps.intents.findByNombre(classification.intent_nombre)
+            : null;
+        const contexto = contextoDeDisparo({
+          lead,
+          sesion: session,
+          canal: parsed.canal,
+          intent: {
+            id: intent?.id ?? null,
+            mensajeAt: new Date(inbound.created_at).toISOString(),
+          },
+        });
         for (const tagId of etiquetasNuevas) {
           await deps.emit({
             name: "workflow/disparo.recibido",
@@ -444,7 +585,7 @@ export async function onMessageReceivedHandler(
               disparador: "etiqueta_asignada",
               leadId: lead.id,
               leadSessionId: session.id,
-              contexto: contextoDeDisparo({ lead, sesion: session, canal: parsed.canal }),
+              contexto,
               datos: { tagId },
             },
           });

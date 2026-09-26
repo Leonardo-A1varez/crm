@@ -24,7 +24,7 @@ import type { ReactNode } from "react";
 const FILA =
   "grid grid-cols-[minmax(0,1fr)_150px_78px_78px_78px_78px_92px_112px] items-center gap-3 px-3.5";
 
-const SIN_RESPUESTAS = "Todavía no se registra qué respuesta vino de qué difusión.";
+const SIN_RESPUESTAS = "El listado no suma las respuestas: se ven en el envío de cada difusión.";
 const SIN_COSTO = "Todavía no se registra lo que cobró Meta por cada difusión.";
 
 function textoEnvio(envio: EnvioSegunMeta): string {

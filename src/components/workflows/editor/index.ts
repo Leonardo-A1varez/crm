@@ -46,6 +46,8 @@ export { PanelConfig, type PanelConfigProps } from "./PanelConfig";
 export { LienzoEditor, LienzoConProveedor, type LienzoEditorProps } from "./LienzoEditor";
 export { PreviaReanudacion, CartelPlan } from "./PreviaReanudacion";
 export { GloboProblema, MarcaSeveridad, ResumenValidacion } from "./Validacion";
+export { GloboEnLienzo } from "./GloboEnLienzo";
+export { DespuesDeEsto, type DespuesDeEstoProps, type SalidaDespues } from "./DespuesDeEsto";
 
 export {
   NodoConPuertos,

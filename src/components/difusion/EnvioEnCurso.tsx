@@ -3,13 +3,14 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ESTADO_DIFUSION } from "./estado-difusion";
+import { EXCLUSION } from "./exclusiones";
 import { FallidosPorMotivo } from "./FallidosPorMotivo";
 import { PanelDetener } from "./PanelDetener";
 import { ProgresoEnvio } from "./ProgresoEnvio";
 import { RespuestasEntrantes } from "./RespuestasEntrantes";
 import { tinte } from "./paleta";
 import { formatearEntero } from "./formato";
-import { Nota, Panel, Punto } from "./primitivas";
+import { Cifra, CodigoMeta, Nota, Panel, Punto } from "./primitivas";
 import type { EnvioDifusion, EstadoDifusion } from "./tipos";
 
 export type AccionEnvio = "detener" | "pausar" | "reanudar";
@@ -50,8 +51,9 @@ function situacion(envio: EnvioDifusion): string | null {
  * Una difusión ya programada: el progreso real de lo que salió, los fallos por
  * código de Meta y el freno.
  *
- * Todo sale de las filas de `difusion_envios`. No hay ritmo, hora estimada de
- * fin ni respuestas: nada los mide todavía, y un número inventado en esta
+ * Todo sale de las filas de `difusion_envios`: el progreso, el ritmo medido
+ * (lo reservado en los últimos minutos), las respuestas y la muestra. El fin
+ * estimado sólo aparece con ritmo medido: un número inventado en esta
  * pantalla es el que alguien usa para decidir si detiene.
  *
  * Los botones son de admin, como las acciones que llaman. Detener está en la
@@ -102,8 +104,11 @@ export function EnvioEnCurso({
         >
           <Punto color={estado.color} latiendo={envio.estado === "enviando"} />
           {estado.etiqueta}
-          {envio.tandas.length > 1 ? (
-            <span className="text-ink-faint"> · {envio.tandas.length} tandas</span>
+          {envio.tandaActual && envio.tandaActual.de > 1 ? (
+            <span className="text-ink-faint">
+              {" "}
+              · tanda {envio.tandaActual.numero} de {envio.tandaActual.de}
+            </span>
           ) : null}
         </span>
 
@@ -159,7 +164,13 @@ export function EnvioEnCurso({
           ) : null}
 
           <Panel>
-            <ProgresoEnvio conteo={conteo} total={envio.total} tandas={envio.tandas} />
+            <ProgresoEnvio
+              conteo={conteo}
+              total={envio.total}
+              tandas={envio.tandas}
+              ritmo={ACTIVOS.has(envio.estado) ? envio.ritmo : undefined}
+              respondieron={envio.respuestas.total}
+            />
           </Panel>
 
           <div className="grid grid-cols-[1.2fr_1fr] items-start gap-3.5">
@@ -185,27 +196,100 @@ export function EnvioEnCurso({
               ) : null}
 
               <Panel titulo="Muestra">
-                <Nota>
-                  {envio.canaryTamano === null
-                    ? "Se programó sin muestra: sale el plan entero."
-                    : `La muestra es de ${formatearEntero(envio.canaryTamano)}: sale esa parte y la difusión queda en revisión hasta que alguien la reanude.`}
-                </Nota>
+                <div className="flex flex-col gap-2.5">
+                  <Nota>{textoMuestra(envio)}</Nota>
+                  <Nota>
+                    Frenado automático armado para <CodigoMeta codigo="368" />,{" "}
+                    <CodigoMeta codigo="131031" /> y <CodigoMeta codigo="131048" />: si Meta
+                    responde con uno de esos, la difusión se detiene y lo pendiente se cancela.
+                  </Nota>
+                </div>
               </Panel>
             </div>
           </div>
 
           <Panel titulo="Respuestas">
-            <RespuestasEntrantes />
+            <RespuestasEntrantes
+              total={envio.respuestas.total}
+              recientes={envio.respuestas.recientes}
+            />
           </Panel>
 
-          {envio.excluidos > 0 ? (
-            <Nota>
-              {formatearEntero(envio.excluidos)} de la audiencia quedaron excluidos al programar y
-              no cuentan en el total.
-            </Nota>
+          {envio.audienciaDinamica ? (
+            <Panel titulo="Audiencia dinámica">
+              <div className="flex flex-col gap-2">
+                <p className="text-ink-secondary text-[12px] leading-relaxed text-pretty">
+                  <Cifra
+                    valor={formatearEntero(envio.audienciaDinamica.altas)}
+                    tamano="md"
+                    className="mr-1.5"
+                  />
+                  {envio.audienciaDinamica.altas === 1
+                    ? "entró después de programar."
+                    : "entraron después de programar."}
+                </p>
+                <Nota>
+                  Antes de cada tanda se vuelve a mirar la audiencia: quien empezó a calificar se
+                  suma a las tandas que siguen, con las mismas bajas y exclusiones que el resto.
+                </Nota>
+              </div>
+            </Panel>
+          ) : null}
+
+          {envio.exclusionesPorMotivo.length > 0 ? (
+            <Panel
+              titulo={`${envio.audienciaDinamica ? "Excluidos" : "Excluidos al programar"} · ${formatearEntero(envio.excluidos)}`}
+            >
+              <div className="flex flex-col gap-3">
+                <ul className="grid grid-cols-2 gap-x-5 gap-y-2">
+                  {envio.exclusionesPorMotivo.map((x) => {
+                    const d = EXCLUSION[x.motivo];
+                    return (
+                      <li key={x.motivo} className="flex items-center gap-2.5">
+                        <Punto color={d.color} />
+                        <Cifra
+                          valor={formatearEntero(x.cantidad)}
+                          tamano="md"
+                          className="w-[52px]"
+                        />
+                        <span className="text-ink-dim min-w-0 flex-1 truncate text-[11.5px]">
+                          {d.etiqueta}
+                        </span>
+                        {d.codigo ? <CodigoMeta codigo={d.codigo} color={d.color} /> : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+                <Nota>No recibieron la difusión y no cuentan en el total.</Nota>
+              </div>
+            </Panel>
           ) : null}
         </div>
       </div>
     </div>
   );
+}
+
+/** Qué pasó con la muestra, con lo que se midió de ella. */
+function textoMuestra(envio: EnvioDifusion): string {
+  const m = envio.muestra;
+  if (envio.canaryTamano === null) return "Se programó sin muestra: sale el plan entero.";
+  if (m === null) {
+    return `La muestra es de ${formatearEntero(envio.canaryTamano)}: sale esa parte y la difusión queda en revisión hasta que alguien la reanude.`;
+  }
+  const partes = [
+    `${formatearEntero(m.llegaron)} llegaron`,
+    `${formatearEntero(m.aceptados)} sin confirmar`,
+    `${formatearEntero(m.fallidos)} fallidos`,
+  ];
+  const bajas =
+    m.bajasMeta > 0
+      ? ` ${formatearEntero(m.bajasMeta)} se dieron de baja de marketing en Meta (131050).`
+      : " Ninguna baja de Meta en la muestra.";
+  const siguio = m.continuadaA
+    ? ` Se continuó el ${m.continuadaA}.`
+    : envio.estado === "en_revision"
+      ? " Espera que alguien la revise y reanude."
+      : "";
+  return `La muestra de ${formatearEntero(m.tamano)} salió el ${m.salioA}: ${partes.join(", ")}.${bajas}${siguio}`;
 }

@@ -235,16 +235,6 @@ describe("DefaultSaludWhatsAppService", () => {
     expect(salud.limite.estado).toBe("no-expuesto");
   });
 
-  test("el uso del límite y el escalón de sanciones salen como no expuestos, con motivo", async () => {
-    const salud = await servicio(new FakeLectura()).leer();
-
-    expect(salud.usoDelLimite.estado).toBe("no-expuesto");
-    expect(salud.sancion.estado).toBe("no-expuesto");
-    if (salud.sancion.estado === "no-expuesto") {
-      expect(salud.sancion.motivo).toContain("account_update");
-    }
-  });
-
   test("devuelve el estado de envío con cada entidad", async () => {
     const salud = await servicio(new FakeLectura()).leer();
 

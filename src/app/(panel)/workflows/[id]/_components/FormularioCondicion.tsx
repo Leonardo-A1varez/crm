@@ -1,9 +1,15 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
-import { CuerpoCondicion } from "@/components/workflows/editor";
+import { useCallback, useMemo, useState } from "react";
+import { CuerpoCondicion, type Coincidencias } from "@/components/workflows/editor";
 import { arbolDeConfig } from "@/lib/workflows/condiciones.schema";
-import { CAMPOS_DE_CONDICION } from "../_lib/campos-condicion";
+import { camposDeCondicion } from "../_lib/campos-condicion";
+import { ListaCoincidencias } from "./ListaCoincidencias";
+import {
+  useCatalogosCondicion,
+  useConteoCondicion,
+  type EstadoConteo,
+} from "./use-datos-condicion";
 
 import type { Grupo } from "@/lib/ui/condiciones";
 
@@ -34,6 +40,16 @@ export function FormularioCondicion({
   // Reemplaza la config entera: las claves del trío viejo no quedan colgando
   // al lado del árbol, donde nadie las lee pero el diff las mostraría.
   const cambiar = useCallback((g: Grupo) => onChange({ arbol: g }), [onChange]);
+  // Intent y etiquetas se eligen de la base: sin catálogo, sus listas están
+  // vacías hasta que llega (no se inventan opciones).
+  const catalogos = useCatalogosCondicion();
+  const campos = useMemo(() => camposDeCondicion(catalogos ?? undefined), [catalogos]);
+  const conteo = useConteoCondicion(arbol);
+  const [listaAbierta, setListaAbierta] = useState(false);
+  const coincidencias = useMemo(
+    () => coincidenciasDe(conteo, () => setListaAbierta(true)),
+    [conteo],
+  );
 
   if (arbol === null) {
     return (
@@ -67,7 +83,35 @@ export function FormularioCondicion({
           resultado, y pasa al formato nuevo cuando la cambies.
         </p>
       ) : null}
-      <CuerpoCondicion condicion={arbol} campos={CAMPOS_DE_CONDICION} onCambiar={cambiar} />
+      <CuerpoCondicion
+        condicion={arbol}
+        campos={campos}
+        onCambiar={cambiar}
+        coincidencias={coincidencias}
+      />
+      {conteo.tipo === "no_contable" ? (
+        <p role="status" className="text-ink-dim text-[10.5px] leading-relaxed text-pretty">
+          No se cuenta a cuántos leads alcanza: «Respondió» depende de lo que dispara el flujo, no
+          de un dato guardado del lead.
+        </p>
+      ) : conteo.tipo === "error" ? (
+        <p role="status" className="text-ink-dim text-[10.5px] leading-relaxed text-pretty">
+          {conteo.mensaje}
+        </p>
+      ) : null}
+      <ListaCoincidencias arbol={arbol} abierto={listaAbierta} onAbiertoCambia={setListaAbierta} />
     </fieldset>
   );
+}
+
+/**
+ * Del estado del conteo a lo que dibuja el contador. Sin número que mostrar
+ * (no contable, o falló) no hay contador: el panel no inventa una cifra.
+ */
+function coincidenciasDe(conteo: EstadoConteo, onVerLista: () => void): Coincidencias | undefined {
+  if (conteo.tipo === "pendiente") return { cantidad: null };
+  if (conteo.tipo === "contado") {
+    return { cantidad: conteo.cantidad, recalculando: conteo.recalculando, onVerLista };
+  }
+  return undefined;
 }

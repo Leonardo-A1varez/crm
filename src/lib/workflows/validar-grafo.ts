@@ -1,5 +1,16 @@
-import { esCondicion, esEspera, esFinal, esTrigger } from "@/types/workflows";
+import {
+  ID_DE_CASO,
+  casoDePuerto,
+  esCondicion,
+  esEspera,
+  esFinal,
+  esSalto,
+  esSwitch,
+  esTrigger,
+  puertoDeCaso,
+} from "@/types/workflows";
 import type { Arista, Grafo, Nodo, NodoTipo, ProblemaGrafo, Puerto } from "@/types/workflows";
+import { esperaOpcion, etiquetaDePuertoDeOpcion, puertosDeOpciones } from "./opciones-interactivas";
 
 /**
  * Qué puertos de salida tiene cada tipo de nodo. El validador lo usa para la
@@ -7,12 +18,106 @@ import type { Arista, Grafo, Nodo, NodoTipo, ProblemaGrafo, Puerto } from "@/typ
  *
  * Un nodo final (`fin`/`logica_detener`) no tiene ninguno: es el único que
  * puede cerrar un camino, y por eso un flujo que se corta en cualquier otro
- * lado es un error y no una decisión de diseño.
+ * lado es un error y no una decisión de diseño. "Ir a" tampoco: su salida es
+ * el destino que eligió (`aristasDeSalto`).
+ *
+ * Los tipos cuyos puertos dependen de la config ("Según el valor", un puerto
+ * por caso) dan acá sólo los fijos; los de un nodo concreto los da
+ * `puertosDeNodo`.
  */
 export function puertosDe(tipo: NodoTipo): Puerto[] {
   if (esCondicion(tipo)) return ["verdadero", "falso"];
-  if (esFinal(tipo)) return [];
+  if (esFinal(tipo) || esSalto(tipo)) return [];
+  if (esSwitch(tipo)) return ["otro"];
+  // Botones y lista: una salida por opción (`puertosDeNodo`) y ésta.
+  if (esperaOpcion(tipo)) return ["sin_respuesta"];
   return ["salida"];
+}
+
+/** Un caso de "Según el valor", tal como lo guarda el panel. */
+export interface CasoSwitch {
+  id: string;
+  valor: string;
+}
+
+/**
+ * Los casos de un "Según el valor" leídos de su config **sin validarla**: el
+ * lienzo y el validador tienen que poder dibujar un switch a medio armar. Un
+ * caso sin id usable no tiene puerto; un id repetido, uno solo. Que los
+ * valores estén completos y no se repitan lo exige la config al publicar.
+ */
+export function casosDeSwitch(config: Record<string, unknown>): CasoSwitch[] {
+  const casos = config["casos"];
+  if (!Array.isArray(casos)) return [];
+  const vistos = new Set<string>();
+  const salida: CasoSwitch[] = [];
+  for (const c of casos) {
+    if (c === null || typeof c !== "object") continue;
+    const { id, valor } = c as Record<string, unknown>;
+    if (typeof id !== "string" || !ID_DE_CASO.test(id) || vistos.has(id)) continue;
+    vistos.add(id);
+    salida.push({ id, valor: typeof valor === "string" ? valor : "" });
+  }
+  return salida;
+}
+
+/**
+ * Los puertos de un nodo concreto: los de su tipo y, en "Según el valor", uno
+ * por caso —en el orden de los casos— antes de `otro`.
+ */
+export function puertosDeNodo(nodo: Pick<Nodo, "tipo" | "config">): Puerto[] {
+  if (esSwitch(nodo.tipo)) {
+    return [...casosDeSwitch(nodo.config).map((c) => puertoDeCaso(c.id)), "otro"];
+  }
+  return puertosDeOpciones(nodo) ?? puertosDe(nodo.tipo);
+}
+
+/**
+ * Cómo se nombra un puerto frente a quien arma el flujo: en el chip del nodo,
+ * en la línea y en los problemas. El de un caso es su valor.
+ */
+export function etiquetaDePuerto(nodo: Pick<Nodo, "tipo" | "config">, puerto: Puerto): string {
+  switch (puerto) {
+    case "salida":
+      return "salida";
+    case "verdadero":
+      return "Sí";
+    case "falso":
+      return "No";
+    case "otro":
+      return "Otro";
+    case "sin_respuesta":
+      return "Sin respuesta";
+  }
+  const casoId = casoDePuerto(puerto);
+  if (casoId !== null) {
+    const caso = casosDeSwitch(nodo.config).find((c) => c.id === casoId);
+    if (!caso) return "caso borrado";
+    return caso.valor.trim() === "" ? "caso sin valor" : caso.valor.trim();
+  }
+  return etiquetaDePuertoDeOpcion(nodo, puerto) ?? puerto;
+}
+
+/** El paso al que salta un "Ir a", o `null` si todavía no eligió ninguno. */
+export function destinoDeSalto(nodo: Pick<Nodo, "tipo" | "config">): string | null {
+  if (!esSalto(nodo.tipo)) return null;
+  const destino = nodo.config["nodoDestino"];
+  return typeof destino === "string" && destino.trim() !== "" ? destino : null;
+}
+
+/**
+ * Los saltos de los "Ir a" como líneas: `{ desde: el salto, hasta: su destino }`.
+ * El validador las suma a las aristas para que un salto cuente igual que una
+ * línea al decidir qué se alcanza, qué vuelve al disparador y qué cicla sin
+ * espera. Sólo las de destino elegido; que exista lo mira `validarGrafo`.
+ */
+export function aristasDeSalto(grafo: Grafo): Arista[] {
+  const aristas: Arista[] = [];
+  for (const n of grafo.nodos) {
+    const destino = destinoDeSalto(n);
+    if (destino !== null) aristas.push({ desde: n.id, hasta: destino, puerto: "salida" });
+  }
+  return aristas;
 }
 
 /**
@@ -57,11 +162,38 @@ export function validarGrafo(grafo: Grafo): ProblemaGrafo[] {
   }
   const disparador = disparadores.length === 1 ? disparadores[0] : undefined;
 
+  // --- regla: ir_a_destino ----------------------------------------------
+  // Un "Ir a" sin destino, o con uno que ya no existe (se borró el paso), deja
+  // el camino cortado igual que una salida sin conectar. Los que sí apuntan a
+  // un paso cuentan desde acá como una línea más.
+  const saltos: Arista[] = [];
+  for (const salto of aristasDeSalto(grafo)) {
+    if (porId.has(salto.hasta)) {
+      saltos.push(salto);
+      continue;
+    }
+    problemas.push({
+      regla: "ir_a_destino",
+      nodos: [salto.desde],
+      mensaje: `El paso "${salto.desde}" salta a "${salto.hasta}", que ya no existe.`,
+    });
+  }
+  for (const n of grafo.nodos) {
+    if (esSalto(n.tipo) && destinoDeSalto(n) === null) {
+      problemas.push({
+        regla: "ir_a_destino",
+        nodos: [n.id],
+        mensaje: `El paso "${n.id}" no dice a qué paso ir.`,
+      });
+    }
+  }
+  const aristasConSaltos = [...aristasValidas, ...saltos];
+
   // --- regla: disparador_sin_entrantes ----------------------------------
   // Una arista hacia el disparador es reiniciar el flujo desde adentro: un
   // ciclo disfrazado, y sin la espera que exige `ciclo_sin_espera`.
   if (disparador) {
-    const entrantes = aristasValidas.filter((a) => a.hasta === disparador.id);
+    const entrantes = aristasConSaltos.filter((a) => a.hasta === disparador.id);
     if (entrantes.length > 0) {
       problemas.push({
         regla: "disparador_sin_entrantes",
@@ -73,18 +205,18 @@ export function validarGrafo(grafo: Grafo): ProblemaGrafo[] {
 
   // --- regla: salida_sin_conectar ---------------------------------------
   const salientesPorNodo = new Map<string, Arista[]>();
-  for (const a of aristasValidas) {
+  for (const a of aristasConSaltos) {
     const previas = salientesPorNodo.get(a.desde);
     if (previas) previas.push(a);
     else salientesPorNodo.set(a.desde, [a]);
   }
   for (const n of grafo.nodos) {
-    // Las condiciones quedan afuera: `condicion_puertos` cubre sus dos
-    // puertos con un mensaje específico ("no tiene camino por «falso»"), y
-    // reportar acá también daría dos errores para un solo defecto.
-    if (esCondicion(n.tipo)) continue;
+    // Las condiciones y los "Según el valor" quedan afuera: `condicion_puertos`
+    // cubre sus puertos con un mensaje específico ("no tiene camino por
+    // «falso»"), y reportar acá también daría dos errores para un solo defecto.
+    if (esCondicion(n.tipo) || esSwitch(n.tipo)) continue;
     const salientes = salientesPorNodo.get(n.id) ?? [];
-    for (const puerto of puertosDe(n.tipo)) {
+    for (const puerto of puertosDeNodo(n)) {
       if (!salientes.some((a) => a.puerto === puerto)) {
         problemas.push({
           regla: "salida_sin_conectar",
@@ -119,6 +251,41 @@ export function validarGrafo(grafo: Grafo): ProblemaGrafo[] {
           mensaje: `La condición "${n.id}" no tiene camino por «${puerto}».`,
         });
       }
+    }
+  }
+
+  // Lo mismo para "Según el valor", con un puerto por caso más «Otro». Suma
+  // una tercera falla que la condición no puede tener: una línea que sale por
+  // un caso que ya se borró, y que ninguna corrida va a tomar.
+  for (const n of grafo.nodos) {
+    if (!esSwitch(n.tipo)) continue;
+    const salientes = aristasValidas.filter((a) => a.desde === n.id);
+    const puertos = puertosDeNodo(n);
+    for (const puerto of puertos) {
+      const cuantas = salientes.filter((a) => a.puerto === puerto).length;
+      const nombre = etiquetaDePuerto(n, puerto);
+      if (cuantas > 1) {
+        problemas.push({
+          regla: "condicion_puertos",
+          nodos: [n.id],
+          mensaje: `El paso "${n.id}" tiene ${cuantas} caminos por «${nombre}» y no se sabe cuál tomar.`,
+        });
+      }
+      if (cuantas === 0) {
+        problemas.push({
+          regla: "condicion_puertos",
+          nodos: [n.id],
+          mensaje: `El paso "${n.id}" no tiene camino por «${nombre}».`,
+        });
+      }
+    }
+    const huerfanas = salientes.filter((a) => !puertos.includes(a.puerto));
+    if (huerfanas.length > 0) {
+      problemas.push({
+        regla: "condicion_puertos",
+        nodos: [n.id],
+        mensaje: `Del paso "${n.id}" sale una línea por un caso que ya no existe.`,
+      });
     }
   }
 

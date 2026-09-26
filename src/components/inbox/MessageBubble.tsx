@@ -1,5 +1,6 @@
 import { format } from "date-fns";
-import { AutoAwesome, Done, DoneAll, ErrorIcon, Schedule } from "@/components/icons";
+import { AccountTree, AutoAwesome, Done, DoneAll, ErrorIcon, Schedule } from "@/components/icons";
+import { ContenidoRico } from "@/components/inbox/ContenidoRico";
 import { MonoMeta } from "@/components/shared/MonoMeta";
 import { partirTexto } from "@/lib/ui/busqueda-hilo";
 import { cn } from "@/lib/utils";
@@ -13,6 +14,7 @@ const MEDIA_LABEL: Partial<Record<TipoMensaje, string>> = {
   doc: "Documento",
   location: "Ubicación",
   template: "Plantilla",
+  interactive: "Botones",
 };
 
 /**
@@ -121,7 +123,15 @@ function TextoDelMensaje({
 /** Eyebrow del handoff: mono 9px / 600 / .13em / uppercase. */
 const ETIQUETA = "mb-1 font-mono text-[9px] font-semibold tracking-[0.13em] uppercase";
 
-function EtiquetaRemitente({ sender }: { sender: "ia" | "humano" }) {
+function EtiquetaRemitente({ sender }: { sender: "ia" | "humano" | "sistema" }) {
+  if (sender === "sistema") {
+    return (
+      <span className={`text-ink-faint flex items-center gap-1 ${ETIQUETA}`}>
+        <AccountTree size={12} aria-hidden />
+        Flujo
+      </span>
+    );
+  }
   if (sender === "ia") {
     return (
       <span className={`text-brand-hover flex items-center gap-1 ${ETIQUETA}`}>
@@ -147,8 +157,12 @@ export function MessageBubble({
   resaltado?: ResaltadoBusqueda | null;
 }) {
   const hora = format(message.created_at, "HH:mm");
+  // Botones, lista, imagen o ubicación: se dibujan con su forma aunque los
+  // haya mandado un flujo. Sin esto un flujo que manda botones quedaba como
+  // una línea de sistema, sin los botones.
+  const rico = message.direction === "out" ? message.metadata.rico : undefined;
 
-  if (message.sender === "sistema") {
+  if (message.sender === "sistema" && !rico) {
     return (
       <div className="flex items-center gap-2.5 px-1 py-0.5">
         <span aria-hidden className="bg-surface-avatar h-px flex-1" />
@@ -161,7 +175,8 @@ export function MessageBubble({
   }
 
   const esLead = message.sender === "lead";
-  const mediaLabel = message.tipo !== "text" ? (MEDIA_LABEL[message.tipo] ?? "Adjunto") : null;
+  const mediaLabel =
+    !rico && message.tipo !== "text" ? (MEDIA_LABEL[message.tipo] ?? "Adjunto") : null;
 
   return (
     <div className={esLead ? "flex justify-start" : "flex justify-end"}>
@@ -181,10 +196,20 @@ export function MessageBubble({
           // falta encima.
           message.sender === "humano" &&
             "bg-surface-bubble-vend text-background rounded-[15px_15px_5px_15px]",
+          // Lo que manda un flujo: saliente, pero sin la marca del agente ni
+          // la del vendedor. Borde punteado: lo armó una regla, no alguien.
+          message.sender === "sistema" &&
+            "border-line-input text-ink-body rounded-[15px_15px_5px_15px] border border-dashed",
         )}
         style={message.sender === "ia" ? FONDO_IA : undefined}
       >
-        {esLead ? null : <EtiquetaRemitente sender={message.sender === "ia" ? "ia" : "humano"} />}
+        {esLead ? null : (
+          <EtiquetaRemitente
+            sender={
+              message.sender === "ia" ? "ia" : message.sender === "sistema" ? "sistema" : "humano"
+            }
+          />
+        )}
         {mediaLabel ? (
           <p className="italic">
             [{mediaLabel}]
@@ -203,7 +228,8 @@ export function MessageBubble({
             ) : null}
           </p>
         ) : null}
-        {message.contenido ? (
+        {rico ? <ContenidoRico rico={rico} /> : null}
+        {!rico && message.contenido ? (
           <p className="break-words whitespace-pre-wrap">
             <TextoDelMensaje texto={message.contenido} resaltado={resaltado} />
           </p>

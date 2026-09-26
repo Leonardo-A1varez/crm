@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { RateLimitError, ValidationError } from "@/lib/errors";
 import type { CategoriaPlantilla } from "@/lib/difusion/modelo";
+import type { EstadoConversacional } from "@/lib/difusion/planificador";
 import type { ParametroPlantilla } from "@/lib/difusion/parametros";
 import { NoopLogger } from "@/lib/observability/logger";
 import type { Grupo } from "@/lib/ui/condiciones";
@@ -17,7 +18,14 @@ import {
   type MotorDifusionDeps,
 } from "@/server/services/difusion/motor.service";
 import type { LecturaTope } from "@/server/services/difusion/difusion.service";
-import type { MetaSendTemplateInput } from "@/server/services/meta-api.service";
+import type {
+  MetaSendTemplateInput,
+  MetaSendTextInput,
+  SendOutboundInput,
+} from "@/server/services/meta-api.service";
+import type { AltasDinamicasService } from "@/server/services/difusion/altas-dinamicas.service";
+import type { Difusion } from "@/lib/difusion/modelo";
+import type { Mensaje } from "@/types/entities";
 
 const AHORA = new Date("2026-09-25T15:00:00.000Z");
 // La misma audiencia que usa `difusion-service.test.ts`.
@@ -52,6 +60,22 @@ interface Opciones {
   /** Qué hace Meta con cada envío. Por defecto, lo acepta. */
   meta?: (input: MetaSendTemplateInput, n: number) => Promise<{ meta_message_id: string }>;
   datos?: (leadId: string) => DatosInterpolacion;
+  /** Estado conversacional de cada lead al momento de mandar. Por defecto, nadie hablando. */
+  conversacional?: Record<string, EstadoConversacional>;
+  /** La versión en texto libre de la difusión. */
+  textoLibre?: string | null;
+  /** La ruta con que se planificó cada fila. Por defecto, plantilla. */
+  rutaPlan?: "plantilla" | "ventana_abierta";
+  /** El hilo (conversación + sesión activa) de cada lead. Por defecto, ninguno. */
+  hilos?: Record<string, { conversacionId: string; leadSessionId: string }>;
+  modo?: "congelada" | "dinamica";
+  /** Qué hace la re-evaluación de una audiencia dinámica. Por defecto, no suma nadie. */
+  altas?: AltasDinamicasService["sumar"];
+}
+
+/** Hace un entrante de hace `h` horas, sin sesión abierta: ventana abierta, nadie hablando. */
+function conVentana(h: number): EstadoConversacional {
+  return { etapa: null, ultimoEntranteAt: new Date(AHORA.getTime() - h * 3_600_000) };
 }
 
 async function armar(filas: number, o: Opciones = {}) {
@@ -67,6 +91,21 @@ async function armar(filas: number, o: Opciones = {}) {
     return { meta_message_id: `wamid.${enviados.length}` };
   });
   const esperar = vi.fn(async (_ms: number) => {});
+  const consultasConversacionales: { ids: string[]; entranteDesde: Date }[] = [];
+  const textos: MetaSendTextInput[] = [];
+  const sendText = vi.fn(async (input: MetaSendTextInput) => {
+    textos.push(input);
+    return { meta_message_id: `wamid.texto.${textos.length}` };
+  });
+  const salientes: SendOutboundInput[] = [];
+  const sendOutbound = vi.fn(async (input: SendOutboundInput): Promise<Mensaje> => {
+    salientes.push(input);
+    return {
+      id: `msg-${salientes.length}`,
+      meta_message_id: `wamid.hilo.${salientes.length}`,
+    } as Mensaje;
+  });
+  const llamadasAltas: { difusionId: string; tanda: number }[] = [];
 
   const d = await difusiones.create({
     nombre: "Promo frenos",
@@ -77,6 +116,8 @@ async function armar(filas: number, o: Opciones = {}) {
     plantilla_idioma: "es_AR",
     plantilla_parametros: o.parametros ?? [],
     canary_tamano: o.canary ?? null,
+    texto_libre: o.textoLibre ?? null,
+    audiencia_modo: o.modo ?? "congelada",
   });
   await difusiones.update(d.id, { estado: "programada", programada_para: AHORA });
   const plan: DifusionEnvioInsert[] = Array.from({ length: filas }, (_, i) => ({
@@ -85,7 +126,7 @@ async function armar(filas: number, o: Opciones = {}) {
     telefono: tel(i + 1),
     estado: "en_cola",
     motivo_exclusion: null,
-    ruta: "plantilla",
+    ruta: o.rutaPlan ?? "plantilla",
     tanda: 0,
     programado_para: AHORA,
   }));
@@ -96,9 +137,26 @@ async function armar(filas: number, o: Opciones = {}) {
     envios,
     supresiones,
     usoCupoDesde: async () => o.usado24h ?? 0,
-    meta: { sendTemplate: meta },
+    meta: { sendTemplate: meta, sendText },
+    metaApi: { sendOutbound },
+    hiloActivo: async (id) => o.hilos?.[id] ?? null,
+    altas: {
+      sumar: async (dif: Difusion, tanda: number, at: Date) => {
+        llamadasAltas.push({ difusionId: dif.id, tanda });
+        return o.altas ? o.altas(dif, tanda, at) : { coinciden: 0, nuevos: 0, sumadas: 0 };
+      },
+    },
     leerTopeMensajeria: async () => o.tope ?? { estado: "ok", tope: 2000 },
     datosDelLead: async (id) => o.datos?.(id) ?? {},
+    estadoConversacional: async (ids, entranteDesde) => {
+      consultasConversacionales.push({ ids: [...ids], entranteDesde });
+      const r = new Map<string, EstadoConversacional>();
+      for (const id of ids) {
+        const e = o.conversacional?.[id];
+        if (e) r.set(id, e);
+      }
+      return r;
+    },
     esperar,
     logger: new NoopLogger(),
     ahora: () => reloj,
@@ -113,6 +171,12 @@ async function armar(filas: number, o: Opciones = {}) {
     meta,
     enviados,
     esperar,
+    consultasConversacionales,
+    textos,
+    sendText,
+    salientes,
+    sendOutbound,
+    llamadasAltas,
     avanzar: (ms: number) => {
       reloj = new Date(reloj.getTime() + ms);
     },
@@ -210,15 +274,87 @@ describe("MotorDifusion — la baja gana", () => {
       envios: m.envios,
       supresiones: sinClaves,
       usoCupoDesde: async () => 0,
-      meta: { sendTemplate: m.meta },
+      meta: { sendTemplate: m.meta, sendText: m.sendText },
+      metaApi: { sendOutbound: m.sendOutbound },
+      hiloActivo: async () => null,
+      altas: { sumar: async () => ({ coinciden: 0, nuevos: 0, sumadas: 0 }) },
       leerTopeMensajeria: async () => ({ estado: "ok", tope: 2000 }),
       datosDelLead: async () => ({}),
+      estadoConversacional: async () => new Map(),
       esperar: async () => {},
       logger: new NoopLogger(),
       ahora: () => AHORA,
     });
     await expect(motor.drenarLote()).rejects.toThrow();
     expect(m.meta).not.toHaveBeenCalled();
+  });
+});
+
+describe("MotorDifusion — revalida el estado conversacional al mandar", () => {
+  test("un lead que pasó a requiere_humano después de programar queda excluido con su motivo", async () => {
+    const m = await armar(2, {
+      conversacional: { [leadId(1)]: { etapa: "requiere_humano", ultimoEntranteAt: null } },
+    });
+
+    const r = await m.motor.drenarLote();
+
+    expect(r).toMatchObject({ tipo: "enviado", aceptados: 1, excluidos: 1 });
+    const uno = (await m.filas()).find((f) => f.lead_id === leadId(1));
+    expect(uno?.estado).toBe("excluido");
+    expect(uno?.motivo_exclusion).toBe("requiere_humano");
+    expect(m.enviados.map((e) => e.to)).toEqual([tel(2)]);
+  });
+
+  test("un lead que empezó a hablar (sesión abierta, entrante hace 30 min) no recibe", async () => {
+    const m = await armar(1, {
+      conversacional: {
+        [leadId(1)]: {
+          etapa: "cotizado",
+          ultimoEntranteAt: new Date(AHORA.getTime() - 30 * 60_000),
+        },
+      },
+    });
+
+    await m.motor.drenarLote();
+
+    expect((await m.filas())[0]?.motivo_exclusion).toBe("conversacion_activa");
+    expect(m.meta).not.toHaveBeenCalled();
+  });
+
+  test("con un entrante de hace más de una hora sale igual: misma regla que el planificador", async () => {
+    const m = await armar(1, {
+      conversacional: {
+        [leadId(1)]: {
+          etapa: "cotizado",
+          ultimoEntranteAt: new Date(AHORA.getTime() - 61 * 60_000),
+        },
+      },
+    });
+
+    await m.motor.drenarLote();
+
+    expect((await m.filas())[0]?.estado).toBe("aceptado");
+  });
+
+  test("pide los entrantes de la ventana de 24 h, para los leads del lote", async () => {
+    // Con el último entrante de las 24 h sale la ventana, y con el mismo dato
+    // la regla de conversación activa (que mira sólo la última hora).
+    const m = await armar(2);
+    await m.motor.drenarLote();
+    expect(m.consultasConversacionales).toHaveLength(1);
+    expect(m.consultasConversacionales[0]?.ids.sort()).toEqual([leadId(1), leadId(2)]);
+    expect(m.consultasConversacionales[0]?.entranteDesde.toISOString()).toBe(
+      new Date(AHORA.getTime() - 24 * 3_600_000).toISOString(),
+    );
+  });
+
+  test("la baja gana sobre requiere_humano: es la de mayor precedencia", async () => {
+    const m = await armar(1, {
+      conversacional: { [leadId(1)]: { etapa: "requiere_humano", ultimoEntranteAt: null } },
+    });
+    await m.supresiones.registrar({ telefono: tel(1), origen: "palabra_clave", detalle: "BAJA" });
+    await m.motor.drenarLote();
+    expect((await m.filas())[0]?.motivo_exclusion).toBe("baja_propia");
   });
 });
 
@@ -402,6 +538,23 @@ describe("MotorDifusion — reacciones a Meta al mandar", () => {
     expect(estados).toEqual(["cancelado", "cancelado", "fallido"]);
   });
 
+  // El frenado automático que muestra la pantalla de envío: los tres códigos.
+  test.each([368, 131031, 131048])(
+    "%i al mandar detiene la difusión y cancela lo pendiente",
+    async (codigo) => {
+      const m = await armar(3, {
+        meta: async () => {
+          throw rechazo(codigo);
+        },
+      });
+      await m.motor.drenarLote();
+      const d = await m.difusiones.findById(m.d.id);
+      expect(d?.estado).toBe("detenida");
+      expect(d?.motivo_detencion).toContain(String(codigo));
+      expect((await m.filas()).filter((f) => f.estado === "en_cola")).toEqual([]);
+    },
+  );
+
   test("un token vencido no quema filas: la fila vuelve a la cola y el error sube", async () => {
     const m = await armar(2, {
       meta: async () => {
@@ -545,5 +698,269 @@ describe("MotorDifusion — invariante M ≤ N antes de la primera llamada", () 
     expect(d?.motivo_detencion).toMatch(/plan persistido/);
     expect(await m.motor.drenarLote()).toEqual({ tipo: "sin_trabajo" });
     expect(m.meta).not.toHaveBeenCalled();
+  });
+});
+
+describe("MotorDifusion — texto libre a quien tiene la ventana abierta (§7.3.5)", () => {
+  const TEXTO = "Hola {{lead.nombre}}, llegaron pastillas de freno";
+
+  test("con la ventana abierta y hilo activo, sale el texto libre por el hilo con las variables resueltas", async () => {
+    const m = await armar(2, {
+      textoLibre: TEXTO,
+      conversacional: { [leadId(1)]: conVentana(2) },
+      hilos: { [leadId(1)]: { conversacionId: "conv-1", leadSessionId: "ses-1" } },
+      datos: (id) => ({ lead: { nombre: id === leadId(1) ? "Ana" : "Beto" } }),
+    });
+
+    const r = await m.motor.drenarLote();
+
+    expect(r).toMatchObject({ tipo: "enviado", aceptados: 2 });
+    expect(m.salientes).toEqual([
+      expect.objectContaining({
+        conversacionId: "conv-1",
+        leadSessionId: "ses-1",
+        canal: "wa",
+        to: tel(1),
+        contenido: "Hola Ana, llegaron pastillas de freno",
+        sender: "sistema",
+      }),
+    ]);
+    // El otro no tiene la ventana abierta: plantilla.
+    expect(m.enviados.map((e) => e.to)).toEqual([tel(2)]);
+    const uno = (await m.filas()).find((f) => f.lead_id === leadId(1));
+    expect(uno).toMatchObject({
+      estado: "aceptado",
+      ruta: "ventana_abierta",
+      salio_como: "texto_libre",
+      meta_message_id: "wamid.hilo.1",
+    });
+    const dos = (await m.filas()).find((f) => f.lead_id === leadId(2));
+    expect(dos).toMatchObject({ ruta: "plantilla", salio_como: "plantilla" });
+  });
+
+  test("la idempotencia del hilo es por reserva del envío", async () => {
+    const m = await armar(1, {
+      textoLibre: TEXTO,
+      conversacional: { [leadId(1)]: conVentana(2) },
+      hilos: { [leadId(1)]: { conversacionId: "conv-1", leadSessionId: "ses-1" } },
+    });
+    await m.motor.drenarLote();
+    const [fila] = await m.filas();
+    expect(m.salientes[0]?.idempotencyKey).toBe(`difusion:${fila!.id}:${AHORA.getTime()}`);
+  });
+
+  test("sin sesión activa el texto libre sale por el cliente de Meta, como la plantilla sin sesión", async () => {
+    const m = await armar(1, {
+      textoLibre: TEXTO,
+      conversacional: { [leadId(1)]: conVentana(3) },
+      datos: () => ({ lead: { nombre: "Ana" } }),
+    });
+
+    await m.motor.drenarLote();
+
+    expect(m.sendOutbound).not.toHaveBeenCalled();
+    expect(m.meta).not.toHaveBeenCalled();
+    expect(m.textos).toEqual([
+      { canal: "wa", to: tel(1), text: "Hola Ana, llegaron pastillas de freno" },
+    ]);
+    expect((await m.filas())[0]).toMatchObject({
+      estado: "aceptado",
+      salio_como: "texto_libre",
+      meta_message_id: "wamid.texto.1",
+    });
+  });
+
+  test("sin texto libre, la ventana abierta recibe la plantilla, como antes", async () => {
+    const m = await armar(1, { conversacional: { [leadId(1)]: conVentana(2) } });
+    await m.motor.drenarLote();
+    expect(m.enviados.map((e) => e.to)).toEqual([tel(1)]);
+    expect(m.textos).toEqual([]);
+    expect((await m.filas())[0]).toMatchObject({
+      ruta: "ventana_abierta",
+      salio_como: "plantilla",
+    });
+  });
+
+  test("la ventana se mira al mandar: planificada abierta pero ya cerrada, sale la plantilla y consume cupo", async () => {
+    const m = await armar(1, {
+      textoLibre: TEXTO,
+      rutaPlan: "ventana_abierta",
+      // Cierra en 30 min: dentro del margen se trata como cerrada.
+      conversacional: {
+        [leadId(1)]: {
+          etapa: null,
+          ultimoEntranteAt: new Date(AHORA.getTime() - (24 * 60 - 30) * 60_000),
+        },
+      },
+    });
+    await m.motor.drenarLote();
+    expect(m.textos).toEqual([]);
+    expect(m.enviados.map((e) => e.to)).toEqual([tel(1)]);
+    expect((await m.filas())[0]).toMatchObject({ ruta: "plantilla", salio_como: "plantilla" });
+  });
+
+  test("el texto libre no consume cupo: sale aunque no quede cupo para plantillas", async () => {
+    // Tope 100 → reserva 15 → entran 85; ya se usaron 85 → no queda nada.
+    const m = await armar(2, {
+      textoLibre: TEXTO,
+      tope: { estado: "ok", tope: 100 },
+      usado24h: 85,
+      conversacional: { [leadId(1)]: conVentana(1) },
+    });
+    const r = await m.motor.drenarLote();
+    expect(r).toMatchObject({ tipo: "enviado", aceptados: 1 });
+    expect(m.textos.map((t) => t.to)).toEqual([tel(1)]);
+    expect(m.meta).not.toHaveBeenCalled();
+  });
+
+  test("un saturado con la ventana abierta recibe el texto libre: el 131049 es de plantillas de marketing", async () => {
+    const m = await armar(1, {
+      textoLibre: TEXTO,
+      conversacional: { [leadId(1)]: conVentana(2) },
+    });
+    await m.envios.registrarPlan([
+      {
+        difusion_id: (
+          await m.difusiones.create({
+            nombre: "Anterior",
+            audiencia: ARBOL,
+            creada_por: null,
+          })
+        ).id,
+        lead_id: leadId(1),
+        telefono: tel(1),
+        estado: "en_cola",
+        motivo_exclusion: null,
+        ruta: "plantilla",
+        tanda: 0,
+        programado_para: AHORA,
+      },
+    ]);
+    await saturar(m, leadId(1));
+
+    await m.motor.drenarLote();
+
+    const fila = (await m.filas()).find((f) => f.lead_id === leadId(1));
+    expect(fila).toMatchObject({ estado: "aceptado", salio_como: "texto_libre" });
+  });
+
+  test("un saturado con la ventana abierta y sin texto libre no recibe la plantilla de marketing", async () => {
+    const m = await armar(1, { conversacional: { [leadId(1)]: conVentana(2) } });
+    await m.envios.registrarPlan([
+      {
+        difusion_id: (
+          await m.difusiones.create({
+            nombre: "Anterior",
+            audiencia: ARBOL,
+            creada_por: null,
+          })
+        ).id,
+        lead_id: leadId(1),
+        telefono: tel(1),
+        estado: "en_cola",
+        motivo_exclusion: null,
+        ruta: "plantilla",
+        tanda: 0,
+        programado_para: AHORA,
+      },
+    ]);
+    await saturar(m, leadId(1));
+
+    await m.motor.drenarLote();
+
+    expect((await m.filas())[0]).toMatchObject({
+      estado: "excluido",
+      motivo_exclusion: "saturado_meta",
+    });
+  });
+});
+
+/** Deja un 131049 reciente para ese lead en otra difusión (la fila en cola que no es de `m.d`). */
+async function saturar(m: Awaited<ReturnType<typeof armar>>, lead: string): Promise<void> {
+  const todas = await Promise.all(
+    (await m.difusiones.list({ limite: 10 })).map((d) =>
+      m.envios.listarPorDifusion(d.id, { limite: 10 }),
+    ),
+  );
+  const ajena = todas.flat().find((e) => e.difusion_id !== m.d.id && e.lead_id === lead);
+  if (!ajena) throw new Error("no hay fila ajena para saturar");
+  await m.envios.reservar(ajena.id, new Date(AHORA.getTime() - 3_600_000));
+  await m.envios.marcarFallido(ajena.id, { codigo: "131049" });
+}
+
+describe("MotorDifusion — audiencia dinámica", () => {
+  test("antes de la primera tanda re-evalúa la audiencia y manda también a los que se sumaron", async () => {
+    const m = await armar(1, {
+      modo: "dinamica",
+      altas: async (dif, tanda) => {
+        await m.envios.sumarAltas([
+          {
+            difusion_id: dif.id,
+            lead_id: leadId(2),
+            telefono: tel(2),
+            estado: "en_cola",
+            motivo_exclusion: null,
+            ruta: "plantilla",
+            tanda,
+            programado_para: AHORA,
+          },
+        ]);
+        return { coinciden: 2, nuevos: 1, sumadas: 1 };
+      },
+    });
+
+    const r = await m.motor.drenarLote();
+
+    expect(m.llamadasAltas).toEqual([{ difusionId: m.d.id, tanda: 0 }]);
+    expect(r).toMatchObject({ tipo: "enviado", aceptados: 2 });
+    expect(m.enviados.map((e) => e.to).sort()).toEqual([tel(1), tel(2)]);
+    expect((await m.difusiones.findById(m.d.id))?.audiencia_tanda_evaluada).toBe(0);
+  });
+
+  test("una vez por tanda: el lote siguiente de la misma tanda no vuelve a re-evaluar", async () => {
+    const m = await armar(30, { modo: "dinamica" });
+    await m.motor.drenarLote();
+    await m.motor.drenarLote();
+    expect(m.llamadasAltas).toHaveLength(1);
+  });
+
+  test("cuando vence la tanda siguiente, re-evalúa otra vez con ese número", async () => {
+    const m = await armar(1, { modo: "dinamica" });
+    const manana = new Date(AHORA.getTime() + 24 * 3_600_000);
+    await m.envios.registrarPlan([
+      {
+        difusion_id: m.d.id,
+        lead_id: leadId(9),
+        telefono: tel(9),
+        estado: "en_cola",
+        motivo_exclusion: null,
+        ruta: "plantilla",
+        tanda: 1,
+        programado_para: manana,
+      },
+    ]);
+    await m.motor.drenarLote();
+    expect(m.llamadasAltas.map((l) => l.tanda)).toEqual([0]);
+
+    m.avanzar(24 * 3_600_000);
+    await m.motor.drenarLote();
+    expect(m.llamadasAltas.map((l) => l.tanda)).toEqual([0, 1]);
+  });
+
+  test("una congelada nunca se re-evalúa", async () => {
+    const m = await armar(2);
+    await m.motor.drenarLote();
+    expect(m.llamadasAltas).toEqual([]);
+  });
+
+  test("si la re-evaluación falla, la tanda sale igual con lo que ya estaba", async () => {
+    const m = await armar(1, {
+      modo: "dinamica",
+      altas: async () => {
+        throw new Error("la base no respondió");
+      },
+    });
+    const r = await m.motor.drenarLote();
+    expect(r).toMatchObject({ tipo: "enviado", aceptados: 1 });
   });
 });

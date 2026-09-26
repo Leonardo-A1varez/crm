@@ -18,7 +18,7 @@ import type {
   TipoMensaje,
   Urgencia,
 } from "./domain";
-import type { Grafo, MotivoSalto } from "@/types/workflows";
+import type { Grafo, MotivoSalto, NodoTipo } from "@/types/workflows";
 
 export type UUID = string;
 
@@ -80,6 +80,44 @@ export type Procedencia = Record<string, ProcedenciaCampo>;
 export const PLANTILLA_SALIENTE = ["fuera_horario", "handoff"] as const;
 export type PlantillaSaliente = (typeof PLANTILLA_SALIENTE)[number];
 
+/**
+ * Lo que el hilo guarda de un saliente con botones, lista, imagen o ubicación
+ * (`mensajes.metadata.rico`), para dibujarlo con su forma y no como texto.
+ *
+ * Una imagen subida a Storage guarda la ruta (`archivo`) y no la URL firmada
+ * con que salió: esa URL es una credencial temporal y no tiene que quedar
+ * escrita en la base.
+ */
+export type MensajeRico =
+  | { tipo: "botones"; cuerpo: string; botones: readonly { id: string; titulo: string }[] }
+  | {
+      tipo: "lista";
+      encabezado: string | null;
+      cuerpo: string;
+      pie: string | null;
+      boton: string;
+      secciones: readonly {
+        titulo: string | null;
+        filas: readonly { id: string; titulo: string; descripcion: string | null }[];
+      }[];
+    }
+  | { tipo: "imagen"; url: string | null; archivo: string | null; caption: string | null }
+  | {
+      tipo: "ubicacion";
+      lat: number;
+      lon: number;
+      nombre: string | null;
+      direccion: string | null;
+    };
+
+/** La opción que el lead eligió en un mensaje con botones o de lista. */
+export interface RespuestaInteractivaGuardada {
+  id: string;
+  titulo: string;
+  /** wamid del saliente respondido (`context.id` de Meta). */
+  responde_a: string | null;
+}
+
 export interface MensajeMetadata {
   reply_to?: string;
   context?: Record<string, unknown>;
@@ -90,6 +128,10 @@ export interface MensajeMetadata {
    * esos sigue diciendo que no se midió, porque de esos no se sabe.
    */
   plantilla?: PlantillaSaliente;
+  /** Salientes con botones, lista, imagen o ubicación. */
+  rico?: MensajeRico;
+  /** Entrantes que responden a un mensaje con botones o de lista. */
+  respuesta_interactiva?: RespuestaInteractivaGuardada;
   [k: string]: unknown;
 }
 
@@ -561,6 +603,12 @@ export interface WorkflowRun {
   error: string | null;
   started_at: Date;
   ended_at: Date | null;
+  /**
+   * Cuántas veces se intentó el paso que hizo fallar la corrida (1 = falló sin
+   * reintentar). `null`/ausente: no se registró —corridas anteriores a la
+   * columna, o que no fallaron—.
+   */
+  intentos?: number | null;
 }
 
 export interface WorkflowRunPaso {
@@ -630,6 +678,16 @@ export interface WorkflowResumen {
   versionPublicada: number | null;
   /** Primeros pasos del grafo de la última versión, para leer el flujo sin abrirlo. */
   resumenPasos: string[];
+  /**
+   * El tipo del disparador de la última versión —el ícono de la tarjeta—.
+   * `null` sin versiones o sin un disparador único.
+   */
+  disparadorTipo: NodoTipo | null;
+  /**
+   * Si la versión PUBLICADA arranca a mano: es lo único que corre, así que es
+   * lo único que habilita «Disparar ahora».
+   */
+  disparoManualPublicado: boolean;
   metricas: WorkflowMetricas;
   /** `created_at` de la última versión guardada; si no hay ninguna, el del workflow. */
   ultimaEdicion: Date;

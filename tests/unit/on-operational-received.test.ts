@@ -93,3 +93,43 @@ describe("operationalReceivedHandler", () => {
     expect(await eventos.listarRecientes({ limite: 99999 })).toHaveLength(2);
   });
 });
+
+describe("operationalReceivedHandler — account_update", () => {
+  function logger() {
+    return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() };
+  }
+
+  test("una infracción a la política se loguea en warn", async () => {
+    const log = logger();
+    await operationalReceivedHandler(
+      entrada({
+        campo: "account_update",
+        evento: "ACCOUNT_VIOLATION",
+        objeto_id: null,
+        objeto_nombre: null,
+        payload: { event: "ACCOUNT_VIOLATION", violation_info: { violation_type: "ADULT" } },
+      }),
+      { eventos: new InMemoryMetaOperationalEventsRepository(), logger: log as never },
+    );
+    expect(log.warn).toHaveBeenCalledWith("meta.operational.atencion", expect.anything());
+  });
+
+  test("un account_update con forma desconocida se guarda igual y avisa en warn", async () => {
+    const log = logger();
+    const eventos = new InMemoryMetaOperationalEventsRepository();
+    await operationalReceivedHandler(
+      entrada({
+        campo: "account_update",
+        evento: "ACCOUNT_RESTRICTION",
+        objeto_id: null,
+        objeto_nombre: null,
+        payload: { event: "ACCOUNT_RESTRICTION", restriction_info: "no-es-una-lista" },
+      }),
+      { eventos, logger: log as never },
+    );
+    expect(await eventos.listarRecientes()).toHaveLength(1);
+    expect(log.warn).toHaveBeenCalledWith("meta.operational.account_update.ilegible", {
+      evento: "ACCOUNT_RESTRICTION",
+    });
+  });
+});

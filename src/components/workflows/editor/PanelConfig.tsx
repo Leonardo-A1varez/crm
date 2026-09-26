@@ -31,6 +31,19 @@ export interface PanelConfigProps {
    */
   ajustesFlujo?: ReactNode;
   onEliminar?: () => void;
+  /**
+   * «Después de esto»: a dónde sigue el flujo desde el bloque. Lo arma quien
+   * conoce el grafo; va debajo del formulario.
+   */
+  despuesDeEsto?: ReactNode;
+  /**
+   * «Resolver»: aplica de una vez los arreglos automáticos de este bloque.
+   * `undefined` = ninguno de sus problemas se resuelve solo, y el botón no se
+   * dibuja: un botón que promete resolver y no puede es peor que no tenerlo.
+   */
+  onResolver?: () => void;
+  /** Qué va a hacer Resolver, en palabras: el `title` del botón. */
+  resolverDescripcion?: string;
   /** "Ejecutar hasta acá": corre el flujo con datos reales hasta este nodo y para. */
   onProbarHastaAca?: () => void;
   /**
@@ -71,6 +84,9 @@ export function PanelConfig({
   children,
   ajustesFlujo,
   onEliminar,
+  despuesDeEsto,
+  onResolver,
+  resolverDescripcion,
   onProbarHastaAca,
   ancho = MEDIDAS.PANEL_CONFIG,
   className,
@@ -150,15 +166,36 @@ export function PanelConfig({
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-4 p-4">
+          {/*
+            Sin los botones de arreglo: esos viven en el globo del lienzo, al
+            lado del nodo, y en «Resolver» del pie. Repetirlos acá daría dos
+            botones iguales a centímetros uno del otro.
+          */}
           {problemas?.map((p) => (
-            <GloboProblema key={`${p.severidad}-${p.mensaje}`} problema={p} className="w-full" />
+            <GloboProblema
+              key={`${p.severidad}-${p.mensaje}`}
+              problema={{ ...p, arreglos: undefined }}
+              className="w-full"
+            />
           ))}
           {children}
+          {despuesDeEsto}
         </div>
       </ScrollArea>
 
-      {onEliminar || onProbarHastaAca ? (
-        <div className="border-line-layout flex shrink-0 gap-2 border-t px-4 py-3">
+      {onEliminar || onProbarHastaAca || onResolver ? (
+        <div className="border-line-layout flex shrink-0 flex-wrap gap-2 border-t px-4 py-3">
+          {onResolver ? (
+            <Button
+              type="button"
+              size="sm"
+              onClick={onResolver}
+              title={resolverDescripcion}
+              className={cn("w-full", TRANSICION_CONTROL, PRESION_TACTIL, FOCO)}
+            >
+              Resolver
+            </Button>
+          ) : null}
           {onEliminar ? (
             <Button
               type="button"

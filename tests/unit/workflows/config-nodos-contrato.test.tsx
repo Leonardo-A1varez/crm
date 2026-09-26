@@ -5,6 +5,7 @@ import { opcionesDeEtapas } from "@/app/(panel)/workflows/[id]/_lib/opciones-edi
 import { ConfigCRM, ConfigMensajeria } from "@/components/workflows/canvas/config";
 import { ACCION_DE_TIPO } from "@/lib/workflows/catalogo";
 import { validarWorkflow } from "@/lib/workflows/validar-workflow";
+import { puertosDeNodo } from "@/lib/workflows/validar-grafo";
 import { correrPrueba, sesionSimulada } from "@/server/services/workflows/simulador.service";
 import type { Lead } from "@/types/entities";
 import type { Grafo, Nodo, NodoTipo } from "@/types/workflows";
@@ -83,21 +84,54 @@ async function elegirPrimeraOpcion(placeholder: string): Promise<void> {
 }
 
 /**
+ * Escribe en un `EditorConVariables`: el campo es un `contentEditable`, así que
+ * se agrega al DOM lo que dejaría el navegador —texto, o el chip que inserta
+ * «+ Variable»— y se dispara el `input` que el campo escucha.
+ */
+function escribirEnEditor(nombre: string, partes: ReadonlyArray<string | { variable: string }>) {
+  const campo = screen.getByRole("textbox", { name: nombre });
+  for (const parte of partes) {
+    if (typeof parte === "string") {
+      campo.append(document.createTextNode(parte));
+    } else {
+      const chip = document.createElement("span");
+      chip.setAttribute("contenteditable", "false");
+      chip.dataset.variable = parte.variable;
+      campo.append(chip);
+    }
+  }
+  fireEvent.input(campo);
+}
+
+/**
  * Una receta por tipo del canvas que ejecuta una acción (`ACCION_DE_TIPO`).
  * Las opciones de los selectores son las mismas que le pasa la página real.
  */
 const RECETAS: Readonly<Record<string, Receta>> = {
+  crm_campo: {
+    formulario: (config, onChange) => (
+      <ConfigCRM
+        tipo="crm_campo"
+        config={config}
+        onChange={onChange}
+        tags={TAGS}
+        etapas={ETAPAS}
+        vendedores={[]}
+      />
+    ),
+    completar: async () => {
+      await elegirPrimeraOpcion("Elegí un campo");
+      escribirEnEditor("Nuevo valor", ["Espera el pago"]);
+    },
+    // Sólo el nombre del campo: el valor es un dato de la sesión.
+    efecto: { accion: "actualizar_campo_twin", detalle: { campo: "consulta" } },
+  },
   msg_texto: {
     formulario: (config, onChange) => (
       <ConfigMensajeria tipo="msg_texto" config={config} onChange={onChange} />
     ),
     completar: async () => {
-      fireEvent.change(
-        screen.getByPlaceholderText("Hola {{lead.nombre}}, gracias por escribir..."),
-        {
-          target: { value: TEXTO },
-        },
-      );
+      escribirEnEditor("Mensaje", [TEXTO]);
     },
     efecto: { accion: "enviar_mensaje", detalle: { texto: TEXTO, canal: "wa" } },
   },
@@ -110,7 +144,6 @@ const RECETAS: Readonly<Record<string, Receta>> = {
         tags={TAGS}
         etapas={ETAPAS}
         vendedores={[]}
-        campos={[]}
       />
     ),
     completar: () => elegirPrimeraOpcion("Agregar etiqueta..."),
@@ -125,7 +158,6 @@ const RECETAS: Readonly<Record<string, Receta>> = {
         tags={TAGS}
         etapas={ETAPAS}
         vendedores={[]}
-        campos={[]}
       />
     ),
     completar: () => elegirPrimeraOpcion("Seleccionar etapa"),
@@ -140,7 +172,6 @@ const RECETAS: Readonly<Record<string, Receta>> = {
         tags={TAGS}
         etapas={ETAPAS}
         vendedores={[]}
-        campos={[]}
       />
     ),
     completar: async () => {
@@ -157,13 +188,89 @@ const RECETAS: Readonly<Record<string, Receta>> = {
         target: { value: "seguimiento" },
       });
       fireEvent.click(screen.getByRole("button", { name: /agregar/i }));
-      fireEvent.change(screen.getByRole("textbox", { name: "Valor de la variable 1" }), {
-        target: { value: "{{lead.nombre}}" },
-      });
+      // La variable entra como chip —nunca escrita con llaves—, y se guarda
+      // en el formato que resuelve el motor.
+      escribirEnEditor("Valor de la variable 1", [{ variable: "lead.nombre" }]);
     },
     efecto: {
       accion: "enviar_plantilla",
       detalle: { plantilla: "seguimiento", idioma: "es", parametros: ["Ana"] },
+    },
+  },
+  // En Probar nadie responde: botones y lista mandan, esperan y salen por
+  // «sin respuesta» cuando el reloj virtual vence el tiempo máximo.
+  msg_botones: {
+    formulario: (config, onChange) => (
+      <ConfigMensajeria tipo="msg_botones" config={config} onChange={onChange} />
+    ),
+    completar: async () => {
+      escribirEnEditor("Mensaje", ["¿Te lo reservo?"]);
+      fireEvent.click(screen.getByRole("button", { name: /agregar botón/i }));
+      fireEvent.change(screen.getByRole("textbox", { name: "Texto del botón 1" }), {
+        target: { value: "Sí" },
+      });
+    },
+    efecto: {
+      accion: "enviar_botones",
+      detalle: {
+        tipo: "botones",
+        cuerpo: "¿Te lo reservo?",
+        botones: [{ id: "op1", titulo: "Sí" }],
+      },
+    },
+  },
+  msg_lista: {
+    formulario: (config, onChange) => (
+      <ConfigMensajeria tipo="msg_lista" config={config} onChange={onChange} />
+    ),
+    completar: async () => {
+      escribirEnEditor("Mensaje", ["¿Qué buscás?"]);
+      fireEvent.click(screen.getByRole("button", { name: /agregar sección/i }));
+      fireEvent.change(screen.getByRole("textbox", { name: "Título de la opción 1" }), {
+        target: { value: "Filtro" },
+      });
+    },
+    efecto: {
+      accion: "enviar_lista",
+      detalle: {
+        tipo: "lista",
+        encabezado: null,
+        cuerpo: "¿Qué buscás?",
+        pie: null,
+        boton: "Ver opciones",
+        secciones: [{ titulo: null, filas: [{ id: "op1", titulo: "Filtro", descripcion: null }] }],
+      },
+    },
+  },
+  msg_imagen: {
+    formulario: (config, onChange) => (
+      <ConfigMensajeria tipo="msg_imagen" config={config} onChange={onChange} />
+    ),
+    completar: async () => {
+      fireEvent.change(screen.getByRole("textbox", { name: /url de la imagen/i }), {
+        target: { value: "https://x.test/pieza.jpg" },
+      });
+    },
+    efecto: {
+      accion: "enviar_imagen",
+      detalle: { imagen: "https://x.test/pieza.jpg", caption: null },
+    },
+  },
+  msg_ubicacion: {
+    formulario: (config, onChange) => (
+      <ConfigMensajeria tipo="msg_ubicacion" config={config} onChange={onChange} />
+    ),
+    completar: async () => {
+      fireEvent.change(screen.getByRole("spinbutton", { name: /latitud/i }), {
+        target: { value: "-2.17" },
+      });
+      fireEvent.change(screen.getByRole("spinbutton", { name: /longitud/i }), {
+        target: { value: "-79.92" },
+      });
+    },
+    efecto: {
+      accion: "enviar_ubicacion",
+      detalle: { tipo: "ubicacion", lat: -2.17, lon: -79.92, nombre: null, direccion: null },
     },
   },
   crm_vendedor: {
@@ -175,7 +282,6 @@ const RECETAS: Readonly<Record<string, Receta>> = {
         tags={TAGS}
         etapas={ETAPAS}
         vendedores={VENDEDORES}
-        campos={[]}
       />
     ),
     completar: () => elegirPrimeraOpcion("Seleccionar vendedor"),
@@ -190,7 +296,6 @@ const RECETAS: Readonly<Record<string, Receta>> = {
         tags={TAGS}
         etapas={ETAPAS}
         vendedores={VENDEDORES}
-        campos={[]}
       />
     ),
     completar: () => elegirPrimeraOpcion("Agregar vendedor..."),
@@ -216,13 +321,17 @@ function bloque(id: string, tipo: NodoTipo, config: Config = {}): Nodo {
   return { id, tipo, config, posicion: { x: 0, y: 0 } };
 }
 
-/** Disparador manual → el bloque → Detener. Lo mínimo que "Probar" sabe correr. */
+/**
+ * Disparador manual → el bloque → Detener. Lo mínimo que "Probar" sabe correr.
+ * Todas las salidas del bloque van a Detener: botones y lista tienen una por
+ * opción y «sin respuesta».
+ */
 function flujoCon(nodo: Nodo): Grafo {
   return {
     nodos: [bloque("t", "trigger_manual"), nodo, bloque("fin", "logica_detener")],
     aristas: [
       { desde: "t", hasta: nodo.id, puerto: "salida" },
-      { desde: nodo.id, hasta: "fin", puerto: "salida" },
+      ...puertosDeNodo(nodo).map((puerto) => ({ desde: nodo.id, hasta: "fin", puerto })),
     ],
   };
 }

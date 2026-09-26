@@ -7,6 +7,7 @@ import {
   profundidad,
   reglaIncompleta,
   valorPorDefecto,
+  type Comparador,
   type Grupo,
   type NodoCondicion,
   type Regla,
@@ -102,6 +103,39 @@ export const ArbolCondicionSchema: z.ZodType<Grupo> = GrupoSchema.refine(
   error: `la condición admite hasta ${MAX_FILAS_CONDICION} filas`,
 });
 
+const DIA = /^\d{4}-\d{2}-\d{2}$/;
+
+/** `AAAA-MM-DD` que además es un día que existe: `2026-02-30` no lo es. */
+function esDia(v: string): boolean {
+  if (!DIA.test(v)) return false;
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+}
+
+/**
+ * Lo que una fila completa todavía puede tener mal en un número o una fecha:
+ * un rango al revés no matchea a nadie y nadie se entera; días negativos
+ * matchean a todos.
+ */
+function problemaDeNumeroOFecha(comparador: Comparador, valor: ValorCondicion): string | null {
+  if (valor.tipo === "rango" && valor.desde !== null && valor.hasta !== null) {
+    return valor.desde > valor.hasta ? "el rango empieza después de terminar" : null;
+  }
+  if (valor.tipo === "fecha" && valor.valor !== null && !esDia(valor.valor)) {
+    return `"${valor.valor}" no es una fecha (AAAA-MM-DD)`;
+  }
+  if (valor.tipo === "rangoFecha" && valor.desde !== null && valor.hasta !== null) {
+    for (const v of [valor.desde, valor.hasta]) {
+      if (!esDia(v)) return `"${v}" no es una fecha (AAAA-MM-DD)`;
+    }
+    return valor.desde > valor.hasta ? "el rango empieza después de terminar" : null;
+  }
+  if (comparador === "hace_mas_de" && valor.tipo === "numero" && valor.valor !== null) {
+    return valor.valor < 0 ? "los días no pueden ser negativos" : null;
+  }
+  return null;
+}
+
 /**
  * Lo que le falta a una fila para que el motor la pueda evaluar, o `null`.
  * `fila` es su posición contando sólo filas, de arriba abajo: es como la ve
@@ -122,6 +156,8 @@ function problemaDeRegla(regla: Regla, fila: number): string | null {
     return `la fila ${fila} (${campo}): el valor no corresponde al comparador`;
   }
   if (reglaIncompleta(regla)) return `a la fila ${fila} (${campo}) le falta el valor`;
+  const problemaDeValor = problemaDeNumeroOFecha(regla.comparador, regla.valor);
+  if (problemaDeValor) return `la fila ${fila} (${campo}): ${problemaDeValor}`;
   const opciones = OPCIONES_DE_CAMPO_CONDICION[campo];
   if (
     opciones &&

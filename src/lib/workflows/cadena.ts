@@ -62,16 +62,46 @@ export const MAX_PROFUNDIDAD_CADENA = 5;
  */
 export const MARCA_PROFUNDIDAD_CADENA = "$cadena";
 
-/** Lo que queda en `workflow_runs.error` de la corrida que no arrancó. */
-export const MOTIVO_CADENA_CORTADA =
-  `No arrancó: la cadena de flujos que se disparan entre sí pasó el límite de ` +
+const EXPLICACION_CADENA_CORTADA =
+  `la cadena de flujos que se disparan entre sí pasó el límite de ` +
   `${MAX_PROFUNDIDAD_CADENA} saltos. Probablemente dos flujos se disparan ` +
   `mutuamente (por ejemplo, dos «Vendedor asignado» que reasignan).`;
+
+/** Lo que queda en `workflow_runs.error` de la corrida que no arrancó. */
+export const MOTIVO_CADENA_CORTADA = `No arrancó: ${EXPLICACION_CADENA_CORTADA}`;
+
+/**
+ * Lo que queda en `workflow_runs.error` de la corrida que ya venía corriendo y
+ * se corta al despertar de «Esperar evento». La explicación es la misma que la
+ * de `MOTIVO_CADENA_CORTADA`; cambia el comienzo, porque esta corrida sí
+ * arrancó y el dueño ve sus pasos en el historial.
+ */
+export const MOTIVO_CADENA_CORTADA_AL_DESPERTAR = `Se detuvo al despertar de «Esperar evento»: ${EXPLICACION_CADENA_CORTADA}`;
 
 /** La profundidad de una corrida. Un valor que no sea entero no negativo cuenta como 0. */
 export function profundidadDeContexto(contexto: ContextoRun): number {
   const valor = contexto[MARCA_PROFUNDIDAD_CADENA];
   return typeof valor === "number" && Number.isInteger(valor) && valor >= 0 ? valor : 0;
+}
+
+/**
+ * La profundidad de una corrida que despierta de «Esperar evento»: la mayor
+ * entre la suya y la del evento que la despertó (`undefined` = el evento nació
+ * afuera del motor, o la espera venció por tiempo).
+ *
+ * La mayor y no la del evento a secas: lo que la corrida emita de acá en más
+ * desciende de las dos cadenas —la que la arrancó y la que la despertó—, y con
+ * la mayor la profundidad de una corrida nunca baja. Si bajara, un evento de
+ * afuera que despierta a una corrida de profundidad 4 la devolvería a 0 y la
+ * cadena que la trajo hasta ahí podría seguir otros 5 saltos.
+ */
+export function profundidadAlDespertar(
+  contexto: ContextoRun,
+  delEvento: number | undefined,
+): number {
+  const valida =
+    typeof delEvento === "number" && Number.isInteger(delEvento) && delEvento >= 0 ? delEvento : 0;
+  return Math.max(profundidadDeContexto(contexto), valida);
 }
 
 /** Si un disparo con esta profundidad ya no arranca corridas. */

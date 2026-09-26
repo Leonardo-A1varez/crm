@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { interpolarVariables, type DatosInterpolacion } from "@/lib/workflows/variables";
+import { LARGO_MAXIMO_TEXTO_LIBRE } from "./modelo";
 
 /**
  * Las variables del cuerpo de la plantilla de una difusión (`{{1}}`, `{{2}}`…),
@@ -103,3 +104,34 @@ export function camposUsados(parametros: readonly ParametroPlantilla[]): Set<Cam
   }
   return usados;
 }
+
+// ---------------------------------------------------------------------------
+// El texto libre (PRD §7.3.5): mismas variables, mismo interpolador
+// ---------------------------------------------------------------------------
+
+/** Cualquier `{{ns.campo}}`, conocido o no: es la forma que ve `interpolarVariables`. */
+const VARIABLE_EN_TEXTO = /\{\{\w+\.\w+\}\}/g;
+
+/** Los datos del lead que usa un texto libre: lo que hay que cargar para resolverlo. */
+export function camposEnTexto(texto: string): Set<CampoParametro> {
+  const usados = new Set<CampoParametro>();
+  for (const m of texto.matchAll(VARIABLE_EN_TEXTO)) {
+    const c = campoDeToken(m[0]);
+    if (c) usados.add(c);
+  }
+  return usados;
+}
+
+/**
+ * La versión en texto libre de una difusión. Sólo las variables que el motor
+ * carga (`CAMPOS_PARAMETRO`): otra saldría vacía para todos. Hasta 4096
+ * caracteres, lo que Meta acepta en `text.body`.
+ */
+export const TextoLibreSchema = z
+  .string()
+  .trim()
+  .min(1, "el texto libre no puede quedar vacío")
+  .max(LARGO_MAXIMO_TEXTO_LIBRE, `el texto libre va hasta ${LARGO_MAXIMO_TEXTO_LIBRE} caracteres`)
+  .refine((t) => [...t.matchAll(VARIABLE_EN_TEXTO)].every((m) => campoDeToken(m[0]) !== null), {
+    message: "el texto libre sólo lleva datos del lead de la lista",
+  });

@@ -118,6 +118,8 @@ describe("parseMetaStatuses", () => {
 /** Ningún wamid es de una difusión. */
 const sinDifusion = { aplicarEstadoWebhook: async () => false };
 
+const sinPlantillas = { aplicarEstadoMeta: async () => false };
+
 describe("onStatusReceivedHandler", () => {
   async function conMensaje() {
     const messages = new InMemoryMessagesRepository();
@@ -147,7 +149,7 @@ describe("onStatusReceivedHandler", () => {
         at: "2026-08-10T10:00:00.000Z",
         error: null,
       },
-      { messages, difusion: sinDifusion },
+      { messages, difusion: sinDifusion, plantillasSinSesion: sinPlantillas },
     );
 
     expect(r).toEqual({ aplicado: true, motivo: "ok" });
@@ -162,11 +164,11 @@ describe("onStatusReceivedHandler", () => {
 
     await onStatusReceivedHandler(
       { ...base, estado: "leido", at: "2026-08-10T10:00:02.000Z" },
-      { messages, difusion: sinDifusion },
+      { messages, difusion: sinDifusion, plantillasSinSesion: sinPlantillas },
     );
     await onStatusReceivedHandler(
       { ...base, estado: "entregado", at: "2026-08-10T10:00:01.000Z" },
-      { messages, difusion: sinDifusion },
+      { messages, difusion: sinDifusion, plantillasSinSesion: sinPlantillas },
     );
 
     expect((await messages.findById(msg.id))?.estado_entrega).toBe("leido");
@@ -182,7 +184,7 @@ describe("onStatusReceivedHandler", () => {
         at: "2026-08-10T10:00:00.000Z",
         error: null,
       },
-      { messages, difusion: sinDifusion },
+      { messages, difusion: sinDifusion, plantillasSinSesion: sinPlantillas },
     );
 
     expect(r).toEqual({ aplicado: false, motivo: "mensaje_desconocido" });
@@ -198,12 +200,39 @@ describe("onStatusReceivedHandler", () => {
         at: "2026-08-10T10:00:00.000Z",
         error: "Fuera de la ventana de 24 horas",
       },
-      { messages, difusion: sinDifusion },
+      { messages, difusion: sinDifusion, plantillasSinSesion: sinPlantillas },
     );
 
     const actualizado = await messages.findById(msg.id);
     expect(actualizado?.estado_entrega).toBe("fallido");
     expect(actualizado?.error_entrega).toBe("Fuera de la ventana de 24 horas");
+  });
+
+  // Cuando el lead responde, la plantilla de la difusión se anota en el hilo con
+  // su mismo wamid: desde ahí el estado tiene dos dueños, y los dos se mueven.
+  test("una plantilla de difusión anotada en el hilo actualiza el mensaje Y el envío", async () => {
+    const { messages, msg } = await conMensaje();
+    const llamadas: unknown[] = [];
+    const difusion = {
+      aplicarEstadoWebhook: async (input: unknown) => {
+        llamadas.push(input);
+        return true;
+      },
+    };
+
+    const r = await onStatusReceivedHandler(
+      {
+        meta_message_id: "wamid.abc",
+        estado: "leido",
+        at: "2026-09-25T10:00:00.000Z",
+        error: null,
+      },
+      { messages, difusion, plantillasSinSesion: sinPlantillas },
+    );
+
+    expect(r).toEqual({ aplicado: true, motivo: "difusion" });
+    expect((await messages.findById(msg.id))?.estado_entrega).toBe("leido");
+    expect(llamadas).toHaveLength(1);
   });
 
   test("un wamid de una difusión se aplica a su envío, con el código de Meta", async () => {
@@ -225,7 +254,7 @@ describe("onStatusReceivedHandler", () => {
         error_codigo: "131050",
         error_detalle: "Unable to deliver the message.",
       },
-      { messages, difusion },
+      { messages, difusion, plantillasSinSesion: sinPlantillas },
     );
 
     expect(r).toEqual({ aplicado: true, motivo: "difusion" });
@@ -236,6 +265,39 @@ describe("onStatusReceivedHandler", () => {
         codigo: "131050",
         detalle: "Unable to deliver the message.",
       },
+    ]);
+  });
+
+  // La plantilla que un flujo mandó a un lead sin sesión no está en `mensajes`
+  // hasta que responde: su estado de entrega se guarda en su propia fila.
+  test("aplica el estado a una plantilla de flujo mandada sin sesión", async () => {
+    const messages = new InMemoryMessagesRepository();
+    const llamadas: unknown[] = [];
+    const plantillasSinSesion = {
+      aplicarEstadoMeta: async (...args: unknown[]) => {
+        llamadas.push(args);
+        return true;
+      },
+    };
+    const r = await onStatusReceivedHandler(
+      {
+        meta_message_id: "wamid.wf",
+        estado: "fallido",
+        at: "2026-09-25T10:00:00.000Z",
+        error: "x",
+        error_codigo: "131026",
+        error_detalle: "Message undeliverable",
+      },
+      { messages, difusion: { aplicarEstadoWebhook: async () => false }, plantillasSinSesion },
+    );
+    expect(r).toEqual({ aplicado: true, motivo: "plantilla_sin_sesion" });
+    expect(llamadas).toEqual([
+      [
+        "wamid.wf",
+        "fallido",
+        new Date("2026-09-25T10:00:00.000Z"),
+        { codigo: "131026", detalle: "Message undeliverable" },
+      ],
     ]);
   });
 });

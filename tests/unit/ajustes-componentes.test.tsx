@@ -1,5 +1,5 @@
-import { describe, expect, test } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, expect, test, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
   AvisoLectura,
   DatosEmpresa,
@@ -138,7 +138,7 @@ describe("EscaleraSanciones", () => {
     render(
       <EscaleraSanciones
         escalones={ESCALONES}
-        posicion={{ tipo: "en-escalon", indice: 0, desde: "12/08" }}
+        posicion={{ tipo: "en-escalon", indice: 0, desde: "12/08", inferido: null }}
         envio={{ estado: "disponible" }}
       />,
     );
@@ -156,6 +156,7 @@ describe("TablaNumeros", () => {
       calidad: "alta",
       calidadCruda: "GREEN",
       envio: { estado: "disponible" },
+      rol: "Casilla principal",
       esElConfigurado: true,
     },
     {
@@ -165,12 +166,13 @@ describe("TablaNumeros", () => {
       calidad: "sin-datos",
       calidadCruda: "NA",
       envio: { estado: "sin-dato", motivo: "motivo de envío de prueba" },
+      rol: null,
       esElConfigurado: false,
     },
   ];
 
   test("marca el número del CRM y deja ver el valor crudo de Meta", () => {
-    render(<TablaNumeros numeros={NUMEROS} nota="nota de prueba" />);
+    render(<TablaNumeros numeros={NUMEROS} nota="nota de prueba" guardarRol={null} />);
 
     expect(screen.getAllByText("este CRM")).toHaveLength(1);
     expect(screen.getByText("GREEN")).toBeTruthy();
@@ -178,6 +180,52 @@ describe("TablaNumeros", () => {
     expect(screen.getByText("Puede enviar")).toBeTruthy();
     expect(screen.getByText("motivo de envío de prueba")).toBeTruthy();
     expect(screen.getByText("nota de prueba")).toBeTruthy();
+  });
+
+  test("muestra el rol, y sin permiso de edición no ofrece editarlo", () => {
+    render(<TablaNumeros numeros={NUMEROS} nota={null} guardarRol={null} />);
+
+    expect(screen.getByText("Casilla principal")).toBeTruthy();
+    expect(screen.getByText("sin rol")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Editar el rol/ })).toBeNull();
+  });
+
+  test("un admin edita el rol en el lugar y se manda recortado al servidor", async () => {
+    const guardarRol = vi.fn().mockResolvedValue({ ok: true });
+    render(<TablaNumeros numeros={NUMEROS} nota={null} guardarRol={guardarRol} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Editar el rol de +1 555 0101" }));
+    const campo = screen.getByRole("textbox", { name: "Rol de +1 555 0101" });
+    fireEvent.change(campo, { target: { value: "  Posventa " } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() =>
+      expect(guardarRol).toHaveBeenCalledWith({ phoneNumberId: "102", rol: "Posventa" }),
+    );
+  });
+
+  test("si el servidor rechaza, el error queda a la vista y el campo sigue abierto", async () => {
+    const guardarRol = vi.fn().mockResolvedValue({ ok: false, error: "error de prueba" });
+    render(<TablaNumeros numeros={NUMEROS} nota={null} guardarRol={guardarRol} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Editar el rol de +1 555 0100" }));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("error de prueba");
+    expect(screen.getByRole("textbox", { name: "Rol de +1 555 0100" })).toBeTruthy();
+  });
+
+  test("Escape cancela sin llamar al servidor", () => {
+    const guardarRol = vi.fn();
+    render(<TablaNumeros numeros={NUMEROS} nota={null} guardarRol={guardarRol} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Editar el rol de +1 555 0100" }));
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Rol de +1 555 0100" }), {
+      key: "Escape",
+    });
+
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(guardarRol).not.toHaveBeenCalled();
   });
 });
 
@@ -329,8 +377,11 @@ describe("PanelSalud", () => {
         escalones={ESCALONES}
         posicion={{ tipo: "no-disponible", motivo: "motivo de prueba" }}
         envio={{ estado: "disponible" }}
+        historial={[]}
+        notaHistorial={null}
         notaSanciones="nota de sanciones de prueba"
         numeros={{ estado: "ok", datos: { numeros: [], nota: null } }}
+        guardarRol={null}
         plantillas={{ estado: "ok", datos: { plantillas: [], nota: null } }}
         fuente="fuente de prueba"
       />,
@@ -387,5 +438,89 @@ describe("TopesSeguridad", () => {
     );
     expect(screen.getByText("falla de prueba")).toBeTruthy();
     expect(screen.getAllByText("Siempre activo")).toHaveLength(2);
+  });
+});
+
+describe("EscaleraSanciones — historial y escalón inferido", () => {
+  test("lista lo que mandó Meta, con el evento crudo al lado", () => {
+    render(
+      <EscaleraSanciones
+        escalones={ESCALONES}
+        posicion={{
+          tipo: "en-escalon",
+          indice: 1,
+          desde: "24/09",
+          inferido: "inferencia de prueba",
+        }}
+        envio={{ estado: "disponible" }}
+        historial={[
+          {
+            id: "1",
+            fecha: "mié 24 sep, 10:00",
+            evento: "ACCOUNT_RESTRICTION",
+            titulo: "Meta restringió la cuenta",
+            detalle: "detalle de restricción de prueba",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Meta restringió la cuenta")).toBeTruthy();
+    expect(screen.getByText("ACCOUNT_RESTRICTION")).toBeTruthy();
+    expect(screen.getByText("detalle de restricción de prueba")).toBeTruthy();
+    expect(screen.getByText(/inferencia de prueba/)).toBeTruthy();
+  });
+
+  test("sin sanción dice desde cuándo se escucha a Meta", () => {
+    render(
+      <EscaleraSanciones
+        escalones={ESCALONES}
+        posicion={{ tipo: "sin-sancion", observadoDesde: "lun 1 sep, 10:00" }}
+        envio={{ estado: "disponible" }}
+      />,
+    );
+
+    expect(screen.getByText("sin sanciones")).toBeTruthy();
+    expect(screen.getByText(/lun 1 sep, 10:00/)).toBeTruthy();
+  });
+});
+
+describe("MedidorCupo — uso de los últimos días", () => {
+  const DIAS = ["sáb 19", "dom 20", "lun 21", "mar 22", "mié 23", "jue 24", "vie 25"];
+
+  function conUso(destinatarios: number[], veredicto: "cumplida" | "falta" | "depende") {
+    return cupo({
+      uso: {
+        disponible: true,
+        dias: destinatarios.map((d, i) => ({ etiqueta: DIAS[i] ?? "", destinatarios: d })),
+        totalVentana: destinatarios.reduce((a, b) => a + b, 0),
+        limite: 2000,
+        minimo: 1000,
+        veredicto,
+        noCapturado: "texto de lo no capturado",
+      },
+    });
+  }
+
+  test("dibuja un día por columna, con su cifra, y dice lo que el cálculo no ve", () => {
+    render(<MedidorCupo estado={conUso([0, 10, 20, 30, 40, 50, 1200], "depende")} />);
+
+    for (const dia of DIAS) expect(screen.getByText(dia)).toBeTruthy();
+    expect(screen.getByText("1.200")).toBeTruthy();
+    expect(screen.getByText("texto de lo no capturado")).toBeTruthy();
+    expect(screen.getByRole("table", { name: /destinatarios por día/i })).toBeTruthy();
+  });
+
+  test("cuando depende de cómo mida Meta, no lo pinta ni de verde ni de ámbar", () => {
+    render(<MedidorCupo estado={conUso([0, 0, 0, 0, 0, 0, 1200], "depende")} />);
+
+    expect(screen.getAllByText("sin dato").length).toBeGreaterThan(0);
+    expect(screen.getByText(/depende de cómo lo mida Meta/)).toBeTruthy();
+  });
+
+  test("si falta volumen, el veredicto lo dice", () => {
+    render(<MedidorCupo estado={conUso([10, 10, 10, 10, 10, 10, 10], "falta")} />);
+
+    expect(screen.getByText(/Falta volumen/)).toBeTruthy();
   });
 });

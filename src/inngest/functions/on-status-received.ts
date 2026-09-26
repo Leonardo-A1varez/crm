@@ -1,18 +1,25 @@
 import { inngest } from "@/inngest/client";
 import { statusReceived } from "@/inngest/events";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
+import type { WorkflowPlantillasSinSesionRepository } from "@/server/repositories/workflow-plantillas-sin-sesion.repo";
 import type { MotorDifusionService } from "@/server/services/difusion/motor.service";
 import type { EstadoEntrega } from "@/types/domain";
 
 export interface OnStatusReceivedDeps {
   messages: MessagesRepository;
   /**
-   * Los envíos de difusión no están en `mensajes`: su estado vive en
-   * `difusion_envios` y un fallido puede frenar la difusión o registrar una
+   * El estado de los envíos de difusión vive en `difusion_envios` (en
+   * `mensajes` sólo aparecen si el lead respondió), y un fallido puede frenar la difusión o registrar una
    * baja. Obligatorio: sin él, una difusión quedaría en "aceptado" para
    * siempre y un 131050 no daría de baja a nadie.
    */
   difusion: Pick<MotorDifusionService, "aplicarEstadoWebhook">;
+  /**
+   * Las plantillas que un flujo mandó a un lead sin sesión: viven en su propia
+   * tabla hasta que el lead responde (y ahí también en `mensajes`, con el
+   * mismo wamid). Obligatorio por lo mismo que `difusion`.
+   */
+  plantillasSinSesion: Pick<WorkflowPlantillasSinSesionRepository, "aplicarEstadoMeta">;
 }
 
 export interface OnStatusReceivedInput {
@@ -28,7 +35,7 @@ export interface OnStatusReceivedInput {
 
 export interface OnStatusReceivedResult {
   aplicado: boolean;
-  motivo: "ok" | "difusion" | "mensaje_desconocido";
+  motivo: "ok" | "difusion" | "plantilla_sin_sesion" | "mensaje_desconocido";
 }
 
 export async function onStatusReceivedHandler(
@@ -40,9 +47,12 @@ export async function onStatusReceivedHandler(
     at: new Date(input.at),
     error: input.error,
   });
-  if (actualizado) return { aplicado: true, motivo: "ok" };
 
-  // Una plantilla de difusión no tiene fila en `mensajes`: se busca su envío.
+  // Siempre, y no sólo cuando no hubo mensaje: la plantilla de una difusión
+  // vive en `difusion_envios`, y cuando el lead responde se anota además en el
+  // hilo con el mismo wamid (`respuesta.service.ts`). Desde ahí un "leído" o un
+  // 131050 tardío tiene que llegar igual al envío. Un wamid que no es de una
+  // difusión no hace nada del otro lado.
   const deDifusion = await deps.difusion.aplicarEstadoWebhook({
     wamid: input.meta_message_id,
     estado: input.estado,
@@ -50,6 +60,19 @@ export async function onStatusReceivedHandler(
     detalle: input.error_detalle ?? null,
   });
   if (deDifusion) return { aplicado: true, motivo: "difusion" };
+  // `enviado` es el 200 que ya quedó como aceptado al mandar.
+  if (input.estado !== "enviado") {
+    const deFlujo = await deps.plantillasSinSesion.aplicarEstadoMeta(
+      input.meta_message_id,
+      input.estado,
+      new Date(input.at),
+      input.estado === "fallido"
+        ? { codigo: input.error_codigo ?? null, detalle: input.error_detalle ?? null }
+        : undefined,
+    );
+    if (deFlujo) return { aplicado: true, motivo: "plantilla_sin_sesion" };
+  }
+  if (actualizado) return { aplicado: true, motivo: "ok" };
 
   // Meta reporta estados de mensajes que no salieron de acá —plantillas
   // disparadas desde su consola, por ejemplo—. No es un error ni algo para

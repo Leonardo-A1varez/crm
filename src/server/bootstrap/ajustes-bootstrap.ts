@@ -2,11 +2,16 @@ import { env } from "@/lib/env";
 import { getLogger } from "@/lib/observability/get-logger";
 import { createSupabaseServerClient } from "@/server/auth/supabase-ssr";
 import { SupabaseEmpresasRepository } from "@/server/repositories/empresas.supabase.repo";
+import { SupabaseMetaOperationalEventsRepository } from "@/server/repositories/meta-operational-events.supabase.repo";
+import { SupabaseUsoCupoRepository } from "@/server/repositories/uso-cupo.supabase.repo";
+import { SupabaseWhatsAppNumerosRolRepository } from "@/server/repositories/whatsapp-numeros-rol.supabase.repo";
 import { DefaultEmpresaService } from "@/server/services/empresa/empresa.service";
 import { GraphApiMetaLecturaClient } from "@/server/services/meta/graph-api-lectura";
+import { DefaultRegistrosWhatsAppService } from "@/server/services/meta/registros-whatsapp.service";
 import { DefaultSaludWhatsAppService } from "@/server/services/meta/salud-whatsapp.service";
 import type { AppClient } from "@/server/db/client";
 import type { EmpresaService } from "@/server/services/empresa/empresa.service";
+import type { RegistrosWhatsAppService } from "@/server/services/meta/registros-whatsapp.service";
 import type { SaludWhatsAppService } from "@/server/services/meta/salud-whatsapp.service";
 
 /** Composición pura del service sobre un client dado (authed o service-role en tests). */
@@ -40,5 +45,19 @@ export function getSaludWhatsAppService(): SaludWhatsAppService {
     phoneNumberId: env.META_WHATSAPP_PHONE_NUMBER_ID,
     versionApi: env.META_GRAPH_API_VERSION,
     logger: getLogger({ scope: "meta-salud" }),
+  });
+}
+
+/**
+ * Lo que la salud de WhatsApp saca de la base: account_update guardados, uso
+ * del cupo con los envíos propios y el rol de cada número. Client authed del
+ * request: la RLS decide qué se lee y quién escribe el rol (sólo admin).
+ */
+export async function getRegistrosWhatsAppServiceForRequest(): Promise<RegistrosWhatsAppService> {
+  const db = await createSupabaseServerClient();
+  return new DefaultRegistrosWhatsAppService({
+    eventos: new SupabaseMetaOperationalEventsRepository(db),
+    uso: new SupabaseUsoCupoRepository(db),
+    roles: new SupabaseWhatsAppNumerosRolRepository(db),
   });
 }

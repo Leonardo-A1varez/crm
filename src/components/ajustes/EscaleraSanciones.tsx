@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import type {
   EnvioSegunMeta,
   EscalonSancion,
+  EventoDeSancion,
   PosicionEnEscalera,
 } from "@/components/ajustes/tipos";
 
@@ -24,11 +25,13 @@ function tinte(color: string, pct: number): string {
  *
  * ===================== LO QUE SE SABE Y LO QUE NO =====================
  *
- * Meta no expone el escalón por API: lo avisa por el webhook `account_update`.
- * Mientras esa fuente no exista, la posición llega `no-disponible` y la
- * escalera se dibuja como REFERENCIA —todos los escalones iguales, con lo que
- * se pierde en cada uno— y un recuadro dice que no se sabe dónde está la
- * cuenta. Lo que sí se lee es el `health_status`: si la cuenta puede mandar,
+ * Meta no expone el escalón por API: lo avisa por el webhook `account_update`,
+ * que se guarda en `meta_operational_events`. Mientras no haya llegado ninguno,
+ * la posición llega `no-disponible` y la escalera se dibuja como REFERENCIA
+ * —todos los escalones iguales, con lo que se pierde en cada uno— y un
+ * recuadro dice por qué no se sabe dónde está la cuenta. Cuando el escalón es
+ * una inferencia (Meta no documenta qué restricción es cada bloqueo), se dice
+ * debajo del escalón. Lo que sí se lee es el `health_status`: si la cuenta puede mandar,
  * está limitada o bloqueada. Va en el encabezado, con el texto de Meta.
  *
  * "Sin sanciones" en verde sólo se dibuja si alguien lo sabe. Afirmarlo por no
@@ -49,9 +52,15 @@ export function EscaleraSanciones({
   posicion,
   envio,
   nota,
+  historial = [],
+  notaHistorial = null,
 }: {
   escalones: readonly EscalonSancion[];
   posicion: PosicionEnEscalera;
+  /** Los account_update de política, lo más reciente primero. */
+  historial?: readonly EventoDeSancion[];
+  /** Por qué el historial puede estar incompleto. */
+  notaHistorial?: string | null;
   /** El `health_status` agregado de la cuenta. */
   envio: EnvioSegunMeta;
   /** Lo que la política dice de la escalera en general. Va al pie. */
@@ -113,10 +122,13 @@ export function EscaleraSanciones({
             escalon={escalon}
             lugar={lugarDe(posicion, i)}
             desde={posicion.tipo === "en-escalon" ? posicion.desde : null}
+            inferido={posicion.tipo === "en-escalon" ? posicion.inferido : null}
             ultimo={i === escalones.length - 1}
           />
         ))}
       </ol>
+
+      {historial.length > 0 ? <Historial eventos={historial} nota={notaHistorial} /> : null}
 
       {pie.length > 0 ? (
         <p className="text-ink-ghost text-[10.5px] leading-relaxed text-pretty">{pie}</p>
@@ -145,7 +157,7 @@ function piePorPosicion(posicion: PosicionEnEscalera): string | null {
     case "no-disponible":
       return null;
     case "sin-sancion":
-      return "Meta avisa las infracciones en el Business Support Home, en el administrador de WhatsApp y por el webhook account_update.";
+      return `Ningún account_update de Meta trae una sanción desde el ${posicion.observadoDesde}, cuando llegó el primero. Lo anterior no se sabe desde acá: está en el Business Support Home.`;
     case "en-escalon":
       return "Qué llevó a la cuenta hasta acá lo detalla Meta en el Business Support Home.";
   }
@@ -155,11 +167,13 @@ function Escalon({
   escalon,
   lugar,
   desde,
+  inferido,
   ultimo,
 }: {
   escalon: EscalonSancion;
   lugar: Lugar;
   desde: string | null;
+  inferido: string | null;
   ultimo: boolean;
 }) {
   const esActual = lugar === "actual";
@@ -255,7 +269,62 @@ function Escalon({
         {(esActual || esReferencia) && escalon.apelacion !== null ? (
           <p className="text-ink-ghost font-mono text-[10px]">{escalon.apelacion}</p>
         ) : null}
+
+        {esActual && inferido !== null ? (
+          <p className="text-ink-faint flex items-start gap-1.5 text-[10.5px] leading-relaxed text-pretty">
+            <HelpIcon size={11} strokeWidth={2.25} className="mt-[2px] shrink-0" aria-hidden />
+            <span>Escalón inferido. {inferido}</span>
+          </p>
+        ) : null}
       </div>
     </li>
+  );
+}
+
+/**
+ * Lo que mandó Meta, en orden. La fecha va a la izquierda en mono porque se
+ * lee de arriba abajo como una bitácora, y el `event` crudo a la derecha para
+ * cotejarlo con el Business Support Home sin creerle a la traducción.
+ */
+function Historial({
+  eventos,
+  nota,
+}: {
+  eventos: readonly EventoDeSancion[];
+  nota: string | null;
+}) {
+  return (
+    <section
+      aria-label="Historial de avisos de Meta"
+      className="border-line-row flex flex-col gap-2 border-t pt-3"
+    >
+      <h3 className="text-ink-secondary text-[11px] font-[650]">Lo que avisó Meta</h3>
+      <ol className="flex flex-col">
+        {eventos.map((e) => (
+          <li
+            key={e.id}
+            className="border-line-row grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 border-b py-2 last:border-b-0"
+          >
+            <span className="text-ink-faint font-mono text-[10.5px] leading-snug whitespace-nowrap tabular-nums">
+              {e.fecha}
+            </span>
+            <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span className="text-ink-primary text-[11.5px] leading-snug font-[620] text-pretty">
+                {e.titulo}
+              </span>
+              <span className="text-ink-ghost font-mono text-[9.5px]">{e.evento}</span>
+            </span>
+            {e.detalle !== null ? (
+              <p className="text-ink-faint col-start-2 text-[11px] leading-relaxed text-pretty">
+                {e.detalle}
+              </p>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+      {nota !== null ? (
+        <p className="text-ink-ghost text-[10.5px] leading-relaxed text-pretty">{nota}</p>
+      ) : null}
+    </section>
   );
 }

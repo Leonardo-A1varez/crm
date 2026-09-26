@@ -13,11 +13,14 @@ import {
   esCondicion,
   esEspera,
   esFinal,
+  esSalto,
+  esSwitch,
   esTrigger,
   type Grafo,
   type Nodo,
   type NodoTipo,
 } from "@/types/workflows";
+import { cargaPesada } from "../../helpers/carga-pesada";
 
 /**
  * Fase 0 del PRD de workflows (§12, criterio de §13): "Probar ejecuta el mismo
@@ -47,6 +50,18 @@ function archivosTs(dir: string): string[] {
 function rutaRelativa(archivo: string): string {
   return relative(RAIZ, archivo).split(sep).join("/");
 }
+
+/**
+ * Los `.ts/.tsx` de `src/`, leídos una sola vez para los dos tests que los
+ * revisan. Leerlos es lo caro del archivo: con la máquina cargada pasó los 5 s
+ * del timeout por defecto (medición en `carga-pesada.ts`).
+ */
+const fuentesDeSrc = cargaPesada(() =>
+  archivosTs(SRC).map((archivo) => ({
+    rel: rutaRelativa(archivo),
+    texto: readFileSync(archivo, "utf8"),
+  })),
+);
 
 function nodo(id: string, tipo: NodoTipo, config: Record<string, unknown> = {}): Nodo {
   return { id, tipo, config, posicion: { x: 0, y: 0 } };
@@ -106,10 +121,18 @@ const LEAD: Lead = {
 };
 
 /** El motor resuelve el control de flujo; todo lo demás es una acción del registro. */
-// Las cuatro esperas —incluidas "esperar respuesta" y "esperar evento"— las
-// resuelve el ejecutor, no el registro: nunca llegan a una acción.
+// Las cuatro esperas —incluidas "esperar respuesta" y "esperar evento"—,
+// "Según el valor" e "Ir a" las resuelve el ejecutor, no el registro: nunca
+// llegan a una acción.
 function esControlDeFlujo(tipo: NodoTipo): boolean {
-  return esTrigger(tipo) || esFinal(tipo) || esCondicion(tipo) || esEspera(tipo);
+  return (
+    esTrigger(tipo) ||
+    esFinal(tipo) ||
+    esCondicion(tipo) ||
+    esEspera(tipo) ||
+    esSwitch(tipo) ||
+    esSalto(tipo)
+  );
 }
 
 describe("un solo registro de acciones", () => {
@@ -129,10 +152,8 @@ describe("un solo registro de acciones", () => {
       /implements\s+RegistroDeAcciones\b/,
     ];
     const infractores: string[] = [];
-    for (const archivo of archivosTs(SRC)) {
-      const rel = rutaRelativa(archivo);
+    for (const { rel, texto } of fuentesDeSrc()) {
       if (rel === REGISTRO) continue;
-      const texto = readFileSync(archivo, "utf8");
       for (const patron of patrones) {
         if (patron.test(texto)) infractores.push(`${rel} ~ ${patron.source}`);
       }
@@ -141,9 +162,9 @@ describe("un solo registro de acciones", () => {
   });
 
   it("producción y Probar construyen su registro con la misma fábrica", () => {
-    const usos = archivosTs(SRC)
-      .filter((a) => /\bcrearRegistroDeAcciones\s*\(/.test(readFileSync(a, "utf8")))
-      .map(rutaRelativa)
+    const usos = fuentesDeSrc()
+      .filter(({ texto }) => /\bcrearRegistroDeAcciones\s*\(/.test(texto))
+      .map(({ rel }) => rel)
       .sort();
     expect(usos).toEqual([
       // producción

@@ -125,6 +125,8 @@ function makeDeps(
     intents,
     identificadores,
     supresiones: new InMemoryDifusionSupresionesRepository(),
+    respuestaDifusion: { registrar: async () => null },
+    plantillasSinSesion: { registrar: async () => 0 },
     recordatorios,
     cancelarAvisoRecordatorio: async (input) => {
       cancelacionesRecordatorio.push(input);

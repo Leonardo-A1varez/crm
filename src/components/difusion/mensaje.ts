@@ -1,3 +1,4 @@
+import { seCobraConVentanaAbierta } from "@/lib/difusion/cobro-meta";
 import { CATEGORIA_PLANTILLA } from "./paleta";
 import type {
   AsignacionVariable,
@@ -247,10 +248,25 @@ export function contarSinDato(
   return ids.filter((id) => dato(valoresPorLead[id], campo) === null).length;
 }
 
+/** A cuántos les sale cada cosa, según el planificador. */
+export interface RepartoCosto {
+  /** Ventana abierta y la difusión tiene texto libre: no es una plantilla, no se cobra. */
+  textoLibre: number;
+  /** Ventana abierta y sin texto libre: sale la plantilla. */
+  plantillaEnVentana: number;
+  /** Ventana cerrada: sale la plantilla, siempre. */
+  fueraDeVentana: number;
+}
+
 /**
- * Las dos líneas de costo, en la forma que dibuja `CostoEstimado`. Quien tiene
- * la ventana abierta recibe texto libre y no paga (PRD §7.4, "gratis en vez de
- * paga"); el resto paga la tarifa de la categoría.
+ * Las líneas de costo, en la forma que dibuja `CostoEstimado`.
+ *
+ * El motor manda el texto libre a quien tiene la ventana abierta al mandar, si
+ * la difusión lo tiene; al resto, la plantilla (`motor.service.ts`). El texto
+ * libre dentro de la ventana no se cobra. La plantilla con la ventana abierta
+ * es gratis sólo si es utility: marketing se cobra igual
+ * (`seCobraConVentanaAbierta`, con su fuente). La línea de texto libre sólo
+ * aparece si a alguien le sale.
  *
  * Sin tarifa, lo que se cobra queda en `null` y la línea lo dice: no hay de
  * dónde sacar el precio, y un cero ahí se leería como "gratis". El importe va
@@ -258,17 +274,34 @@ export function contarSinDato(
  */
 export function lineasCostoMensaje(
   categoria: CategoriaPlantilla,
-  porVentanaAbierta: number,
-  porPlantilla: number,
+  reparto: RepartoCosto,
   tarifa: TarifaPlantilla | null,
 ): LineaCosto[] {
   const nombre = CATEGORIA_PLANTILLA[categoria].etiqueta.toLowerCase();
+  const fuente = tarifa ? tarifa.fuente : "sin tarifa";
+  const cobrar = (cantidad: number): number | null =>
+    tarifa ? Math.round(cantidad * tarifa.usdPorMensaje * 100) / 100 : null;
+  const { textoLibre, plantillaEnVentana, fueraDeVentana } = reparto;
+  const ventana: LineaCosto = seCobraConVentanaAbierta(categoria)
+    ? {
+        cantidad: plantillaEnVentana,
+        concepto: `Plantilla de ${nombre} · ventana abierta, se cobra igual · ${fuente}`,
+        usd: cobrar(plantillaEnVentana),
+      }
+    : {
+        cantidad: plantillaEnVentana,
+        concepto: `Plantilla de ${nombre} · ventana abierta, gratis`,
+        usd: 0,
+      };
   return [
-    { cantidad: porVentanaAbierta, concepto: "Ventana de servicio abierta · texto libre", usd: 0 },
+    ...(textoLibre > 0
+      ? [{ cantidad: textoLibre, concepto: "Texto libre · ventana abierta, gratis", usd: 0 }]
+      : []),
+    ventana,
     {
-      cantidad: porPlantilla,
-      concepto: `Plantilla de ${nombre} · ${tarifa ? tarifa.fuente : "sin tarifa"}`,
-      usd: tarifa ? Math.round(porPlantilla * tarifa.usdPorMensaje * 100) / 100 : null,
+      cantidad: fueraDeVentana,
+      concepto: `Plantilla de ${nombre} · fuera de la ventana · ${fuente}`,
+      usd: cobrar(fueraDeVentana),
     },
   ];
 }

@@ -10,6 +10,7 @@ import type { LeadSessionRepository } from "@/server/repositories/lead-session.r
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { MetaApiService } from "@/server/services/meta-api.service";
+import type { EnvioPlantillaSinSesion } from "@/server/services/workflows/plantilla-sin-sesion.service";
 import { cargarDatosInterpolacion } from "@/server/services/workflows/acciones/datos-interpolacion";
 import type { AccionHandler, EntornoAccion } from "./registro";
 import { revisarTopesDeEnvio } from "./topes-de-envio";
@@ -86,6 +87,13 @@ export interface AccionEnviarMensajeDeps {
    * PRD §6.6 dice que no pasa "nunca".
    */
   supresiones?: Pick<DifusionSupresionesRepository, "activasPorTelefonos">;
+  /**
+   * Las plantillas que un flujo mandó a un lead sin sesión (`enviar-plantilla.ts`)
+   * viven fuera de `mensajes` hasta que el lead responde. El tope de
+   * frecuencia las suma: sin esto, un lead perdido podría recibir una
+   * plantilla de cada flujo programado el mismo día.
+   */
+  plantillasSinSesion: Pick<EnvioPlantillaSinSesion, "contarNoAnotadasDesde">;
 }
 
 /**

@@ -22,10 +22,10 @@ const OPCIONES: {
   {
     modo: "dinamica",
     titulo: "Los que califiquen de ahora en más",
-    // Honesto sobre lo que existe: el modo queda guardado, pero nada vuelve a
-    // resolver la audiencia después de programar. El plan es una lista fija.
+    // Lo que hace el motor: antes de cada tanda vuelve a resolver la
+    // audiencia y suma a los nuevos (`AltasDinamicasService`).
     detalle: () =>
-      "Queda anotado que la lista sigue abierta. Hoy nada la vuelve a evaluar después de programar: sale a los mismos que la congelada.",
+      "Antes de cada tanda se vuelve a mirar la audiencia: quien empiece a calificar se suma a las tandas que siguen, hasta que la difusión termina.",
   },
 ];
 

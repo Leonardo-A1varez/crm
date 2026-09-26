@@ -31,6 +31,7 @@ export const DISPARADORES = [
   "inactividad",
   "manual",
   "vendedor_asignado",
+  "difusion_respondida",
 ] as const;
 export type DisparadorWorkflow = (typeof DISPARADORES)[number];
 
@@ -72,6 +73,9 @@ export const DISPARADOR_DE_TIPO: Partial<Record<NodoTipoTrigger, DisparadorWorkf
   // Las acciones "Asignar vendedor" y "Round Robin" de un flujo
   // (`acciones/asignacion.ts`), cuando la sesión cambia de vendedor.
   trigger_vendedor_asignado: "vendedor_asignado",
+  // `on-message-received`, cuando el entrante es la primera respuesta del lead
+  // a una difusión (`services/difusion/respuesta.service.ts`).
+  trigger_difusion_respondida: "difusion_respondida",
 };
 
 /**
@@ -103,6 +107,15 @@ export const ACCIONES = [
   "asignar_vendedor",
   "repartir_round_robin",
   "enviar_plantilla",
+  // Mensajes de servicio de WhatsApp (tanda 4a): sólo con la ventana de 24 h
+  // abierta. Botones y lista esperan la respuesta y salen por la opción.
+  "enviar_botones",
+  "enviar_lista",
+  "enviar_imagen",
+  "enviar_ubicacion",
+  // "Actualizar campo del Twin" (tanda 4b): escribe un campo editable de la
+  // sesión con su procedencia, como «Cambiar etapa».
+  "actualizar_campo_twin",
 ] as const;
 export type AccionWorkflow = (typeof ACCIONES)[number];
 
@@ -125,6 +138,11 @@ export const ACCION_DE_TIPO: Partial<Record<NodoTipo, AccionWorkflow>> = {
   crm_vendedor: "asignar_vendedor",
   crm_round_robin: "repartir_round_robin",
   msg_plantilla: "enviar_plantilla",
+  msg_botones: "enviar_botones",
+  msg_lista: "enviar_lista",
+  msg_imagen: "enviar_imagen",
+  msg_ubicacion: "enviar_ubicacion",
+  crm_campo: "actualizar_campo_twin",
 };
 
 /** Cómo se nombra cada cosa en pantalla. */
@@ -138,6 +156,7 @@ export const ETIQUETA_DISPARADOR: Record<DisparadorWorkflow, string> = {
   inactividad: "Pasa un tiempo sin respuesta",
   manual: "Alguien lo dispara a mano",
   vendedor_asignado: "Se le asigna un vendedor",
+  difusion_respondida: "Responde una difusión",
 };
 
 export const ETIQUETA_ACCION: Record<AccionWorkflow, string> = {
@@ -148,6 +167,11 @@ export const ETIQUETA_ACCION: Record<AccionWorkflow, string> = {
   asignar_vendedor: "Asignar un vendedor",
   repartir_round_robin: "Repartir entre vendedores",
   enviar_plantilla: "Enviar una plantilla de WhatsApp",
+  enviar_botones: "Enviar un mensaje con botones",
+  enviar_lista: "Enviar un mensaje de lista",
+  enviar_imagen: "Enviar una imagen",
+  enviar_ubicacion: "Enviar una ubicación",
+  actualizar_campo_twin: "Actualizar un campo del Twin",
 };
 
 export const ETIQUETA_NODO: Record<NodoTipo, string> = {
@@ -169,6 +193,7 @@ export const ETIQUETA_NODO: Record<NodoTipo, string> = {
   trigger_vendedor_asignado: "Vendedor asignado",
   trigger_inactividad: "Inactividad",
   trigger_formulario: "Formulario",
+  trigger_difusion_respondida: "Difusión respondida",
   // Mensajería (8)
   msg_texto: "Enviar mensaje",
   msg_botones: "Mensaje con botones",
@@ -184,7 +209,7 @@ export const ETIQUETA_NODO: Record<NodoTipo, string> = {
   crm_etapa: "Cambiar etapa",
   crm_vendedor: "Asignar vendedor",
   crm_round_robin: "Round Robin",
-  crm_campo: "Actualizar campo",
+  crm_campo: "Actualizar campo del Twin",
   crm_tarea: "Crear tarea",
   crm_nota: "Agregar nota",
   crm_spam: "Marcar spam",
@@ -192,14 +217,14 @@ export const ETIQUETA_NODO: Record<NodoTipo, string> = {
   crm_escalar_humano: "Escalar a humano",
   // Lógica (11)
   logica_condicion: "Condición (IF)",
-  logica_switch: "Switch",
+  logica_switch: "Según el valor",
   logica_validacion: "Validación",
   logica_esperar: "Esperar tiempo",
   logica_esperar_respuesta: "Esperar respuesta",
   logica_esperar_evento: "Esperar evento",
   logica_loop: "Loop",
   logica_grupo: "Agrupar",
-  logica_goto: "Ir a nodo",
+  logica_goto: "Ir a",
   logica_detener: "Detener",
   logica_error: "Error handler",
   // Integraciones (6)
@@ -223,10 +248,17 @@ export const ETIQUETA_NODO: Record<NodoTipo, string> = {
   int_notif_grupo: "Notificar grupo",
   int_comentario: "Comentario interno",
   int_debug: "Log/Debug",
+  // Difusión (5)
+  dif_audiencia: "Definir audiencia",
+  dif_enviar: "Enviar difusión",
+  dif_excluir: "Excluir",
+  dif_esperar_respuesta: "Esperar respuesta de difusión",
+  dif_dividir: "Dividir audiencia",
 };
 
 export const ETIQUETA_PUERTO: Record<string, string> = {
   salida: "sigue",
   verdadero: "si se cumple",
   falso: "si no se cumple",
+  sin_respuesta: "si no responde a tiempo",
 };

@@ -102,6 +102,8 @@ function makeDeps(
     intents,
     identificadores: new InMemoryLeadIdentificadoresRepository(),
     supresiones: new InMemoryDifusionSupresionesRepository(),
+    respuestaDifusion: { registrar: async () => null },
+    plantillasSinSesion: { registrar: async () => 0 },
     configProvider,
     emit: async (e) => {
       emitted.push(e);
@@ -147,7 +149,13 @@ describe("on-message-received — disparo mensaje_recibido", () => {
           leadSessionId: r.sessionId,
           contexto: {
             lead: { etapa: "nuevo", nombre: "Ana", canal: "wa" },
-            sesion: { tiene_cotizacion: false, respondio: true },
+            // El clasificador no reconoció ningún intent: el turno no tiene.
+            sesion: {
+              tiene_cotizacion: false,
+              respondio: true,
+              intent: null,
+              intent_mensaje_at: inbound.created_at.toISOString(),
+            },
           },
           datos: { canal: "wa", tipoMensaje: "text", texto: "¿tienen pastillas de freno?" },
         },
@@ -178,6 +186,67 @@ describe("on-message-received — disparo mensaje_recibido", () => {
 
     expect(r.sent).toBe(false);
     expect(disparos(local.emitted, "mensaje_recibido")).toHaveLength(1);
+  });
+});
+
+describe("on-message-received — el disparo lleva el intent de su turno", () => {
+  // La carrera: el disparo salía antes de clasificar, y la condición "Intent
+  // detectado" leía de la base el turno ANTERIOR (este se escribe después de
+  // que contesta el agente).
+  test("sale después de clasificar, con el id del intent y la hora del mensaje", async () => {
+    const ctx = makeDeps();
+    const precio = await ctx.intents.create({
+      nombre: "precio",
+      descripcion: "",
+      ejemplos: [],
+      auto_detectado: false,
+      activo: true,
+    });
+    ctx.intentLLM.enqueue({ intent_nombre: "precio", confidence: 0.9 });
+    ctx.agentLLM.enqueueText("ok");
+
+    const r = await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+
+    const inbound = (await ctx.messages.listByConversacion(r.conversacionId)).find(
+      (m) => m.direction === "in",
+    )!;
+    const [d] = disparos(ctx.emitted, "mensaje_recibido");
+    expect(d?.data.contexto.sesion).toMatchObject({
+      intent: precio.id,
+      intent_mensaje_at: inbound.created_at.toISOString(),
+    });
+  });
+
+  test("si la clasificación falla, dispara igual (sin intent) y el turno sigue fallando", async () => {
+    const ctx = makeDeps();
+    const falla = new Error("clasificador caído");
+    ctx.deps.intentClassifier = {
+      classify: async () => {
+        throw falla;
+      },
+    };
+
+    await expect(onMessageReceivedHandler({ parsed: parsed() }, ctx.deps)).rejects.toBe(falla);
+
+    const ds = disparos(ctx.emitted, "mensaje_recibido");
+    expect(ds).toHaveLength(1);
+    expect(ds[0]?.data.contexto.sesion).toMatchObject({ intent: null });
+  });
+
+  test("fuera de horario no clasifica: dispara con el turno sin intent", async () => {
+    const local = makeDeps(
+      new StaticAgentConfigProvider({
+        ...CONFIG_DE_FABRICA,
+        horario: horarioCerradoSiempre(),
+        plantilla_fuera_horario: "",
+      }),
+    );
+
+    await onMessageReceivedHandler({ parsed: parsed() }, local.deps);
+
+    expect(local.intentLLM.calls).toHaveLength(0);
+    const [d] = disparos(local.emitted, "mensaje_recibido");
+    expect(d?.data.contexto.sesion).toMatchObject({ intent: null });
   });
 });
 
@@ -226,6 +295,7 @@ describe("on-message-received — disparo lead_creado", () => {
 describe("on-message-received — disparo etiqueta_asignada", () => {
   let ctx: ReturnType<typeof makeDeps>;
   let tagId: string;
+  let intentId: string;
 
   beforeEach(async () => {
     ctx = makeDeps();
@@ -242,6 +312,7 @@ describe("on-message-received — disparo etiqueta_asignada", () => {
       descripcion: null,
     });
     tagId = tag.id;
+    intentId = intent.id;
     await ctx.reglasEtiqueta.create({
       intent_id: intent.id,
       tag_id: tag.id,
@@ -273,6 +344,22 @@ describe("on-message-received — disparo etiqueta_asignada", () => {
     });
   });
 
+  // La misma carrera que «Mensaje recibido»: la base recién tiene el intent
+  // cuando contesta el agente, y una condición «Intent detectado» en un flujo
+  // de «Etiqueta asignada» leería el turno anterior.
+  test("el disparo lleva el intent del turno que puso la etiqueta", async () => {
+    const r = await turno("wamid.IN-1");
+
+    const inbound = (await ctx.messages.listByConversacion(r.conversacionId)).find(
+      (m) => m.direction === "in",
+    )!;
+    const [d] = disparos(ctx.emitted, "etiqueta_asignada");
+    expect(d?.data.contexto.sesion).toMatchObject({
+      intent: intentId,
+      intent_mensaje_at: inbound.created_at.toISOString(),
+    });
+  });
+
   test("una etiqueta que el lead ya tenía no vuelve a disparar en el mensaje siguiente", async () => {
     await turno("wamid.IN-1");
     await turno("wamid.IN-2");
@@ -287,5 +374,47 @@ describe("on-message-received — disparo etiqueta_asignada", () => {
     await turno("wamid.IN-2");
 
     expect(disparos(ctx.emitted, "etiqueta_asignada")).toHaveLength(1);
+  });
+});
+
+describe("on-message-received — respuesta a botones o lista", () => {
+  type Respuesta = Extract<EmittedEvent, { name: "workflow/respuesta.interactiva" }>;
+  const respuestas = (emitted: EmittedEvent[]) =>
+    emitted.filter((e): e is Respuesta => e.name === "workflow/respuesta.interactiva");
+  // Fuera de horario: el agente no corre, y lo que se prueba es el aviso al flujo.
+  const sinAgente = () =>
+    makeDeps(
+      new StaticAgentConfigProvider({
+        ...CONFIG_DE_FABRICA,
+        horario: horarioCerradoSiempre(),
+        plantilla_fuera_horario: "",
+      }),
+    );
+
+  test("emite la opción elegida, del lead y del mensaje al que responde", async () => {
+    const ctx = sinAgente();
+    const r = await onMessageReceivedHandler(
+      {
+        parsed: parsed({
+          meta_message_id: "wamid.IN-OPC",
+          contenido: "Sí",
+          respuesta_interactiva: { id: "si", titulo: "Sí", responde_a: "wamid.OUT-1" },
+        }),
+      },
+      ctx.deps,
+    );
+    expect(respuestas(ctx.emitted)).toEqual([
+      {
+        name: "workflow/respuesta.interactiva",
+        id: "respuesta-interactiva:wamid.IN-OPC",
+        data: { leadId: r.leadId, respondeA: "wamid.OUT-1", opcionId: "si", titulo: "Sí" },
+      },
+    ]);
+  });
+
+  test("un texto común no emite nada de esto", async () => {
+    const ctx = sinAgente();
+    await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+    expect(respuestas(ctx.emitted)).toEqual([]);
   });
 });

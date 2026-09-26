@@ -49,6 +49,8 @@ import { SupabaseAgenteConfigRepository } from "@/server/repositories/agente-con
 import { SupabaseLlmUsageRepository } from "@/server/repositories/llm-usage.supabase.repo";
 import { SupabaseWorkflowsRepository } from "@/server/repositories/workflows.supabase.repo";
 import { SupabaseWorkflowRunsRepository } from "@/server/repositories/workflow-runs.supabase.repo";
+import { SupabaseCondicionWorkflowRepository } from "@/server/repositories/condicion-workflow.supabase.repo";
+import { camposVivosDeCondicion } from "@/server/services/workflows/campos-vivos";
 import { SupabaseUsersRepository } from "@/server/repositories/users.supabase.repo";
 
 import { makeCostTracker } from "@/lib/observability/upstash-cost-tracker";
@@ -69,7 +71,11 @@ import {
   makeEmitirDisparoWorkflow,
   makeInngestEmitForOutbox,
 } from "@/inngest/callbacks/emit";
-import { recordatorioCancelado, workflowSegmentoPendiente } from "@/inngest/events";
+import {
+  recordatorioCancelado,
+  workflowCorridaCancelada,
+  workflowSegmentoPendiente,
+} from "@/inngest/events";
 import { makePurgeSession } from "@/inngest/callbacks/purge-session";
 import { makeSendReactivation } from "@/inngest/callbacks/send-reactivation";
 import {
@@ -82,13 +88,21 @@ import { DefaultAsignacionService } from "@/server/services/asignacion/asignacio
 import { DefaultUsuariosService } from "@/server/services/usuarios/usuarios.service";
 
 import { crearRegistroDeAcciones } from "@/server/services/workflows/acciones/registro";
+import { SupabaseImagenesDeFlujoRepository } from "@/server/repositories/imagenes-de-flujo.supabase.repo";
 import type { ConfigProviderParaEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
 import { SupabaseMetaOperationalEventsRepository } from "@/server/repositories/meta-operational-events.supabase.repo";
 import { SupabaseDifusionAudienciaRepository } from "@/server/repositories/difusion-audiencia.supabase.repo";
 import { SupabaseDifusionEnviosRepository } from "@/server/repositories/difusion-envios.supabase.repo";
 import { SupabaseDifusionesRepository } from "@/server/repositories/difusiones.supabase.repo";
 import { cargarDatosDelLeadParaDifusion } from "@/server/services/difusion/datos-lead";
+import { DefaultAltasDinamicasService } from "@/server/services/difusion/altas-dinamicas.service";
 import { DefaultMotorDifusionService } from "@/server/services/difusion/motor.service";
+import { DefaultRespuestaDifusionService } from "@/server/services/difusion/respuesta.service";
+import { SupabaseWorkflowPlantillasSinSesionRepository } from "@/server/repositories/workflow-plantillas-sin-sesion.supabase.repo";
+import {
+  DefaultAnotarPlantillasSinSesion,
+  DefaultEnvioPlantillaSinSesion,
+} from "@/server/services/workflows/plantilla-sin-sesion.service";
 import { topeDesdeLimite } from "@/server/services/difusion/tope";
 import { GraphApiMetaLecturaClient } from "@/server/services/meta/graph-api-lectura";
 import {
@@ -251,9 +265,18 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
         error: error instanceof Error ? error.message : String(error),
       }),
   });
+  // Las plantillas de un flujo a un lead sin sesión ("Reactivar perdidos"):
+  // salen por el cliente de Meta con reserva propia, como la difusión, y
+  // entran al hilo cuando el lead responde.
+  const plantillasSinSesionRepo = new SupabaseWorkflowPlantillasSinSesionRepository(db);
+  const plantillasSinSesion = new DefaultEnvioPlantillaSinSesion({
+    repo: plantillasSinSesionRepo,
+    meta: metaClient,
+  });
   // EL registro de acciones: el mismo que corre "Probar", ahí con los efectos
   // interceptados (`correrPrueba`). No se arma otro en ningún lado.
   const registroDeAcciones = crearRegistroDeAcciones({
+    plantillasSinSesion,
     tags,
     sessions,
     handoff,
@@ -267,6 +290,8 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     asignacion,
     avisos: makeAvisosDeAsignacion(makeEmitirDisparoWorkflow(inngest)),
     candadoReparto,
+    // "Enviar imagen" subida desde el panel: se firma al mandar.
+    imagenesDeFlujo: new SupabaseImagenesDeFlujoRepository(db),
   });
 
   // ===== Callbacks =====
@@ -305,15 +330,53 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     return saludCache.lectura;
   };
   const difusionAudiencia = new SupabaseDifusionAudienciaRepository(db);
+  const difusionesRepo = new SupabaseDifusionesRepository(db);
+  const difusionEnvios = new SupabaseDifusionEnviosRepository(db);
+  // La respuesta a una difusión anota la plantilla en el hilo de la sesión que
+  // abre (el motor la mandó sin sesión).
+  const respuestaDifusion = new DefaultRespuestaDifusionService({
+    envios: difusionEnvios,
+    difusiones: difusionesRepo,
+    messages,
+    sessions,
+  });
+  const leerTopeDifusion = async () => topeDesdeLimite((await leerSalud()).limite);
+  // La audiencia dinámica: antes de cada tanda, los que empezaron a coincidir
+  // pasan por el planificador y se suman a la cola.
+  const altasDinamicas = new DefaultAltasDinamicasService({
+    audiencia: difusionAudiencia,
+    envios: difusionEnvios,
+    supresiones,
+    leerTopeMensajeria: leerTopeDifusion,
+    leerMaxSalientes24h: async () =>
+      (await agenteConfigProvider.get()).max_salientes_automaticos_24h,
+    logger: logger.child({ scope: "difusion-altas" }),
+  });
   const motorDifusion = new DefaultMotorDifusionService({
-    difusiones: new SupabaseDifusionesRepository(db),
-    envios: new SupabaseDifusionEnviosRepository(db),
+    difusiones: difusionesRepo,
+    envios: difusionEnvios,
     supresiones,
     usoCupoDesde: (desde) => difusionAudiencia.usoCupoDesde(desde),
     meta: metaClient,
-    leerTopeMensajeria: async () => topeDesdeLimite((await leerSalud()).limite),
+    // El texto libre a quien tiene sesión activa sale por el hilo (Inbox).
+    metaApi,
+    hiloActivo: async (leadId) => {
+      const [sesion, convs] = await Promise.all([
+        sessions.findActiveByLeadId(leadId),
+        conversations.findByLeadId(leadId),
+      ]);
+      const wa = convs.filter((c) => c.canal === "wa");
+      // La de actividad más reciente: es donde vive la conversación del número.
+      wa.sort((a, b) => b.ultima_actividad_at.getTime() - a.ultima_actividad_at.getTime());
+      const conv = wa[0];
+      return sesion && conv ? { conversacionId: conv.id, leadSessionId: sesion.id } : null;
+    },
+    altas: altasDinamicas,
+    leerTopeMensajeria: leerTopeDifusion,
     datosDelLead: (leadId, campos) =>
       cargarDatosDelLeadParaDifusion({ leads, vehiculos, sessions }, leadId, campos),
+    estadoConversacional: (leadIds, entranteDesde) =>
+      difusionAudiencia.estadoConversacional(leadIds, entranteDesde),
     esperar: (ms) => new Promise((resolver) => setTimeout(resolver, ms)),
     logger: logger.child({ scope: "difusion-motor" }),
   });
@@ -352,6 +415,11 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       identificadores,
       // "BAJA"/"SALIR"/"PARAR"/"SAIR" solos dejan una baja propia de Difusión.
       supresiones,
+      respuestaDifusion,
+      plantillasSinSesion: new DefaultAnotarPlantillasSinSesion({
+        repo: plantillasSinSesionRepo,
+        messages,
+      }),
       // Apaga el seguimiento apenas el cliente vuelve a escribir.
       recordatorios,
       cancelarAvisoRecordatorio: async (input) => {
@@ -370,6 +438,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     onStatusReceived: {
       messages,
       difusion: motorDifusion,
+      plantillasSinSesion: plantillasSinSesionRepo,
     },
     onOperationalReceived: {
       eventos: new SupabaseMetaOperationalEventsRepository(db),
@@ -439,6 +508,15 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
           id: `workflow-segmento-pendiente:${runId}:${desdePaso}`,
         });
       },
+      // Mismo evento y mismo id que "Cancelar corrida" (`workflows-bootstrap`):
+      // una corrida se cancela una sola vez.
+      emitirCancelacion: async (runId) => {
+        await inngest.send({
+          name: workflowCorridaCancelada.name,
+          data: { runId },
+          id: `workflow-corrida-cancelada:${runId}`,
+        });
+      },
       logger,
     },
     workflowSegmento: {
@@ -448,6 +526,15 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       // "Esperar respuesta": al vencer, confirma que el lead no escribió en el
       // hueco antes de que la espera quedara registrada.
       conversaciones: makeConversationsParaEnviarMensaje({ conversations, messages }),
+      // Botones o lista: al vencer, busca en el hilo una respuesta que haya
+      // llegado en ese mismo hueco.
+      respuestasInteractivas: messages,
+      // Intent, etiquetas, vehículo… se leen al evaluar la condición, y las
+      // fechas en la zona del negocio.
+      camposVivos: camposVivosDeCondicion(
+        new SupabaseCondicionWorkflowRepository(db),
+        agenteConfigProvider,
+      ),
       logger,
     },
     workflowProgramados: { workflows, sessions, leads, logger },

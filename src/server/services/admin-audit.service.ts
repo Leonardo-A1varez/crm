@@ -22,6 +22,7 @@ export const ADMIN_ACTIONS = {
   TAG_CREATE: "tag.create",
   TAG_UPDATE: "tag.update",
   TAG_DELETE: "tag.delete",
+  WORKFLOW_RUN_CANCEL: "workflow_run.cancel",
 } as const;
 
 export type AdminActionName = (typeof ADMIN_ACTIONS)[keyof typeof ADMIN_ACTIONS] | string;

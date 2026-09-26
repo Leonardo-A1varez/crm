@@ -41,7 +41,6 @@ function salud(parcial: Partial<SaludWhatsApp> = {}): SaludWhatsApp {
     versionApi: "v21.0",
     estadoDeEnvio: { estado: "ok", valor: { puedeEnviar: "AVAILABLE", entidades: [] } },
     limite: { estado: "ok", valor: { crudo: "TIER_2000", destinatarios: 2000 } },
-    usoDelLimite: { estado: "no-expuesto", motivo: "Meta no expone el uso del límite." },
     numeros: {
       estado: "ok",
       valor: {
@@ -90,7 +89,6 @@ function salud(parcial: Partial<SaludWhatsApp> = {}): SaludWhatsApp {
         limite: 100,
       },
     },
-    sancion: { estado: "no-expuesto", motivo: "Meta no expone el escalón de sanción." },
     ...parcial,
   };
 }
@@ -351,6 +349,7 @@ describe("vistaEnvio", () => {
       plantillaCategoria: "marketing",
       plantillaIdioma: "es",
       plantillaParametros: [],
+      textoLibre: null,
       incluirEnNegociacion: false,
       exentaTopeFrecuencia: false,
       canaryTamano: 20,
@@ -383,7 +382,106 @@ describe("vistaEnvio", () => {
       { codigo: "131049", cantidad: 2 },
       { codigo: "999", cantidad: 1 },
     ],
+    respuestas: {
+      total: 3,
+      recientes: [
+        {
+          leadId: "l1",
+          nombre: "Marcela",
+          texto: "¿tenés pastillas?",
+          tipo: "text",
+          respondidoAt: "2026-09-15T13:56:00.000Z",
+        },
+        {
+          leadId: "l2",
+          nombre: null,
+          texto: null,
+          tipo: null,
+          respondidoAt: "2026-09-15T11:00:00.000Z",
+        },
+      ],
+    },
+    // 600 en 5 minutos = 2 por segundo.
+    avance: {
+      reservadosEnVentana: 600,
+      ventanaMs: 300_000,
+      calculadoAt: "2026-09-15T14:00:00.000Z",
+    },
+    muestra: {
+      tamano: 20,
+      salioAt: "2026-09-14T13:10:00.000Z",
+      continuadaAt: "2026-09-14T13:30:00.000Z",
+      conteo: [
+        { estado: "entregado", codigo: null, cantidad: 15 },
+        { estado: "leido", codigo: null, cantidad: 2 },
+        { estado: "fallido", codigo: "131050", cantidad: 2 },
+        { estado: "fallido", codigo: "131026", cantidad: 1 },
+      ],
+    },
+    altasDinamicas: 0,
   };
+
+  it("con la audiencia congelada no hay bloque de altas; con la dinámica, cuántas entraron", () => {
+    expect(vistaEnvio(DETALLE, TZ).audienciaDinamica).toBeNull();
+    const dinamica = vistaEnvio(
+      {
+        ...DETALLE,
+        difusion: { ...DETALLE.difusion, audienciaModo: "dinamica" },
+        altasDinamicas: 7,
+      },
+      TZ,
+    );
+    expect(dinamica.audienciaDinamica).toEqual({ altas: 7 });
+  });
+
+  it("dice en qué tanda va, a qué ritmo, y cuándo termina si el ritmo se sostiene", () => {
+    const v = vistaEnvio(DETALLE, TZ);
+    expect(v.tandaActual).toEqual({ numero: 2, de: 2 });
+    expect(v.ritmo.porSegundo).toBe(2);
+    // La tanda 2 arranca el 15/09 13:00, ya pasó: 40 en cola a 2/s = 20 s desde ahora.
+    expect(v.ritmo.finEstimado).toBe(fecha("2026-09-15T14:00:20.000Z"));
+  });
+
+  it("sin ritmo medido no inventa el fin: dice cuándo arranca la última tanda", () => {
+    const v = vistaEnvio({ ...DETALLE, avance: { ...DETALLE.avance, reservadosEnVentana: 0 } }, TZ);
+    expect(v.ritmo).toEqual({
+      porSegundo: null,
+      finEstimado: null,
+      ultimaTandaDesde: fecha("2026-09-15T13:00:00.000Z"),
+    });
+  });
+
+  it("lista las respuestas con hace cuánto, y cuenta el total", () => {
+    const v = vistaEnvio(DETALLE, TZ);
+    expect(v.respuestas.total).toBe(3);
+    expect(v.respuestas.recientes).toEqual([
+      {
+        clave: "l1-2026-09-15T13:56:00.000Z",
+        nombre: "Marcela",
+        texto: "¿tenés pastillas?",
+        hace: "hace 4 min",
+      },
+      { clave: "l2-2026-09-15T11:00:00.000Z", nombre: null, texto: null, hace: "hace 3 h" },
+    ]);
+  });
+
+  it("resume la muestra: cuándo salió, qué llegó, qué falló, bajas de Meta y cuándo se siguió", () => {
+    const v = vistaEnvio(DETALLE, TZ);
+    expect(v.muestra).toEqual({
+      tamano: 20,
+      salioA: fecha("2026-09-14T13:10:00.000Z"),
+      continuadaA: fecha("2026-09-14T13:30:00.000Z"),
+      llegaron: 17,
+      aceptados: 0,
+      fallidos: 3,
+      bajasMeta: 2,
+    });
+  });
+
+  it("las exclusiones por motivo, sólo las que tienen alguien", () => {
+    const v = vistaEnvio(DETALLE, TZ);
+    expect(v.exclusionesPorMotivo).toEqual([{ motivo: "baja_propia", cantidad: 10 }]);
+  });
 
   it("cuenta los destinatarios sin los excluidos y separa los seis estados", () => {
     const v = vistaEnvio(DETALLE, TZ);
@@ -472,6 +570,7 @@ describe("vistaAlcance", () => {
     audienciaInicial: 120,
     destinatarios: 90,
     porRuta: { ventana_abierta: 30, plantilla: 60 },
+    porContenido: { texto_libre: 12, plantilla: 78 },
     exclusiones: MOTIVO_EXCLUSION.map((m) => ({
       motivo: m,
       cantidad: m === "baja_propia" ? 30 : 0,
@@ -499,6 +598,7 @@ describe("vistaAlcance", () => {
         telefono: "+593 ••• ••• 214",
         vehiculo: null,
         ruta: "plantilla",
+        contenido: "plantilla",
         tanda: 0,
         diff: null,
       },
@@ -520,6 +620,7 @@ describe("vistaAlcance", () => {
       exclusiones: ALCANCE.exclusiones,
       porVentanaAbierta: 30,
       porPlantilla: 60,
+      porTextoLibre: 12,
       muestra: ALCANCE.muestra,
       categoriaSupuesta: true,
     });

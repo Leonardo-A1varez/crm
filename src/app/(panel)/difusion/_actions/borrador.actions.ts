@@ -38,7 +38,7 @@ export async function guardarBorradorAction(raw: unknown): Promise<ResultadoAcci
   const { id, ...patch } = parsed.data;
   try {
     const svc = await getDifusionServiceForRequest();
-    await svc.guardarBorrador(id, patch);
+    await svc.guardarBorrador(id, patch, admin.usuarioId);
     revalidatePath("/difusion");
     revalidatePath(`/difusion/${id}`);
     return { ok: true, datos: null };

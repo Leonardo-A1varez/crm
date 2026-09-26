@@ -33,6 +33,8 @@ function resumen(over: Partial<WorkflowResumen> & { estado: WorkflowEstado }): W
     tieneVersionBorrador: false,
     versionPublicada: 1,
     resumenPasos: [],
+    disparadorTipo: null,
+    disparoManualPublicado: false,
     metricas: { totalRuns: 0, runsExitosos: 0, ultimoRun: null },
     ultimaEdicion: new Date("2026-08-01T00:00:00Z"),
     ...over,
@@ -40,6 +42,21 @@ function resumen(over: Partial<WorkflowResumen> & { estado: WorkflowEstado }): W
 }
 
 describe("aFlujoEnLista", () => {
+  it("trae el disparador con su nombre e ícono, y si se puede disparar a mano", () => {
+    const manual = aFlujoEnLista(
+      resumen({ estado: "activo", disparadorTipo: "trigger_manual", disparoManualPublicado: true }),
+      AHORA,
+      0,
+    );
+    expect(manual.disparador?.nombre).toBe("Manual");
+    expect(manual.disparador?.icono).toBeDefined();
+    expect(manual.disparaAMano).toBe(true);
+
+    const sinDisparador = aFlujoEnLista(resumen({ estado: "borrador" }), AHORA, 0);
+    expect(sinDisparador.disparador).toBeNull();
+    expect(sinDisparador.disparaAMano).toBe(false);
+  });
+
   it("une los pasos con flechas y deja un texto legible cuando no hay ninguno", () => {
     const conPasos = aFlujoEnLista(
       resumen({ estado: "activo", resumenPasos: ["Mensaje recibido", "Enviar mensaje"] }),

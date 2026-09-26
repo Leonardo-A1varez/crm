@@ -30,6 +30,20 @@ export interface ParsedOperationalEvent {
   ocurrido_at: Date | null;
 }
 
+/**
+ * Lo que eligió el lead en un mensaje con botones o de lista. Meta lo manda
+ * como `type: "interactive"` con `button_reply`/`list_reply` y, en `context.id`,
+ * el wamid del mensaje al que responde: es lo que ata la respuesta a ESE envío
+ * y no a otro anterior del mismo flujo.
+ */
+export interface RespuestaInteractiva {
+  /** El id de la opción, tal como lo mandó el CRM al armar el mensaje. */
+  id: string;
+  titulo: string;
+  /** `context.id`: el wamid del saliente respondido. `null` si no vino. */
+  responde_a: string | null;
+}
+
 export interface ParsedMessage {
   canal: Canal;
   canal_thread_id: string;
@@ -49,6 +63,8 @@ export interface ParsedMessage {
   nombre_perfil: string | null;
   /** Hora original de Meta; ausente o inválida queda en null. */
   platform_created_at?: Date | null;
+  /** Sólo si el mensaje es la respuesta a un mensaje con botones o de lista. */
+  respuesta_interactiva?: RespuestaInteractiva;
   raw: Record<string, unknown>;
 }
 
@@ -183,10 +199,16 @@ function waMessage(
   const type = asString(m.type);
   if (!from || !id || !type) return null;
 
-  const tipo = waTipo(type);
+  // La respuesta a botones o a una lista entra como texto: el título elegido
+  // es lo que el lead "dijo", y así lo ven el hilo, el clasificador y el
+  // agente. La opción estructurada viaja aparte para el flujo que la espera.
+  const respuesta = type === "interactive" ? waRespuestaInteractiva(m) : null;
+  if (type === "interactive" && !respuesta) return null;
+
+  const tipo = respuesta ? "text" : waTipo(type);
   if (!tipo) return null;
 
-  const contenido = extractWaContenido(tipo, m);
+  const contenido = respuesta ? respuesta.titulo : extractWaContenido(tipo, m);
 
   // Se cruza por `wa_id`. Cuando el `value` trae un solo contacto se usa ese
   // aunque no matchee: México y Argentina devuelven a veces un `wa_id`
@@ -205,8 +227,30 @@ function waMessage(
     media_url: null,
     nombre_perfil: nombrePerfil,
     platform_created_at: timestampDe(m.timestamp, "segundos"),
+    ...(respuesta ? { respuesta_interactiva: respuesta } : {}),
     raw: m,
   };
+}
+
+/**
+ * `button_reply` o `list_reply`. Otro subtipo (formularios de Flows, etc.) no
+ * es una opción elegida: se descarta como antes, sin inventarle un texto.
+ */
+function waRespuestaInteractiva(m: Record<string, unknown>): RespuestaInteractiva | null {
+  const interactive = isObject(m.interactive) ? m.interactive : null;
+  if (!interactive) return null;
+  const subtipo = asString(interactive.type);
+  const clave =
+    subtipo === "button_reply" ? "button_reply" : subtipo === "list_reply" ? "list_reply" : null;
+  if (!clave) return null;
+  const eleccion = isObject(interactive[clave])
+    ? (interactive[clave] as Record<string, unknown>)
+    : null;
+  const id = eleccion ? asString(eleccion.id) : null;
+  const titulo = eleccion ? asString(eleccion.title) : null;
+  if (!id || !titulo) return null;
+  const context = isObject(m.context) ? m.context : null;
+  return { id, titulo, responde_a: context ? asString(context.id) : null };
 }
 
 function waTipo(type: string): TipoMensaje | null {

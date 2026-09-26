@@ -127,6 +127,8 @@ export interface AlcanceAudiencia {
   exclusiones: Exclusion[];
   porVentanaAbierta: number;
   porPlantilla: number;
+  /** De los de ventana abierta, a cuántos les sale el texto libre (0 sin texto libre). */
+  porTextoLibre: number;
   /** Una página de la lista, en el orden en que salen. */
   muestra: Destinatario[];
   /** Se calculó como marketing porque todavía no hay plantilla elegida. */
@@ -272,6 +274,47 @@ export interface EnvioDifusion {
   motivoRevision: string | null;
   /** La frenó una persona; `false` en una detenida = la frenó el sistema. */
   detenidaPorPersona: boolean;
+  /** "Tanda N de M" del plan. `null` sin plan. */
+  tandaActual: { numero: number; de: number } | null;
+  ritmo: RitmoEnvio;
+  respuestas: { total: number; recientes: RespuestaEnvio[] };
+  muestra: MuestraEnvio | null;
+  /** Al cierre: quiénes quedaron afuera y por qué. Sólo motivos con alguien. */
+  exclusionesPorMotivo: { motivo: MotivoExclusion; cantidad: number }[];
+  /**
+   * Audiencia dinámica: cuántos entraron después de programar (en cola o
+   * excluidos con su motivo). `null` con la audiencia congelada.
+   */
+  audienciaDinamica: { altas: number } | null;
+}
+
+export interface RitmoEnvio {
+  /** Mensajes por segundo reservados en los últimos minutos. `null` = no salió nada. */
+  porSegundo: number | null;
+  /** Si el ritmo medido se sostiene, en la hora del negocio. */
+  finEstimado: string | null;
+  /** Sin ritmo medido: cuándo arranca la última tanda del plan. */
+  ultimaTandaDesde: string | null;
+}
+
+export interface RespuestaEnvio {
+  clave: string;
+  nombre: string | null;
+  /** `null` si el mensaje ya no está (sesión purgada) o no se pudo leer. */
+  texto: string | null;
+  hace: string;
+}
+
+export interface MuestraEnvio {
+  tamano: number;
+  /** Cuándo el motor la frenó para revisarla. */
+  salioA: string;
+  continuadaA: string | null;
+  llegaron: number;
+  aceptados: number;
+  fallidos: number;
+  /** 131050: se dieron de baja de marketing en Meta. */
+  bajasMeta: number;
 }
 
 // --- mensaje -----------------------------------------------------------------

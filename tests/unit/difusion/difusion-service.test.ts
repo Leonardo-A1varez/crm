@@ -9,6 +9,7 @@ import {
 import { NoopLogger, type Logger } from "@/lib/observability/logger";
 import type { Grupo } from "@/lib/ui/condiciones";
 import type { CandidatoResuelto } from "@/server/repositories/difusion-audiencia.repo";
+import { InMemoryAdminAuditRepository } from "@/server/repositories/admin-audit.repo";
 import {
   InMemoryDifusionEnviosRepository,
   type DifusionEnvioInsert,
@@ -82,6 +83,7 @@ function armar(
     logger?: Logger;
     supresiones?: InMemoryDifusionSupresionesRepository;
     datosDelLead?: DifusionServiceDeps["datosDelLead"];
+    leerRespuestas?: DifusionServiceDeps["leerRespuestas"];
   } = {},
 ) {
   const difusiones = new InMemoryDifusionesRepository();
@@ -96,7 +98,9 @@ function armar(
   const usuarios = new InMemoryUsersRepository();
   const avisarProgramada = vi.fn(async () => {});
   const avisarReanudada = vi.fn(async () => {});
+  const audit = new InMemoryAdminAuditRepository();
   const svc = new DefaultDifusionService({
+    audit,
     difusiones,
     envios,
     supresiones,
@@ -109,6 +113,7 @@ function armar(
     avisarProgramada,
     avisarReanudada,
     datosDelLead: opciones.datosDelLead,
+    leerRespuestas: opciones.leerRespuestas,
     logger: opciones.logger ?? new NoopLogger(),
     ahora: () => AHORA,
   });
@@ -123,6 +128,7 @@ function armar(
     usuarios,
     avisarProgramada,
     avisarReanudada,
+    audit,
   };
 }
 
@@ -185,9 +191,18 @@ async function borradorConPlantilla(
     },
     ADMIN,
   );
-  await svc.guardarBorrador(d.id, {
-    plantilla: { nombre: "promo_frenos_v3", categoria: "marketing", idioma: "es", parametros: [] },
-  });
+  await svc.guardarBorrador(
+    d.id,
+    {
+      plantilla: {
+        nombre: "promo_frenos_v3",
+        categoria: "marketing",
+        idioma: "es",
+        parametros: [],
+      },
+    },
+    ADMIN,
+  );
   return d;
 }
 
@@ -240,7 +255,7 @@ describe("DifusionService — borradores", () => {
     const { svc } = armar();
     const d = await borradorConPlantilla(svc);
 
-    const u = await svc.guardarBorrador(d.id, { nombre: "Otra" });
+    const u = await svc.guardarBorrador(d.id, { nombre: "Otra" }, ADMIN);
 
     expect(u.nombre).toBe("Otra");
     expect(u.plantilla_nombre).toBe("promo_frenos_v3");
@@ -252,13 +267,15 @@ describe("DifusionService — borradores", () => {
     const d = await borradorConPlantilla(svc);
     await svc.programar(d.id, { canaryTamano: null });
 
-    await expect(svc.guardarBorrador(d.id, { nombre: "Otra" })).rejects.toThrow(ConflictError);
+    await expect(svc.guardarBorrador(d.id, { nombre: "Otra" }, ADMIN)).rejects.toThrow(
+      ConflictError,
+    );
   });
 
   test("una que no existe es NotFoundError", async () => {
     const { svc } = armar();
     await expect(
-      svc.guardarBorrador("00000000-0000-4000-8000-000000000999", { nombre: "x" }),
+      svc.guardarBorrador("00000000-0000-4000-8000-000000000999", { nombre: "x" }, ADMIN),
     ).rejects.toThrow(NotFoundError);
   });
 });
@@ -352,6 +369,8 @@ describe("DifusionService — alcance", () => {
       telefono: "+593 ••• ••• 001",
       vehiculo: "Chevrolet Aveo 2012",
       ruta: "ventana_abierta",
+      // Sin texto libre en el pedido: también con la ventana abierta, la plantilla.
+      contenido: "plantilla",
       tanda: 0,
       diff: null,
     });
@@ -861,5 +880,223 @@ describe("DifusionService — lecturas", () => {
       solicitado: 0,
       alcanza: true,
     });
+  });
+});
+
+describe("DifusionService — el envío en curso: respuestas, ritmo y muestra", () => {
+  async function conPlan(
+    canaryTamano: number | null = null,
+    leerRespuestas?: DifusionServiceDeps["leerRespuestas"],
+  ) {
+    const m = armar({ candidatos: [candidato(1), candidato(2), candidato(3)], leerRespuestas });
+    const d = await borradorConPlantilla(m.svc);
+    await m.svc.programar(d.id, { canaryTamano });
+    await m.difusiones.update(d.id, { estado: "enviando", iniciada_at: AHORA });
+    const filas = await m.envios.listarPorDifusion(d.id, { limite: 10 });
+    return { ...m, d, filas };
+  }
+
+  async function salio(
+    m: Awaited<ReturnType<typeof conPlan>>,
+    i: number,
+    wamid: string,
+    at = AHORA,
+  ) {
+    const fila = m.filas[i]!;
+    await m.envios.reservar(fila.id, at);
+    await m.envios.marcarAceptado(fila.id, wamid);
+    return fila;
+  }
+
+  test("trae cuántos respondieron y las respuestas, con el nombre y el texto", async () => {
+    let leadRespondio = "";
+    const leer = vi.fn(async () => ({
+      textos: new Map([["wamid.in-1", { contenido: "¿tenés pastillas?", tipo: "text" }]]),
+      nombres: new Map([[leadRespondio, "Marcela"]]),
+    }));
+    const m = await conPlan(null, leer);
+    const f0 = await salio(m, 0, "wamid.a");
+    leadRespondio = f0.lead_id!;
+    await salio(m, 1, "wamid.b");
+    await m.envios.marcarRespondido(f0.id, "wamid.in-1", AHORA);
+
+    const det = await m.svc.detalle(m.d.id);
+
+    expect(det?.respuestas.total).toBe(1);
+    expect(det?.respuestas.recientes).toEqual([
+      {
+        leadId: f0.lead_id,
+        nombre: "Marcela",
+        texto: "¿tenés pastillas?",
+        tipo: "text",
+        respondidoAt: AHORA.toISOString(),
+      },
+    ]);
+    expect(leer).toHaveBeenCalledWith(["wamid.in-1"], [f0.lead_id]);
+  });
+
+  test("mide el ritmo con lo que se reservó en la ventana reciente", async () => {
+    const m = await conPlan();
+    await salio(m, 0, "wamid.a", hace(MINUTO));
+    await salio(m, 1, "wamid.b", hace(HORA));
+
+    const det = await m.svc.detalle(m.d.id);
+
+    expect(det?.avance).toEqual({
+      reservadosEnVentana: 1,
+      ventanaMs: 5 * MINUTO,
+      calculadoAt: AHORA.toISOString(),
+    });
+  });
+
+  test("con muestra revisada trae cuándo salió, qué pasó en ella y cuándo se siguió", async () => {
+    const m = await conPlan(2);
+    await salio(m, 0, "wamid.a", hace(10 * MINUTO));
+    const f1 = await salio(m, 1, "wamid.b", hace(10 * MINUTO));
+    await m.envios.aplicarEstadoMeta("wamid.a", "entregado");
+    await m.envios.aplicarEstadoMeta("wamid.b", "fallido", { codigo: "131050", detalle: null });
+    await m.difusiones.update(m.d.id, {
+      estado: "en_revision",
+      motivo_revision: "Salió la muestra",
+      canary_revisado_at: hace(9 * MINUTO),
+    });
+    void f1;
+
+    await m.svc.reanudar(m.d.id);
+    const det = await m.svc.detalle(m.d.id);
+
+    expect(det?.muestra).toMatchObject({
+      tamano: 2,
+      salioAt: hace(9 * MINUTO).toISOString(),
+      continuadaAt: AHORA.toISOString(),
+    });
+    expect(det?.muestra?.conteo).toEqual(
+      expect.arrayContaining([
+        { estado: "entregado", codigo: null, cantidad: 1 },
+        { estado: "fallido", codigo: "131050", cantidad: 1 },
+      ]),
+    );
+  });
+
+  test("sin muestra no hay bloque de muestra", async () => {
+    const m = await conPlan();
+    expect((await m.svc.detalle(m.d.id))?.muestra).toBeNull();
+  });
+});
+
+describe("DifusionService — eximir una exclusión queda en la auditoría", () => {
+  test("destildar «en negociación» o «tope de frecuencia» deja una fila por cada una, con quién", async () => {
+    const { svc, audit } = armar();
+    const d = await svc.crearBorrador(
+      {
+        nombre: "Promo",
+        audiencia: ARBOL,
+        todaLaBase: false,
+        modo: "congelada",
+        incluirEnNegociacion: false,
+        exentaTopeFrecuencia: false,
+      },
+      ADMIN,
+    );
+
+    await svc.guardarBorrador(d.id, { incluirEnNegociacion: true }, ADMIN);
+    await svc.guardarBorrador(
+      d.id,
+      { incluirEnNegociacion: true, exentaTopeFrecuencia: true },
+      ADMIN,
+    );
+
+    const filas = await audit.list({ entityId: d.id });
+    expect(filas.map((f) => [f.action, f.payload.motivo, f.actor_user_id]).sort()).toEqual([
+      ["difusion.exclusion_eximida", "cap_frecuencia", ADMIN],
+      ["difusion.exclusion_eximida", "en_negociacion", ADMIN],
+    ]);
+  });
+
+  test("volver a excluir también queda, y no tocarla no deja nada", async () => {
+    const { svc, audit } = armar();
+    const d = await svc.crearBorrador(
+      {
+        nombre: "Promo",
+        audiencia: ARBOL,
+        todaLaBase: false,
+        modo: "congelada",
+        incluirEnNegociacion: true,
+        exentaTopeFrecuencia: false,
+      },
+      ADMIN,
+    );
+    await svc.guardarBorrador(d.id, { nombre: "Otra" }, ADMIN);
+    await svc.guardarBorrador(d.id, { incluirEnNegociacion: false }, ADMIN);
+
+    const acciones = (await audit.list({ entityId: d.id })).map((f) => f.action).sort();
+    // Crear el borrador ya eximido cuenta como eximir.
+    expect(acciones).toEqual(["difusion.exclusion_eximida", "difusion.exclusion_restituida"]);
+  });
+});
+
+describe("DifusionService — texto libre (§7.3.5)", () => {
+  test("guarda el texto libre del borrador, recortado, y null lo saca", async () => {
+    const { svc } = armar();
+    const d = await borradorConPlantilla(svc);
+
+    const con = await svc.guardarBorrador(d.id, { textoLibre: "  Hola {{lead.nombre}}  " }, ADMIN);
+    expect(con.texto_libre).toBe("Hola {{lead.nombre}}");
+
+    const sin = await svc.guardarBorrador(d.id, { textoLibre: null }, ADMIN);
+    expect(sin.texto_libre).toBeNull();
+  });
+
+  test("un texto libre con una variable que el motor no carga se rechaza", async () => {
+    const { svc } = armar();
+    const d = await borradorConPlantilla(svc);
+    await expect(
+      svc.guardarBorrador(d.id, { textoLibre: "Hola {{vendedor.nombre}}" }, ADMIN),
+    ).rejects.toThrow(ValidationError);
+  });
+
+  test("el alcance marca quiénes van por texto libre y quiénes por plantilla", async () => {
+    const { svc } = armar({
+      candidatos: [candidato(1, { ultimoEntranteAt: hace(2 * HORA) }), candidato(2)],
+    });
+
+    const con = await svc.calcularAlcance({ ...ALCANCE, textoLibre: true });
+    expect(con.porContenido).toEqual({ texto_libre: 1, plantilla: 1 });
+    expect(con.muestra.find((m) => m.leadId === leadIdDe(1))?.contenido).toBe("texto_libre");
+
+    const sin = await svc.calcularAlcance(ALCANCE);
+    expect(sin.porContenido).toEqual({ texto_libre: 0, plantilla: 2 });
+  });
+
+  test("la vista del borrador trae el texto libre", async () => {
+    const { svc } = armar();
+    const d = await borradorConPlantilla(svc);
+    await svc.guardarBorrador(d.id, { textoLibre: "Hola" }, ADMIN);
+    expect((await svc.detalle(d.id))?.difusion.textoLibre).toBe("Hola");
+  });
+});
+
+describe("DifusionService — audiencia dinámica en el detalle", () => {
+  test("el detalle dice cuántos entraron después de programar", async () => {
+    const { svc, difusiones, programacion, envios } = armar();
+    const uno = await difusiones.create({
+      nombre: "Dinámica",
+      audiencia: ARBOL,
+      creada_por: null,
+      audiencia_modo: "dinamica",
+      ...CON_PLANTILLA,
+    });
+    await programacion.programar({
+      difusionId: uno.id,
+      programadaPara: AHORA,
+      canaryTamano: null,
+      filas: [filaEnCola(uno.id, 1)],
+    });
+    await envios.sumarAltas([filaEnCola(uno.id, 2), filaEnCola(uno.id, 3)]);
+
+    const det = await svc.detalle(uno.id);
+
+    expect(det?.altasDinamicas).toBe(2);
+    expect(det?.difusion.audienciaModo).toBe("dinamica");
   });
 });

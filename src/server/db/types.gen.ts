@@ -236,6 +236,7 @@ export type Database = {
       }
       difusion_envios: {
         Row: {
+          alta_dinamica: boolean
           created_at: string
           difusion_id: string
           error_codigo: string | null
@@ -250,11 +251,15 @@ export type Database = {
             | Database["public"]["Enums"]["difusion_motivo_exclusion"]
             | null
           programado_para: string | null
+          respondido_at: string | null
+          respuesta_meta_message_id: string | null
           ruta: Database["public"]["Enums"]["difusion_ruta"] | null
+          salio_como: string | null
           tanda: number | null
           telefono: string | null
         }
         Insert: {
+          alta_dinamica?: boolean
           created_at?: string
           difusion_id: string
           error_codigo?: string | null
@@ -269,11 +274,15 @@ export type Database = {
             | Database["public"]["Enums"]["difusion_motivo_exclusion"]
             | null
           programado_para?: string | null
+          respondido_at?: string | null
+          respuesta_meta_message_id?: string | null
           ruta?: Database["public"]["Enums"]["difusion_ruta"] | null
+          salio_como?: string | null
           tanda?: number | null
           telefono?: string | null
         }
         Update: {
+          alta_dinamica?: boolean
           created_at?: string
           difusion_id?: string
           error_codigo?: string | null
@@ -288,7 +297,10 @@ export type Database = {
             | Database["public"]["Enums"]["difusion_motivo_exclusion"]
             | null
           programado_para?: string | null
+          respondido_at?: string | null
+          respuesta_meta_message_id?: string | null
           ruta?: Database["public"]["Enums"]["difusion_ruta"] | null
+          salio_como?: string | null
           tanda?: number | null
           telefono?: string | null
         }
@@ -387,8 +399,10 @@ export type Database = {
         Row: {
           audiencia: Json
           audiencia_modo: Database["public"]["Enums"]["difusion_audiencia_modo"]
+          audiencia_tanda_evaluada: number | null
           audiencia_toda_la_base: boolean
           canary_revisado_at: string | null
+          canary_continuada_at: string | null
           canary_tamano: number | null
           creada_por: string | null
           created_at: string
@@ -409,12 +423,15 @@ export type Database = {
           plantilla_nombre: string | null
           plantilla_parametros: Json
           programada_para: string | null
+          texto_libre: string | null
           updated_at: string
         }
         Insert: {
           audiencia: Json
           audiencia_modo?: Database["public"]["Enums"]["difusion_audiencia_modo"]
+          audiencia_tanda_evaluada?: number | null
           audiencia_toda_la_base?: boolean
+          canary_continuada_at?: string | null
           canary_revisado_at?: string | null
           canary_tamano?: number | null
           creada_por?: string | null
@@ -436,12 +453,15 @@ export type Database = {
           plantilla_nombre?: string | null
           plantilla_parametros?: Json
           programada_para?: string | null
+          texto_libre?: string | null
           updated_at?: string
         }
         Update: {
           audiencia?: Json
           audiencia_modo?: Database["public"]["Enums"]["difusion_audiencia_modo"]
+          audiencia_tanda_evaluada?: number | null
           audiencia_toda_la_base?: boolean
+          canary_continuada_at?: string | null
           canary_revisado_at?: string | null
           canary_tamano?: number | null
           creada_por?: string | null
@@ -463,6 +483,7 @@ export type Database = {
           plantilla_nombre?: string | null
           plantilla_parametros?: Json
           programada_para?: string | null
+          texto_libre?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -1677,6 +1698,124 @@ export type Database = {
           },
         ]
       }
+      whatsapp_numeros_rol: {
+        Row: {
+          actualizado_por: string | null
+          phone_number_id: string
+          rol: string
+          updated_at: string
+        }
+        Insert: {
+          actualizado_por?: string | null
+          phone_number_id: string
+          rol: string
+          updated_at?: string
+        }
+        Update: {
+          actualizado_por?: string | null
+          phone_number_id?: string
+          rol?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_numeros_rol_actualizado_por_fkey"
+            columns: ["actualizado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workflow_plantillas_sin_sesion: {
+        Row: {
+          contenido: string
+          conversacion_id: string
+          created_at: string
+          error_codigo: string | null
+          error_detalle: string | null
+          estado: string
+          estado_at: string | null
+          id: string
+          idempotency_key: string
+          intento_at: string
+          lead_id: string
+          mensaje_id: string | null
+          meta_message_id: string | null
+          parametros_cuerpo: Json
+          plantilla_idioma: string
+          plantilla_nombre: string
+          workflow_run_id: string | null
+        }
+        Insert: {
+          contenido: string
+          conversacion_id: string
+          created_at?: string
+          error_codigo?: string | null
+          error_detalle?: string | null
+          estado?: string
+          estado_at?: string | null
+          id?: string
+          idempotency_key: string
+          intento_at: string
+          lead_id: string
+          mensaje_id?: string | null
+          meta_message_id?: string | null
+          parametros_cuerpo?: Json
+          plantilla_idioma: string
+          plantilla_nombre: string
+          workflow_run_id?: string | null
+        }
+        Update: {
+          contenido?: string
+          conversacion_id?: string
+          created_at?: string
+          error_codigo?: string | null
+          error_detalle?: string | null
+          estado?: string
+          estado_at?: string | null
+          id?: string
+          idempotency_key?: string
+          intento_at?: string
+          lead_id?: string
+          mensaje_id?: string | null
+          meta_message_id?: string | null
+          parametros_cuerpo?: Json
+          plantilla_idioma?: string
+          plantilla_nombre?: string
+          workflow_run_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_plantillas_sin_sesion_conversacion_id_fkey"
+            columns: ["conversacion_id"]
+            isOneToOne: false
+            referencedRelation: "conversaciones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_plantillas_sin_sesion_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_plantillas_sin_sesion_mensaje_id_fkey"
+            columns: ["mensaje_id"]
+            isOneToOne: false
+            referencedRelation: "mensajes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workflow_plantillas_sin_sesion_workflow_run_id_fkey"
+            columns: ["workflow_run_id"]
+            isOneToOne: false
+            referencedRelation: "workflow_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       workflow_runs: {
         Row: {
           contexto: Json
@@ -1684,6 +1823,7 @@ export type Database = {
           error: string | null
           estado: Database["public"]["Enums"]["workflow_run_estado"]
           id: string
+          intentos: number | null
           lead_id: string
           lead_session_id: string | null
           motivo_salto: string | null
@@ -1698,6 +1838,7 @@ export type Database = {
           error?: string | null
           estado?: Database["public"]["Enums"]["workflow_run_estado"]
           id?: string
+          intentos?: number | null
           lead_id: string
           lead_session_id?: string | null
           motivo_salto?: string | null
@@ -1712,6 +1853,7 @@ export type Database = {
           error?: string | null
           estado?: Database["public"]["Enums"]["workflow_run_estado"]
           id?: string
+          intentos?: number | null
           lead_id?: string
           lead_session_id?: string | null
           motivo_salto?: string | null
@@ -1918,6 +2060,18 @@ export type Database = {
           cantidad: number
           estado: Database["public"]["Enums"]["difusion_envio_estado"]
           motivo_exclusion: Database["public"]["Enums"]["difusion_motivo_exclusion"]
+        }[]
+      }
+      difusion_sumar_altas: {
+        Args: { p_difusion_id: string; p_envios: Json }
+        Returns: number
+      }
+      difusion_envios_muestra: {
+        Args: { p_difusion_id: string; p_hasta: string }
+        Returns: {
+          cantidad: number
+          error_codigo: string
+          estado: Database["public"]["Enums"]["difusion_envio_estado"]
         }[]
       }
       difusion_envios_fallos: {
@@ -2148,6 +2302,26 @@ export type Database = {
           source: string
         }[]
       }
+      uso_cupo_whatsapp: {
+        Args: { p_dias: number; p_zona: string }
+        Returns: {
+          destinatarios: number
+          dia: string
+          total_ventana: number
+        }[]
+      }
+      workflow_condicion_coincidencias: {
+        Args: { p_ahora: string; p_arbol: Json; p_muestra?: number; p_zona: string }
+        Returns: Json
+      }
+      workflow_condicion_predicado: {
+        Args: { p_ahora: string; p_nivel?: number; p_nodo: Json; p_zona: string }
+        Returns: string
+      }
+      workflow_corridas_por_nodo: {
+        Args: { p_desde: string; p_version_id: string }
+        Returns: Json
+      }
     }
     Enums: {
       canal_enum: "wa" | "ig" | "fb"
@@ -2229,6 +2403,7 @@ export type Database = {
         | "doc"
         | "location"
         | "template"
+        | "interactive"
       urgencia_enum: "baja" | "media" | "alta"
       workflow_concurrencia: "ignorar" | "reiniciar" | "permitir"
       workflow_run_estado:
@@ -2445,6 +2620,7 @@ export const Constants = {
         "doc",
         "location",
         "template",
+        "interactive",
       ],
       urgencia_enum: ["baja", "media", "alta"],
       workflow_concurrencia: ["ignorar", "reiniciar", "permitir"],

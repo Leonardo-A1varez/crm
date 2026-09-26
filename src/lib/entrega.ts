@@ -23,3 +23,14 @@ export function esAvance(actual: EstadoEntrega | null, siguiente: EstadoEntrega)
   if (actual === null) return true;
   return ORDEN[siguiente] > ORDEN[actual];
 }
+
+/**
+ * Los estados desde los que `siguiente` avanza, en orden. Es `esAvance` dado
+ * vuelta para meterlo en el WHERE del UPDATE: la guarda tiene que vivir en la
+ * misma sentencia que escribe. Con la comparación en JS, "entregado" y "leído"
+ * concurrentes leían los dos `enviado`, escribían los dos, y si el UPDATE de
+ * "entregado" llegaba último el mensaje retrocedía.
+ */
+export function estadosQueAvanzanA(siguiente: EstadoEntrega): EstadoEntrega[] {
+  return (Object.keys(ORDEN) as EstadoEntrega[]).filter((desde) => esAvance(desde, siguiente));
+}

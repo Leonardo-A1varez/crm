@@ -180,6 +180,33 @@ export function runDifusionesContract(
       expect(leida?.plantilla_parametros).toEqual(parametros);
     });
 
+    test("guarda el texto libre y lo devuelve; sin él queda null", async () => {
+      const sin = await repo.create(base(f));
+      expect(sin.texto_libre).toBeNull();
+      const d = await repo.update(sin.id, { texto_libre: "Hola {{lead.nombre}}, tenemos frenos" });
+      expect((await repo.findById(d.id))?.texto_libre).toBe("Hola {{lead.nombre}}, tenemos frenos");
+      expect((await repo.update(d.id, { texto_libre: null })).texto_libre).toBeNull();
+    });
+
+    test("un texto libre vacío o de más de 4096 caracteres se rechaza", async () => {
+      const d = await repo.create(base(f));
+      await expect(repo.update(d.id, { texto_libre: "   " })).rejects.toThrow(ValidationError);
+      await expect(repo.update(d.id, { texto_libre: "x".repeat(4097) })).rejects.toThrow(
+        ValidationError,
+      );
+    });
+
+    test("la tanda re-evaluada sólo tiene sentido en una audiencia dinámica", async () => {
+      const congelada = await repo.create(base(f));
+      expect(congelada.audiencia_tanda_evaluada).toBeNull();
+      await expect(repo.update(congelada.id, { audiencia_tanda_evaluada: 0 })).rejects.toThrow(
+        ValidationError,
+      );
+      const dinamica = await repo.create(base(f, { audiencia_modo: "dinamica" }));
+      const d = await repo.update(dinamica.id, { audiencia_tanda_evaluada: 2 });
+      expect(d.audiencia_tanda_evaluada).toBe(2);
+    });
+
     test("actualizarSiEstado no pisa una difusión que cambió de estado", async () => {
       const d = await repo.create(base(f, PLANTILLA));
       await repo.update(d.id, { estado: "programada", programada_para: new Date() });

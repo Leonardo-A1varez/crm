@@ -1,9 +1,10 @@
 import { NotFoundError, ValidationError } from "@/lib/errors";
-import type {
-  CategoriaPlantilla,
-  Difusion,
-  EstadoDifusion,
-  ModoAudiencia,
+import {
+  LARGO_MAXIMO_TEXTO_LIBRE,
+  type CategoriaPlantilla,
+  type Difusion,
+  type EstadoDifusion,
+  type ModoAudiencia,
 } from "@/lib/difusion/modelo";
 import {
   IdiomaPlantillaSchema,
@@ -31,6 +32,7 @@ export interface DifusionInsert {
   plantilla_categoria?: CategoriaPlantilla | null;
   plantilla_idioma?: string | null;
   plantilla_parametros?: ParametroPlantilla[];
+  texto_libre?: string | null;
   incluir_en_negociacion?: boolean;
   exenta_tope_frecuencia?: boolean;
   canary_tamano?: number | null;
@@ -48,10 +50,13 @@ export type DifusionUpdate = Partial<
     | "plantilla_categoria"
     | "plantilla_idioma"
     | "plantilla_parametros"
+    | "texto_libre"
+    | "audiencia_tanda_evaluada"
     | "incluir_en_negociacion"
     | "exenta_tope_frecuencia"
     | "canary_tamano"
     | "canary_revisado_at"
+    | "canary_continuada_at"
     | "programada_para"
     | "iniciada_at"
     | "finalizada_at"
@@ -131,6 +136,18 @@ export function incoherenciaDifusion(d: DifusionSinIdentidad): string | null {
   if (d.estado !== "borrador" && (d.plantilla_nombre === null || d.plantilla_idioma === null)) {
     return "una difusión que sale necesita la plantilla y su idioma";
   }
+  if (d.texto_libre !== null) {
+    const largo = d.texto_libre.trim().length;
+    if (largo < 1 || largo > LARGO_MAXIMO_TEXTO_LIBRE) {
+      return `el texto libre va de 1 a ${LARGO_MAXIMO_TEXTO_LIBRE} caracteres`;
+    }
+  }
+  if (d.audiencia_tanda_evaluada !== null) {
+    if (!Number.isInteger(d.audiencia_tanda_evaluada) || d.audiencia_tanda_evaluada < 0) {
+      return "la tanda re-evaluada es un entero ≥ 0";
+    }
+    if (d.audiencia_modo !== "dinamica") return "sólo una audiencia dinámica se re-evalúa";
+  }
   if (!ParametrosPlantillaSchema.safeParse(d.plantilla_parametros).success) {
     return "las variables de la plantilla no tienen la forma esperada";
   }
@@ -142,6 +159,9 @@ export function incoherenciaDifusion(d: DifusionSinIdentidad): string | null {
   }
   if (d.canary_revisado_at !== null && d.canary_tamano === null) {
     return "no hay muestra que revisar sin canary";
+  }
+  if (d.canary_continuada_at !== null && d.canary_revisado_at === null) {
+    return "no se sigue después de una muestra que no se revisó";
   }
   if (d.estado === "programada" && d.programada_para === null) {
     return "una difusión programada necesita fecha";
@@ -200,10 +220,13 @@ export class InMemoryDifusionesRepository implements DifusionesRepository {
       plantilla_categoria: input.plantilla_categoria ?? null,
       plantilla_idioma: input.plantilla_idioma ?? null,
       plantilla_parametros: input.plantilla_parametros ?? [],
+      texto_libre: input.texto_libre ?? null,
+      audiencia_tanda_evaluada: null,
       incluir_en_negociacion: input.incluir_en_negociacion ?? false,
       exenta_tope_frecuencia: input.exenta_tope_frecuencia ?? false,
       canary_tamano: input.canary_tamano ?? null,
       canary_revisado_at: null,
+      canary_continuada_at: null,
       programada_para: null,
       iniciada_at: null,
       finalizada_at: null,

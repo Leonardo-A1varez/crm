@@ -4,6 +4,7 @@ import {
   ESTADO_ENVIO,
   conteoVacio,
   transicionEnvioPermitida,
+  type ContenidoEnvio,
   type ConteoEnvios,
   type DifusionEnvio,
   type EstadoEnvio,
@@ -65,6 +66,16 @@ export function filasDesdePlan(
   ];
 }
 
+/**
+ * Cómo sale un envío, decidido al mandar: la ruta según la ventana de ese
+ * momento (la del plan pudo cambiar en días) y el contenido. El texto libre
+ * sólo sale con la ventana abierta (CHECK `difusion_envios_texto_libre_en_ventana`).
+ */
+export interface SalidaEnvio {
+  ruta: RutaEnvio;
+  contenido: ContenidoEnvio;
+}
+
 export interface ErrorMeta {
   /** Código de la Cloud API: "131026", "131049"… */
   codigo: string;
@@ -88,6 +99,14 @@ export interface TandaPersistida {
   total: number;
   enCola: number;
   porPlantilla: number;
+}
+
+/** La muestra de una difusión, contada por estado y código de error. */
+export interface ConteoMuestra {
+  estado: EstadoEnvio;
+  /** Null en lo que no falló. */
+  codigo: string | null;
+  cantidad: number;
 }
 
 export interface FalloPorCodigo {
@@ -176,10 +195,11 @@ export interface DifusionEnviosRepository {
    * `false` = otro lo tomó, o ya no está en cola. Es lo que impide mandar dos
    * veces: se reserva ANTES de llamar a Meta.
    */
-  reservar(id: UUID, at: Date): Promise<boolean>;
+  reservar(id: UUID, at: Date, salida?: SalidaEnvio): Promise<boolean>;
   /**
    * Devuelve a la cola una reserva que Meta rechazó sin mandar (429, 131056).
-   * Sólo si sigue en cola: lo que ya tiene desenlace no se toca.
+   * Sólo si sigue en cola: lo que ya tiene desenlace no se toca. Borra
+   * también `salio_como`: no salió nada.
    */
   liberarReserva(id: UUID): Promise<void>;
   /**
@@ -193,6 +213,43 @@ export interface DifusionEnviosRepository {
    * mensaje cada 6 s por destinatario (131056).
    */
   leadsConSalienteDesde(leadIds: readonly UUID[], desde: Date): Promise<Set<UUID>>;
+
+  // ---- Lo que usa el pipeline cuando el lead responde ---------------------
+
+  /**
+   * El último envío a este lead que llegó a Meta (aceptado, entregado o
+   * leído) y se mandó desde `desde` (por `intento_at`, la hora de envío).
+   * `null` si no hay. Es la difusión a la que responde un entrante.
+   */
+  ultimoSalidoParaLead(leadId: UUID, desde: Date): Promise<DifusionEnvio | null>;
+  /**
+   * Marca el envío como respondido por el entrante `wamid`. `true` si esta es
+   * la primera respuesta: la marcó ahora, o ya estaba marcada con ESE mismo
+   * entrante (el reintento de un step). `false` si la marcó otro entrante.
+   */
+  marcarRespondido(id: UUID, wamid: string, at: Date): Promise<boolean>;
+  /** Los envíos respondidos de una difusión, lo más nuevo primero. */
+  respondidos(difusionId: UUID, limite: number): Promise<DifusionEnvio[]>;
+  contarRespondidos(difusionId: UUID): Promise<number>;
+  /** Cuántos envíos se reservaron para salir desde `desde`: el ritmo real. */
+  contarReservadosDesde(difusionId: UUID, desde: Date): Promise<number>;
+  /** Lo reservado hasta `hasta` (la muestra), por estado y código. */
+  conteoMuestra(difusionId: UUID, hasta: Date): Promise<ConteoMuestra[]>;
+
+  // ---- Audiencia dinámica ---------------------------------------------------
+
+  /**
+   * Suma a una difusión dinámica los leads que empezaron a coincidir, marcados
+   * como alta. Un lead que ya está no se toca; un alta en cola con el teléfono
+   * de un envío vivo entra excluida por `duplicado_telefono`. Devuelve cuántas
+   * filas escribió. La base sólo lo deja con una difusión dinámica que no
+   * terminó (`difusion_sumar_altas()`).
+   */
+  sumarAltas(filas: readonly DifusionEnvioInsert[]): Promise<number>;
+  /** Los leads que ya tiene la difusión, en cualquier estado. */
+  leadsDeLaDifusion(difusionId: UUID): Promise<Set<UUID>>;
+  /** Cuántos entraron después de programar. */
+  contarAltas(difusionId: UUID): Promise<number>;
 }
 
 const SALIERON: ReadonlySet<EstadoEnvio> = new Set<EstadoEnvio>(ESTADOS_QUE_SALIERON);
@@ -249,6 +306,12 @@ export function exigirWamid(metaMessageId: string): void {
   }
 }
 
+export function exigirSalida(salida: SalidaEnvio): void {
+  if (salida.contenido === "texto_libre" && salida.ruta !== "ventana_abierta") {
+    throw new ValidationError("el texto libre sólo sale con la ventana de 24 h abierta");
+  }
+}
+
 /** Teléfonos normalizados y sin repetir; los que no son de WhatsApp quedan afuera. */
 export function telefonosNormalizados(telefonos: readonly string[]): string[] {
   const unicos = new Set<string>();
@@ -288,6 +351,47 @@ export class InMemoryDifusionEnviosRepository implements DifusionEnviosRepositor
   }
 
   async registrarPlan(filas: readonly DifusionEnvioInsert[]): Promise<void> {
+    await this.insertar(filas, false);
+  }
+
+  async sumarAltas(filas: readonly DifusionEnvioInsert[]): Promise<number> {
+    // Como la función de la base: un alta en cola cuyo teléfono ya tiene un
+    // envío vivo en la difusión entra excluida por duplicado.
+    const vivos = new Set(
+      [...this.store.values()]
+        .filter((e) => e.estado !== "excluido")
+        .map((e) => `${e.difusion_id}|${e.telefono}`),
+    );
+    const ajustadas = filas.map(
+      (f): DifusionEnvioInsert =>
+        f.estado === "en_cola" && vivos.has(`${f.difusion_id}|${f.telefono}`)
+          ? {
+              ...f,
+              estado: "excluido",
+              motivo_exclusion: "duplicado_telefono",
+              ruta: null,
+              tanda: null,
+              programado_para: null,
+            }
+          : f,
+    );
+    return this.insertar(ajustadas, true);
+  }
+
+  async leadsDeLaDifusion(difusionId: UUID): Promise<Set<UUID>> {
+    const leads = new Set<UUID>();
+    for (const e of this.store.values()) {
+      if (e.difusion_id === difusionId && e.lead_id !== null) leads.add(e.lead_id);
+    }
+    return leads;
+  }
+
+  async contarAltas(difusionId: UUID): Promise<number> {
+    return [...this.store.values()].filter((e) => e.difusion_id === difusionId && e.alta_dinamica)
+      .length;
+  }
+
+  private async insertar(filas: readonly DifusionEnvioInsert[], alta: boolean): Promise<number> {
     for (const f of filas) {
       const problema = incoherenciaEnvio(f);
       if (problema) throw new ValidationError(problema);
@@ -334,9 +438,14 @@ export class InMemoryDifusionEnviosRepository implements DifusionEnviosRepositor
         intento_at: null,
         created_at: ahora,
         estado_at: ahora,
+        respondido_at: null,
+        respuesta_meta_message_id: null,
+        salio_como: null,
+        alta_dinamica: alta,
       });
     }
     for (const n of nuevas) this.store.set(n.id, n);
+    return nuevas.length;
   }
 
   async findById(id: UUID): Promise<DifusionEnvio | null> {
@@ -545,17 +654,22 @@ export class InMemoryDifusionEnviosRepository implements DifusionEnviosRepositor
       .map((e) => structuredClone(e));
   }
 
-  async reservar(id: UUID, at: Date): Promise<boolean> {
+  async reservar(id: UUID, at: Date, salida?: SalidaEnvio): Promise<boolean> {
+    if (salida) exigirSalida(salida);
     const e = this.store.get(id);
     if (!e || e.estado !== "en_cola" || e.intento_at !== null) return false;
-    this.store.set(id, { ...e, intento_at: new Date(at) });
+    this.store.set(id, {
+      ...e,
+      intento_at: new Date(at),
+      ...(salida ? { ruta: salida.ruta, salio_como: salida.contenido } : {}),
+    });
     return true;
   }
 
   async liberarReserva(id: UUID): Promise<void> {
     const e = this.store.get(id);
     if (!e || e.estado !== "en_cola") return;
-    this.store.set(id, { ...e, intento_at: null });
+    this.store.set(id, { ...e, intento_at: null, salio_como: null });
   }
 
   async marcarExcluido(id: UUID, motivo: MotivoExclusion): Promise<boolean> {
@@ -594,6 +708,59 @@ export class InMemoryDifusionEnviosRepository implements DifusionEnviosRepositor
       }
     }
     return con;
+  }
+
+  async ultimoSalidoParaLead(leadId: UUID, desde: Date): Promise<DifusionEnvio | null> {
+    let mejor: DifusionEnvio | null = null;
+    for (const e of this.store.values()) {
+      if (e.lead_id !== leadId || !SALIERON.has(e.estado) || e.intento_at === null) continue;
+      if (e.intento_at.getTime() < desde.getTime()) continue;
+      if (mejor === null || e.intento_at.getTime() > (mejor.intento_at?.getTime() ?? 0)) mejor = e;
+    }
+    return mejor ? structuredClone(mejor) : null;
+  }
+
+  async marcarRespondido(id: UUID, wamid: string, at: Date): Promise<boolean> {
+    const e = this.exigir(id);
+    if (e.respuesta_meta_message_id !== null) return e.respuesta_meta_message_id === wamid;
+    this.store.set(id, { ...e, respondido_at: at, respuesta_meta_message_id: wamid });
+    return true;
+  }
+
+  async respondidos(difusionId: UUID, limite: number): Promise<DifusionEnvio[]> {
+    return [...this.store.values()]
+      .filter((e) => e.difusion_id === difusionId && e.respondido_at !== null)
+      .sort((a, b) => (b.respondido_at?.getTime() ?? 0) - (a.respondido_at?.getTime() ?? 0))
+      .slice(0, limite)
+      .map((e) => structuredClone(e));
+  }
+
+  async contarRespondidos(difusionId: UUID): Promise<number> {
+    return [...this.store.values()].filter(
+      (e) => e.difusion_id === difusionId && e.respondido_at !== null,
+    ).length;
+  }
+
+  async contarReservadosDesde(difusionId: UUID, desde: Date): Promise<number> {
+    return [...this.store.values()].filter(
+      (e) =>
+        e.difusion_id === difusionId &&
+        e.intento_at !== null &&
+        e.intento_at.getTime() >= desde.getTime(),
+    ).length;
+  }
+
+  async conteoMuestra(difusionId: UUID, hasta: Date): Promise<ConteoMuestra[]> {
+    const porClave = new Map<string, ConteoMuestra>();
+    for (const e of this.store.values()) {
+      if (e.difusion_id !== difusionId || e.intento_at === null) continue;
+      if (e.intento_at.getTime() > hasta.getTime()) continue;
+      const clave = `${e.estado}|${e.error_codigo ?? ""}`;
+      const previo = porClave.get(clave);
+      if (previo) previo.cantidad += 1;
+      else porClave.set(clave, { estado: e.estado, codigo: e.error_codigo, cantidad: 1 });
+    }
+    return [...porClave.values()];
   }
 
   private exigir(id: UUID): DifusionEnvio {

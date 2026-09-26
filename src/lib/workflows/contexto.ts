@@ -16,7 +16,21 @@ export interface FuenteContexto {
   canal?: Canal;
   /** El lead acaba de escribir. Sólo lo sabe el disparo por mensaje. */
   respondio?: boolean;
+  /**
+   * El intent del turno que dispara, ya clasificado (`null`: el turno no tiene
+   * intent, o no se clasificó), y la hora del mensaje. Sólo el disparo por
+   * mensaje: ver `CLAVE_INTENT_MENSAJE_AT`.
+   */
+  intent?: { id: string | null; mensajeAt: string };
 }
+
+/**
+ * Junto a `sesion.intent`, la hora (ISO) del mensaje cuyo intent es. Con ella
+ * el ejecutor decide entre el intent que trae el disparo y el que lee de la
+ * base (`sinIntentMasViejo` en el ejecutor): gana el del mensaje más nuevo.
+ * No es un campo de condición: ninguna regla lo mira.
+ */
+export const CLAVE_INTENT_MENSAJE_AT = "intent_mensaje_at";
 
 /**
  * Lo que un disparo siembra en `workflow_runs.contexto`: los campos que las
@@ -47,6 +61,10 @@ export function contextoDeDisparo(fuente: FuenteContexto): ContextoRun {
   if (fuente.lead) lead["nombre"] = fuente.lead.nombre;
   if (fuente.canal) lead["canal"] = fuente.canal;
   if (fuente.respondio !== undefined) sesion["respondio"] = fuente.respondio;
+  if (fuente.intent) {
+    sesion["intent"] = fuente.intent.id;
+    sesion[CLAVE_INTENT_MENSAJE_AT] = fuente.intent.mensajeAt;
+  }
 
   return { lead, sesion };
 }

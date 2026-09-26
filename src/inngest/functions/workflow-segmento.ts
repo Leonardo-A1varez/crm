@@ -1,18 +1,32 @@
 import { NonRetriableError } from "inngest";
 import { inngest } from "@/inngest/client";
-import { workflowDisparoRecibido, workflowSegmentoPendiente } from "@/inngest/events";
+import {
+  workflowCorridaCancelada,
+  workflowDisparoRecibido,
+  workflowRespuestaInteractiva,
+  workflowSegmentoPendiente,
+} from "@/inngest/events";
 import { ConflictError, InfraError, ValidationError, isNonRetriable } from "@/lib/errors";
 import { NoopLogger, type Logger } from "@/lib/observability/logger";
+import {
+  MOTIVO_CADENA_CORTADA_AL_DESPERTAR,
+  conProfundidad,
+  excedeCadena,
+  profundidadAlDespertar,
+} from "@/lib/workflows/cadena";
 import { disparadorDe, nodoPorId } from "@/lib/workflows/recorrer";
+import { conOpcionElegida, type OpcionElegida } from "@/lib/workflows/respuesta-interactiva";
 import {
   conRespondio,
   ejecutarSegmento,
   eventoQueEspera,
+  type CamposVivosDeps,
   type EventoEsperado,
   type PasoEjecutado,
 } from "@/server/services/workflows/ejecutor.service";
 import type { ConversationsParaEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
 import type { RegistroDeAcciones } from "@/server/services/workflows/acciones/registro";
+import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { WorkflowRunsRepository } from "@/server/repositories/workflow-runs.repo";
 import type { WorkflowsRepository } from "@/server/repositories/workflows.repo";
 import type { UUID } from "@/types/entities";
@@ -27,12 +41,45 @@ export interface WorkflowSegmentoInput {
    * si vence), y esto lo da vuelta antes de seguir.
    */
   respondio?: boolean;
+  /**
+   * Sólo al reanudar porque un evento despertó "Esperar evento" (o "Esperar
+   * respuesta"): la profundidad de la cadena de ese evento
+   * (`lib/workflows/cadena.ts`). La corrida sigue con la mayor entre la suya y
+   * ésta (`profundidadAlDespertar`); pasado el límite, se cancela.
+   */
+  profundidad?: number;
+  /**
+   * Sólo al reanudar un nodo con botones o lista: la opción que eligió el
+   * lead. Se anota en la espera del contexto antes de volver a correr el nodo,
+   * que sale por su línea. Ausente = venció sin respuesta.
+   */
+  opcionElegida?: OpcionElegida;
+  /**
+   * En qué intento de Inngest corre este segmento, desde 1 (`attempt + 1`).
+   * Si falla sin reintento queda en `workflow_runs.intentos`. Sin él, 1.
+   */
+  intento?: number;
 }
+
+/**
+ * Cuántas veces Inngest reintenta el step de un segmento con un error
+ * reintentable. Es el default de Inngest (3, `node_modules/inngest/types.d.ts`),
+ * puesto explícito: `onFailure` anota `REINTENTOS_SEGMENTO + 1` intentos y el
+ * número tiene que salir de la misma config que los produce.
+ */
+export const REINTENTOS_SEGMENTO = 3;
 
 export interface WorkflowSegmentoDeps {
   runs: Pick<
     WorkflowRunsRepository,
-    "tomarSegmento" | "registrarPaso" | "esperar" | "terminar" | "fallar" | "fallarSiVivo"
+    | "tomarSegmento"
+    | "registrarPaso"
+    | "esperar"
+    | "terminar"
+    | "fallar"
+    | "fallarSiVivo"
+    | "cancelar"
+    | "findRun"
   >;
   workflows: Pick<WorkflowsRepository, "findVersion">;
   registro: RegistroDeAcciones;
@@ -45,6 +92,18 @@ export interface WorkflowSegmentoDeps {
    * Opcional: sin él, ese hueco cuenta como "no respondió".
    */
   conversaciones?: Pick<ConversationsParaEnviarMensaje, "findActivaByLead">;
+  /**
+   * Lo mismo para un nodo con botones o lista: si la espera vence, se busca
+   * en el hilo una respuesta a ese mensaje que haya llegado en el hueco.
+   * Opcional: sin él, ese hueco cuenta como "sin respuesta".
+   */
+  respuestasInteractivas?: Pick<MessagesRepository, "findRespuestaInteractiva">;
+  /**
+   * Los campos de condición que se leen al evaluar (intent, etiquetas,
+   * vehículo…) y la zona del negocio. Opcional: sin él esos campos quedan
+   * ausentes y las fechas se leen en UTC.
+   */
+  camposVivos?: CamposVivosDeps;
   logger?: Logger;
 }
 
@@ -57,8 +116,17 @@ export type WorkflowSegmentoResultado =
       desdePaso: number;
       /** Sólo en "Esperar respuesta"/"Esperar evento": qué la despierta antes de `hasta`. */
       esperaEvento?: EsperaEvento;
+      /** Sólo en botones o lista: la respuesta a qué mensaje la despierta. */
+      esperaOpcion?: EsperaOpcion;
     }
   | { tipo: "fin" }
+  | { tipo: "cadena_cortada"; profundidad: number }
+  /**
+   * La cancelaron (o la reinició un disparo nuevo) mientras este segmento
+   * corría: `nodoId` es la acción que ya no se ejecutó. El estado lo escribió
+   * quien la canceló; acá no se escribe nada.
+   */
+  | { tipo: "cancelada"; nodoId: string }
   | {
       tipo: "fallado";
       nodoId: string | null;
@@ -71,6 +139,33 @@ export type EsperaEvento = EventoEsperado & {
   /** ISO. Cuándo cortó el segmento: lo que llegue después cuenta como respuesta. */
   desde: string;
 };
+
+/** Lo que necesita `step.waitForEvent` para esperar la opción de botones o lista. */
+export interface EsperaOpcion {
+  leadId: UUID;
+  /** wamid del mensaje mandado. `null` = no se sabe: vale cualquier respuesta del lead. */
+  respondeA: string | null;
+  /** ISO. Cuándo cortó el segmento. */
+  desde: string;
+}
+
+/**
+ * La expresión `if` de `step.waitForEvent` para una opción: una
+ * `workflow/respuesta.interactiva` del mismo lead que responde a ESE mensaje.
+ * Los valores van literales en la expresión, así que se exige que no puedan
+ * romper las comillas: el wamid de Meta es base64 con `.`, `=`, `+`, `/`, `-`.
+ */
+export function filtroDeRespuestaInteractiva(leadId: string, respondeA: string | null): string {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(leadId)) {
+    throw new ValidationError(`id de lead inválido para esperar una opción: ${leadId}`);
+  }
+  const porLead = `async.data.leadId == '${leadId}'`;
+  if (respondeA === null) return porLead;
+  if (!/^[A-Za-z0-9._=+/-]{1,256}$/.test(respondeA)) {
+    throw new ValidationError("wamid inválido para esperar una opción");
+  }
+  return `${porLead} && async.data.respondeA == '${respondeA}'`;
+}
 
 /**
  * La expresión `if` de `step.waitForEvent`: un `workflow/disparo.recibido` del
@@ -86,6 +181,29 @@ export function filtroDeEspera(leadId: string, disparador: string): string {
     throw new ValidationError(`id de lead o disparador inválido para una espera: ${leadId}`);
   }
   return `async.data.leadId == '${leadId}' && async.data.disparador == '${disparador}'`;
+}
+
+/**
+ * Lo que lleva el evento del segmento que sigue a una espera: si el lead
+ * respondió a tiempo, y la profundidad de la cadena del evento que la
+ * despertó, si trae una. `despertadoPor` es lo que devolvió
+ * `step.waitForEvent`: `null` si venció por tiempo.
+ */
+export function datosDelSiguienteSegmento(input: {
+  runId: UUID;
+  desdePaso: number;
+  respondio: boolean;
+  despertadoPor: { data: { profundidad?: number } } | null;
+  opcionElegida?: OpcionElegida | null;
+}): WorkflowSegmentoInput {
+  const profundidad = input.despertadoPor?.data.profundidad;
+  return {
+    runId: input.runId,
+    desdePaso: input.desdePaso,
+    ...(input.respondio ? { respondio: true } : {}),
+    ...(profundidad !== undefined ? { profundidad } : {}),
+    ...(input.opcionElegida ? { opcionElegida: input.opcionElegida } : {}),
+  };
 }
 
 async function fallarConMensaje(
@@ -173,6 +291,28 @@ export async function segmentoHandler(
     );
   }
 
+  // Un evento que despierta la corrida la suma a su cadena. Se corta ANTES de
+  // correr un solo nodo, con la corrida tomada: nada de lo que siga en el
+  // grafo se ejecuta. Sin este corte, una corrida viva que espera un evento
+  // que emite otro flujo sólo la frenaría `max_pasos`.
+  const profundidad = profundidadAlDespertar(run.contexto, input.profundidad);
+  if (excedeCadena(profundidad)) {
+    await deps.runs.cancelar(run.id, MOTIVO_CADENA_CORTADA_AL_DESPERTAR, run.pasos_ejecutados);
+    logger.warn("cadena-de-disparos-cortada", {
+      version_id: run.workflow_version_id,
+      profundidad,
+    });
+    return { tipo: "cadena_cortada", profundidad };
+  }
+  // El contexto con la profundidad nueva: la leen las acciones que emiten
+  // disparos, y `runs.esperar` la persiste para el segmento siguiente.
+  const conProf = conProfundidad(run.contexto, profundidad);
+  // El lead eligió una opción mientras el nodo de botones o lista esperaba: se
+  // anota en la espera y la segunda pasada del nodo sale por su línea.
+  const contextoBase = input.opcionElegida
+    ? conOpcionElegida(conProf, input.opcionElegida)
+    : conProf;
+
   let ultimoOrden = run.pasos_ejecutados;
   const onPaso = async (paso: PasoEjecutado) => {
     ultimoOrden = paso.orden;
@@ -204,15 +344,32 @@ export async function segmentoHandler(
       grafo: version.grafo,
       desdeNodo,
       // El lead contestó durante "Esperar respuesta": ver `input.respondio`.
-      contexto: input.respondio ? conRespondio(run.contexto, true) : run.contexto,
+      contexto: input.respondio ? conRespondio(contextoBase, true) : contextoBase,
       leadId: run.lead_id,
       leadSessionId: run.lead_session_id,
       runId: run.id,
       pasosPrevios: run.pasos_ejecutados,
       maxPasos: version.max_pasos,
     },
-    { registro: deps.registro, ahora, onPaso },
+    {
+      registro: deps.registro,
+      ahora,
+      onPaso,
+      camposVivos: deps.camposVivos,
+      // Antes de cada acción se relee la corrida: una cancelada a mano no
+      // manda ni un mensaje más, aunque su segmento ya estuviera corriendo.
+      seguir: async () => {
+        const actual = await deps.runs.findRun(run.id);
+        return actual?.estado === "corriendo" || actual?.estado === "esperando";
+      },
+    },
   );
+
+  if (resultado.tipo === "detenido") {
+    // Producción nunca pasa `detenerEn`, así que acá sólo llega "cancelada".
+    logger.info("segmento-cancelado", { nodo_id: resultado.nodoId, causa: resultado.causa });
+    return { tipo: "cancelada", nodoId: resultado.nodoId };
+  }
 
   if (resultado.tipo === "espera") {
     await deps.runs.esperar(run.id, resultado.reanudarEn, resultado.contexto, ultimoOrden);
@@ -221,15 +378,24 @@ export async function segmentoHandler(
       hasta: resultado.hasta.toISOString(),
     });
     const nodo = nodoPorId(version.grafo, resultado.nodoId);
+    const desde = ahora().toISOString();
+    // Un nodo con botones o lista que mandó espera la opción, no un disparo.
+    if (resultado.esperaOpcion) {
+      return {
+        tipo: "espera",
+        nodoId: resultado.nodoId,
+        hasta: resultado.hasta.toISOString(),
+        desdePaso: ultimoOrden,
+        esperaOpcion: { leadId: run.lead_id, respondeA: resultado.esperaOpcion.respondeA, desde },
+      };
+    }
     const evento = nodo ? eventoQueEspera(nodo) : null;
     return {
       tipo: "espera",
       nodoId: resultado.nodoId,
       hasta: resultado.hasta.toISOString(),
       desdePaso: ultimoOrden,
-      ...(evento
-        ? { esperaEvento: { ...evento, leadId: run.lead_id, desde: ahora().toISOString() } }
-        : {}),
+      ...(evento ? { esperaEvento: { ...evento, leadId: run.lead_id, desde } } : {}),
     };
   }
 
@@ -265,7 +431,7 @@ export async function segmentoHandler(
     );
   }
 
-  await deps.runs.fallar(run.id, resultado.error, ultimoOrden);
+  await deps.runs.fallar(run.id, resultado.error, ultimoOrden, input.intento ?? 1);
   logger.warn("segmento-fallado", { motivo: resultado.motivo, nodo_id: resultado.nodoId });
   return { tipo: "fallado", nodoId: resultado.nodoId, motivo: resultado.motivo };
 }
@@ -275,6 +441,8 @@ export interface WorkflowSegmentoFalloInput {
   desdePaso: number;
   /** `error.message` del error final que agotó los reintentos de Inngest. */
   mensaje: string;
+  /** Cuántas veces se intentó: `REINTENTOS_SEGMENTO + 1`. */
+  intentos?: number;
 }
 
 /**
@@ -304,7 +472,12 @@ export async function segmentoFalloHandler(
     run_id: input.runId,
   });
   const mensaje = `agotados los reintentos en el paso ${input.desdePaso}: ${input.mensaje}`;
-  const marcado = await deps.runs.fallarSiVivo(input.runId, mensaje, input.desdePaso);
+  const marcado = await deps.runs.fallarSiVivo(
+    input.runId,
+    mensaje,
+    input.desdePaso,
+    input.intentos,
+  );
   if (marcado) {
     logger.error("segmento-agoto-reintentos", { paso: input.desdePaso });
   } else {
@@ -320,6 +493,13 @@ export function makeWorkflowSegmentoFn(deps: WorkflowSegmentoDeps) {
     {
       id: "workflow-segmento",
       triggers: [{ event: workflowSegmentoPendiente }],
+      retries: REINTENTOS_SEGMENTO,
+      // "Cancelar corrida" corta en el acto el segmento que duerme en una
+      // espera. Sin esto seguía dormido hasta vencer (días, en "Esperar 2
+      // días") y recién ahí `tomarSegmento` lo veía cerrado y salía. Un
+      // segmento que arranca DESPUÉS del evento no lo ve —`cancelOn` sólo
+      // alcanza a las ejecuciones en curso—, y para ése sigue el CAS.
+      cancelOn: [{ event: workflowCorridaCancelada, match: "data.runId" }],
       onFailure: async ({ event, error }) => {
         // El evento original -- `{ runId, desdePaso }` -- viaja anidado en
         // `event.data.event.data`: Inngest envuelve el disparo del run
@@ -330,17 +510,25 @@ export function makeWorkflowSegmentoFn(deps: WorkflowSegmentoDeps) {
         // instalada (4.4.0), no se asumió.
         const original = event.data.event.data as WorkflowSegmentoInput;
         await segmentoFalloHandler(
-          { runId: original.runId, desdePaso: original.desdePaso, mensaje: error.message },
+          {
+            runId: original.runId,
+            desdePaso: original.desdePaso,
+            mensaje: error.message,
+            intentos: REINTENTOS_SEGMENTO + 1,
+          },
           deps,
         );
       },
     },
-    async ({ event, step }) => {
-      const { runId, desdePaso, respondio } = event.data;
+    async ({ event, step, attempt }) => {
+      const { runId, desdePaso, respondio, profundidad, opcionElegida } = event.data;
 
       const resultado = await step.run(`workflow-segmento-${runId}-${desdePaso}`, async () => {
         try {
-          return await segmentoHandler({ runId, desdePaso, respondio }, deps);
+          return await segmentoHandler(
+            { runId, desdePaso, respondio, profundidad, opcionElegida, intento: attempt + 1 },
+            deps,
+          );
         } catch (error) {
           if (isNonRetriable(error)) {
             throw new NonRetriableError((error as Error).message, { cause: error });
@@ -363,17 +551,43 @@ export function makeWorkflowSegmentoFn(deps: WorkflowSegmentoDeps) {
       // "Esperar respuesta"/"Esperar evento" esperan un evento y no el reloj,
       // con `hasta` como tiempo máximo **siempre**: ninguna espera es
       // indefinida. El resultado viaja en el evento del segmento siguiente
-      // (`respondio`), que es el que decide por dónde sigue la corrida.
+      // (`respondio`), que es el que decide por dónde sigue la corrida. Viaja
+      // también la profundidad de la cadena del evento que la despertó.
       if (resultado.tipo === "espera") {
         const base = `${runId}-${resultado.desdePaso}`;
         let respondioAntes = false;
+        let despertadoPor: { data: { profundidad?: number } } | null = null;
+        let opcionElegida: OpcionElegida | null = null;
         const espera = resultado.esperaEvento;
-        if (espera) {
+        const esperaOpcion = resultado.esperaOpcion;
+        if (esperaOpcion) {
+          // Botones o lista: la respuesta del lead a ESE mensaje, o nada hasta
+          // el tiempo máximo. Venció: puede que la respuesta haya llegado en
+          // el hueco antes de que la espera quedara registrada; se busca una
+          // vez en el hilo.
+          const llego = await step.waitForEvent(`esperar-opcion-${base}`, {
+            event: workflowRespuestaInteractiva,
+            timeout: new Date(resultado.hasta),
+            if: filtroDeRespuestaInteractiva(esperaOpcion.leadId, esperaOpcion.respondeA),
+          });
+          if (llego) {
+            opcionElegida = { id: llego.data.opcionId, titulo: llego.data.titulo };
+          } else if (esperaOpcion.respondeA !== null && deps.respuestasInteractivas) {
+            const respuestas = deps.respuestasInteractivas;
+            const respondeA = esperaOpcion.respondeA;
+            opcionElegida = await step.run(`verificar-opcion-${base}`, async () => {
+              const m = await respuestas.findRespuestaInteractiva(respondeA);
+              const r = m?.metadata.respuesta_interactiva;
+              return r ? { id: r.id, titulo: r.titulo } : null;
+            });
+          }
+        } else if (espera) {
           const llego = await step.waitForEvent(`esperar-evento-${base}`, {
             event: workflowDisparoRecibido,
             timeout: new Date(resultado.hasta),
             if: filtroDeEspera(espera.leadId, espera.disparador),
           });
+          despertadoPor = llego;
           respondioAntes = espera.tipo === "respuesta" && llego !== null;
           // Venció: puede que el lead haya escrito en el hueco antes de que la
           // espera quedara registrada. Se mira la conversación una vez.
@@ -390,11 +604,13 @@ export function makeWorkflowSegmentoFn(deps: WorkflowSegmentoDeps) {
         }
         await step.sendEvent(`emitir-siguiente-segmento-${base}`, {
           name: workflowSegmentoPendiente.name,
-          data: {
+          data: datosDelSiguienteSegmento({
             runId,
             desdePaso: resultado.desdePaso,
-            ...(respondioAntes ? { respondio: true } : {}),
-          },
+            respondio: respondioAntes,
+            despertadoPor,
+            opcionElegida,
+          }),
           id: `workflow-segmento-pendiente:${runId}:${resultado.desdePaso}`,
         });
       }

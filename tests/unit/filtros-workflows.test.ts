@@ -28,6 +28,8 @@ function item(over: {
     tieneVersionBorrador: false,
     versionPublicada: over.estado === "borrador" ? null : 1,
     resumenPasos: [],
+    disparadorTipo: null,
+    disparoManualPublicado: false,
     metricas: { totalRuns: over.totalRuns ?? 0, runsExitosos: 0, ultimoRun: null },
     ultimaEdicion: over.ultimaEdicion ?? over.createdAt ?? new Date(2024, 0, contador),
   };

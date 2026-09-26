@@ -78,24 +78,33 @@ export function MarcaSeveridad({
 export function GloboProblema({
   problema,
   onCerrar,
+  variante = "panel",
   className,
 }: {
   problema: ProblemaNodo;
   onCerrar?: () => void;
+  /**
+   * `lienzo`: flota sobre la grilla de puntos, así que va opaco con un filo de
+   * color a la izquierda; un fondo translúcido sobre la trama se lee sucio.
+   * `panel`: va sobre el fondo liso del panel y alcanza con el tinte.
+   */
+  variante?: "lienzo" | "panel";
   className?: string;
 }) {
   return (
     <div
       role="status"
       className={cn(
-        "bg-surface-elevated w-[300px] rounded-lg border p-3 shadow-lg",
+        "bg-surface-elevated w-[300px] rounded-lg border p-3",
         // La entrada es sólo opacidad y 4 px de desplazamiento: el globo
         // aparece junto al nodo que ya estás mirando, así que no necesita
         // llamar la atención, sólo no aparecer de golpe.
-        "animate-in fade-in slide-in-from-top-1",
+        "animate-in fade-in slide-in-from-top-1 motion-reduce:animate-none",
         DURACION.FLOTANTE,
         CURVA.SALIDA,
-        SEVERIDAD_FONDO[problema.severidad],
+        variante === "lienzo"
+          ? cn("border-line-card border-l-[3px] shadow-lg", SEVERIDAD_FILO[problema.severidad])
+          : SEVERIDAD_FONDO[problema.severidad],
         className,
       )}
     >
@@ -141,6 +150,12 @@ export function GloboProblema({
           ) : null}
         </div>
 
+        {problema.ayuda ? (
+          <p className="text-ink-dim pl-3.5 text-[11px] leading-snug text-pretty">
+            {problema.ayuda}
+          </p>
+        ) : null}
+
         {problema.regla ? (
           <p className="text-ink-faint pl-3.5 font-mono text-[10px] leading-relaxed">
             {problema.regla}
@@ -167,6 +182,13 @@ export function GloboProblema({
     </div>
   );
 }
+
+/** El filo izquierdo del globo del lienzo, del color de la severidad. */
+const SEVERIDAD_FILO: Record<ProblemaNodo["severidad"], string> = {
+  error: "border-l-danger",
+  stale: "border-l-caution",
+  sin_publicar: "border-l-info",
+};
 
 /**
  * Resumen de validación de la barra superior.

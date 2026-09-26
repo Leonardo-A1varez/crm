@@ -2,6 +2,7 @@ import Link from "next/link";
 import { PauseIcon } from "@/components/icons";
 import { BadgeEstado } from "@/components/workflows/lista/BadgeEstado";
 import { SEMANTICA_PAUSA, tinte } from "@/components/workflows/lista/estado";
+import { categoriaChipFondo, categoriaColor } from "@/lib/ui/workflow-nodos";
 import { formatearEntero, formatearPorcentaje, porcentajeDe } from "@/lib/ui/metricas";
 import type { FlujoEnLista } from "@/components/workflows/lista/tipos";
 import type { ReactNode } from "react";
@@ -25,6 +26,7 @@ export function TarjetaFlujo({ flujo, acciones }: { flujo: FlujoEnLista; accione
   return (
     <li className="border-line-card bg-surface-card focus-within:border-line-control hover:border-line-control relative flex flex-col gap-3 rounded-[13px] border p-4 transition-colors">
       <div className="flex items-start gap-2.5">
+        <IconoDisparador disparador={flujo.disparador} />
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <Link
             href={`/workflows/${id}`}
@@ -98,6 +100,35 @@ export function TarjetaFlujo({ flujo, acciones }: { flujo: FlujoEnLista; accione
 
       {estado === "pausado" ? <NotaDePausa enCurso={flujo.corridasEnCurso} /> : null}
     </li>
+  );
+}
+
+/**
+ * El disparador del flujo, como ícono: con qué arranca es lo primero que
+ * distingue a dos flujos de nombre parecido. Es el mismo ícono y el mismo
+ * color de categoría que el nodo en el lienzo, así que al abrir el flujo se
+ * reconoce. El nombre va en el `title` y para el lector de pantalla.
+ */
+function IconoDisparador({ disparador }: { disparador: FlujoEnLista["disparador"] }) {
+  const Icono = disparador?.icono;
+  return (
+    <span
+      role="img"
+      aria-label={disparador ? `Arranca con: ${disparador.nombre}` : "Todavía sin disparador"}
+      title={disparador ? `Arranca con: ${disparador.nombre}` : "Todavía sin disparador"}
+      className="border-line-card grid size-[26px] shrink-0 place-items-center rounded-[7px]"
+      style={
+        disparador
+          ? { background: categoriaChipFondo("trigger"), color: categoriaColor("trigger") }
+          : undefined
+      }
+    >
+      {Icono ? (
+        <Icono aria-hidden className="size-3.5" />
+      ) : (
+        <span aria-hidden className="bg-ink-ghost size-1.5 rounded-full" />
+      )}
+    </span>
   );
 }
 

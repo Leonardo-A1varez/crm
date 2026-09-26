@@ -210,6 +210,7 @@ function compilarRegla(r: Regla): ReglaCompilada {
     case "entre":
     case "antes_de":
     case "despues_de":
+    case "hace_mas_de":
       // Ningún campo de audiencia los ofrece y la tabla de arriba ya los frenó.
       // Si alguien se los agrega a un campo sin enseñarle a la base a
       // resolverlos, tiene que fallar acá y no llegar al SQL.

@@ -101,7 +101,8 @@ function esErrorCritico(problema: ProblemaGrafo): boolean {
 }
 
 /**
- * Valida la configuración de un nodo según su tipo.
+ * Valida la configuración de un nodo según su tipo. Se exporta para que el
+ * editor cuelgue estos mismos errores sobre el nodo (`problemas-editor.ts`).
  *
  * Qué claves mira, cuáles son obligatorias y con qué mensaje: todo sale del
  * contrato de `config-nodos.ts`, el mismo schema con que escribe el panel y
@@ -109,7 +110,7 @@ function esErrorCritico(problema: ProblemaGrafo): boolean {
  * cuenta y pedía `tag_id` donde el panel guardaba `tagIds`: un bloque bien
  * configurado no se podía publicar.
  */
-function validarConfigNodo(nodo: Nodo): ErrorValidacion[] {
+export function validarConfigNodo(nodo: Nodo): ErrorValidacion[] {
   // Un bloque que el motor no ejecuta falla al correr, esté como esté
   // configurado. Pedirle además que complete sus campos sería mandar a quien
   // arma el flujo a llenar algo que no sirve de nada: se reporta sólo esto.

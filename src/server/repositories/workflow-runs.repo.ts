@@ -35,6 +35,13 @@ export interface ArrancarWorkflowRunResult {
   run: WorkflowRun | null;
   /** Sólo presente cuando `run` es null: por qué no arrancó. */
   motivo?: ArrancarWorkflowRunMotivo;
+  /**
+   * Las corridas vivas que la política "reiniciar" canceló para dejar arrancar
+   * ésta. Quien llama le avisa a Inngest de cada una
+   * (`workflow/corrida.cancelada`): sin eso, el segmento que duerme en una
+   * espera sigue dormido hasta vencer.
+   */
+  cancelados: UUID[];
 }
 
 /** Por qué `reanudar` no reanudó. Los mismos códigos que devuelve `reanudar_workflow_run`. */
@@ -61,6 +68,25 @@ export interface RelanzarWorkflowRunResult {
   run: WorkflowRun | null;
   /** Sólo presente cuando `run` es null. */
   motivo?: RelanzarWorkflowRunMotivo;
+  /** Las que canceló la política "reiniciar" al arrancar la nueva. Ver `ArrancarWorkflowRunResult`. */
+  cancelados: UUID[];
+}
+
+/** Por qué `cancelarSiViva` no canceló. */
+export type CancelarWorkflowRunMotivo = "corrida_no_encontrada" | "corrida_no_viva";
+
+export type CancelarWorkflowRunResult =
+  | { ok: true }
+  | { ok: false; motivo: CancelarWorkflowRunMotivo };
+
+/** Por dónde pasaron las corridas de producción de una versión. Ver `corridasPorNodo`. */
+export interface CorridasPorNodo {
+  /** Corridas de la versión desde `desde` (sin las de Probar). */
+  corridas: number;
+  /** De ésas, las que siguen corriendo o esperando. */
+  vivas: number;
+  /** Por nodo, ordenados por id. Un nodo por el que no pasó ninguna no aparece. */
+  nodos: { nodoId: string; corridas: number; fallaron: number; esperando: number }[];
 }
 
 export interface CorridasVivasDeVersion {
@@ -106,6 +132,14 @@ export interface WorkflowRunsRepository {
   /** Compare-and-swap: null si `pasos_ejecutados !== desdePaso` o si la corrida ya no está viva. */
   tomarSegmento(runId: UUID, desdePaso: number): Promise<WorkflowRun | null>;
   registrarPaso(runId: UUID, paso: WorkflowRunPasoInsert): Promise<void>;
+  /*
+   * `avanzar`, `esperar`, `terminar`, `fallar` y `cancelar` sólo escriben sobre
+   * una corrida VIVA (`corriendo`/`esperando`). Sobre una que ya cerró —la
+   * cancelaron a mano, o la reinició un disparo nuevo mientras su segmento
+   * seguía en vuelo— no hacen nada: sin esto, el `esperar` de ese segmento la
+   * devolvía a `esperando` y la corrida cancelada resucitaba. Una corrida que
+   * no existe sigue siendo `NotFoundError`.
+   */
   /** Avanza dentro del mismo segmento: sigue corriendo, sólo cambia de nodo. */
   avanzar(
     runId: UUID,
@@ -121,7 +155,22 @@ export interface WorkflowRunsRepository {
     pasos: number,
   ): Promise<void>;
   terminar(runId: UUID, pasos: number): Promise<void>;
-  fallar(runId: UUID, error: string, pasos: number): Promise<void>;
+  /** `intentos`: cuántas veces se intentó el paso que falló (ver `WorkflowRun.intentos`). */
+  fallar(runId: UUID, error: string, pasos: number, intentos?: number): Promise<void>;
+  /**
+   * La corta el motor sin que haya fallado nada: `cancelado`, con `motivo` en
+   * `error`. Hoy, una corrida que despierta de «Esperar evento» con una
+   * cadena de disparos pasada del límite (`lib/workflows/cadena.ts`).
+   */
+  cancelar(runId: UUID, motivo: string, pasos: number): Promise<void>;
+  /**
+   * "Cancelar corrida" desde el panel: compare-and-swap a `cancelado` sólo si
+   * la corrida sigue viva, con `motivo` en `error` y sus pasos intactos. No
+   * toca Inngest: una corrida que espera despierta, `tomarSegmento` la ve
+   * cerrada y el segmento sale sin hacer nada; una con el segmento en vuelo
+   * no ejecuta la acción siguiente (`EjecutorDeps.seguir`).
+   */
+  cancelarSiViva(runId: UUID, motivo: string): Promise<CancelarWorkflowRunResult>;
   /**
    * CAS de fallo definitivo: mismo predicado que `tomarSegmento`
    * (`pasos_ejecutados === desdePaso` Y estado en `ESTADOS_VIVOS`), pero en
@@ -133,7 +182,7 @@ export interface WorkflowRunsRepository {
    * debe resucitar ni pisar una corrida que ya cerró con un error que ya no
    * aplica. Devuelve si efectivamente la marcó.
    */
-  fallarSiVivo(runId: UUID, error: string, desdePaso: number): Promise<boolean>;
+  fallarSiVivo(runId: UUID, error: string, desdePaso: number, intentos?: number): Promise<boolean>;
   /**
    * "Reanudar desde el fallo": deja una corrida `fallado` esperando en el nodo
    * de su último paso —el que falló—, con `pasos_ejecutados` = el orden de ese
@@ -170,6 +219,12 @@ export interface WorkflowRunsRepository {
    * cuántas corridas siguen en marcha, y en qué versión terminan.
    */
   contarVivasPorVersion(workflowId: UUID): Promise<CorridasVivasDeVersion[]>;
+  /**
+   * Cuántas corridas de producción de la versión pasaron por cada nodo desde
+   * `desde`, cuántas fallaron ahí y cuántas esperan ahí ahora. Agregado en la
+   * base (`workflow_corridas_por_nodo`): los pasos crecen con cada corrida.
+   */
+  corridasPorNodo(versionId: UUID, desde: Date): Promise<CorridasPorNodo>;
 
   // =========================================================================
   // Historial de ejecuciones (panel lateral I)
@@ -241,12 +296,16 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
     const vivas = esContextoDePrueba(input.contexto)
       ? []
       : this.vivasDelMismoWorkflow(input.versionId, input.leadId);
+    const cancelados: UUID[] = [];
     if (vivas.length > 0) {
       const { politica } = this.reglasDe(input.versionId);
-      if (politica === "ignorar") return { run: null, motivo: "ya_hay_corrida_viva" };
+      if (politica === "ignorar") {
+        return { run: null, motivo: "ya_hay_corrida_viva", cancelados };
+      }
       if (politica === "reiniciar") {
         // Todas, igual que el UPDATE set-based de `arrancar_workflow_run`.
         for (const viva of vivas) {
+          cancelados.push(viva.id);
           this.actualizar(viva.id, {
             estado: "cancelado",
             ended_at: new Date(),
@@ -270,7 +329,7 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
       ended_at: null,
     };
     this.runs.set(run.id, run);
-    return { run: clonarRun(run) };
+    return { run: clonarRun(run), cancelados };
   }
 
   async registrarNoArrancada(
@@ -332,7 +391,7 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
     contexto: Record<string, unknown>,
     pasos: number,
   ): Promise<void> {
-    this.actualizar(runId, {
+    this.actualizarSiViva(runId, {
       estado: "corriendo",
       nodo_actual: nodoActual,
       contexto: structuredClone(contexto),
@@ -346,7 +405,7 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
     contexto: Record<string, unknown>,
     pasos: number,
   ): Promise<void> {
-    this.actualizar(runId, {
+    this.actualizarSiViva(runId, {
       estado: "esperando",
       nodo_actual: nodoActual,
       contexto: structuredClone(contexto),
@@ -355,19 +414,87 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
   }
 
   async terminar(runId: UUID, pasos: number): Promise<void> {
-    this.actualizar(runId, { estado: "terminado", pasos_ejecutados: pasos, ended_at: new Date() });
-  }
-
-  async fallar(runId: UUID, error: string, pasos: number): Promise<void> {
-    this.actualizar(runId, {
-      estado: "fallado",
+    this.actualizarSiViva(runId, {
+      estado: "terminado",
       pasos_ejecutados: pasos,
-      error,
       ended_at: new Date(),
     });
   }
 
-  async fallarSiVivo(runId: UUID, error: string, desdePaso: number): Promise<boolean> {
+  async fallar(runId: UUID, error: string, pasos: number, intentos?: number): Promise<void> {
+    this.actualizarSiViva(runId, {
+      estado: "fallado",
+      pasos_ejecutados: pasos,
+      error,
+      ended_at: new Date(),
+      ...(intentos !== undefined ? { intentos } : {}),
+    });
+  }
+
+  async corridasPorNodo(versionId: UUID, desde: Date): Promise<CorridasPorNodo> {
+    const runs = [...this.runs.values()].filter(
+      (r) =>
+        r.workflow_version_id === versionId &&
+        r.started_at.getTime() >= desde.getTime() &&
+        !esContextoDePrueba(r.contexto),
+    );
+    const porNodo = new Map<
+      string,
+      { corridas: Set<UUID>; fallaron: Set<UUID>; esperando: number }
+    >();
+    const de = (nodoId: string) => {
+      const actual = porNodo.get(nodoId) ?? {
+        corridas: new Set<UUID>(),
+        fallaron: new Set<UUID>(),
+        esperando: 0,
+      };
+      porNodo.set(nodoId, actual);
+      return actual;
+    };
+    for (const r of runs) {
+      for (const p of this.pasos.get(r.id) ?? []) {
+        de(p.nodo_id).corridas.add(r.id);
+        if (p.error !== null) de(p.nodo_id).fallaron.add(r.id);
+      }
+      if (r.estado === "esperando" && r.nodo_actual !== null) de(r.nodo_actual).esperando += 1;
+    }
+    return {
+      corridas: runs.length,
+      vivas: runs.filter((r) => ESTADOS_VIVOS.includes(r.estado)).length,
+      nodos: [...porNodo.entries()]
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([nodoId, v]) => ({
+          nodoId,
+          corridas: v.corridas.size,
+          fallaron: v.fallaron.size,
+          esperando: v.esperando,
+        })),
+    };
+  }
+
+  async cancelarSiViva(runId: UUID, motivo: string): Promise<CancelarWorkflowRunResult> {
+    const run = this.runs.get(runId);
+    if (!run) return { ok: false, motivo: "corrida_no_encontrada" };
+    if (!ESTADOS_VIVOS.includes(run.estado)) return { ok: false, motivo: "corrida_no_viva" };
+    this.actualizar(runId, { estado: "cancelado", error: motivo, ended_at: new Date() });
+    return { ok: true };
+  }
+
+  async cancelar(runId: UUID, motivo: string, pasos: number): Promise<void> {
+    this.actualizarSiViva(runId, {
+      estado: "cancelado",
+      pasos_ejecutados: pasos,
+      error: motivo,
+      ended_at: new Date(),
+    });
+  }
+
+  async fallarSiVivo(
+    runId: UUID,
+    error: string,
+    desdePaso: number,
+    intentos?: number,
+  ): Promise<boolean> {
     const run = this.runs.get(runId);
     // Mismo predicado que tomarSegmento: sin esto, este método resucitaría
     // una corrida que ya cerró (terminado/fallado) por otro camino.
@@ -379,6 +506,7 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
       pasos_ejecutados: desdePaso,
       error,
       ended_at: new Date(),
+      ...(intentos !== undefined ? { intentos } : {}),
     });
     return true;
   }
@@ -417,9 +545,13 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
 
   async relanzar(runId: UUID): Promise<RelanzarWorkflowRunResult> {
     const run = this.runs.get(runId);
-    if (!run) return { run: null, motivo: "corrida_no_encontrada" };
-    if (run.estado !== "fallado") return { run: null, motivo: "corrida_no_fallada" };
-    if (esContextoDePrueba(run.contexto)) return { run: null, motivo: "corrida_de_prueba" };
+    if (!run) return { run: null, motivo: "corrida_no_encontrada", cancelados: [] };
+    if (run.estado !== "fallado") {
+      return { run: null, motivo: "corrida_no_fallada", cancelados: [] };
+    }
+    if (esContextoDePrueba(run.contexto)) {
+      return { run: null, motivo: "corrida_de_prueba", cancelados: [] };
+    }
     // Postgres elige la sesión abierta del lead; acá no hay sesiones y se
     // reusa la de la corrida.
     return this.arrancar({
@@ -517,6 +649,14 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
         politica: "ignorar",
       }
     );
+  }
+
+  /** Ver el bloque de `avanzar` en la interfaz: una corrida cerrada no se reescribe. */
+  private actualizarSiViva(runId: UUID, cambios: Partial<WorkflowRun>): void {
+    const run = this.runs.get(runId);
+    if (!run) throw new NotFoundError(`corrida no encontrada: ${runId}`, "workflow_run", runId);
+    if (!ESTADOS_VIVOS.includes(run.estado)) return;
+    this.runs.set(runId, { ...run, ...cambios });
   }
 
   private actualizar(runId: UUID, cambios: Partial<WorkflowRun>): void {

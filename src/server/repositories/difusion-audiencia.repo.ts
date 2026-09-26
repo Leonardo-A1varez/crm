@@ -1,4 +1,5 @@
 import type { AudienciaCompilada } from "@/lib/difusion/audiencia";
+import type { EstadoConversacional } from "@/lib/difusion/planificador";
 import type { CurrentStage } from "@/types/domain";
 import type { UUID } from "@/types/entities";
 
@@ -51,4 +52,15 @@ export interface DifusionAudienciaRepository {
    * `desde`. Meta no expone el uso del límite: esto es lo que se sabe acá.
    */
   usoCupoDesde(desde: Date): Promise<number>;
+  /**
+   * Lo mismo que `resolver` trae como `etapaActiva` y `ultimoEntranteAt`, para
+   * unos leads puntuales: lo que el motor vuelve a mirar justo antes de mandar
+   * (§8.6). Sólo cuenta entrantes por WhatsApp desde `entranteDesde`: la regla
+   * de conversación activa no mira más atrás, y así la consulta trae pocas
+   * filas. Un lead sin sesión abierta ni entrante reciente no aparece.
+   */
+  estadoConversacional(
+    leadIds: readonly UUID[],
+    entranteDesde: Date,
+  ): Promise<Map<UUID, EstadoConversacional>>;
 }

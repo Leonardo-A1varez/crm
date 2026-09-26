@@ -267,3 +267,30 @@ describe("aDetalleDeCorrida — la hora de cada paso", () => {
     expect(d.pasos[0]?.hora).toBe("12:00");
   });
 });
+
+describe("falló tras N intentos", () => {
+  it("una corrida fallada con los intentos registrados los dice", () => {
+    const d = aDetalleDeCorrida(
+      run({ estado: "fallado", error: "boom", intentos: 4 }),
+      undefined,
+      AHORA,
+      ZONA,
+    );
+    expect(d.cronologia).toMatch(/falló tras .* tras 4 intentos$/);
+  });
+
+  it("un solo intento se dice en singular, y sin el dato no se inventa", () => {
+    expect(
+      aDetalleDeCorrida(run({ estado: "fallado", error: "x", intentos: 1 }), undefined, AHORA, ZONA)
+        .cronologia,
+    ).toMatch(/al primer intento$/);
+    expect(
+      aDetalleDeCorrida(
+        run({ estado: "fallado", error: "x", intentos: null }),
+        undefined,
+        AHORA,
+        ZONA,
+      ).cronologia,
+    ).not.toMatch(/intento/);
+  });
+});

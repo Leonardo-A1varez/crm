@@ -1,7 +1,12 @@
 import { normalizarRangos } from "@/lib/agente/horario";
 import { formatearEntero } from "@/lib/ui/metricas";
 import { MOTIVO_SALTO } from "@/lib/workflows/motivos-salto";
-import { ciudadDeZona, fechaLegibleEnZona } from "@/lib/zona-horaria";
+import {
+  historialDeSanciones,
+  posicionEnLaEscalera,
+  type RegistroDeCuenta,
+} from "@/lib/meta/account-update";
+import { ciudadDeZona, fechaLegibleEnZona, horaDePared } from "@/lib/zona-horaria";
 import { DIAS_SEMANA } from "@/types/agente";
 import {
   DESBLOQUEO_PRIMER_ESCALON,
@@ -17,6 +22,7 @@ import type {
   EnvioSegunMeta,
   EscalonSancion,
   EstadoCupo,
+  EventoDeSancion,
   EstadoPlantilla,
   FranjaDelDia,
   Lectura,
@@ -25,11 +31,17 @@ import type {
   PlantillaMeta,
   PosicionEnEscalera,
   SaltosDeLaSemana,
+  UsoDelCupo,
   UsuarioDelPanel,
+  VeredictoUso,
 } from "@/components/ajustes";
 import type { SaltosRecientes } from "@/server/services/workflows/workflows-admin.service";
 import type { MotivoSalto } from "@/types/workflows";
 import type { Empresa } from "@/server/services/empresa/empresa.service";
+import type {
+  SancionesLeidas,
+  UsoDeLaVentana,
+} from "@/server/services/meta/registros-whatsapp.service";
 import type {
   EntidadDeEnvio,
   EstadoDeEnvio,
@@ -220,7 +232,72 @@ function peldano(valor: number | "ilimitado"): PeldanoCupo {
     : { destinatariosPorDia: valor, etiqueta: formatearEntero(valor) };
 }
 
-function vistaCupo(salud: SaludWhatsApp): Lectura<EstadoCupo> {
+/**
+ * Lo que el cálculo del uso no ve. Va siempre en pantalla: un número propio
+ * que parece completo y no lo es hace confiar de más.
+ */
+const USO_NO_CAPTURADO =
+  "Cuenta las plantillas que salieron por este CRM —difusiones y flujos— y que Meta aceptó, a destinatarios sin un mensaje suyo en las 24 h anteriores. No ve lo que salga por otra integración, por la app de WhatsApp Business o por otro número del mismo portfolio, ni las pruebas de difusión a un número propio. Cuenta por día de calendario en la hora del negocio; Meta mide en ventanas móviles de 24 h.";
+
+const DIAS_CORTOS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"] as const;
+
+/** "2026-09-19" → "sáb 19". La fecha ya viene en la zona del negocio. */
+function etiquetaDeDia(dia: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dia);
+  if (!m) return dia;
+  const fecha = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12));
+  return `${DIAS_CORTOS[fecha.getUTCDay()] ?? ""} ${Number(m[3])}`;
+}
+
+/**
+ * Meta pide haber usado "at least half of your current messaging limit" en
+ * los últimos 7 días y no dice cómo lo mide (verificado el 2026-09-25). Con
+ * los números propios hay dos desenlaces que no dependen de la lectura y uno
+ * que sí:
+ *
+ *   - Si ni el total de la semana llega al mínimo, ningún día pudo llegar:
+ *     falta en cualquier lectura.
+ *   - Si cada día llegó al mínimo, el total y el promedio también: cumplida.
+ *   - Si no, depende de cómo mida Meta, y se dice así.
+ */
+function veredictoDeUso(uso: UsoDeLaVentana, minimo: number): VeredictoUso {
+  if (uso.totalVentana < minimo) return "falta";
+  if (uso.dias.length > 0 && uso.dias.every((d) => d.destinatarios >= minimo)) return "cumplida";
+  return "depende";
+}
+
+function vistaUso(uso: Lectura<UsoDeLaVentana>, limite: number | "ilimitado" | null): UsoDelCupo {
+  if (uso.estado !== "ok") {
+    return {
+      disponible: false,
+      motivo:
+        uso.estado === "error"
+          ? `No se pudo calcular el uso con los envíos propios: ${uso.mensaje}`
+          : uso.motivo,
+    };
+  }
+  if (typeof limite !== "number") {
+    return {
+      disponible: false,
+      motivo: "El nivel actual no tiene un techo contra el cual medir el uso.",
+    };
+  }
+  const minimo = Math.ceil((limite * MINIMO_DE_USO_PCT) / 100);
+  return {
+    disponible: true,
+    dias: uso.datos.dias.map((d) => ({
+      etiqueta: etiquetaDeDia(d.dia),
+      destinatarios: d.destinatarios,
+    })),
+    totalVentana: uso.datos.totalVentana,
+    limite,
+    minimo,
+    veredicto: veredictoDeUso(uso.datos, minimo),
+    noCapturado: USO_NO_CAPTURADO,
+  };
+}
+
+function vistaCupo(salud: SaludWhatsApp, uso: Lectura<UsoDeLaVentana>): Lectura<EstadoCupo> {
   if (salud.limite.estado !== "ok") return lecturaNoOk(salud.limite);
 
   const { crudo, destinatarios } = salud.limite.valor;
@@ -239,7 +316,7 @@ function vistaCupo(salud: SaludWhatsApp): Lectura<EstadoCupo> {
       peldanos: ESCALERA_DE_LIMITES.map(peldano),
       actual,
       calidad: condicionDeCalidad(salud),
-      uso: { disponible: false, motivo: salud.usoDelLimite.motivo },
+      uso: vistaUso(uso, destinatarios),
       minimoPct: MINIMO_DE_USO_PCT,
       ventanaDias: VENTANA_DE_USO_DIAS,
       desbloqueo: actual === 0 ? DESBLOQUEO_PRIMER_ESCALON : null,
@@ -265,7 +342,14 @@ function notaDeNumeros(v: NumerosLeidos): string | null {
 
 function vistaNumeros(
   salud: SaludWhatsApp,
+  roles: Lectura<ReadonlyMap<string, string>>,
 ): Lectura<{ numeros: NumeroWhatsApp[]; nota: string | null }> {
+  const rolDe = (id: string): string | null =>
+    roles.estado === "ok" ? (roles.datos.get(id) ?? null) : null;
+  const notaDeRoles =
+    roles.estado === "ok"
+      ? null
+      : `No se pudieron leer los roles de los números: ${roles.estado === "error" ? roles.mensaje : roles.motivo}`;
   const entidades = salud.estadoDeEnvio.estado === "ok" ? salud.estadoDeEnvio.valor.entidades : [];
   const sinSaludDelConfigurado =
     salud.estadoDeEnvio.estado === "ok"
@@ -289,10 +373,11 @@ function vistaNumeros(
                 ? sinSaludDelConfigurado
                 : "Esta pantalla consulta health_status sólo del número por el que manda el CRM.",
             },
+        rol: rolDe(n.id),
         esElConfigurado: n.esElConfigurado,
       };
     }),
-    nota: notaDeNumeros(v),
+    nota: [notaDeNumeros(v), notaDeRoles].filter((t): t is string => t !== null).join(" ") || null,
   }));
 }
 
@@ -387,6 +472,10 @@ export interface VistaSalud {
   cupo: Lectura<EstadoCupo>;
   escalones: readonly EscalonSancion[];
   posicion: PosicionEnEscalera;
+  /** Los account_update de política, lo más reciente primero. */
+  historial: readonly EventoDeSancion[];
+  /** Por qué el historial puede estar incompleto. */
+  notaHistorial: string | null;
   envio: EnvioSegunMeta;
   numeros: Lectura<{ numeros: NumeroWhatsApp[]; nota: string | null }>;
   plantillas: Lectura<{ plantillas: PlantillaMeta[]; nota: string | null }>;
@@ -394,6 +483,80 @@ export interface VistaSalud {
   fuente: string;
   /** El número del badge de la pestaña. */
   pendientes: number;
+}
+
+/** Lo que la salud saca de la base y no de la Graph API (`RegistrosWhatsAppService`). */
+export interface RegistrosDeLaBase {
+  sanciones: Lectura<SancionesLeidas>;
+  uso: Lectura<UsoDeLaVentana>;
+  roles: Lectura<ReadonlyMap<string, string>>;
+}
+
+/**
+ * Sin ningún account_update guardado no se sabe nada, y lo más probable es
+ * que el campo no esté suscrito: `docs/meta-webhook-payloads.md` lo registra
+ * desuscrito, y la suscripción se hace a mano en la app de Meta.
+ */
+const MOTIVO_SIN_ACCOUNT_UPDATE =
+  "No llegó ningún webhook account_update, que es por donde Meta avisa las sanciones. Falta suscribir ese campo en la app de Meta (Webhooks › WhatsApp Business Account › account_update). Si ya está suscrito y Meta todavía no mandó ninguno, este aviso se ve igual: desde acá no se distinguen los dos casos.";
+
+/** "12/08" en la hora del negocio: lo que entra al lado de "estás acá". */
+function fechaCorta(zona: string, d: Date): string {
+  const p = horaDePared(zona, d) ?? horaDePared("UTC", d);
+  if (p === null) return "";
+  return `${String(p.dia).padStart(2, "0")}/${String(p.mes).padStart(2, "0")}`;
+}
+
+function vistaSanciones(
+  sanciones: Lectura<SancionesLeidas>,
+  zona: string,
+  ahora: Date,
+): Pick<VistaSalud, "posicion" | "historial" | "notaHistorial"> {
+  if (sanciones.estado !== "ok") {
+    return {
+      posicion: {
+        tipo: "no-disponible",
+        motivo:
+          sanciones.estado === "error"
+            ? `No se pudieron leer los account_update guardados: ${sanciones.mensaje}`
+            : sanciones.motivo,
+      },
+      historial: [],
+      notaHistorial: null,
+    };
+  }
+
+  const registros: readonly RegistroDeCuenta[] = sanciones.datos.registros;
+  const leida = posicionEnLaEscalera(registros, ahora);
+  const posicion: PosicionEnEscalera =
+    leida.tipo === "sin-registros"
+      ? { tipo: "no-disponible", motivo: MOTIVO_SIN_ACCOUNT_UPDATE }
+      : leida.tipo === "sin-sancion"
+        ? { tipo: "sin-sancion", observadoDesde: fechaLegibleEnZona(zona, leida.observadoDesde) }
+        : {
+            tipo: "en-escalon",
+            indice: leida.indice,
+            desde: fechaCorta(zona, leida.desde),
+            inferido: leida.inferido,
+          };
+
+  const historial = historialDeSanciones(registros, (d) => fechaLegibleEnZona(zona, d)).map(
+    (e, i): EventoDeSancion => ({
+      id: `${e.at.getTime()}-${i}`,
+      fecha: fechaLegibleEnZona(zona, e.at),
+      evento: e.evento,
+      titulo: e.titulo,
+      detalle: e.detalle,
+    }),
+  );
+
+  return {
+    posicion,
+    historial,
+    notaHistorial: sanciones.datos.truncado
+      ? "Se leyeron sólo los account_update más recientes: los anteriores no entran en la posición ni en esta lista."
+      : null,
+  };
 }
 
 /**
@@ -416,14 +579,29 @@ function contarPendientes(salud: SaludWhatsApp, envio: EnvioSegunMeta): number {
   return pausadas + numerosFlojos + envioFrenado;
 }
 
-export function vistaSalud(salud: SaludWhatsApp, zonaHoraria: string): VistaSalud {
+/**
+ * Para quien reusa la traducción de Meta sin leer la base: Difusión toma de
+ * acá sólo números y plantillas (`difusion/_lib/vistas.ts`). Lo que depende
+ * de la base queda `no-disponible`, nunca inventado.
+ */
+const REGISTROS_NO_LEIDOS: RegistrosDeLaBase = {
+  sanciones: { estado: "no-disponible", motivo: "Esta pantalla no lee los account_update." },
+  uso: { estado: "no-disponible", motivo: "Esta pantalla no calcula el uso del cupo." },
+  roles: { estado: "ok", datos: new Map() },
+};
+
+export function vistaSalud(
+  salud: SaludWhatsApp,
+  zonaHoraria: string,
+  registros: RegistrosDeLaBase = REGISTROS_NO_LEIDOS,
+): VistaSalud {
   const envio = envioDeLaCuenta(salud.estadoDeEnvio);
   return {
-    cupo: vistaCupo(salud),
+    cupo: vistaCupo(salud, registros.uso),
     escalones: ESCALERA_DE_SANCIONES,
-    posicion: { tipo: "no-disponible", motivo: salud.sancion.motivo },
+    ...vistaSanciones(registros.sanciones, zonaHoraria, salud.consultadoAt),
     envio,
-    numeros: vistaNumeros(salud),
+    numeros: vistaNumeros(salud, registros.roles),
     plantillas: vistaPlantillas(salud),
     fuente: `Leído de la Graph API de Meta (${salud.versionApi}) el ${fechaLegibleEnZona(zonaHoraria, salud.consultadoAt)}, hora de ${ciudadDeZona(zonaHoraria)}.`,
     pendientes: contarPendientes(salud, envio),

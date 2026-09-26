@@ -61,6 +61,11 @@ import {
   Handshake,
   Bell,
   Bug,
+  Megaphone,
+  UsersRound,
+  UserMinus,
+  Hourglass,
+  Split,
   type LucideIcon,
 } from "lucide-react";
 
@@ -145,6 +150,12 @@ export const CATEGORIAS_NODOS: CategoriaNodos[] = [
         nombre: "Formulario",
         icono: FileText,
         descripcion: "Form web enviado",
+      },
+      {
+        tipo: "trigger_difusion_respondida",
+        nombre: "Difusión respondida",
+        icono: Megaphone,
+        descripcion: "Cuando contesta una difusión",
       },
     ],
   },
@@ -235,9 +246,9 @@ export const CATEGORIAS_NODOS: CategoriaNodos[] = [
       },
       {
         tipo: "crm_campo",
-        nombre: "Actualizar campo",
+        nombre: "Actualizar campo del Twin",
         icono: Edit,
-        descripcion: "Modificar dato",
+        descripcion: "Escribe un dato de la ficha",
       },
       {
         tipo: "crm_tarea",
@@ -274,9 +285,9 @@ export const CATEGORIAS_NODOS: CategoriaNodos[] = [
       },
       {
         tipo: "logica_switch",
-        nombre: "Switch",
+        nombre: "Según el valor",
         icono: GitMerge,
-        descripcion: "Múltiples ramas",
+        descripcion: "Una rama por valor",
       },
       {
         tipo: "logica_validacion",
@@ -306,9 +317,9 @@ export const CATEGORIAS_NODOS: CategoriaNodos[] = [
       { tipo: "logica_grupo", nombre: "Agrupar", icono: Box, descripcion: "Grupo visual" },
       {
         tipo: "logica_goto",
-        nombre: "Ir a nodo",
+        nombre: "Ir a",
         icono: CornerDownRight,
-        descripcion: "Saltar a otro punto",
+        descripcion: "Salta a otro paso",
       },
       {
         tipo: "logica_detener",
@@ -426,6 +437,43 @@ export const CATEGORIAS_NODOS: CategoriaNodos[] = [
         descripcion: "Solo visible interno",
       },
       { tipo: "int_debug", nombre: "Log/Debug", icono: Bug, descripcion: "Para debugging" },
+    ],
+  },
+  {
+    id: "difusion",
+    nombre: "Difusión",
+    color: "#a9700c",
+    nodos: [
+      {
+        tipo: "dif_audiencia",
+        nombre: "Definir audiencia",
+        icono: UsersRound,
+        descripcion: "Arma el grupo de destinatarios",
+      },
+      {
+        tipo: "dif_enviar",
+        nombre: "Enviar difusión",
+        icono: Megaphone,
+        descripcion: "Manda a ese grupo",
+      },
+      {
+        tipo: "dif_excluir",
+        nombre: "Excluir",
+        icono: UserMinus,
+        descripcion: "Saca gente del grupo",
+      },
+      {
+        tipo: "dif_esperar_respuesta",
+        nombre: "Esperar respuesta de difusión",
+        icono: Hourglass,
+        descripcion: "Espera a que contesten",
+      },
+      {
+        tipo: "dif_dividir",
+        nombre: "Dividir audiencia",
+        icono: Split,
+        descripcion: "Prueba A/B con grupo de control",
+      },
     ],
   },
 ];

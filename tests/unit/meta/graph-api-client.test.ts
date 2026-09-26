@@ -443,3 +443,127 @@ describe("GraphApiMetaClient — plantilla WA", () => {
     ).rejects.toBeInstanceOf(InfraError);
   });
 });
+
+// ============================================================================
+// WA — mensajes interactivos y multimedia (formatos: doc de Meta, 2026-09-26)
+// ============================================================================
+describe("GraphApiMetaClient — sendRico WA", () => {
+  const ok = () =>
+    vi
+      .fn()
+      .mockResolvedValue(
+        makeOkResponse({ messaging_product: "whatsapp", messages: [{ id: "wamid.R1" }] }),
+      );
+
+  test("botones: interactive.type button con action.buttons de tipo reply", async () => {
+    const fetchMock = ok();
+    const r = await makeWaClient(fetchMock).sendRico({
+      to: "+1",
+      contenido: {
+        tipo: "botones",
+        cuerpo: "¿Te lo reservo?",
+        botones: [
+          { id: "si", titulo: "Sí" },
+          { id: "no", titulo: "No" },
+        ],
+      },
+    });
+    expect(r.meta_message_id).toBe("wamid.R1");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("https://graph.example.test/v21.0/12345/messages");
+    expect(JSON.parse(init.body)).toEqual({
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: "+1",
+      type: "interactive",
+      interactive: {
+        type: "button",
+        body: { text: "¿Te lo reservo?" },
+        action: {
+          buttons: [
+            { type: "reply", reply: { id: "si", title: "Sí" } },
+            { type: "reply", reply: { id: "no", title: "No" } },
+          ],
+        },
+      },
+    });
+  });
+
+  test("lista: header, body, footer y secciones con filas; lo vacío no viaja", async () => {
+    const fetchMock = ok();
+    await makeWaClient(fetchMock).sendRico({
+      to: "+1",
+      contenido: {
+        tipo: "lista",
+        encabezado: "Repuestos",
+        cuerpo: "¿Qué buscás?",
+        pie: null,
+        boton: "Ver opciones",
+        secciones: [
+          {
+            titulo: "Motor",
+            filas: [
+              { id: "f1", titulo: "Filtro", descripcion: "De aceite" },
+              { id: "f2", titulo: "Bujía", descripcion: null },
+            ],
+          },
+        ],
+      },
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body).interactive).toEqual({
+      type: "list",
+      header: { type: "text", text: "Repuestos" },
+      body: { text: "¿Qué buscás?" },
+      action: {
+        button: "Ver opciones",
+        sections: [
+          {
+            title: "Motor",
+            rows: [
+              { id: "f1", title: "Filtro", description: "De aceite" },
+              { id: "f2", title: "Bujía" },
+            ],
+          },
+        ],
+      },
+    });
+  });
+
+  test("imagen: image.link con caption", async () => {
+    const fetchMock = ok();
+    await makeWaClient(fetchMock).sendRico({
+      to: "+1",
+      contenido: { tipo: "imagen", url: "https://x.test/a.jpg", caption: "Mirá" },
+    });
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
+    expect(body.type).toBe("image");
+    expect(body.image).toEqual({ link: "https://x.test/a.jpg", caption: "Mirá" });
+  });
+
+  test("ubicación: latitud y longitud como texto, como el ejemplo oficial", async () => {
+    const fetchMock = ok();
+    await makeWaClient(fetchMock).sendRico({
+      to: "+1",
+      contenido: { tipo: "ubicacion", lat: -2.17, lon: -79.92, nombre: "Local", direccion: null },
+    });
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body);
+    expect(body.type).toBe("location");
+    expect(body.location).toEqual({ latitude: "-2.17", longitude: "-79.92", name: "Local" });
+  });
+
+  test("un 400 es ValidationError y un 429 RateLimitError, igual que el texto", async () => {
+    const contenido = { tipo: "imagen" as const, url: "https://x.test/a.jpg", caption: null };
+    await expect(
+      makeWaClient(vi.fn().mockResolvedValue(makeErrorResponse({}, 400))).sendRico({
+        to: "+1",
+        contenido,
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+    await expect(
+      makeWaClient(vi.fn().mockResolvedValue(makeErrorResponse({}, 429))).sendRico({
+        to: "+1",
+        contenido,
+      }),
+    ).rejects.toBeInstanceOf(RateLimitError);
+  });
+});

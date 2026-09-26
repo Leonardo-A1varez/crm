@@ -12,6 +12,8 @@ import {
 export interface Variable {
   key: string;
   label: string;
+  /** Lo que dice el chip dentro del texto: corto, porque va en medio de una frase. */
+  corto: string;
   tipo: "string" | "number" | "date" | "boolean";
   ejemplo?: string;
 }
@@ -26,17 +28,42 @@ export interface Variable {
  * sin su etiqueta acá no compila, y una que el motor no conoce tampoco.
  */
 const PRESENTACION: Readonly<Record<VariableDeTexto, Omit<Variable, "key">>> = {
-  "lead.nombre": { label: "Nombre del lead", tipo: "string", ejemplo: "Juan Perez" },
-  "lead.telefono": { label: "Telefono", tipo: "string", ejemplo: "+521234567890" },
+  "lead.nombre": {
+    label: "Nombre del lead",
+    corto: "nombre",
+    tipo: "string",
+    ejemplo: "Juan Perez",
+  },
+  "lead.telefono": {
+    label: "Telefono",
+    corto: "teléfono",
+    tipo: "string",
+    ejemplo: "+521234567890",
+  },
   // El canal de origen tal como lo guarda el lead: "wa", "ig" o "fb".
-  "lead.canal": { label: "Canal", tipo: "string", ejemplo: "wa" },
-  "lead.email": { label: "Email", tipo: "string", ejemplo: "juan@example.com" },
+  "lead.canal": { label: "Canal", corto: "canal", tipo: "string", ejemplo: "wa" },
+  "lead.email": { label: "Email", corto: "email", tipo: "string", ejemplo: "juan@example.com" },
   // La etapa de la sesión activa: el lead no tiene etapa propia.
-  "lead.etapa": { label: "Etapa actual", tipo: "string", ejemplo: "cotizado" },
-  "sesion.current_stage": { label: "Etapa de la sesion", tipo: "string", ejemplo: "cotizado" },
+  "lead.etapa": { label: "Etapa actual", corto: "etapa", tipo: "string", ejemplo: "cotizado" },
+  "sesion.current_stage": {
+    label: "Etapa de la sesion",
+    corto: "etapa de la sesión",
+    tipo: "string",
+    ejemplo: "cotizado",
+  },
   // El vendedor asignado a la sesión. Vacío si no hay uno.
-  "vendedor.nombre": { label: "Nombre del vendedor", tipo: "string", ejemplo: "Maria Lopez" },
-  "vendedor.email": { label: "Email del vendedor", tipo: "string", ejemplo: "maria@empresa.com" },
+  "vendedor.nombre": {
+    label: "Nombre del vendedor",
+    corto: "vendedor",
+    tipo: "string",
+    ejemplo: "Maria Lopez",
+  },
+  "vendedor.email": {
+    label: "Email del vendedor",
+    corto: "email del vendedor",
+    tipo: "string",
+    ejemplo: "maria@empresa.com",
+  },
 };
 
 export const VARIABLES_DISPONIBLES: Variable[] = LISTA_VARIABLES_DE_TEXTO.map((key) => ({

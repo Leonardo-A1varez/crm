@@ -2,6 +2,7 @@ import { InfraError, NotFoundError } from "@/lib/errors";
 import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { serverNowIso } from "@/server/db/server-time";
+import { isUuid } from "@/server/db/uuid";
 import type {
   HistorialFiltros,
   HistorialPaginado,
@@ -19,6 +20,8 @@ import type {
   ArrancarWorkflowRunInput,
   ArrancarWorkflowRunMotivo,
   ArrancarWorkflowRunResult,
+  CancelarWorkflowRunResult,
+  CorridasPorNodo,
   CorridasVivasDeVersion,
   ReanudarWorkflowRunMotivo,
   ReanudarWorkflowRunResult,
@@ -29,7 +32,7 @@ import type {
 } from "./workflow-runs.repo";
 
 const COLS_RUN =
-  "id, workflow_version_id, lead_id, lead_session_id, estado, nodo_actual, contexto, pasos_ejecutados, error, started_at, ended_at";
+  "id, workflow_version_id, lead_id, lead_session_id, estado, nodo_actual, contexto, pasos_ejecutados, error, started_at, ended_at, intentos";
 
 const ESTADOS_VIVOS: readonly WorkflowRunEstado[] = ["corriendo", "esperando"];
 
@@ -53,6 +56,8 @@ interface RunMetricaRow {
 interface ArrancarWorkflowRunRow {
   run_id: string | null;
   error_code: ArrancarWorkflowRunMotivo | null;
+  /** Migración 20260926140000. Una base sin ella no la devuelve: se lee como vacía. */
+  cancelados?: string[] | null;
 }
 
 interface ReanudarWorkflowRunRow {
@@ -64,6 +69,7 @@ interface ReanudarWorkflowRunRow {
 interface RelanzarWorkflowRunRow {
   run_id: string | null;
   error_code: RelanzarWorkflowRunMotivo | null;
+  cancelados?: string[] | null;
 }
 
 interface SaltosPorMotivoRow {
@@ -90,6 +96,7 @@ interface WorkflowRunRow {
   error: string | null;
   started_at: string;
   ended_at: string | null;
+  intentos: number | null;
 }
 
 export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
@@ -120,7 +127,8 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
 
     const row = (data as ArrancarWorkflowRunRow[] | null)?.[0];
     if (!row) throw new InfraError("arrancar_workflow_run no devolvió resultado", "postgrest");
-    if (row.error_code !== null) return { run: null, motivo: row.error_code };
+    const cancelados = row.cancelados ?? [];
+    if (row.error_code !== null) return { run: null, motivo: row.error_code, cancelados };
     if (row.run_id === null) {
       throw new InfraError("arrancar_workflow_run devolvió run_id nulo", "postgrest");
     }
@@ -132,7 +140,7 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
         "postgrest",
       );
     }
-    return { run };
+    return { run, cancelados };
   }
 
   async registrarNoArrancada(
@@ -196,7 +204,7 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
     contexto: Record<string, unknown>,
     pasos: number,
   ): Promise<void> {
-    await this.actualizar(runId, {
+    await this.actualizarSiViva(runId, {
       estado: "corriendo",
       nodo_actual: nodoActual,
       contexto: contexto as never,
@@ -210,7 +218,7 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
     contexto: Record<string, unknown>,
     pasos: number,
   ): Promise<void> {
-    await this.actualizar(runId, {
+    await this.actualizarSiViva(runId, {
       estado: "esperando",
       nodo_actual: nodoActual,
       contexto: contexto as never,
@@ -226,24 +234,87 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
     // que la lección de clock skew de este proyecto ya pagó una vez
     // (ver `server-time.ts`).
     const endedAt = await serverNowIso(this.db);
-    await this.actualizar(runId, {
+    await this.actualizarSiViva(runId, {
       estado: "terminado",
       pasos_ejecutados: pasos,
       ended_at: endedAt,
     });
   }
 
-  async fallar(runId: UUID, error: string, pasos: number): Promise<void> {
+  async fallar(runId: UUID, error: string, pasos: number, intentos?: number): Promise<void> {
     const endedAt = await serverNowIso(this.db);
-    await this.actualizar(runId, {
+    await this.actualizarSiViva(runId, {
       estado: "fallado",
       pasos_ejecutados: pasos,
       error,
       ended_at: endedAt,
+      ...(intentos !== undefined ? { intentos } : {}),
     });
   }
 
-  async fallarSiVivo(runId: UUID, error: string, desdePaso: number): Promise<boolean> {
+  async cancelar(runId: UUID, motivo: string, pasos: number): Promise<void> {
+    // `ended_at` del reloj de Postgres, como en `terminar`/`fallar`.
+    const endedAt = await serverNowIso(this.db);
+    await this.actualizarSiViva(runId, {
+      estado: "cancelado",
+      pasos_ejecutados: pasos,
+      error: motivo,
+      ended_at: endedAt,
+    });
+  }
+
+  async corridasPorNodo(versionId: UUID, desde: Date): Promise<CorridasPorNodo> {
+    if (!isUuid(versionId)) return { corridas: 0, vivas: 0, nodos: [] };
+    const { data, error } = await this.db.rpc("workflow_corridas_por_nodo", {
+      p_version_id: versionId,
+      p_desde: desde.toISOString(),
+    });
+    if (error) throw mapPostgrestError(error, { resource: "workflow_runs" });
+    const r = data as {
+      corridas?: unknown;
+      vivas?: unknown;
+      nodos?: { nodo_id: string; corridas: number; fallaron: number; esperando: number }[];
+    } | null;
+    if (r === null || typeof r.corridas !== "number" || typeof r.vivas !== "number") {
+      throw new InfraError("workflow_corridas_por_nodo devolvió otra forma", "postgrest");
+    }
+    return {
+      corridas: r.corridas,
+      vivas: r.vivas,
+      nodos: (r.nodos ?? []).map((n) => ({
+        nodoId: n.nodo_id,
+        corridas: n.corridas,
+        fallaron: n.fallaron,
+        esperando: n.esperando,
+      })),
+    };
+  }
+
+  async cancelarSiViva(runId: UUID, motivo: string): Promise<CancelarWorkflowRunResult> {
+    if (!isUuid(runId)) return { ok: false, motivo: "corrida_no_encontrada" };
+    // Compare-and-swap en un solo UPDATE: entre leer el estado y escribirlo el
+    // segmento podría cerrarla. `ended_at` del reloj de Postgres.
+    const endedAt = await serverNowIso(this.db);
+    const { data, error } = await this.db
+      .from("workflow_runs")
+      .update({ estado: "cancelado", error: motivo, ended_at: endedAt })
+      .eq("id", runId)
+      .in("estado", ESTADOS_VIVOS)
+      .select("id")
+      .maybeSingle();
+    if (error) throw mapPostgrestError(error, { resource: "workflow_runs" });
+    if (data !== null) return { ok: true };
+    return (await this.existe(runId))
+      ? { ok: false, motivo: "corrida_no_viva" }
+      : { ok: false, motivo: "corrida_no_encontrada" };
+  }
+
+  async fallarSiVivo(
+    runId: UUID,
+    error: string,
+    desdePaso: number,
+    intentos?: number,
+  ): Promise<boolean> {
     // Mismo UPDATE compare-and-swap que `tomarSegmento` (id + pasos_ejecutados
     // + estado vivo), pero escribe `fallado` en vez de tomar la corrida: si
     // otro camino ya la cerró (avanzó a otro paso, o la terminaron/fallaron/
@@ -252,7 +323,13 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
     const endedAt = await serverNowIso(this.db);
     const { data, error: pgError } = await this.db
       .from("workflow_runs")
-      .update({ estado: "fallado", pasos_ejecutados: desdePaso, error, ended_at: endedAt })
+      .update({
+        estado: "fallado",
+        pasos_ejecutados: desdePaso,
+        error,
+        ended_at: endedAt,
+        ...(intentos !== undefined ? { intentos } : {}),
+      })
       .eq("id", runId)
       .eq("pasos_ejecutados", desdePaso)
       .in("estado", ESTADOS_VIVOS)
@@ -284,7 +361,8 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
 
     const row = (data as RelanzarWorkflowRunRow[] | null)?.[0];
     if (!row) throw new InfraError("relanzar_workflow_run no devolvió resultado", "postgrest");
-    if (row.error_code !== null) return { run: null, motivo: row.error_code };
+    const cancelados = row.cancelados ?? [];
+    if (row.error_code !== null) return { run: null, motivo: row.error_code, cancelados };
     if (row.run_id === null) {
       throw new InfraError("relanzar_workflow_run devolvió run_id nulo", "postgrest");
     }
@@ -296,7 +374,7 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
         "postgrest",
       );
     }
-    return { run };
+    return { run, cancelados };
   }
 
   async findRun(id: UUID): Promise<WorkflowRun | null> {
@@ -392,6 +470,35 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
       conteo[fila.motivo] = Number(fila.cantidad);
     }
     return conteo;
+  }
+
+  /**
+   * Sólo sobre una corrida viva (ver el bloque de `avanzar` en la interfaz).
+   * Cero filas: si la corrida existe, ya cerró y no se toca; si no existe,
+   * `NotFoundError`, igual que antes.
+   */
+  private async actualizarSiViva(runId: UUID, cambios: Record<string, unknown>): Promise<void> {
+    const { data, error } = await this.db
+      .from("workflow_runs")
+      .update(cambios as never)
+      .eq("id", runId)
+      .in("estado", ESTADOS_VIVOS)
+      .select("id")
+      .maybeSingle();
+    if (error) throw mapPostgrestError(error, { resource: "workflow_runs" });
+    if (data === null && !(await this.existe(runId))) {
+      throw new NotFoundError(`corrida no encontrada: ${runId}`, "workflow_run", runId);
+    }
+  }
+
+  private async existe(runId: UUID): Promise<boolean> {
+    const { data, error } = await this.db
+      .from("workflow_runs")
+      .select("id")
+      .eq("id", runId)
+      .maybeSingle();
+    if (error) throw mapPostgrestError(error, { resource: "workflow_runs" });
+    return data !== null;
   }
 
   private async actualizar(runId: UUID, cambios: Record<string, unknown>): Promise<void> {
@@ -567,5 +674,6 @@ function mapRun(r: WorkflowRunRow): WorkflowRun {
     error: r.error,
     started_at: new Date(r.started_at),
     ended_at: r.ended_at ? new Date(r.ended_at) : null,
+    intentos: r.intentos,
   };
 }

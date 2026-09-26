@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import { GaleriaPlantillas } from "@/components/workflows/lista/GaleriaPlantillas";
+import { PLANTILLAS } from "@/components/workflows/lista/plantillas";
 import { getCurrentRol } from "@/server/auth/guards";
 import { EN_BLANCO } from "../_lib/listado";
+import { armarPlantilla, bloquesQueNoCorren } from "./_lib/grafos-plantillas";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +29,12 @@ export default async function NuevoFlujoPage() {
         hrefVolver="/workflows"
         hrefPlantilla={(id) => `/workflows/nuevo/${id}`}
         hrefEnBlanco={`/workflows/nuevo/${EN_BLANCO}`}
+        noCorren={Object.fromEntries(
+          PLANTILLAS.map((p) => {
+            const armada = armarPlantilla(p.id);
+            return [p.id, armada ? bloquesQueNoCorren(armada.grafo) : []];
+          }),
+        )}
       />
     </div>
   );

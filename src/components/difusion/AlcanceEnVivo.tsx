@@ -253,10 +253,10 @@ function Resumen({
           <span className="text-ink-primary text-[11.5px] font-[650]">Ruteo por destinatario</span>
           <Nota>
             <span className="text-ok font-mono">{formatearEntero(alcance.porVentanaAbierta)}</span>{" "}
-            tienen la ventana de servicio abierta: les sale texto libre, gratis, y no consumen el
-            cupo. Los otros{" "}
+            tienen la ventana de servicio abierta: reciben la misma plantilla y no consumen el cupo;
+            con marketing se cobra igual. Los otros{" "}
             <span className="text-caution font-mono">{formatearEntero(alcance.porPlantilla)}</span>{" "}
-            van por plantilla.
+            están fuera de la ventana y sí consumen cupo.
           </Nota>
         </div>
       </div>

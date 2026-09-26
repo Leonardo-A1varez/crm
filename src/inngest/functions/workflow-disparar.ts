@@ -41,7 +41,20 @@ export interface DispararWorkflowDeps {
    * `dispararHandler` sobre por qué "arrancar devolvió null" no emite nada.
    */
   emitir: (input: EmitirSegmentoPendienteInput) => Promise<void>;
+  /**
+   * Manda `workflow/corrida.cancelada` por una corrida que la política
+   * "reiniciar" canceló al arrancar otra: `workflow-segmento` la tiene en
+   * `cancelOn` y corta en el acto el segmento que duerme en una espera.
+   */
+  emitirCancelacion: (runId: UUID) => Promise<void>;
   logger?: Logger;
+}
+
+/** Lo que dejó el arranque: las corridas nuevas y las viejas que reinició. */
+export interface ArranqueDeDisparo {
+  iniciadas: EmitirSegmentoPendienteInput[];
+  /** Las que canceló "reiniciar". JSON-safe: cruza de un step al otro. */
+  canceladas: UUID[];
 }
 
 export interface DispararWorkflowResult {
@@ -74,7 +87,7 @@ export interface DispararWorkflowResult {
 export async function arrancarPorDisparador(
   input: DispararWorkflowInput,
   deps: Pick<DispararWorkflowDeps, "workflows" | "runs" | "logger">,
-): Promise<EmitirSegmentoPendienteInput[]> {
+): Promise<ArranqueDeDisparo> {
   const logger = (deps.logger ?? new NoopLogger()).child({
     workflow: "workflow-disparar",
     disparador: input.disparador,
@@ -84,7 +97,7 @@ export async function arrancarPorDisparador(
   // dice cuál flujo arrancaría todos los que escuchan ese evento para el lead.
   if (DISPARADORES_DIRIGIDOS.includes(input.disparador) && input.workflowId === undefined) {
     logger.warn("disparo-dirigido-sin-workflow");
-    return [];
+    return { iniciadas: [], canceladas: [] };
   }
 
   // El repo filtra grueso (qué versiones escuchan este evento); acá se aplica
@@ -97,6 +110,7 @@ export async function arrancarPorDisparador(
       disparoCoincide(v.grafo, input.disparador, input.datos ?? {}),
   );
   const iniciadas: EmitirSegmentoPendienteInput[] = [];
+  const canceladas: UUID[] = [];
   const profundidad = input.profundidad ?? 0;
 
   for (const version of versiones) {
@@ -116,6 +130,7 @@ export async function arrancarPorDisparador(
       continue;
     }
     const resultado = await deps.runs.arrancar(arrancarInput);
+    canceladas.push(...resultado.cancelados);
     if (!resultado.run) {
       logger.info("corrida-no-arranco", { version_id: version.id, motivo: resultado.motivo });
       continue;
@@ -124,7 +139,13 @@ export async function arrancarPorDisparador(
     logger.info("corrida-arrancada", { version_id: version.id, run_id: resultado.run.id });
   }
 
-  return iniciadas;
+  return { iniciadas, canceladas };
+}
+
+/** Los avisos de un arranque: la cancelación de las reiniciadas y el primer segmento de las nuevas. */
+async function avisar(arranque: ArranqueDeDisparo, deps: DispararWorkflowDeps): Promise<void> {
+  for (const runId of arranque.canceladas) await deps.emitirCancelacion(runId);
+  for (const iniciada of arranque.iniciadas) await deps.emitir(iniciada);
 }
 
 /**
@@ -138,11 +159,9 @@ export async function dispararHandler(
   input: DispararWorkflowInput,
   deps: DispararWorkflowDeps,
 ): Promise<DispararWorkflowResult> {
-  const iniciadas = await arrancarPorDisparador(input, deps);
-  for (const iniciada of iniciadas) {
-    await deps.emitir(iniciada);
-  }
-  return { arrancadas: iniciadas.length };
+  const arranque = await arrancarPorDisparador(input, deps);
+  await avisar(arranque, deps);
+  return { arrancadas: arranque.iniciadas.length };
 }
 
 function envolverNoRetriable<T>(fn: () => Promise<T>): Promise<T> {
@@ -185,21 +204,15 @@ export function makeWorkflowDispararFn(deps: DispararWorkflowDeps) {
       const day = new Date(event.ts).toISOString().slice(0, 10);
       const base = `workflow-disparar-${day}-${event.data.leadId}-${event.data.disparador}`;
 
-      const iniciadas = await step.run(`${base}-arrancar`, () =>
+      const arranque = await step.run(`${base}-arrancar`, () =>
         envolverNoRetriable(() => arrancarPorDisparador(event.data, deps)),
       );
 
-      if (iniciadas.length > 0) {
-        await step.run(`${base}-emitir`, () =>
-          envolverNoRetriable(async () => {
-            for (const iniciada of iniciadas) {
-              await deps.emitir(iniciada);
-            }
-          }),
-        );
+      if (arranque.iniciadas.length > 0 || arranque.canceladas.length > 0) {
+        await step.run(`${base}-emitir`, () => envolverNoRetriable(() => avisar(arranque, deps)));
       }
 
-      return { arrancadas: iniciadas.length };
+      return { arrancadas: arranque.iniciadas.length };
     },
   );
 }

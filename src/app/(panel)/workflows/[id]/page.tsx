@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getLogger } from "@/lib/observability/get-logger";
 import { getCurrentRol } from "@/server/auth/guards";
+import { getDifusionServiceForRequest } from "@/server/bootstrap/difusion-bootstrap";
 import { getReglasAdminServiceForRequest } from "@/server/bootstrap/reglas-bootstrap";
 import { getTagsAdminServiceForRequest } from "@/server/bootstrap/tags-bootstrap";
 import { getUsuariosServiceForRequest } from "@/server/bootstrap/usuarios-bootstrap";
@@ -10,8 +11,10 @@ import { searchLeadsAction } from "../../leads/_actions/search-leads.action";
 import {
   guardarVersionAction,
   obtenerDetalleRunAction,
+  probarHastaAcaAction,
   probarWorkflowAction,
 } from "../_actions/workflows.actions";
+import { leerVistaPreviaMensajeAction } from "../_actions/vista-previa.actions";
 import { EditorWorkflowCliente } from "./_components/EditorWorkflowCliente";
 import { TOPE_PASOS } from "./_lib/max-pasos";
 import { opcionesDeEtapas, opcionesDeIntents, opcionesDeVendedores } from "./_lib/opciones-editor";
@@ -41,7 +44,7 @@ export default async function WorkflowDetallePage({ params }: { params: Promise<
   const detalle = await svc.detalle(id);
   if (!detalle) notFound();
 
-  const [rol, tags, intents, usuarios, zona] = await Promise.all([
+  const [rol, tags, intents, usuarios, zona, difusiones] = await Promise.all([
     getCurrentRol(),
     // Las listas alimentan los selectores del panel, que guardan un id real:
     // escribirlo a mano es un `tag_id_ausente` en producción esperando a que
@@ -53,6 +56,11 @@ export default async function WorkflowDetallePage({ params }: { params: Promise<
     // Las horas de Flujos van en la zona del negocio, como en el historial y
     // en la corrida.
     zonaDelNegocio(getLogger({ scope: "workflows" })),
+    // "Difusión respondida" elige a cuál: sólo las que salieron o van a salir.
+    // Un borrador todavía no le llegó a nadie.
+    getDifusionServiceForRequest()
+      .then((s) => s.listar())
+      .then((l) => l.difusiones.filter((d) => d.estado !== "borrador")),
   ]);
   const isAdmin = rol === "admin";
 
@@ -100,10 +108,13 @@ export default async function WorkflowDetallePage({ params }: { params: Promise<
           etapas={opcionesDeEtapas()}
           vendedores={opcionesDeVendedores(usuarios)}
           intents={opcionesDeIntents(intents.map((i) => i.intent))}
+          difusiones={difusiones.map((d) => ({ id: d.id, nombre: d.nombre }))}
           onGuardar={guardarVersionAction}
           onProbar={probarWorkflowAction}
+          onProbarHastaAca={probarHastaAcaAction}
           onBuscarLeads={searchLeadsAction}
           onObtenerDetalleRun={obtenerDetalleRunAction}
+          onLeerVistaPrevia={leerVistaPreviaMensajeAction}
         />
       </div>
     </div>

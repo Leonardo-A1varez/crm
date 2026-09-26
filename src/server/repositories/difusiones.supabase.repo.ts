@@ -47,6 +47,7 @@ export class SupabaseDifusionesRepository implements DifusionesRepository {
         plantilla_categoria: input.plantilla_categoria ?? null,
         plantilla_idioma: input.plantilla_idioma ?? null,
         plantilla_parametros: (input.plantilla_parametros ?? []) as unknown as Json,
+        texto_libre: input.texto_libre ?? null,
         incluir_en_negociacion: input.incluir_en_negociacion,
         exenta_tope_frecuencia: input.exenta_tope_frecuencia,
         canary_tamano: input.canary_tamano ?? null,
@@ -162,6 +163,10 @@ function aUpdate(patch: DifusionUpdate): DbUpdate {
       patch.plantilla_parametros,
     ) as unknown as Json;
   }
+  if (patch.texto_libre !== undefined) payload.texto_libre = patch.texto_libre;
+  if (patch.audiencia_tanda_evaluada !== undefined) {
+    payload.audiencia_tanda_evaluada = patch.audiencia_tanda_evaluada;
+  }
   if (patch.incluir_en_negociacion !== undefined) {
     payload.incluir_en_negociacion = patch.incluir_en_negociacion;
   }
@@ -171,6 +176,9 @@ function aUpdate(patch: DifusionUpdate): DbUpdate {
   if (patch.canary_tamano !== undefined) payload.canary_tamano = patch.canary_tamano;
   if (patch.canary_revisado_at !== undefined) {
     payload.canary_revisado_at = iso(patch.canary_revisado_at);
+  }
+  if (patch.canary_continuada_at !== undefined) {
+    payload.canary_continuada_at = iso(patch.canary_continuada_at);
   }
   if (patch.programada_para !== undefined) payload.programada_para = iso(patch.programada_para);
   if (patch.iniciada_at !== undefined) payload.iniciada_at = iso(patch.iniciada_at);
@@ -208,10 +216,13 @@ function mapRow(r: Row): Difusion {
     // Una fila escrita a mano con otra forma no manda variables inventadas: se
     // lee vacía, y la plantilla sale sin parámetros o Meta la rechaza.
     plantilla_parametros: parametrosDe(r.plantilla_parametros),
+    texto_libre: r.texto_libre,
+    audiencia_tanda_evaluada: r.audiencia_tanda_evaluada,
     incluir_en_negociacion: r.incluir_en_negociacion,
     exenta_tope_frecuencia: r.exenta_tope_frecuencia,
     canary_tamano: r.canary_tamano,
     canary_revisado_at: fecha(r.canary_revisado_at),
+    canary_continuada_at: fecha(r.canary_continuada_at),
     programada_para: fecha(r.programada_para),
     iniciada_at: fecha(r.iniciada_at),
     finalizada_at: fecha(r.finalizada_at),

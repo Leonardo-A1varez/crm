@@ -1,6 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import { LockClock } from "@/components/icons";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { MOTIVO_EXCLUSION, esMotivoEximible } from "@/lib/difusion/modelo";
 import { cn } from "@/lib/utils";
 import { EXCLUSION, exclusionesVisibles } from "./exclusiones";
@@ -31,6 +41,10 @@ const EXIMIBLES = MOTIVO_EXCLUSION.filter(esMotivoEximible);
  * Lo marcado en las eximibles es lo que eligió la persona (`aplicadas`), no lo
  * que dice el último cálculo: el cálculo llega un instante después, y un
  * checkbox que no responde al tocarlo parece roto.
+ *
+ * Destildar una eximible pide confirmación explícita, con la consecuencia a la
+ * vista, y el servidor la deja en la auditoría al guardar el borrador. Volver
+ * a excluir no pregunta: es la opción segura.
  */
 export function ExclusionesAudiencia({
   exclusiones,
@@ -54,6 +68,9 @@ export function ExclusionesAudiencia({
           e.eximible ? { ...e, aplicada: aplicadas[e.motivo] ?? e.aplicada } : e,
         );
   const ocultas = exclusiones === null ? 0 : exclusiones.length - filas.length;
+  const [pendiente, setPendiente] = useState<MotivoExclusion | null>(null);
+  const aConfirmar = pendiente === null ? null : EXCLUSION[pendiente];
+  const cantidadPendiente = filas.find((f) => f.motivo === pendiente)?.cantidad ?? null;
 
   return (
     <div className="flex flex-col gap-2">
@@ -72,7 +89,9 @@ export function ExclusionesAudiencia({
                 <input
                   type="checkbox"
                   checked={e.aplicada}
-                  onChange={(ev) => onAlternar(e.motivo, ev.target.checked)}
+                  onChange={(ev) =>
+                    ev.target.checked ? onAlternar(e.motivo, true) : setPendiente(e.motivo)
+                  }
                   aria-label={`Excluir: ${d.etiqueta}`}
                   className="border-line-control checked:bg-ink-primary checked:border-ink-primary focus-visible:ring-ring/50 size-[18px] shrink-0 appearance-none rounded-[5px] border transition-colors duration-150 focus-visible:ring-3 focus-visible:outline-none"
                 />
@@ -125,9 +144,42 @@ export function ExclusionesAudiencia({
           );
         })}
       </ul>
+      <Dialog open={pendiente !== null} onOpenChange={(abierto) => !abierto && setPendiente(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>¿Mandarles igual?</DialogTitle>
+            <DialogDescription>
+              {aConfirmar ? (
+                <>
+                  Vas a dejar de excluir «{aConfirmar.etiqueta}»
+                  {cantidadPendiente !== null && cantidadPendiente > 0
+                    ? ` (${cantidadPendiente} en esta audiencia)`
+                    : ""}
+                  : {aConfirmar.consecuencia}. Queda registrado en la auditoría con tu usuario.
+                </>
+              ) : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendiente(null)}>
+              Seguir excluyéndolos
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (pendiente !== null) onAlternar(pendiente, false);
+                setPendiente(null);
+              }}
+            >
+              Mandarles igual
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Nota>
-        Las que llevan candado no se desmarcan. En negociación y tope de frecuencia sí, y lo que
-        elijas queda guardado en la difusión.
+        Las que llevan candado no se desmarcan. En negociación y tope de frecuencia sí, con
+        confirmación, y lo que elijas queda en la difusión y en la auditoría.
         {exclusiones === null
           ? " Las demás se calculan cuando la audiencia esté completa."
           : ocultas > 0

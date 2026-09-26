@@ -96,6 +96,8 @@ function makeDeps() {
     intents,
     identificadores: new InMemoryLeadIdentificadoresRepository(),
     supresiones,
+    respuestaDifusion: { registrar: async () => null },
+    plantillasSinSesion: { registrar: async () => 0 },
     configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
     emit: async (e) => {
       emitted.push(e);

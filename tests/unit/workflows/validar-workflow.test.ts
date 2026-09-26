@@ -64,13 +64,7 @@ describe("validarWorkflow — config de los bloques", () => {
   // handler.
   it.each<[NodoTipo, Record<string, unknown>]>([
     ["crm_etiqueta_remove", { tagIds: ["t1"] }],
-    [
-      "msg_lista",
-      {
-        header: "Catálogo",
-        secciones: [{ titulo: "Frenos", items: [{ titulo: "Pastillas", descripcion: "" }] }],
-      },
-    ],
+    ["msg_documento", { url: "https://example.com/catalogo.pdf", nombreArchivo: "catalogo.pdf" }],
     ["int_email", { para: "compras@example.com", asunto: "Cotización", cuerpo: "Hola" }],
   ])("%s (no disponible) con las claves del panel pasa la revisión de config", (tipo, config) => {
     expect(revisarConfig({ tipo, config })?.errores).toEqual([]);
@@ -104,14 +98,12 @@ describe("validarWorkflow — config de los bloques", () => {
   });
 
   it("las advertencias de config salen en la revisión y no son errores", () => {
-    const boton = { texto: "Sí", accion: "responder", valor: "si" };
-    const revision = revisarConfig({
-      tipo: "msg_botones",
-      config: { mensaje: "¿Te sirve?", botones: [boton, boton, boton, boton] },
-    });
+    const revision = revisarConfig({ tipo: "crm_round_robin", config: { candidatos: [] } });
     expect(revision).toEqual({
       errores: [],
-      advertencias: [{ mensaje: "WhatsApp solo permite hasta 3 botones" }],
+      advertencias: [
+        { mensaje: "El round robin no tiene vendedores: no va a asignar ninguna sesión" },
+      ],
     });
   });
 

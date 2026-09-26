@@ -14,19 +14,30 @@
  *
  * Un bloque es ejecutable por una de tres vías, y ninguna se declara acá —se
  * deduce de donde vive el hecho—:
- * - **motor**: control de flujo que resuelve el ejecutor (condiciones, esperas,
- *   finales);
+ * - **motor**: control de flujo que resuelve el ejecutor (condiciones, "Según
+ *   el valor", "Ir a", esperas, finales);
  * - **disparador**: un trigger con emisor (`DISPARADOR_DE_TIPO`);
  * - **accion**: un tipo con acción del registro (`ACCION_DE_TIPO`).
  *
  * Lo que no entra en ninguna tiene que estar en `NO_DISPONIBLES` con el motivo.
  */
 
-import { esCondicion, esEspera, esFinal, esTrigger, type NodoTipo } from "@/types/workflows";
+import {
+  esCondicion,
+  esEspera,
+  esFinal,
+  esSalto,
+  esSwitch,
+  esTrigger,
+  type NodoTipo,
+} from "@/types/workflows";
 import { ACCION_DE_TIPO, DISPARADOR_DE_TIPO } from "./catalogo";
 
 const TODAVIA_SIN_IA =
   "El motor todavía no llama a la IA desde un flujo: este bloque no tiene a quién pedirle el resultado.";
+
+const DIFUSION_ES_DE_GRUPO =
+  "El motor corre cada flujo para un lead, y este bloque trabaja sobre un grupo de destinatarios: no hay audiencia a la que aplicarlo. Las difusiones se arman y se mandan desde la pantalla Difusión.";
 
 /**
  * Los tipos que el motor no sabe ejecutar, con el motivo en el idioma de quien
@@ -41,37 +52,26 @@ export const NO_DISPONIBLES: Readonly<Partial<Record<NodoTipo, string>>> = {
   trigger_formulario: "No hay formularios web conectados: nada puede arrancar este flujo.",
 
   // ── Mensajería que el envío a Meta no sabe mandar ─────────────────────
-  msg_botones:
-    "El envío a Meta sólo sabe mandar texto y plantillas: los mensajes con botones no están conectados.",
-  msg_lista:
-    "El envío a Meta sólo sabe mandar texto y plantillas: los mensajes de lista no están conectados.",
-  msg_imagen:
-    "El envío a Meta sólo sabe mandar texto y plantillas: las imágenes no están conectadas.",
   msg_documento:
-    "El envío a Meta sólo sabe mandar texto y plantillas: los documentos no están conectados.",
-  msg_ubicacion:
-    "El envío a Meta sólo sabe mandar texto y plantillas: las ubicaciones no están conectadas.",
+    "El envío a Meta no sabe mandar documentos todavía: sólo texto, plantillas, botones, listas, imágenes y ubicaciones.",
   msg_reaccion:
-    "El envío a Meta sólo sabe mandar texto y plantillas: las reacciones no están conectadas.",
+    "El envío a Meta no sabe mandar reacciones todavía: sólo texto, plantillas, botones, listas, imágenes y ubicaciones.",
 
   // ── CRM ───────────────────────────────────────────────────────────────
   crm_etiqueta_remove:
     "Sacar una etiqueta hoy queda registrado como decisión de una persona, y ninguna regla la vuelve a poner: un flujo que la saca la bloquearía para siempre.",
-  crm_campo: "El motor no tiene todavía una acción que escriba campos del lead o del Twin.",
   crm_tarea: "El CRM no tiene tareas: no hay dónde crearla.",
   crm_nota: "El CRM no tiene notas internas: no hay dónde guardarla.",
   crm_spam: "El lead no tiene marca de spam: no hay dónde registrarla.",
   crm_archivar: "Los leads no se archivan en este CRM: no hay dónde registrarlo.",
 
   // ── Lógica ────────────────────────────────────────────────────────────
-  logica_switch:
-    "El motor sólo bifurca en dos (Sí / No): las ramas múltiples no están implementadas.",
+  // El diseño del editor no dibuja ninguno de estos cuatro, y darles semántica
+  // de motor sería inventarla: quedan a la vista, atenuados, con el motivo.
   logica_validacion:
     "El motor no tiene un paso de validación: usá una condición para bifurcar según el dato.",
   logica_loop: "El motor no recorre listas: no sabe repetir un tramo por cada elemento.",
   logica_grupo: "Agrupar es sólo visual y el motor no reconoce el bloque.",
-  logica_goto:
-    "El motor no salta a un nodo por nombre: para volver a un paso, conectá la línea hasta él.",
   logica_error:
     "El motor no tiene manejo de errores por bloque: un paso que falla termina la corrida.",
 
@@ -107,6 +107,20 @@ export const NO_DISPONIBLES: Readonly<Partial<Record<NodoTipo, string>>> = {
   int_comentario: "El CRM no tiene comentarios internos: no hay dónde guardarlo.",
   int_debug:
     "El motor no tiene un paso de log: lo que hace cada paso ya queda en el historial de la corrida.",
+
+  // ── Difusión (PRD §4.6) ───────────────────────────────────────────────
+  // Los cinco operan sobre un GRUPO (armarlo, recortarlo, mandarle, partirlo,
+  // esperar a que conteste), y el motor corre cada flujo para UN lead: una
+  // corrida por lead, con su sesión. Sin un flujo que corra sobre una
+  // audiencia no hay a quién aplicárselos. Las difusiones se arman y se mandan
+  // desde la pantalla Difusión, que ya tiene audiencia, pre-vuelo y motor de
+  // envío; lo que sí corre en un flujo es el disparador "Difusión respondida".
+  dif_audiencia: DIFUSION_ES_DE_GRUPO,
+  dif_enviar: DIFUSION_ES_DE_GRUPO,
+  dif_excluir: DIFUSION_ES_DE_GRUPO,
+  dif_esperar_respuesta:
+    "Depende de «Enviar difusión» en el mismo flujo, que no corre: un flujo no puede saber a qué difusión esperar. Para reaccionar a una respuesta, usá el disparador «Difusión respondida».",
+  dif_dividir: DIFUSION_ES_DE_GRUPO,
 };
 
 /** Por qué vía se ejecuta un tipo. `sin_clasificar` es un bug: lo caza el test. */
@@ -119,7 +133,9 @@ export function clasificarTipo(tipo: NodoTipo): ClaseDeTipo {
     if (tipo === "disparador" || Object.hasOwn(DISPARADOR_DE_TIPO, tipo)) return "disparador";
     return Object.hasOwn(NO_DISPONIBLES, tipo) ? "no_disponible" : "sin_clasificar";
   }
-  if (esFinal(tipo) || esCondicion(tipo) || esEspera(tipo)) return "motor";
+  if (esFinal(tipo) || esCondicion(tipo) || esEspera(tipo) || esSwitch(tipo) || esSalto(tipo)) {
+    return "motor";
+  }
   // El legacy `accion` declara su acción en la config: si no es una del
   // catálogo, lo rechaza la revisión de config, no esta.
   if (tipo === "accion" || Object.hasOwn(ACCION_DE_TIPO, tipo)) return "accion";

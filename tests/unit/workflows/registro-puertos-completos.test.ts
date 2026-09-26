@@ -6,6 +6,7 @@ import { LeaseLock } from "@/server/lock/lease-lock";
 import { InMemoryDifusionSupresionesRepository } from "@/server/repositories/difusion-supresiones.repo";
 import { SupabaseDifusionSupresionesRepository } from "@/server/repositories/difusion-supresiones.supabase.repo";
 import type { PuertosAcciones } from "@/server/services/workflows/acciones/registro";
+import { cargaPesada } from "../../helpers/carga-pesada";
 
 /**
  * Cada lugar que arma EL registro de acciones le pasa todos los puertos.
@@ -53,6 +54,8 @@ const PUERTOS = {
   asignacion: true,
   avisos: true,
   candadoReparto: true,
+  plantillasSinSesion: true,
+  imagenesDeFlujo: true,
 } as const satisfies Record<keyof PuertosAcciones, true>;
 
 function faltantes(puertos: PuertosAcciones): string[] {
@@ -79,53 +82,39 @@ function envDePrueba(): AppEnv {
   };
 }
 
-/**
- * Timeout propio del caso de producción: casi todo su tiempo es el primer
- * `import("@/inngest/bootstrap")`, que carga el grafo entero del motor —todos
- * los repos de Supabase, los servicios y las funciones de Inngest— más
- * inngest, ai, supabase-js y pino, sin ningún efecto de módulo evitable (ni red ni disco: schemas de zod y el parse
- * de env en modo test). Es el tamaño del grafo, no un bug.
- *
- * Medido el 2026-09-25 con los comandos de abajo: 2,4 s solo y 4,99 s con la
- * suite completa, donde los workers compiten por CPU. Con el default de 5 s
- * había fallado 2 de 4 corridas de la suite. 20 s es cuatro veces el peor caso
- * medido.
- *
- * Solo:           npx vitest run --reporter=verbose tests/unit/workflows/registro-puertos-completos.test.ts
- * Suite completa: npx vitest run --reporter=verbose | grep "lista de bajas real"
- */
-const TIMEOUT_IMPORT_BOOTSTRAP_MS = 20_000;
+// Los dos bootstraps cargan el grafo entero del motor: una vez por archivo, con
+// el timeout y la medición de `carga-pesada.ts`. Dinámicos y no estáticos
+// porque el `vi.mock` de arriba anota en `llamadas`, que un import estático
+// —que corre antes de declararla— no alcanzaría.
+const bootstrap = cargaPesada(() => import("@/inngest/bootstrap"));
+const smokeBootstrap = cargaPesada(() => import("../../smoke/smoke-bootstrap"));
 
 describe("el registro de acciones recibe todos sus puertos", () => {
-  it(
-    "producción (inngest/bootstrap): enviar_mensaje tiene la lista de bajas real",
-    { timeout: TIMEOUT_IMPORT_BOOTSTRAP_MS },
-    async () => {
-      const { makeInngestDeps } = await import("@/inngest/bootstrap");
-      llamadas.length = 0;
+  it("producción (inngest/bootstrap): enviar_mensaje tiene la lista de bajas real", () => {
+    const { makeInngestDeps } = bootstrap();
+    llamadas.length = 0;
 
-      const { deps } = makeInngestDeps({
-        env: envDePrueba(),
-        db: {} as AppClient,
-        inngest: { send: vi.fn() } as unknown as CrmInngestClient,
-      });
+    const { deps } = makeInngestDeps({
+      env: envDePrueba(),
+      db: {} as AppClient,
+      inngest: { send: vi.fn() } as unknown as CrmInngestClient,
+    });
 
-      expect(llamadas).toHaveLength(1);
-      const [puertos] = llamadas;
-      expect(faltantes(puertos!)).toEqual([]);
-      expect(puertos!.supresiones).toBeInstanceOf(SupabaseDifusionSupresionesRepository);
-      // La misma lista que usa la baja por palabra: una baja recién escrita la
-      // ve el próximo envío.
-      expect(puertos!.supresiones).toBe(deps.onMessageReceived.supresiones);
-      expect(deps.workflowSegmento.registro.soporta(nodoEnviar())).toBe(true);
-      // El reparto de producción serializa con el candado de Postgres, no con
-      // uno en memoria que sólo vale dentro de una instancia.
-      expect(puertos!.candadoReparto).toBeInstanceOf(LeaseLock);
-    },
-  );
+    expect(llamadas).toHaveLength(1);
+    const [puertos] = llamadas;
+    expect(faltantes(puertos!)).toEqual([]);
+    expect(puertos!.supresiones).toBeInstanceOf(SupabaseDifusionSupresionesRepository);
+    // La misma lista que usa la baja por palabra: una baja recién escrita la
+    // ve el próximo envío.
+    expect(puertos!.supresiones).toBe(deps.onMessageReceived.supresiones);
+    expect(deps.workflowSegmento.registro.soporta(nodoEnviar())).toBe(true);
+    // El reparto de producción serializa con el candado de Postgres, no con
+    // uno en memoria que sólo vale dentro de una instancia.
+    expect(puertos!.candadoReparto).toBeInstanceOf(LeaseLock);
+  });
 
-  it("el bootstrap de los smoke tests también", async () => {
-    const { makeSmokeBundle } = await import("../../smoke/smoke-bootstrap");
+  it("el bootstrap de los smoke tests también", () => {
+    const { makeSmokeBundle } = smokeBootstrap();
     llamadas.length = 0;
 
     makeSmokeBundle();

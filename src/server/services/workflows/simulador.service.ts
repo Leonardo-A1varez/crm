@@ -16,7 +16,7 @@ import {
   type PuertosAcciones,
   type RegistroDeAcciones,
 } from "./acciones/registro";
-import { ejecutarSegmento, type PasoEjecutado } from "./ejecutor.service";
+import { ejecutarSegmento, type CamposVivosDeps, type PasoEjecutado } from "./ejecutor.service";
 
 /**
  * Modo prueba del motor: el MISMO `ejecutarSegmento` y el MISMO registro que
@@ -125,7 +125,14 @@ export function crearSandboxDePrueba(entrada: EntradaSandbox): SandboxDePrueba {
           throw new NotFoundError(`lead_session no encontrada: ${id}`, "lead_session", id);
         }
         sesion = { ...sesion, ...patch };
-        anotar("cambiar_etapa", { current_stage: patch.current_stage ?? null });
+        // Por esta puerta escriben «Cambiar etapa» (la etapa) y «Actualizar
+        // campo del Twin» (un campo editable): el patch dice cuál fue. Del
+        // campo se anota sólo el nombre, como en la salida del paso.
+        if (patch.current_stage !== undefined) {
+          anotar("cambiar_etapa", { current_stage: patch.current_stage });
+        } else {
+          for (const campo of Object.keys(patch)) anotar("actualizar_campo_twin", { campo });
+        }
         return { ...sesion };
       },
     },
@@ -198,13 +205,64 @@ export function crearSandboxDePrueba(entrada: EntradaSandbox): SandboxDePrueba {
       },
     },
     avisos: { vendedorAsignado: async () => {} },
+    // La prueba no firma nada en Storage: la imagen no sale.
+    imagenesDeFlujo: { urlFirmada: async (ruta) => `simulado://mensajes_media/${ruta}` },
     candadoReparto: new NoopSessionLock(),
+    // La plantilla a un lead sin sesión: mismo efecto anotado que con sesión.
+    // `enviados` ya cuenta todo lo de la prueba, así que acá no suma aparte.
+    plantillasSinSesion: {
+      contarNoAnotadasDesde: async () => 0,
+      enviar: async (pedido) => {
+        enviados.push(entrada.reloj());
+        anotar("enviar_plantilla", {
+          plantilla: pedido.plantilla.nombre,
+          idioma: pedido.plantilla.idioma,
+          parametros: [...pedido.plantilla.parametrosCuerpo],
+          sin_sesion: true,
+        });
+        return { id: `simulado:${pedido.idempotencyKey}`, meta_message_id: null };
+      },
+    },
     metaApi: {
       sendOutbound: async (pedido) => {
         const ahora = entrada.reloj();
         enviados.push(ahora);
         anotar("enviar_mensaje", { texto: pedido.contenido, canal: pedido.canal });
         return mensajeSimulado(pedido, ahora);
+      },
+      // Botones, lista, imagen y ubicación: el efecto anotado con lo que
+      // saldría. Sin wamid: en la prueba nadie responde, y la espera de un
+      // nodo con opciones vence y sale por «sin respuesta».
+      sendRico: async (pedido) => {
+        const ahora = entrada.reloj();
+        enviados.push(ahora);
+        const { contenido } = pedido;
+        const accion: AccionWorkflow =
+          contenido.tipo === "botones"
+            ? "enviar_botones"
+            : contenido.tipo === "lista"
+              ? "enviar_lista"
+              : contenido.tipo === "imagen"
+                ? "enviar_imagen"
+                : "enviar_ubicacion";
+        anotar(accion, {
+          ...(contenido.tipo === "imagen"
+            ? { imagen: pedido.archivo ?? contenido.url, caption: contenido.caption }
+            : contenido),
+        });
+        return mensajeSimulado(
+          {
+            conversacionId: pedido.conversacionId,
+            leadSessionId: pedido.leadSessionId,
+            canal: "wa",
+            to: pedido.to,
+            contenido: "",
+            sender: pedido.sender,
+            senderUserId: pedido.senderUserId,
+            idempotencyKey: pedido.idempotencyKey,
+          },
+          ahora,
+        );
       },
       sendTemplate: async (pedido) => {
         const ahora = entrada.reloj();
@@ -326,7 +384,16 @@ export interface PasoDePrueba extends PasoEjecutado {
  * `saltado`: un tope de seguridad saltó un mensaje y el lead salió del flujo
  * (PRD §6.6). Terminó, no falló: por eso no es `fallado`.
  */
-export type DesenlacePrueba = "fin" | "saltado" | "fallado" | "tope" | "sin_disparador";
+export type DesenlacePrueba =
+  | "fin"
+  | "saltado"
+  | "fallado"
+  | "tope"
+  | "sin_disparador"
+  /** Frenó antes de `detenerEn` ("Ejecutar hasta acá"). `nodoId` es ese nodo. */
+  | "detenido"
+  /** La corrida dejó de estar viva a mitad de la prueba (la cancelaron). */
+  | "cancelada";
 
 export interface ResultadoPrueba {
   pasos: PasoDePrueba[];
@@ -337,7 +404,7 @@ export interface ResultadoPrueba {
    */
   desenlace: DesenlacePrueba;
   error?: string;
-  /** El nodo donde falló, si falló. */
+  /** El nodo donde falló, o antes del que frenó. */
   nodoId?: string;
   motivo?: MotivoFallo;
   /** Sólo en `saltado`: qué nodo saltó el tope y por qué. */
@@ -354,6 +421,12 @@ export interface EntradaPrueba {
   lead: Lead;
   sesion: LeadSession;
   runId: UUID;
+  /** "Ejecutar hasta acá": frena al llegar a este nodo, sin correrlo. */
+  detenerEn?: string;
+  /** Los campos vivos de las condiciones, leídos de la base real (sólo lectura). */
+  camposVivos?: CamposVivosDeps;
+  /** ¿La corrida de prueba sigue viva? Ver `EjecutorDeps.seguir`. */
+  seguir?: () => Promise<boolean>;
   /**
    * Sólo tests del motor: reemplaza el registro de producción por uno con
    * acciones falsas. Todo caller de `src/` corre con el de producción.
@@ -422,9 +495,25 @@ export async function correrPrueba(entrada: EntradaPrueba): Promise<ResultadoPru
         runId: entrada.runId,
         pasosPrevios,
         maxPasos: entrada.maxPasos,
+        detenerEn: entrada.detenerEn,
       },
-      { registro, ahora: () => reloj, onPaso },
+      {
+        registro,
+        ahora: () => reloj,
+        onPaso,
+        camposVivos: entrada.camposVivos,
+        seguir: entrada.seguir,
+      },
     );
+
+    if (resultado.tipo === "detenido") {
+      return {
+        pasos,
+        desenlace: resultado.causa === "hasta_aca" ? "detenido" : "cancelada",
+        nodoId: resultado.nodoId,
+        salientes: sandbox.salientes(),
+      };
+    }
 
     if (resultado.tipo === "fin") {
       if (resultado.salto) {

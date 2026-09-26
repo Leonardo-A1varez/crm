@@ -16,12 +16,6 @@ export type LecturaMeta<T> =
   | { estado: "error"; mensaje: string }
   | { estado: "no-expuesto"; motivo: string };
 
-/** Un dato que Meta no expone por API. No hay desenlace "ok" posible. */
-export interface NoExpuesto {
-  estado: "no-expuesto";
-  motivo: string;
-}
-
 export interface NumeroLeido {
   id: string;
   numero: string | null;
@@ -102,12 +96,8 @@ export interface SaludWhatsApp {
   versionApi: string;
   estadoDeEnvio: LecturaMeta<EstadoDeEnvio>;
   limite: LecturaMeta<LimiteDeMensajeria>;
-  /** Ver `MOTIVO_USO`. */
-  usoDelLimite: NoExpuesto;
   numeros: LecturaMeta<NumerosLeidos>;
   plantillas: LecturaMeta<PlantillasLeidas>;
-  /** Ver `MOTIVO_SANCION`. */
-  sancion: NoExpuesto;
 }
 
 export interface SaludWhatsAppService {
@@ -128,23 +118,11 @@ export interface SaludWhatsAppDeps {
 
 const LIMITE_PLANTILLAS = 100;
 
-/**
- * La página de límites de Meta documenta un solo campo de lectura, el escalón.
- * Cuánto se usó no aparece; calcularlo con los salientes propios es posible
- * pero es otra cosa, y esta pantalla no lo hace. Leído el 2026-09-13.
+/*
+ * El uso del cupo y la posición en la escalera de sanciones no salen de acá:
+ * Meta no los expone por API. Los arma `RegistrosWhatsAppService` con lo que
+ * guarda la base (envíos propios y webhooks `account_update`).
  */
-const MOTIVO_USO =
-  "Meta expone por API sólo el escalón (whatsapp_business_manager_messaging_limit), no cuánto de él se usó en los últimos 7 días, y esta pantalla no lo calcula.";
-
-/**
- * La página de policy enforcement de Meta no documenta ningún endpoint para
- * leer el escalón: lo avisa el webhook `account_update` y lo muestra el
- * Business Support Home. Ese campo del webhook figura como desuscrito en
- * `docs/meta-webhook-payloads.md` (2026-08-25), y `meta_operational_events`
- * no tiene ninguna fila. Leído el 2026-09-13.
- */
-const MOTIVO_SANCION =
-  "Meta no tiene un endpoint para leer el escalón: lo avisa por el webhook account_update, que no figura entre los suscritos (docs/meta-webhook-payloads.md), y lo muestra en el Business Support Home.";
 
 const MOTIVO_SIN_WABA =
   "health_status del número no nombró la cuenta de WhatsApp (WABA), y sin ella no hay de dónde listar números ni plantillas.";
@@ -273,7 +251,6 @@ export class DefaultSaludWhatsAppService implements SaludWhatsAppService {
             }
           : salud,
       limite: this.limiteDe(limiteCrudo),
-      usoDelLimite: { estado: "no-expuesto", motivo: MOTIVO_USO },
       numeros: this.numerosDe(numero, lista),
       plantillas:
         plantillas.estado === "ok"
@@ -286,7 +263,6 @@ export class DefaultSaludWhatsAppService implements SaludWhatsAppService {
               },
             }
           : plantillas,
-      sancion: { estado: "no-expuesto", motivo: MOTIVO_SANCION },
     };
   }
 

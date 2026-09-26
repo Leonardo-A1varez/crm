@@ -6,6 +6,7 @@ import {
   vistaHorario,
   vistaSalud,
   vistaUsuarios,
+  type RegistrosDeLaBase,
 } from "@/app/(panel)/ajustes/_lib/vistas";
 import { fechaLegibleEnZona } from "@/lib/zona-horaria";
 import type {
@@ -69,13 +70,18 @@ function salud(parcial: Partial<SaludWhatsApp> = {}): SaludWhatsApp {
       },
     },
     limite: { estado: "ok", valor: { crudo: "TIER_2000", destinatarios: 2000 } },
-    usoDelLimite: { estado: "no-expuesto", motivo: "motivo de prueba del uso" },
     numeros: { estado: "ok", valor: { numeros: [numero()], hayMas: false, motivoParcial: null } },
     plantillas: { estado: "ok", valor: { plantillas: [plantilla()], hayMas: false, limite: 100 } },
-    sancion: { estado: "no-expuesto", motivo: "motivo de prueba de la sanción" },
     ...parcial,
   };
 }
+
+/** Lo que viene de la base: nada leído todavía, pero sin errores. */
+const SIN_REGISTROS: RegistrosDeLaBase = {
+  sanciones: { estado: "ok", datos: { registros: [], truncado: false } },
+  uso: { estado: "no-disponible", motivo: "motivo de prueba del uso" },
+  roles: { estado: "ok", datos: new Map() },
+};
 
 function conNumeros(numeros: NumeroLeido[]): Partial<SaludWhatsApp> {
   return { numeros: { estado: "ok", valor: { numeros, hayMas: false, motivoParcial: null } } };
@@ -87,7 +93,7 @@ function conPlantillas(plantillas: PlantillaLeida[], hayMas = false): Partial<Sa
 
 describe("vistaSalud — cupo", () => {
   test("ubica el escalón leído en la escalera documentada", () => {
-    const { cupo } = vistaSalud(salud(), ZONA);
+    const { cupo } = vistaSalud(salud(), ZONA, SIN_REGISTROS);
 
     if (cupo.estado !== "ok") throw new Error(`cupo en ${cupo.estado}`);
     expect(cupo.datos.peldanos.map((p) => p.destinatariosPorDia)).toEqual([
@@ -105,7 +111,7 @@ describe("vistaSalud — cupo", () => {
   });
 
   test("el uso del cupo queda sin dato, con el motivo del servicio", () => {
-    const { cupo } = vistaSalud(salud(), ZONA);
+    const { cupo } = vistaSalud(salud(), ZONA, SIN_REGISTROS);
 
     if (cupo.estado !== "ok") throw new Error(`cupo en ${cupo.estado}`);
     expect(cupo.datos.uso).toEqual({ disponible: false, motivo: "motivo de prueba del uso" });
@@ -115,6 +121,7 @@ describe("vistaSalud — cupo", () => {
     const { cupo } = vistaSalud(
       salud({ limite: { estado: "ok", valor: { crudo: "TIER_250", destinatarios: 250 } } }),
       ZONA,
+      SIN_REGISTROS,
     );
 
     if (cupo.estado !== "ok") throw new Error(`cupo en ${cupo.estado}`);
@@ -126,6 +133,7 @@ describe("vistaSalud — cupo", () => {
     const { cupo } = vistaSalud(
       salud({ limite: { estado: "ok", valor: { crudo: "TIER_NOT_SET", destinatarios: null } } }),
       ZONA,
+      SIN_REGISTROS,
     );
 
     expect(cupo.estado).toBe("no-disponible");
@@ -136,6 +144,7 @@ describe("vistaSalud — cupo", () => {
     const { cupo } = vistaSalud(
       salud({ limite: { estado: "error", mensaje: "Meta rechazó el token al leer el límite" } }),
       ZONA,
+      SIN_REGISTROS,
     );
 
     expect(cupo).toEqual({ estado: "error", mensaje: "Meta rechazó el token al leer el límite" });
@@ -145,6 +154,7 @@ describe("vistaSalud — cupo", () => {
     const { cupo } = vistaSalud(
       salud({ limite: { estado: "no-expuesto", motivo: "sin el campo" } }),
       ZONA,
+      SIN_REGISTROS,
     );
 
     expect(cupo).toEqual({ estado: "no-disponible", motivo: "sin el campo" });
@@ -153,7 +163,7 @@ describe("vistaSalud — cupo", () => {
 
 describe("vistaSalud — condición de calidad del ascenso", () => {
   function calidadCon(parcial: Partial<SaludWhatsApp>) {
-    const { cupo } = vistaSalud(salud(parcial), ZONA);
+    const { cupo } = vistaSalud(salud(parcial), ZONA, SIN_REGISTROS);
     if (cupo.estado !== "ok") throw new Error(`cupo en ${cupo.estado}`);
     return cupo.datos.calidad;
   }
@@ -214,6 +224,7 @@ describe("vistaSalud — números", () => {
         ]),
       ),
       ZONA,
+      SIN_REGISTROS,
     );
 
     if (numeros.estado !== "ok") throw new Error(`números en ${numeros.estado}`);
@@ -227,7 +238,7 @@ describe("vistaSalud — números", () => {
   });
 
   test("el número configurado toma su estado de envío de health_status", () => {
-    const { numeros } = vistaSalud(salud(), ZONA);
+    const { numeros } = vistaSalud(salud(), ZONA, SIN_REGISTROS);
 
     if (numeros.estado !== "ok") throw new Error(`números en ${numeros.estado}`);
     expect(numeros.datos.numeros[0]).toMatchObject({
@@ -259,6 +270,7 @@ describe("vistaSalud — números", () => {
         },
       }),
       ZONA,
+      SIN_REGISTROS,
     );
 
     if (numeros.estado !== "ok") throw new Error(`números en ${numeros.estado}`);
@@ -288,6 +300,7 @@ describe("vistaSalud — números", () => {
         },
       }),
       ZONA,
+      SIN_REGISTROS,
     );
 
     if (numeros.estado !== "ok") throw new Error(`números en ${numeros.estado}`);
@@ -301,6 +314,7 @@ describe("vistaSalud — números", () => {
     const { numeros } = vistaSalud(
       salud(conNumeros([numero(), numero({ id: "102", esElConfigurado: false })])),
       ZONA,
+      SIN_REGISTROS,
     );
 
     if (numeros.estado !== "ok") throw new Error(`números en ${numeros.estado}`);
@@ -316,6 +330,7 @@ describe("vistaSalud — números", () => {
         },
       }),
       ZONA,
+      SIN_REGISTROS,
     );
 
     if (numeros.estado !== "ok") throw new Error(`números en ${numeros.estado}`);
@@ -331,6 +346,7 @@ describe("vistaSalud — números", () => {
         },
       }),
       ZONA,
+      SIN_REGISTROS,
     );
 
     if (numeros.estado !== "ok") throw new Error(`números en ${numeros.estado}`);
@@ -341,6 +357,7 @@ describe("vistaSalud — números", () => {
     const { numeros } = vistaSalud(
       salud({ numeros: { estado: "error", mensaje: "falla de prueba" } }),
       ZONA,
+      SIN_REGISTROS,
     );
 
     expect(numeros).toEqual({ estado: "error", mensaje: "falla de prueba" });
@@ -349,7 +366,7 @@ describe("vistaSalud — números", () => {
 
 describe("vistaSalud — plantillas", () => {
   function plantillaVista(p: Partial<PlantillaLeida>) {
-    const { plantillas } = vistaSalud(salud(conPlantillas([plantilla(p)])), ZONA);
+    const { plantillas } = vistaSalud(salud(conPlantillas([plantilla(p)])), ZONA, SIN_REGISTROS);
     if (plantillas.estado !== "ok") throw new Error(`plantillas en ${plantillas.estado}`);
     const [primera] = plantillas.datos.plantillas;
     if (!primera) throw new Error("sin plantilla");
@@ -406,7 +423,11 @@ describe("vistaSalud — plantillas", () => {
   });
 
   test("si Meta tiene más plantillas que el tope, la nota lo avisa con el número", () => {
-    const { plantillas } = vistaSalud(salud(conPlantillas([plantilla()], true)), ZONA);
+    const { plantillas } = vistaSalud(
+      salud(conPlantillas([plantilla()], true)),
+      ZONA,
+      SIN_REGISTROS,
+    );
 
     if (plantillas.estado !== "ok") throw new Error(`plantillas en ${plantillas.estado}`);
     expect(plantillas.datos.nota).toContain("100");
@@ -416,6 +437,7 @@ describe("vistaSalud — plantillas", () => {
     const { plantillas } = vistaSalud(
       salud({ plantillas: { estado: "no-expuesto", motivo: "sin WABA de prueba" } }),
       ZONA,
+      SIN_REGISTROS,
     );
 
     expect(plantillas).toEqual({ estado: "no-disponible", motivo: "sin WABA de prueba" });
@@ -423,15 +445,15 @@ describe("vistaSalud — plantillas", () => {
 });
 
 describe("vistaSalud — sanciones y estado de envío", () => {
-  test("la posición en la escalera queda no disponible, con el motivo del servicio", () => {
-    expect(vistaSalud(salud(), ZONA).posicion).toEqual({
-      tipo: "no-disponible",
-      motivo: "motivo de prueba de la sanción",
-    });
+  test("sin ningún account_update guardado, dice que falta la suscripción", () => {
+    const { posicion, historial } = vistaSalud(salud(), ZONA, SIN_REGISTROS);
+    expect(posicion.tipo).toBe("no-disponible");
+    if (posicion.tipo === "no-disponible") expect(posicion.motivo).toMatch(/suscri/);
+    expect(historial).toEqual([]);
   });
 
   test("la escalera es la de la política de Meta, de la advertencia a la baja", () => {
-    const { escalones } = vistaSalud(salud(), ZONA);
+    const { escalones } = vistaSalud(salud(), ZONA, SIN_REGISTROS);
 
     expect(escalones.map((e) => e.duracion)).toEqual([
       "sin bloqueo",
@@ -443,7 +465,7 @@ describe("vistaSalud — sanciones y estado de envío", () => {
   });
 
   test("con health_status en AVAILABLE, el envío está disponible", () => {
-    expect(vistaSalud(salud(), ZONA).envio).toEqual({ estado: "disponible" });
+    expect(vistaSalud(salud(), ZONA, SIN_REGISTROS).envio).toEqual({ estado: "disponible" });
   });
 
   test("bloqueado junta las descripciones de las entidades bloqueadas", () => {
@@ -473,6 +495,7 @@ describe("vistaSalud — sanciones y estado de envío", () => {
         },
       }),
       ZONA,
+      SIN_REGISTROS,
     );
 
     expect(envio.estado).toBe("bloqueado");
@@ -486,6 +509,7 @@ describe("vistaSalud — sanciones y estado de envío", () => {
     const { envio } = vistaSalud(
       salud({ estadoDeEnvio: { estado: "error", mensaje: "falla de prueba" } }),
       ZONA,
+      SIN_REGISTROS,
     );
 
     expect(envio).toEqual({ estado: "sin-dato", motivo: "falla de prueba" });
@@ -508,19 +532,20 @@ describe("vistaSalud — pendientes del badge", () => {
         estadoDeEnvio: { estado: "ok", valor: { puedeEnviar: "LIMITED", entidades: [] } },
       }),
       ZONA,
+      SIN_REGISTROS,
     );
 
     expect(v.pendientes).toBe(3);
   });
 
   test("sin nada para atender, cero", () => {
-    expect(vistaSalud(salud(), ZONA).pendientes).toBe(0);
+    expect(vistaSalud(salud(), ZONA, SIN_REGISTROS).pendientes).toBe(0);
   });
 });
 
 describe("vistaSalud — fuente", () => {
   test("dice de qué versión de la API y a qué hora del negocio se leyó", () => {
-    const { fuente } = vistaSalud(salud(), ZONA);
+    const { fuente } = vistaSalud(salud(), ZONA, SIN_REGISTROS);
 
     expect(fuente).toContain("v21.0");
     expect(fuente).toContain(fechaLegibleEnZona(ZONA, CONSULTADO));
@@ -690,5 +715,162 @@ describe("vistaSaltos", () => {
     const [primera] = vistaSaltos({ desde: CONSULTADO, porMotivo }).filas;
     expect(primera?.label).toBe("Tope de mensajes");
     expect(primera?.explicacion).toMatch(/24 horas/);
+  });
+});
+
+describe("vistaSalud — escalera con account_update", () => {
+  function conSanciones(registros: RegistrosDeLaBase["sanciones"]): RegistrosDeLaBase {
+    return { ...SIN_REGISTROS, sanciones: registros };
+  }
+
+  test("una infracción ubica la cuenta en la advertencia, con la fecha en la hora del negocio", () => {
+    const at = new Date("2026-08-12T15:00:00Z");
+    const v = vistaSalud(
+      salud(),
+      ZONA,
+      conSanciones({
+        estado: "ok",
+        datos: {
+          registros: [{ evento: { tipo: "infraccion", violacion: "ADULT" }, at }],
+          truncado: false,
+        },
+      }),
+    );
+    expect(v.posicion).toEqual({ tipo: "en-escalon", indice: 0, desde: "12/08", inferido: null });
+    expect(v.historial).toHaveLength(1);
+    expect(v.historial[0]).toMatchObject({
+      evento: "ACCOUNT_VIOLATION",
+      fecha: fechaLegibleEnZona(ZONA, at),
+    });
+    expect(v.historial[0]?.detalle).toContain("ADULT");
+  });
+
+  test("sin sanción se dice desde cuándo se escucha, no a secas", () => {
+    const at = new Date("2026-09-01T15:00:00Z");
+    const { posicion } = vistaSalud(
+      salud(),
+      ZONA,
+      conSanciones({
+        estado: "ok",
+        datos: {
+          registros: [{ evento: { tipo: "otro", evento: "PARTNER_ADDED" }, at }],
+          truncado: false,
+        },
+      }),
+    );
+    expect(posicion).toEqual({
+      tipo: "sin-sancion",
+      observadoDesde: fechaLegibleEnZona(ZONA, at),
+    });
+  });
+
+  test("si la base no respondió, la posición lo dice con el error", () => {
+    const { posicion } = vistaSalud(
+      salud(),
+      ZONA,
+      conSanciones({ estado: "error", mensaje: "timeout de prueba" }),
+    );
+    expect(posicion.tipo).toBe("no-disponible");
+    if (posicion.tipo === "no-disponible") expect(posicion.motivo).toContain("timeout de prueba");
+  });
+
+  test("si se leyó el tope de registros, el historial lo avisa", () => {
+    const { notaHistorial } = vistaSalud(
+      salud(),
+      ZONA,
+      conSanciones({
+        estado: "ok",
+        datos: {
+          registros: [
+            {
+              evento: { tipo: "infraccion", violacion: null },
+              at: new Date("2026-09-01T00:00:00Z"),
+            },
+          ],
+          truncado: true,
+        },
+      }),
+    );
+    expect(notaHistorial).toMatch(/más recientes/);
+  });
+});
+
+describe("vistaSalud — uso del cupo en 7 días", () => {
+  function usoCon(dias: number[], total: number) {
+    const registros: RegistrosDeLaBase = {
+      ...SIN_REGISTROS,
+      uso: {
+        estado: "ok",
+        datos: {
+          dias: dias.map((destinatarios, i) => ({
+            dia: `2026-09-${String(19 + i)}`,
+            destinatarios,
+          })),
+          totalVentana: total,
+        },
+      },
+    };
+    const { cupo } = vistaSalud(salud(), ZONA, registros);
+    if (cupo.estado !== "ok") throw new Error(`cupo en ${cupo.estado}`);
+    return cupo.datos.uso;
+  }
+
+  test("con el nivel de 2.000, el mínimo son 1.000 destinatarios", () => {
+    const uso = usoCon([0, 0, 0, 0, 0, 0, 10], 10);
+    if (!uso.disponible) throw new Error("uso sin dato");
+    expect(uso.minimo).toBe(1000);
+    expect(uso.limite).toBe(2000);
+    expect(uso.dias).toHaveLength(7);
+    // 2026-09-19 es sábado.
+    expect(uso.dias[0]?.etiqueta).toBe("sáb 19");
+  });
+
+  test("si ni el total de los 7 días llega al mínimo, falta en cualquier lectura", () => {
+    const uso = usoCon([100, 100, 100, 100, 100, 100, 100], 700);
+    expect(uso.disponible && uso.veredicto).toBe("falta");
+  });
+
+  test("si todos los días llegan al mínimo, está cumplida en cualquier lectura", () => {
+    const uso = usoCon([1000, 1100, 1200, 1000, 1000, 1500, 1000], 4000);
+    expect(uso.disponible && uso.veredicto).toBe("cumplida");
+  });
+
+  test("si el total llega pero no todos los días, depende de cómo mida Meta", () => {
+    const uso = usoCon([0, 0, 0, 0, 0, 0, 1200], 1200);
+    expect(uso.disponible && uso.veredicto).toBe("depende");
+  });
+
+  test("siempre dice lo que el cálculo no ve", () => {
+    const uso = usoCon([0, 0, 0, 0, 0, 0, 0], 0);
+    if (!uso.disponible) throw new Error("uso sin dato");
+    expect(uso.noCapturado).toMatch(/prueba/);
+    expect(uso.noCapturado).toMatch(/otro número/);
+  });
+
+  test("si la base no respondió, el uso queda sin dato con el motivo", () => {
+    const { cupo } = vistaSalud(salud(), ZONA, SIN_REGISTROS);
+    if (cupo.estado !== "ok") throw new Error(`cupo en ${cupo.estado}`);
+    expect(cupo.datos.uso).toEqual({ disponible: false, motivo: "motivo de prueba del uso" });
+  });
+});
+
+describe("vistaSalud — rol de cada número", () => {
+  test("el rol sale del phone_number_id", () => {
+    const { numeros } = vistaSalud(salud(), ZONA, {
+      ...SIN_REGISTROS,
+      roles: { estado: "ok", datos: new Map([["101", "Casilla principal"]]) },
+    });
+    if (numeros.estado !== "ok") throw new Error(`numeros en ${numeros.estado}`);
+    expect(numeros.datos.numeros[0]?.rol).toBe("Casilla principal");
+  });
+
+  test("si los roles no se pudieron leer, la nota lo dice y el rol queda vacío", () => {
+    const { numeros } = vistaSalud(salud(), ZONA, {
+      ...SIN_REGISTROS,
+      roles: { estado: "error", mensaje: "falla de prueba de roles" },
+    });
+    if (numeros.estado !== "ok") throw new Error(`numeros en ${numeros.estado}`);
+    expect(numeros.datos.numeros[0]?.rol).toBeNull();
+    expect(numeros.datos.nota).toContain("falla de prueba de roles");
   });
 });

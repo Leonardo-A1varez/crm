@@ -262,8 +262,17 @@ function cronologia(run: WorkflowRunDetalle, ahoraMs: number): string {
       run.ended_at.getTime() - run.started_at.getTime(),
     )}: ${MOTIVO_SALTO[run.motivo_salto].label.toLowerCase()}`;
   }
-  const cierre = FIN_POR_ESTADO[run.estado] === "fallada" ? "falló" : "cerró";
+  const fallo = FIN_POR_ESTADO[run.estado] === "fallada";
+  const cierre = fallo ? "falló" : "cerró";
+  // Sólo si se registró: una corrida vieja no dice cuántos intentos hubo, y
+  // no se le inventa un número.
+  const intentos =
+    fallo && typeof run.intentos === "number"
+      ? run.intentos === 1
+        ? " · al primer intento"
+        : ` · tras ${run.intentos} intentos`
+      : "";
   return `${arranque} · ${cierre} tras ${duracionLegible(
     run.ended_at.getTime() - run.started_at.getTime(),
-  )} y ${run.pasos_ejecutados} paso${run.pasos_ejecutados === 1 ? "" : "s"}`;
+  )} y ${run.pasos_ejecutados} paso${run.pasos_ejecutados === 1 ? "" : "s"}${intentos}`;
 }

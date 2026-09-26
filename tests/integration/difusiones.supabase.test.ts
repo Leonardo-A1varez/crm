@@ -20,6 +20,9 @@ async function limpiarDifusiones(c: TestClient): Promise<void> {
       finalizada_at: null,
       motivo_detencion: null,
       detenida_por: null,
+      // CHECK difusiones_motivo_revision_coherente: solo una `en_revision`
+      // puede tener motivo, así que al volver a borrador se va.
+      motivo_revision: null,
     })
     .neq("id", "00000000-0000-0000-0000-000000000000");
   if (aBorrador) throw new Error(`cleanup difusiones (a borrador) fail: ${aBorrador.message}`);

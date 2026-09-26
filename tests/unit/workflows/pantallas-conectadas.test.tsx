@@ -11,6 +11,17 @@ import {
   type PasoCorrida,
 } from "@/components/workflows/editor";
 import { FormularioCondicion } from "@/app/(panel)/workflows/[id]/_components/FormularioCondicion";
+// El panel de Condición pide catálogos y el conteo a Server Actions: acá se
+// reemplazan por respuestas fijas (la lógica real se prueba en el servicio y,
+// el SQL, contra Postgres).
+const conteo = vi.hoisted(() => ({
+  respuesta: { ok: true, data: { tipo: "contado", total: 47, leads: [] } } as unknown,
+}));
+vi.mock("@/app/(panel)/workflows/_actions/condicion.actions", () => ({
+  catalogosCondicionAction: async () => ({ ok: true, data: { intents: [], etiquetas: [] } }),
+  coincidenciasCondicionAction: async () => conteo.respuesta,
+}));
+
 import {
   resumenDeCondicion,
   resumenDeConfigCondicion,
@@ -431,7 +442,9 @@ function vistaDe(over: Partial<VistaCorrida> = {}): VistaCorrida {
     esPrueba: false,
     workflow: { id: "w", nombre: "Bienvenida" },
     version: { id: "v", numero: 3, grafo: GRAFO_CORRIDA, maxPasos: 500, publicada: true },
-    lead: { id: "l", nombre: "Juan Pérez" },
+    lead: { id: "l", nombre: "Juan Pérez", vehiculo: null },
+    mensajes: [],
+    porNodo: { corridas: 0, vivas: 0, nodos: [] },
     pasos: [
       {
         id: "p1",
@@ -557,5 +570,65 @@ describe("pantallaDeCorrida — la vista del servidor, con nombre y hora", () =>
     );
     expect(screen.getByText("corrida de prueba")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Reanudar desde el fallo" })).toBeNull();
+  });
+});
+
+describe("FormularioCondicion — el contador de leads", () => {
+  it("con la condición entera muestra cuántos leads coinciden", async () => {
+    conteo.respuesta = { ok: true, data: { tipo: "contado", total: 47, leads: [] } };
+    render(<FormularioCondicion config={{ arbol: ARBOL }} onChange={vi.fn()} />);
+    expect(await screen.findByText("47", {}, { timeout: 2000 })).toBeTruthy();
+    expect(screen.getByText("leads coinciden ahora mismo")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Ver la lista" })).toBeTruthy();
+  });
+
+  it("con «Respondió» no muestra número y dice por qué", async () => {
+    conteo.respuesta = {
+      ok: true,
+      data: { tipo: "no_contable", campos: ["sesion.respondio"] },
+    };
+    render(<FormularioCondicion config={{ arbol: ARBOL }} onChange={vi.fn()} />);
+    expect(
+      await screen.findByText(/depende de lo que dispara el flujo/, {}, { timeout: 2000 }),
+    ).toBeTruthy();
+    expect(screen.queryByText("leads coinciden ahora mismo")).toBeNull();
+  });
+});
+
+describe("pantallaDeCorrida — vehículo, mensajes y corridas por nodo", () => {
+  it("la identificación suma el vehículo del lead cuando lo tiene", () => {
+    const p = pantallaDeCorrida(
+      vistaDe({ lead: { id: "l", nombre: "Juan Pérez", vehiculo: "Hilux 2018" } }),
+      "UTC",
+    );
+    expect(p.identificacion).toBe("#a3f2 · Juan Pérez · Hilux 2018 · v3");
+  });
+
+  it("los mensajes salen con la hora del negocio y las corridas por nodo con su nombre", () => {
+    const p = pantallaDeCorrida(
+      vistaDe({
+        mensajes: [
+          {
+            nodoId: "m",
+            orden: 1,
+            texto: "Hola Juan",
+            estado: "entregado",
+            at: new Date("2026-09-20T12:14:03Z"),
+            simulado: false,
+          },
+        ],
+        porNodo: {
+          corridas: 3,
+          vivas: 1,
+          nodos: [{ nodoId: "m", corridas: 3, fallaron: 1, esperando: 0 }],
+        },
+      }),
+      "America/Argentina/Buenos_Aires",
+    );
+    expect(p.mensajes).toEqual([
+      { clave: "m-1", texto: "Hola Juan", hora: "09:14", estado: "entregado", simulado: false },
+    ]);
+    expect(p.porNodo.corridas).toBe(3);
+    expect(p.porNodo.nodos[0]).toMatchObject({ nodoId: "m", corridas: 3, fallaron: 1 });
   });
 });

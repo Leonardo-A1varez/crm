@@ -117,6 +117,13 @@ export function disparoCoincide(grafo: Grafo, disparador: string, datos: DatosDi
       const config = configDeDisparador("trigger_etapa", nodo.config);
       return config !== null && etapaCoincide(config, datos);
     }
+    case "trigger_difusion_respondida": {
+      const config = configDeDisparador("trigger_difusion_respondida", nodo.config);
+      if (config === null) return false;
+      // Vacío = cualquier difusión. Con una elegida, sin el dato de a cuál
+      // respondió no se arranca: falla cerrado.
+      return config.difusionId === "" || datos.difusionId === config.difusionId;
+    }
     default:
       // Sin filtros: el `disparador` legacy matchea por nombre, "Lead creado"
       // no tiene configuración, y los dirigidos (programado, inactividad,

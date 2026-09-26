@@ -1,3 +1,5 @@
+import { tokenDeCampo } from "@/lib/difusion/parametros";
+import type { CatalogoVariables } from "@/components/workflows/canvas/config/EditorConVariables";
 import type { CampoVariable } from "./tipos";
 
 interface DescriptorCampo {
@@ -39,3 +41,31 @@ export const CAMPOS_VARIABLE: readonly DescriptorCampo[] = [
 export function etiquetaCampo(id: CampoVariable): string {
   return CAMPOS_VARIABLE.find((c) => c.id === id)?.etiqueta ?? id;
 }
+
+/** Lo que dice el chip dentro del texto libre: corto, porque va en medio de una frase. */
+const CORTO: Record<CampoVariable, string> = {
+  nombre: "nombre",
+  nombre_perfil: "nombre de WhatsApp",
+  vehiculo_marca: "marca",
+  vehiculo_modelo: "modelo",
+  vehiculo_anio: "año",
+  consulta: "consulta",
+};
+
+/**
+ * Las variables del texto libre: las mismas que las de la plantilla, porque
+ * las resuelve el mismo motor (`cargarDatosDelLeadParaDifusion`). Otra variable
+ * saldría vacía; el servidor además la rechaza (`TextoLibreSchema`).
+ */
+export const CATALOGO_TEXTO_LIBRE: CatalogoVariables = {
+  grupos: [...new Set(CAMPOS_VARIABLE.map((c) => c.grupo))].map((grupo) => ({
+    id: grupo,
+    nombre: grupo,
+    variables: CAMPOS_VARIABLE.filter((c) => c.grupo === grupo).map((c) => ({
+      // `{{lead.nombre}}` → `lead.nombre`: la clave que guarda el editor.
+      key: tokenDeCampo(c.id).slice(2, -2),
+      label: c.etiqueta,
+      corto: CORTO[c.id],
+    })),
+  })),
+};

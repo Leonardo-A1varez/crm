@@ -41,6 +41,8 @@ export interface NumeroWhatsApp {
   /** El valor crudo de Meta (`GREEN`, `NA`…), para cotejar con su administrador. */
   calidadCruda: string | null;
   envio: EnvioSegunMeta;
+  /** La etiqueta que le puso el admin ("Posventa"). `null` si no tiene. */
+  rol: string | null;
   /** Es el número por el que manda este CRM. */
   esElConfigurado: boolean;
 }
@@ -54,14 +56,38 @@ export type CondicionCalidad =
   | { estado: "falta"; pendientes: readonly string[] }
   | { estado: "sin-dato"; motivo: string };
 
+/** Un día de la ventana de uso. */
+export interface UsoDelDia {
+  /** "sáb 19". */
+  etiqueta: string;
+  /** Destinatarios distintos fuera de la ventana de servicio ese día. */
+  destinatarios: number;
+}
+
+/**
+ * Cómo queda la segunda condición con los números propios. Meta no define si
+ * "usar la mitad del cupo en 7 días" es un día, el promedio o el total, así
+ * que hay un tercer desenlace honesto: `depende`, cuando el total llega pero
+ * no todos los días.
+ */
+export const VEREDICTOS_USO = ["cumplida", "falta", "depende"] as const;
+export type VeredictoUso = (typeof VEREDICTOS_USO)[number];
+
 /** La segunda condición: cuánto del cupo se usó en la ventana. */
 export type UsoDelCupo =
   | {
       disponible: true;
-      /** Uso de la ventana, en porcentaje del cupo. */
-      pct: number;
-      /** Días de uso sostenido que todavía faltan. `null` si esa parte ya está. */
-      diasFaltantes: number | null;
+      /** Del más viejo al de hoy (hoy va incompleto). */
+      dias: readonly UsoDelDia[];
+      /** Distintos en toda la ventana: no es la suma de los días. */
+      totalVentana: number;
+      /** El cupo diario del nivel actual. */
+      limite: number;
+      /** `minimoPct` del cupo, en destinatarios. */
+      minimo: number;
+      veredicto: VeredictoUso;
+      /** Qué envíos no ve el cálculo. Va siempre en pantalla. */
+      noCapturado: string;
     }
   | { disponible: false; motivo: string };
 
@@ -99,14 +125,32 @@ export interface EscalonSancion {
 }
 
 /**
- * Dónde está parada la cuenta en la escalera. Hoy la página sólo produce
- * `no-disponible`, porque Meta no expone el escalón por API. Los otros dos
- * quedan para cuando haya una fuente (el webhook `account_update`).
+ * Dónde está parada la cuenta en la escalera, según los `account_update` que
+ * mandó Meta. `no-disponible` cuando no llegó ninguno (el campo no está
+ * suscrito) o la base no respondió.
  */
 export type PosicionEnEscalera =
-  | { tipo: "sin-sancion" }
-  | { tipo: "en-escalon"; indice: number; desde: string | null }
+  /** Llegaron account_update y ninguno es una sanción, desde `observadoDesde`. */
+  | { tipo: "sin-sancion"; observadoDesde: string }
+  | {
+      tipo: "en-escalon";
+      indice: number;
+      desde: string | null;
+      /** Por qué el escalón es una inferencia y no un dato de Meta. `null` si es dato. */
+      inferido: string | null;
+    }
   | { tipo: "no-disponible"; motivo: string };
+
+/** Un `account_update` de política, para el historial de la escalera. */
+export interface EventoDeSancion {
+  id: string;
+  /** En la hora del negocio. */
+  fecha: string;
+  /** El `event` crudo de Meta, para cotejar. */
+  evento: string;
+  titulo: string;
+  detalle: string | null;
+}
 
 export const ESTADOS_PLANTILLA = [
   "aprobada",

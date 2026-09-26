@@ -70,6 +70,11 @@ export interface LienzoEditorProps {
   onSeleccionar?: (nodoId: string | null) => void;
   /** Overlays anclados al lienzo: el globo de un problema, la previa de reanudación. */
   children?: ReactNode;
+  /**
+   * Controles extra de la barra de abajo a la izquierda, después del zoom: los
+   * atajos del editor. El lienzo no sabe qué hacen; sólo les hace lugar.
+   */
+  herramientas?: ReactNode;
   /** `false` en el diff y en la corrida. Apaga arrastre, conexión y borrado. */
   editable?: boolean;
   className?: string;
@@ -111,6 +116,7 @@ export function LienzoEditor({
   onPrevisualizarBorrado,
   onSeleccionar,
   children,
+  herramientas,
   editable = true,
   className,
 }: LienzoEditorProps) {
@@ -273,11 +279,10 @@ export function LienzoEditor({
           className="!border-line-card !bg-surface-panel/90 !right-3.5 !bottom-3.5 !m-0 rounded-lg !border backdrop-blur-sm"
         />
         <EncuadreInicial />
+        {children}
       </ReactFlow>
 
-      <ControlesLienzo />
-
-      {children}
+      <ControlesLienzo herramientas={herramientas} />
     </div>
   );
 }
@@ -292,7 +297,7 @@ export function LienzoEditor({
  * lienzo; acá adentro sólo se vuelve a pintar un `<span>` de cuatro
  * caracteres.
  */
-function ControlesLienzo() {
+function ControlesLienzo({ herramientas }: { herramientas?: ReactNode }) {
   const { zoomIn, zoomOut } = useReactFlow();
   const encuadrarTodo = useEncuadrarTodo();
 
@@ -321,17 +326,21 @@ function ControlesLienzo() {
         ⛶
       </BotonLienzo>
       <IndicadorZoom />
+      {herramientas}
     </div>
   );
 }
 
-function BotonLienzo({
+export function BotonLienzo({
   etiqueta,
   onClick,
+  atajo,
   children,
 }: {
   etiqueta: string;
   onClick: () => void;
+  /** Valor de `aria-keyshortcuts`: el atajo de teclado que hace lo mismo. */
+  atajo?: string;
   children: ReactNode;
 }) {
   return (
@@ -339,9 +348,12 @@ function BotonLienzo({
       type="button"
       onClick={onClick}
       aria-label={etiqueta}
+      aria-keyshortcuts={atajo}
       title={etiqueta}
       className={cn(
-        "border-line-control bg-surface-panel text-ink-secondary hover:bg-surface-hover grid size-7 place-items-center rounded-lg border font-mono text-[12px] shadow-sm",
+        // `min-w-7` y no `size-7`: los atajos ("Ctrl K") son más anchos que un
+        // ícono, y el alto de 28 es el que alinea la fila.
+        "border-line-control bg-surface-panel text-ink-secondary hover:bg-surface-hover grid h-7 min-w-7 place-items-center rounded-lg border px-1.5 font-mono text-[12px] shadow-sm",
         // El botón se ve de 28 px y se clickea como de 40: WCAG SC 2.5.8 pide
         // 24 mínimo, pero 28 con trackpad sigue siendo incómodo y agrandar la
         // caja visible arruinaría la densidad del lienzo.

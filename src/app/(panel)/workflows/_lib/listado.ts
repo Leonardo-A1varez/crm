@@ -1,4 +1,5 @@
 import { esperaLegible } from "@/lib/triage";
+import { iconoDeTipo, nombreDeTipo } from "../[id]/_lib/presentacion-nodos";
 import { ESTADOS_WORKFLOW } from "@/lib/ui/workflow-estado";
 import type { FiltroEstado, FlujoEnLista } from "@/components/workflows/lista/tipos";
 import type { UUID, WorkflowResumen } from "@/types/entities";
@@ -22,7 +23,7 @@ export function aFlujoEnLista(
   ahoraMs: number,
   corridasEnCurso: number,
 ): FlujoEnLista {
-  const { workflow, estado, resumenPasos, metricas } = resumen;
+  const { workflow, estado, resumenPasos, metricas, disparadorTipo } = resumen;
 
   return {
     id: workflow.id,
@@ -34,6 +35,10 @@ export function aFlujoEnLista(
     ultimaEjecucion:
       metricas.ultimoRun !== null ? esperaLegible(ahoraMs - metricas.ultimoRun.at.getTime()) : null,
     corridasEnCurso,
+    disparador: disparadorTipo
+      ? { nombre: nombreDeTipo(disparadorTipo), icono: iconoDeTipo(disparadorTipo) }
+      : null,
+    disparaAMano: resumen.disparoManualPublicado,
   };
 }
 

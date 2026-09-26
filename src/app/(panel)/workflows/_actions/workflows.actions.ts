@@ -8,6 +8,7 @@ import {
   GuardarVersionSchema,
   ObtenerDetalleRunSchema,
   ObtenerHistorialSchema,
+  ProbarHastaAcaSchema,
   ProbarWorkflowSchema,
   PublicarVersionSchema,
   PublicarVersionConDescripcionSchema,
@@ -134,12 +135,85 @@ export async function probarWorkflowAction(
     });
 
     revalidatePath(`/workflows/${parsed.data.workflowId}`);
+    // Sin `hastaNodo` no hay "detenido"; "cancelado" es que alguien canceló la
+    // corrida de prueba desde su pantalla mientras corría. Esta firma la
+    // consume el editor tal cual: se traduce a las tres que conoce.
+    if (resultado.tipo === "detenido" || resultado.tipo === "cancelado") {
+      return {
+        ok: true,
+        runId,
+        tipo: "fallado",
+        error: "La corrida de prueba se canceló mientras corría.",
+      };
+    }
     return {
       ok: true,
       runId,
       tipo: resultado.tipo,
       error: resultado.tipo === "fallado" ? resultado.error : undefined,
     };
+  } catch (e) {
+    return { ok: false, error: mensajeDeError(e, "No se pudo probar el flujo.") };
+  }
+}
+
+/**
+ * "Ejecutar hasta acá": Probar, con los efectos interceptados, que frena al
+ * llegar al bloque elegido sin correrlo. La corrida queda `cancelado` con el
+ * motivo, y la pantalla la puede abrir en `/workflows/[id]/corridas/[runId]`.
+ *
+ * - `detenido`: llegó al bloque y frenó ahí; `pasos` es cuántos corrió antes.
+ * - `completado`: el recorrido no pasaba por ese bloque y corrió entero.
+ * - `fallado`: falló antes de llegar.
+ * - `cancelado`: alguien la canceló mientras corría.
+ */
+export async function probarHastaAcaAction(raw: unknown): Promise<
+  | {
+      ok: true;
+      runId: string;
+      tipo: "detenido" | "completado" | "fallado" | "cancelado";
+      nodoId?: string;
+      error?: string;
+    }
+  | { ok: false; error: string }
+> {
+  const parsed = ProbarHastaAcaSchema.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: parsed.error.issues[0]?.message ?? "El flujo no tiene forma válida.",
+    };
+  }
+
+  try {
+    await soloAdmin();
+    const svc = await getWorkflowsAdminServiceForRequest();
+    const user = await getAuthenticatedUser();
+    const { runId, resultado } = await svc.probar({
+      workflowId: parsed.data.workflowId,
+      grafo: parsed.data.grafo,
+      maxPasos: parsed.data.maxPasos,
+      leadId: parsed.data.leadId,
+      userId: user?.id ?? null,
+      hastaNodo: parsed.data.hastaNodo,
+    });
+
+    revalidatePath(`/workflows/${parsed.data.workflowId}`);
+    switch (resultado.tipo) {
+      case "detenido":
+      case "cancelado":
+        return { ok: true, runId, tipo: resultado.tipo, nodoId: resultado.nodoId };
+      case "fallado":
+        return {
+          ok: true,
+          runId,
+          tipo: "fallado",
+          nodoId: resultado.nodoId ?? undefined,
+          error: resultado.error,
+        };
+      case "completado":
+        return { ok: true, runId, tipo: "completado" };
+    }
   } catch (e) {
     return { ok: false, error: mensajeDeError(e, "No se pudo probar el flujo.") };
   }

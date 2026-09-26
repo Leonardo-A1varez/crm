@@ -3,7 +3,7 @@ import { DesgloseEntrega } from "./EstadosEntrega";
 import { ESTADO_ENTREGA } from "./paleta";
 import { formatearEntero } from "./formato";
 import { Cifra, Nota } from "./primitivas";
-import type { ConteoEntrega, EstadoEntrega, TandaEnvio } from "./tipos";
+import type { ConteoEntrega, EstadoEntrega, RitmoEnvio, TandaEnvio } from "./tipos";
 
 /**
  * Orden de los tramos de la barra apilada: lo que llegó a la izquierda, el
@@ -31,16 +31,24 @@ const ORDEN_BARRA: readonly EstadoEntrega[] = [
  *
  * La cifra grande es "llegaron", no "enviados", y son solo `entregado + leído`.
  * Un `aceptado` es un 200 de la Cloud API con un `wamid`: Meta se hizo cargo
- * del pedido y nada más. Sin ritmo ni hora estimada de fin: nada los mide.
+ * del pedido y nada más.
+ *
+ * El ritmo es el medido (lo que el motor reservó en los últimos minutos), y el
+ * fin estimado recorre el plan a ese ritmo. Sin ritmo medido no hay fin: se
+ * dice cuándo arranca la última tanda, que es un dato del plan.
  */
 export function ProgresoEnvio({
   conteo,
   total,
   tandas,
+  ritmo,
+  respondieron,
 }: {
   conteo: ConteoEntrega;
   total: number;
   tandas: readonly TandaEnvio[];
+  ritmo?: RitmoEnvio;
+  respondieron?: number;
 }) {
   const llegaron = conteo.entregado + conteo.leido;
   const pintados = ORDEN_BARRA.filter((e) => conteo[e] > 0);
@@ -57,6 +65,15 @@ export function ProgresoEnvio({
             </span>
           </div>
         </div>
+
+        {respondieron !== undefined ? (
+          <div className="flex flex-col gap-2">
+            <Eyebrow>Respondieron</Eyebrow>
+            <Cifra valor={formatearEntero(respondieron)} tamano="xl" />
+          </div>
+        ) : null}
+
+        {ritmo ? <LineaRitmo ritmo={ritmo} /> : null}
 
         {tandas.length > 0 ? (
           <ol aria-label="Tandas del plan" className="ml-auto flex flex-col gap-1 text-right">
@@ -109,5 +126,43 @@ export function ProgresoEnvio({
           : ""}
       </Nota>
     </div>
+  );
+}
+
+/** "Ritmo 2 msg/s · termina 01/09 14:20", o lo que el plan sabe sin ritmo. */
+function LineaRitmo({ ritmo }: { ritmo: RitmoEnvio }) {
+  return (
+    <p className="text-ink-dim flex flex-col gap-1 text-[11.5px] leading-snug">
+      {ritmo.porSegundo === null ? (
+        <span>Sin envíos en los últimos 5 minutos: no hay ritmo medido.</span>
+      ) : (
+        <span>
+          Ritmo{" "}
+          <span className="text-ink-primary font-mono font-medium tabular-nums">
+            {ritmo.porSegundo < 10
+              ? ritmo.porSegundo.toFixed(1).replace(".", ",")
+              : formatearEntero(Math.round(ritmo.porSegundo))}{" "}
+            msg/s
+          </span>{" "}
+          en los últimos 5 minutos
+        </span>
+      )}
+      {ritmo.finEstimado ? (
+        <span>
+          Termina{" "}
+          <span className="text-ink-primary font-mono font-medium tabular-nums">
+            {ritmo.finEstimado}
+          </span>{" "}
+          si el ritmo se sostiene
+        </span>
+      ) : ritmo.ultimaTandaDesde ? (
+        <span>
+          La última tanda arranca{" "}
+          <span className="text-ink-primary font-mono font-medium tabular-nums">
+            {ritmo.ultimaTandaDesde}
+          </span>
+        </span>
+      ) : null}
+    </p>
   );
 }

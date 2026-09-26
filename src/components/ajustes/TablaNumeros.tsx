@@ -1,9 +1,10 @@
 import { BadgeSalud } from "@/components/ajustes/BadgeSalud";
 import { DESCRIPTOR_CALIDAD, DESCRIPTOR_ENVIO } from "@/components/ajustes/descriptores";
+import { RolDelNumero, type GuardarRolDeNumero } from "@/components/ajustes/RolDelNumero";
 import { Eyebrow } from "@/components/shared/Eyebrow";
 import type { EnvioSegunMeta, NumeroWhatsApp } from "@/components/ajustes/tipos";
 
-const COLUMNAS = "grid-cols-[200px_1fr_120px_1.3fr]";
+const COLUMNAS = "grid-cols-[176px_minmax(150px,0.9fr)_1fr_112px_1.3fr]";
 
 /**
  * Los números de la cuenta con su calidad y si pueden mandar.
@@ -16,14 +17,34 @@ const COLUMNAS = "grid-cols-[200px_1fr_120px_1.3fr]";
  * traducción a alta/media/baja no está verificada contra un documento de Meta
  * (ver `vistas.ts`), y el crudo deja cotejarla sin tener que creerle a esta
  * pantalla.
+ *
+ * ================ POR QUÉ NO HAY COLUMNAS "NIVEL" NI "SANCIONES" ================
+ *
+ * El diseño las dibuja por número. No se ponen porque no hay un dato por
+ * número que mostrar en ninguna de las dos (verificado el 2026-09-25):
+ *
+ *   - Nivel: Meta calcula el límite "at the business portfolio level", y lo
+ *     comparten todos los números del portfolio (página de messaging limits).
+ *     Una columna repetiría la misma cifra en cada fila y sugeriría que cada
+ *     número tiene la suya. Va una vez, en el medidor de arriba.
+ *   - Sanciones: llegan por el webhook `account_update`, cuyo `entry.id` es la
+ *     WABA y cuyo `value` no nombra ningún número. Son de la cuenta, y van en
+ *     la escalera de arriba.
+ *
+ * En su lugar va "envío": el `health_status` de Meta, que sí es por número y
+ * dice si puede mandar ahora. Esta tabla nació así (commit a9e1d5b) y el
+ * historial de git no guarda una versión con esas columnas.
  */
 export function TablaNumeros({
   numeros,
   nota,
+  guardarRol,
 }: {
   numeros: readonly NumeroWhatsApp[];
   /** Por qué la lista está incompleta, si lo está. */
   nota: string | null;
+  /** La acción que guarda el rol. `null` para quien no es admin: sólo lectura. */
+  guardarRol: GuardarRolDeNumero | null;
 }) {
   return (
     <section className="border-line-card bg-surface-card overflow-hidden rounded-[14px] border">
@@ -35,6 +56,7 @@ export function TablaNumeros({
         className={`bg-surface-input text-ink-faint border-line-row grid ${COLUMNAS} gap-3.5 border-b px-5 py-2.5 font-mono text-[9px] font-semibold tracking-[0.08em] uppercase`}
       >
         <span>número</span>
+        <span>rol</span>
         <span>nombre en whatsapp</span>
         <span>calidad</span>
         <span>envío</span>
@@ -61,6 +83,12 @@ export function TablaNumeros({
                   </span>
                 ) : null}
               </span>
+              <RolDelNumero
+                phoneNumberId={n.id}
+                numero={n.numero}
+                rol={n.rol}
+                guardar={guardarRol}
+              />
               <span
                 className={
                   n.nombre === null

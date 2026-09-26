@@ -165,9 +165,46 @@ export const workflowDisparoRecibido = eventType("workflow/disparo.recibido", {
 // `desdePaso` es el compare-and-swap: si no coincide con pasos_ejecutados, este
 // segmento ya corrio y la reentrega no lo reejecuta.
 // `respondio` sólo viaja al reanudar después de "Esperar respuesta" cuando el
-// lead contestó antes del tiempo máximo (ver `workflow-segmento.ts`).
+// lead contestó antes del tiempo máximo, y `profundidad` al reanudar porque lo
+// despertó un evento que la trae (ver `workflow-segmento.ts`).
 export const workflowSegmentoPendiente = eventType("workflow/segmento.pendiente", {
-  schema: staticSchema<{ runId: UUID; desdePaso: number; respondio?: boolean }>(),
+  schema: staticSchema<{
+    runId: UUID;
+    desdePaso: number;
+    respondio?: boolean;
+    profundidad?: number;
+    /** Sólo al reanudar un nodo con botones o lista: lo que eligió el lead. */
+    opcionElegida?: { id: string; titulo: string };
+  }>(),
+});
+
+/**
+ * El lead eligió una opción de un mensaje con botones o de lista. Lo emite
+ * `on-message-received` con la respuesta ya guardada en el hilo, y lo espera
+ * `workflow-segmento` (`step.waitForEvent`) filtrando por lead y por
+ * `respondeA`: el wamid del mensaje al que responde (`context.id` de Meta), así
+ * una respuesta a un mensaje viejo no despierta la espera de uno nuevo.
+ *
+ * Idempotency key al emitir: `respuesta-interactiva:<wamid del entrante>`.
+ */
+export const workflowRespuestaInteractiva = eventType("workflow/respuesta.interactiva", {
+  schema: staticSchema<{
+    leadId: UUID;
+    respondeA: string | null;
+    opcionId: string;
+    titulo: string;
+  }>(),
+});
+
+/**
+ * "Cancelar corrida" desde el panel. `workflow-segmento` lo declara en
+ * `cancelOn` (match por `data.runId`): Inngest corta en el acto el segmento de
+ * esa corrida que esté dormido en `step.waitForEvent`/`step.sleepUntil`, en vez
+ * de dejarlo esperar hasta que venza. El estado en la base ya lo cerró la
+ * acción antes de emitirlo; esto sólo apaga la ejecución de Inngest.
+ */
+export const workflowCorridaCancelada = eventType("workflow/corrida.cancelada", {
+  schema: staticSchema<{ runId: UUID }>(),
 });
 
 /**

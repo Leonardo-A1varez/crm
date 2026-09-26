@@ -5,6 +5,7 @@ import {
   MOTIVO_EXCLUSION,
   motivoDeSupresion,
   type CategoriaPlantilla,
+  type ContenidoEnvio,
   type MotivoExclusion,
   type OrigenSupresion,
   type RutaEnvio,
@@ -121,6 +122,12 @@ export interface EntradaPlanificador {
   maxSalientesAutomaticos24h: number;
   /** La plantilla para quien no tiene la ventana abierta. `null` = sólo texto libre en ventana. */
   plantilla: { categoria: CategoriaPlantilla } | null;
+  /**
+   * La difusión tiene versión en texto libre (`difusiones.texto_libre`): quien
+   * tiene la ventana abierta la recibe en vez de la plantilla. Sin ella, todos
+   * reciben la plantilla. El motor vuelve a mirar la ventana al mandar.
+   */
+  textoLibre?: boolean;
   /** `difusiones.incluir_en_negociacion`. */
   incluirEnNegociacion?: boolean;
   /** `difusiones.exenta_tope_frecuencia`. */
@@ -135,6 +142,8 @@ export interface DestinatarioPlanificado {
   /** Normalizado: dígitos E.164 sin `+`. */
   telefono: string;
   ruta: RutaEnvio;
+  /** Qué le sale: texto libre sólo con la ventana abierta y si la difusión lo tiene. */
+  contenido: ContenidoEnvio;
   /** 0 = hoy. */
   tanda: number;
   programadoPara: Date;
@@ -162,6 +171,8 @@ export interface PlanDifusion {
   exclusiones: ExclusionPlanificada[];
   exclusionesPorMotivo: Record<MotivoExclusion, number>;
   porRuta: Record<RutaEnvio, number>;
+  /** El texto libre es gratis; la plantilla se cobra según categoría y ventana (`cobro-meta.ts`). */
+  porContenido: Record<ContenidoEnvio, number>;
   cupo: {
     restante: number;
     reserva: number;
@@ -191,6 +202,7 @@ interface Contexto {
   conversacionActivaMs: number;
   margenVentanaMs: number;
   plantilla: EntradaPlanificador["plantilla"];
+  textoLibre: boolean;
   soloVentanaAbierta: boolean;
   incluirEnNegociacion: boolean;
   exentaTopeFrecuencia: boolean;
@@ -216,6 +228,7 @@ export function planificarDifusion(entrada: EntradaPlanificador): PlanDifusion {
     conversacionActivaMs: politica.conversacionActivaMinutos * MINUTO_MS,
     margenVentanaMs: politica.margenVentanaMinutos * MINUTO_MS,
     plantilla: entrada.plantilla,
+    textoLibre: entrada.textoLibre ?? false,
     soloVentanaAbierta: entrada.soloVentanaAbierta ?? false,
     incluirEnNegociacion: entrada.incluirEnNegociacion ?? false,
     exentaTopeFrecuencia: entrada.exentaTopeFrecuencia ?? false,
@@ -284,6 +297,7 @@ export function planificarDifusion(entrada: EntradaPlanificador): PlanDifusion {
       leadId: candidato.leadId,
       telefono,
       ruta,
+      contenido: contenidoDe(ruta, ctx.textoLibre),
       tanda,
       programadoPara: new Date(ahora + tanda * DIA_MS),
     };
@@ -309,6 +323,10 @@ export function planificarDifusion(entrada: EntradaPlanificador): PlanDifusion {
     exclusiones,
     exclusionesPorMotivo,
     porRuta: { ventana_abierta: destinatarios.length - solicitado, plantilla: solicitado },
+    porContenido: {
+      texto_libre: destinatarios.filter((d) => d.contenido === "texto_libre").length,
+      plantilla: destinatarios.filter((d) => d.contenido === "plantilla").length,
+    },
     cupo: {
       restante: entrada.cupo.restante,
       reserva: entrada.cupo.reserva,
@@ -403,15 +421,19 @@ function motivoDelLead(
 ): MotivoExclusion | null {
   if (persona.bajaPropia) return "baja_propia";
   if (persona.bajaMeta) return "baja_meta";
-  if (c.etapa === "requiere_humano") return "requiere_humano";
-  if (enConversacionActiva(c, ctx)) return "conversacion_activa";
+  const conversacional = motivoConversacional(
+    c,
+    new Date(ctx.ahora),
+    ctx.conversacionActivaMs / MINUTO_MS,
+  );
+  if (conversacional !== null) return conversacional;
   if (persona.ruta === null) return "sin_ventana";
-  // El cap de 131049 es de plantillas de marketing: el texto libre dentro de la
-  // ventana y las plantillas utility no cuentan (PRD §4.3).
+  // El cap de 131049 es de plantillas de marketing: el texto libre y las
+  // plantillas utility no cuentan (PRD §4.3). La MISMA regla usa el motor al
+  // mandar (`saturaAlSalir`): el plan no promete lo que el motor va a excluir.
   if (
-    persona.ruta === "plantilla" &&
-    ctx.plantilla?.categoria === "marketing" &&
-    persona.saturada
+    persona.saturada &&
+    saturaAlSalir(contenidoDe(persona.ruta, ctx.textoLibre), ctx.plantilla?.categoria ?? null)
   ) {
     return "saturado_meta";
   }
@@ -423,10 +445,64 @@ function motivoDelLead(
   return null;
 }
 
-/** Sesión abierta y un entrante reciente: el agente o un vendedor están hablando con esta persona. */
-function enConversacionActiva(c: CandidatoDifusion, ctx: Contexto): boolean {
-  if (c.etapa === null || c.ultimoEntranteAt === null) return false;
-  return ctx.ahora - c.ultimoEntranteAt.getTime() <= ctx.conversacionActivaMs;
+/**
+ * Qué le sale a un destinatario por esa ruta: el texto libre sólo con la
+ * ventana abierta, y sólo si la difusión lo tiene.
+ */
+export function contenidoDe(ruta: RutaEnvio, hayTextoLibre: boolean): ContenidoEnvio {
+  return ruta === "ventana_abierta" && hayTextoLibre ? "texto_libre" : "plantilla";
+}
+
+/**
+ * Si un 131049 reciente deja afuera a quien le sale este contenido. La usan
+ * el planificador y el motor.
+ *
+ * El límite por persona es de plantillas de marketing: "Each marketing
+ * template message delivered counts towards the per-user marketing limit"
+ * (developers.facebook.com/documentation/business-messaging/whatsapp/templates/
+ * marketing-templates/per-user-limits, leída 2026-09-26). El texto libre no es
+ * una plantilla, así que no lo alcanza.
+ *
+ * La misma página dice que las de marketing mandadas dentro de la ventana "do
+ * not count towards the limit", pero no dice que no se bloqueen: a un saturado
+ * no se le manda una plantilla de marketing ni con la ventana abierta. Es el
+ * lado seguro: un 131049 de más baja la tasa de entrega percibida.
+ */
+export function saturaAlSalir(
+  contenido: ContenidoEnvio,
+  categoria: CategoriaPlantilla | null,
+): boolean {
+  return contenido === "plantilla" && categoria === "marketing";
+}
+
+/** Lo que hace falta de un lead para saber si alguien está hablando con él. */
+export interface EstadoConversacional {
+  /** `current_stage` de la sesión activa; `null` sin sesión abierta. */
+  etapa: CurrentStage | null;
+  /** Último entrante por WhatsApp. */
+  ultimoEntranteAt: Date | null;
+}
+
+/**
+ * Por qué este lead no puede recibir una difusión ahora mismo por su estado
+ * conversacional, o `null`. La usan el planificador al programar y el motor al
+ * mandar (§8.6): entre una cosa y la otra pueden pasar días, y un lead que en
+ * el medio pasó a una persona o empezó a hablar no puede recibir una promoción
+ * en medio de esa conversación (PRD §6.1).
+ *
+ * - `requiere_humano`: hay una persona a cargo. Siempre excluido.
+ * - `conversacion_activa`: sesión abierta y un entrante de hace a lo sumo
+ *   `conversacionActivaMinutos`.
+ */
+export function motivoConversacional(
+  estado: EstadoConversacional,
+  ahora: Date,
+  conversacionActivaMinutos: number = CONVERSACION_ACTIVA_MINUTOS,
+): "requiere_humano" | "conversacion_activa" | null {
+  if (estado.etapa === "requiere_humano") return "requiere_humano";
+  if (estado.etapa === null || estado.ultimoEntranteAt === null) return null;
+  const transcurrido = ahora.getTime() - estado.ultimoEntranteAt.getTime();
+  return transcurrido <= conversacionActivaMinutos * MINUTO_MS ? "conversacion_activa" : null;
 }
 
 function describirPersona(

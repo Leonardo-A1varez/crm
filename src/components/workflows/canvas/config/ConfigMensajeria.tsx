@@ -9,25 +9,25 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash2, GripVertical } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
+import { CANALES_DE_ENVIO, editorDeConfig, type CanalDeEnvio } from "@/lib/workflows/config-nodos";
 import {
-  CANALES_DE_ENVIO,
-  editorDeConfig,
-  type CanalDeEnvio,
-  type ConfigDeTipo,
-} from "@/lib/workflows/config-nodos";
-import { TextareaConVariables } from "./TextareaConVariables";
-import { VariableSelector } from "./VariableSelector";
+  ConfigBotones,
+  ConfigImagen,
+  ConfigLista,
+  ConfigUbicacion,
+  type SubirImagenFn,
+} from "./ConfigMensajeriaRica";
+import { EditorConVariables } from "./EditorConVariables";
 
 interface ConfigMensajeriaProps {
   tipo: string;
   config: Record<string, unknown>;
   onChange: (config: Record<string, unknown>) => void;
   readonly?: boolean;
+  /** "Enviar imagen" por archivo: la Server Action que sube (sólo admin). */
+  onSubirImagen?: SubirImagenFn;
 }
-
-type Boton = ConfigDeTipo<"msg_botones">["botones"][number];
-type SeccionLista = ConfigDeTipo<"msg_lista">["secciones"][number];
 
 /** Cómo se llama en pantalla cada canal que `msg_texto` puede exigir. */
 const ETIQUETA_CANAL_DE_ENVIO: Readonly<Record<CanalDeEnvio, string>> = {
@@ -45,7 +45,13 @@ const ETIQUETA_CANAL_DE_ENVIO: Readonly<Record<CanalDeEnvio, string>> = {
  * el mismo schema que revisa el validador y que lee la acción `enviar_mensaje`.
  * Una clave que el contrato no conoce no compila.
  */
-export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMensajeriaProps) {
+export function ConfigMensajeria({
+  tipo,
+  config,
+  onChange,
+  readonly,
+  onSubirImagen,
+}: ConfigMensajeriaProps) {
   const labelClass = "text-ink-secondary mb-1 block text-[11px]";
   const selectClass = "border-line-control bg-surface-root text-ink-primary w-full text-[12px]";
   const inputClass = "border-line-control bg-surface-root text-ink-primary w-full text-[12px] h-8";
@@ -76,362 +82,45 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
             </Select>
           </label>
 
-          <label className="block">
-            <span className={labelClass}>Mensaje</span>
-            <TextareaConVariables
-              value={mensaje}
-              onChange={(v) => onChange(c.con("mensaje", v))}
-              placeholder="Hola {{lead.nombre}}, gracias por escribir..."
-              maxLength={4096}
-              rows={4}
-              className={`${inputClass} h-auto min-h-[100px] resize-y`}
-            />
-          </label>
-
-          <VariableSelector
-            onSelect={(variable) => onChange(c.con("mensaje", mensaje + variable))}
-            compact
+          {/* Nota 01 del diseño: las variables se eligen de una lista y se ven
+              como chips; nunca se escribe una llave a mano. */}
+          <EditorConVariables
+            etiqueta="Mensaje"
+            value={mensaje}
+            onChange={(v) => onChange(c.con("mensaje", v))}
+            placeholder="Hola, gracias por escribir. Contame qué repuesto necesitás."
+            maxLength={4096}
+            readonly={readonly}
           />
+          <p className="text-ink-ghost -mt-1 text-[10.5px] leading-snug">
+            Las variables se insertan con «+ Variable». Nunca se escribe la llave a mano.
+          </p>
         </div>
       );
     }
 
-    case "msg_botones": {
-      const c = editorDeConfig("msg_botones", config);
-      const botones = Array.isArray(c.valores.botones) ? (c.valores.botones as Boton[]) : [];
-      return (
-        <div className="flex flex-col gap-3">
-          <label className="block">
-            <span className={labelClass}>Mensaje</span>
-            <TextareaConVariables
-              value={String(c.valores.mensaje ?? "")}
-              onChange={(v) => onChange(c.con("mensaje", v))}
-              placeholder="Selecciona una opcion..."
-              maxLength={1024}
-              rows={3}
-              className={`${inputClass} h-auto min-h-[80px] resize-y`}
-            />
-          </label>
+    case "msg_botones":
+      return <ConfigBotones config={config} onChange={onChange} readonly={readonly} />;
 
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <span className={labelClass}>Botones (max 3)</span>
-              {botones.length < 3 && !readonly && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 px-2 text-[10px]"
-                  onClick={() =>
-                    onChange(
-                      c.con("botones", [...botones, { texto: "", accion: "responder", valor: "" }]),
-                    )
-                  }
-                >
-                  <Plus className="mr-1 h-3 w-3" />
-                  Agregar
-                </Button>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              {botones.map((boton, idx) => (
-                <div
-                  key={idx}
-                  className="border-line-control bg-surface-root rounded-md border p-2"
-                >
-                  <div className="mb-2 flex items-center gap-2">
-                    <GripVertical className="text-ink-faint h-3.5 w-3.5" />
-                    <Input
-                      className={`${inputClass} flex-1`}
-                      value={boton.texto}
-                      onChange={(e) => {
-                        const newBotones = [...botones];
-                        newBotones[idx] = { ...boton, texto: e.target.value };
-                        onChange(c.con("botones", newBotones));
-                      }}
-                      placeholder="Texto del boton"
-                      maxLength={20}
-                      disabled={readonly}
-                    />
-                    {!readonly && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0 text-red-500"
-                        onClick={() =>
-                          onChange(
-                            c.con(
-                              "botones",
-                              botones.filter((_, i) => i !== idx),
-                            ),
-                          )
-                        }
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <Select
-                      value={boton.accion}
-                      onValueChange={(v) => {
-                        const newBotones = [...botones];
-                        newBotones[idx] = {
-                          ...boton,
-                          accion: v as Boton["accion"],
-                        };
-                        onChange(c.con("botones", newBotones));
-                      }}
-                      disabled={readonly}
-                    >
-                      <SelectTrigger className={`${selectClass} w-[120px]`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="responder">Responder</SelectItem>
-                        <SelectItem value="url">URL</SelectItem>
-                        <SelectItem value="llamar">Llamar</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Input
-                      className={`${inputClass} flex-1`}
-                      value={boton.valor}
-                      onChange={(e) => {
-                        const newBotones = [...botones];
-                        newBotones[idx] = { ...boton, valor: e.target.value };
-                        onChange(c.con("botones", newBotones));
-                      }}
-                      placeholder={
-                        boton.accion === "url"
-                          ? "https://..."
-                          : boton.accion === "llamar"
-                            ? "+521234567890"
-                            : "Texto de respuesta"
-                      }
-                      disabled={readonly}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    case "msg_lista": {
-      const c = editorDeConfig("msg_lista", config);
-      const secciones = Array.isArray(c.valores.secciones)
-        ? (c.valores.secciones as SeccionLista[])
-        : [];
-      return (
-        <div className="flex flex-col gap-3">
-          <label className="block">
-            <span className={labelClass}>Header (max 60 caracteres)</span>
-            <Input
-              className={inputClass}
-              value={String(c.valores.header ?? "")}
-              onChange={(e) => onChange(c.con("header", e.target.value))}
-              placeholder="Nuestro catalogo"
-              maxLength={60}
-              disabled={readonly}
-            />
-          </label>
-
-          <label className="block">
-            <span className={labelClass}>Cuerpo</span>
-            <TextareaConVariables
-              value={String(c.valores.body ?? "")}
-              onChange={(v) => onChange(c.con("body", v))}
-              placeholder="Selecciona una categoria..."
-              maxLength={1024}
-              rows={3}
-              className={`${inputClass} h-auto min-h-[80px] resize-y`}
-            />
-          </label>
-
-          <label className="block">
-            <span className={labelClass}>Footer (max 60 caracteres)</span>
-            <Input
-              className={inputClass}
-              value={String(c.valores.footer ?? "")}
-              onChange={(e) => onChange(c.con("footer", e.target.value))}
-              placeholder="Responde con el numero"
-              maxLength={60}
-              disabled={readonly}
-            />
-          </label>
-
-          <label className="block">
-            <span className={labelClass}>Texto del boton</span>
-            <Input
-              className={inputClass}
-              value={String(c.valores.botonTexto)}
-              onChange={(e) => onChange(c.con("botonTexto", e.target.value))}
-              placeholder="Ver opciones"
-              maxLength={20}
-              disabled={readonly}
-            />
-          </label>
-
-          <div>
-            <div className="mb-2 flex items-center justify-between">
-              <span className={labelClass}>Secciones</span>
-              {!readonly && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 px-2 text-[10px]"
-                  onClick={() =>
-                    onChange(
-                      c.con("secciones", [
-                        ...secciones,
-                        { titulo: "", items: [{ titulo: "", descripcion: "" }] },
-                      ]),
-                    )
-                  }
-                >
-                  <Plus className="mr-1 h-3 w-3" />
-                  Agregar seccion
-                </Button>
-              )}
-            </div>
-
-            <div className="space-y-3">
-              {secciones.map((seccion, sIdx) => (
-                <div
-                  key={sIdx}
-                  className="border-line-control bg-surface-root rounded-md border p-2"
-                >
-                  <div className="mb-2 flex items-center gap-2">
-                    <Input
-                      className={`${inputClass} flex-1`}
-                      value={seccion.titulo}
-                      onChange={(e) => {
-                        const newSecciones = [...secciones];
-                        newSecciones[sIdx] = {
-                          ...seccion,
-                          titulo: e.target.value,
-                        };
-                        onChange(c.con("secciones", newSecciones));
-                      }}
-                      placeholder="Titulo de la seccion"
-                      disabled={readonly}
-                    />
-                    {!readonly && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0 text-red-500"
-                        onClick={() =>
-                          onChange(
-                            c.con(
-                              "secciones",
-                              secciones.filter((_, i) => i !== sIdx),
-                            ),
-                          )
-                        }
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
-                  </div>
-
-                  <div className="space-y-1 pl-4">
-                    {seccion.items.map((item, iIdx) => (
-                      <div key={iIdx} className="flex gap-1">
-                        <Input
-                          className={`${inputClass} flex-1`}
-                          value={item.titulo}
-                          onChange={(e) => {
-                            const newSecciones = [...secciones];
-                            const newItems = [...seccion.items];
-                            newItems[iIdx] = {
-                              ...item,
-                              titulo: e.target.value,
-                            };
-                            newSecciones[sIdx] = { ...seccion, items: newItems };
-                            onChange(c.con("secciones", newSecciones));
-                          }}
-                          placeholder="Titulo"
-                          disabled={readonly}
-                        />
-                        <Input
-                          className={`${inputClass} flex-1`}
-                          value={item.descripcion}
-                          onChange={(e) => {
-                            const newSecciones = [...secciones];
-                            const newItems = [...seccion.items];
-                            newItems[iIdx] = {
-                              ...item,
-                              descripcion: e.target.value,
-                            };
-                            newSecciones[sIdx] = { ...seccion, items: newItems };
-                            onChange(c.con("secciones", newSecciones));
-                          }}
-                          placeholder="Descripcion"
-                          disabled={readonly}
-                        />
-                        {!readonly && (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0 text-red-500"
-                            onClick={() => {
-                              const newSecciones = [...secciones];
-                              newSecciones[sIdx] = {
-                                ...seccion,
-                                items: seccion.items.filter((_, i) => i !== iIdx),
-                              };
-                              onChange(c.con("secciones", newSecciones));
-                            }}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        )}
-                      </div>
-                    ))}
-                    {!readonly && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-2 text-[10px]"
-                        onClick={() => {
-                          const newSecciones = [...secciones];
-                          newSecciones[sIdx] = {
-                            ...seccion,
-                            items: [...seccion.items, { titulo: "", descripcion: "" }],
-                          };
-                          onChange(c.con("secciones", newSecciones));
-                        }}
-                      >
-                        <Plus className="mr-1 h-3 w-3" />
-                        Item
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      );
-    }
+    case "msg_lista":
+      return <ConfigLista config={config} onChange={onChange} readonly={readonly} />;
 
     case "msg_imagen":
+      return (
+        <ConfigImagen
+          config={config}
+          onChange={onChange}
+          onSubirImagen={onSubirImagen}
+          readonly={readonly}
+        />
+      );
+
     case "msg_documento": {
-      const isImagen = tipo === "msg_imagen";
-      // Lo común a los dos (tipo de media y URL) va por el editor del tipo; lo
-      // propio de cada uno, por el suyo: el caption no es clave de un documento.
-      const c = editorDeConfig(tipo, config);
-      const imagen = editorDeConfig("msg_imagen", config);
-      const documento = editorDeConfig("msg_documento", config);
+      // El documento todavía no corre (`disponibilidad.ts`): el formulario
+      // queda como estaba. La imagen tiene el suyo (`ConfigImagen`).
+      const isImagen = false;
+      const c = editorDeConfig("msg_documento", config);
+      const documento = c;
       return (
         <div className="flex flex-col gap-3">
           <div>
@@ -486,20 +175,6 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
             </label>
           )}
 
-          {isImagen && (
-            <label className="block">
-              <span className={labelClass}>Caption</span>
-              <TextareaConVariables
-                value={String(imagen.valores.caption ?? "")}
-                onChange={(v) => onChange(imagen.con("caption", v))}
-                placeholder="Texto debajo de la imagen"
-                maxLength={1024}
-                rows={2}
-                className={`${inputClass} h-auto min-h-[60px] resize-y`}
-              />
-            </label>
-          )}
-
           {!isImagen && (
             <label className="block">
               <span className={labelClass}>Nombre del archivo</span>
@@ -516,60 +191,8 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
       );
     }
 
-    case "msg_ubicacion": {
-      const c = editorDeConfig("msg_ubicacion", config);
-      return (
-        <div className="flex flex-col gap-3">
-          <label className="block">
-            <span className={labelClass}>Latitud</span>
-            <Input
-              type="number"
-              step="any"
-              className={inputClass}
-              value={String(c.valores.lat ?? "")}
-              onChange={(e) => onChange(c.con("lat", Number(e.target.value)))}
-              placeholder="-33.4489"
-              disabled={readonly}
-            />
-          </label>
-
-          <label className="block">
-            <span className={labelClass}>Longitud</span>
-            <Input
-              type="number"
-              step="any"
-              className={inputClass}
-              value={String(c.valores.lon ?? "")}
-              onChange={(e) => onChange(c.con("lon", Number(e.target.value)))}
-              placeholder="-70.6693"
-              disabled={readonly}
-            />
-          </label>
-
-          <label className="block">
-            <span className={labelClass}>Nombre del lugar</span>
-            <Input
-              className={inputClass}
-              value={String(c.valores.nombre ?? "")}
-              onChange={(e) => onChange(c.con("nombre", e.target.value))}
-              placeholder="Nuestra tienda"
-              disabled={readonly}
-            />
-          </label>
-
-          <label className="block">
-            <span className={labelClass}>Direccion</span>
-            <Input
-              className={inputClass}
-              value={String(c.valores.direccion ?? "")}
-              onChange={(e) => onChange(c.con("direccion", e.target.value))}
-              placeholder="Av. Principal 123"
-              disabled={readonly}
-            />
-          </label>
-        </div>
-      );
-    }
+    case "msg_ubicacion":
+      return <ConfigUbicacion config={config} onChange={onChange} readonly={readonly} />;
 
     case "msg_plantilla": {
       const c = editorDeConfig("msg_plantilla", config);
@@ -627,21 +250,19 @@ export function ConfigMensajeria({ tipo, config, onChange, readonly }: ConfigMen
             </div>
             <div className="space-y-2">
               {parametros.map((valor, idx) => (
-                <div key={idx} className="flex items-center gap-2">
-                  <span className="text-ink-faint w-8 shrink-0 font-mono text-[10px]">
-                    {`{{${idx + 1}}}`}
-                  </span>
-                  <Input
-                    className={`${inputClass} flex-1`}
-                    aria-label={`Valor de la variable ${idx + 1}`}
+                <div key={idx} className="flex items-end gap-2">
+                  <EditorConVariables
+                    className="flex-1"
+                    etiqueta={`Valor de la variable ${idx + 1}`}
                     value={valor}
-                    onChange={(e) => {
+                    onChange={(v) => {
                       const siguientes = [...parametros];
-                      siguientes[idx] = e.target.value;
+                      siguientes[idx] = v;
                       onChange(c.con("parametros", siguientes));
                     }}
-                    placeholder="{{lead.nombre}}"
-                    disabled={readonly}
+                    placeholder="Texto fijo o una variable"
+                    unaLinea
+                    readonly={readonly}
                   />
                   {!readonly && (
                     <Button

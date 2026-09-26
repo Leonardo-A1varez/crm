@@ -17,7 +17,7 @@ import {
 import { contarIncompletas, contarReglas } from "@/lib/ui/condiciones";
 import { calcularAlcanceAction } from "../_actions/alcance.action";
 import { crearBorradorAction, guardarBorradorAction } from "../_actions/borrador.actions";
-import { programarAction } from "../_actions/envio.actions";
+import { enviarPruebaAction, programarAction } from "../_actions/envio.actions";
 import { valoresVariablesAction } from "../_actions/valores.action";
 import { vistaAlcance } from "../_lib/alcance";
 import { configDesdeGuardada, parametrosDesdeConfig } from "../_lib/mensaje-guardado";
@@ -50,6 +50,8 @@ interface PedidoAlcance {
   incluirEnNegociacion: boolean;
   exentaTopeFrecuencia: boolean;
   plantillaCategoria: CategoriaPlantilla | null;
+  /** Hay texto libre: quien tiene la ventana abierta lo recibe en vez de la plantilla. */
+  textoLibre: boolean;
 }
 
 /**
@@ -84,6 +86,15 @@ const PAGINA_PREVUELO = 50;
 const MUESTRA_SUGERIDA = 50;
 
 const SIN_RESPUESTA = "El servidor no respondió. Reintentá.";
+
+/** Las cifras del planificador en la forma del costo. Nada se estima acá: son las del plan. */
+function repartoCosto(a: AlcanceAudiencia) {
+  return {
+    textoLibre: a.porTextoLibre,
+    plantillaEnVentana: a.porVentanaAbierta - a.porTextoLibre,
+    fueraDeVentana: a.porPlantilla,
+  };
+}
 
 function idDeLaGuardada(inicial: DifusionVista | null, lista: readonly Plantilla[]): string | null {
   if (!inicial?.plantillaNombre) return null;
@@ -169,6 +180,7 @@ export function AsistenteDifusion({
   const [configs, setConfigs] = useState<Readonly<Record<string, ConfigMensaje>>>(() =>
     configsGuardadas(inicial, lista),
   );
+  const [textoLibre, setTextoLibre] = useState(inicial?.textoLibre ?? "");
   const [canary, setCanary] = useState<{ activo: boolean; tamano: number | null }>({
     activo: true,
     tamano: null,
@@ -199,6 +211,7 @@ export function AsistenteDifusion({
           incluirEnNegociacion,
           exentaTopeFrecuencia,
           plantillaCategoria: plantilla?.categoria ?? null,
+          textoLibre: textoLibre.trim() !== "",
         }
       : null;
   const clave = pedido === null ? null : JSON.stringify({ pedido, esPrevuelo, intento });
@@ -387,6 +400,7 @@ export function AsistenteDifusion({
             idioma,
             parametros,
           },
+          textoLibre: textoLibre.trim() === "" ? null : textoLibre.trim(),
         }),
       () => setPaso("Pre-vuelo"),
     );
@@ -519,14 +533,12 @@ export function AsistenteDifusion({
         etiquetas={catalogos.etiquetas ?? []}
         porVentanaAbierta={alcanceVisible?.porVentanaAbierta ?? null}
         porPlantilla={alcanceVisible?.porPlantilla ?? null}
+        porTextoLibre={alcanceVisible?.porTextoLibre ?? null}
+        textoLibre={textoLibre}
+        onCambiarTextoLibre={setTextoLibre}
         lineasCosto={
           plantilla && alcanceVisible
-            ? lineasCostoMensaje(
-                plantilla.categoria,
-                alcanceVisible.porVentanaAbierta,
-                alcanceVisible.porPlantilla,
-                null,
-              )
+            ? lineasCostoMensaje(plantilla.categoria, repartoCosto(alcanceVisible), null)
             : null
         }
         guardando={guardando}
@@ -580,12 +592,7 @@ export function AsistenteDifusion({
       cargandoMas={cargandoMas}
       lineasCosto={
         plantilla && vista
-          ? lineasCostoMensaje(
-              plantilla.categoria,
-              vista.audiencia.porVentanaAbierta,
-              vista.audiencia.porPlantilla,
-              null,
-            )
+          ? lineasCostoMensaje(plantilla.categoria, repartoCosto(vista.audiencia), null)
           : []
       }
       salud={saludConPlantilla}
@@ -605,6 +612,12 @@ export function AsistenteDifusion({
       onReintentar={() => setIntento((i) => i + 1)}
       onSalir={() => router.push("/difusion")}
       onProgramar={() => void programar()}
+      onEnviarPrueba={async ({ telefono, leadId }) => {
+        const id = idRef.current;
+        if (id === null) return { ok: false, error: "Guardá el borrador antes de probar." };
+        const r = await enviarPruebaAction({ id, telefono, leadId });
+        return r.ok ? { ok: true, restantes: r.datos.restantes } : r;
+      }}
     />
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useMemo, useState, type DragEvent } from "react";
+import { memo, useMemo, useState, type DragEvent, type Ref } from "react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -19,6 +19,13 @@ export interface BloqueDisponible {
   nombre: string;
   descripcion: string;
   icono: IconoNodo;
+  /**
+   * Cuántas salidas tiene el bloque: 0 cierra el camino, 2 bifurca, `"n"` una
+   * por caso ("Según el valor"), `"salto"` ninguna propia porque sigue en el
+   * paso que elige ("Ir a"), `"opciones"` una por opción más «Sin respuesta»
+   * (botones y lista). Sin el dato, la fila no muestra número.
+   */
+  salidas?: number | "n" | "salto" | "opciones";
   /**
    * Por qué este bloque no aplica al flujo actual. `undefined` = aplica.
    *
@@ -49,6 +56,10 @@ export interface PaletaBloquesProps {
   onArrastrar?: (tipo: string) => void;
   /** Alternativa al arrastre: doble clic o Enter agrega el bloque al final. */
   onAgregar?: (tipo: string) => void;
+  /** Para que Ctrl+K / Cmd+K lleve el foco al buscador. */
+  busquedaRef?: Ref<HTMLInputElement>;
+  /** Como se lee el atajo en esta plataforma. */
+  atajoBusqueda?: string;
   className?: string;
 }
 
@@ -80,10 +91,17 @@ const ItemPaleta = memo(function ItemPaleta({
   bloque,
   onArrastrar,
   onAgregar,
+  unClic = false,
 }: {
   bloque: BloqueDisponible;
   onArrastrar?: (tipo: string) => void;
   onAgregar?: (tipo: string) => void;
+  /**
+   * En la paleta flotante un clic alcanza: ya se dijo de dónde sale y dónde va,
+   * y el único gesto que falta es elegir. En la paleta lateral el clic simple
+   * queda libre para empezar un arrastre.
+   */
+  unClic?: boolean;
 }) {
   const { icono: Icono, motivoNoAplica } = bloque;
   const aplica = !motivoNoAplica;
@@ -104,7 +122,8 @@ const ItemPaleta = memo(function ItemPaleta({
     <div
       draggable={aplica}
       onDragStart={alArrastrar}
-      onDoubleClick={aplica ? () => onAgregar?.(bloque.tipo) : undefined}
+      onDoubleClick={aplica && !unClic ? () => onAgregar?.(bloque.tipo) : undefined}
+      onClick={aplica && unClic ? () => onAgregar?.(bloque.tipo) : undefined}
       onKeyDown={
         aplica
           ? (e) => {
@@ -121,9 +140,10 @@ const ItemPaleta = memo(function ItemPaleta({
       aria-disabled={!aplica || undefined}
       title={motivoNoAplica ?? bloque.descripcion}
       aria-label={
-        aplica
+        (aplica
           ? `${bloque.nombre}. ${bloque.descripcion}`
-          : `${bloque.nombre}. No aplica: ${motivoNoAplica}`
+          : `${bloque.nombre}. No aplica: ${motivoNoAplica}`) +
+        (bloque.salidas === undefined ? "" : ` ${textoSalidas(bloque.salidas)}.`)
       }
       className={cn(
         "flex items-center gap-2 rounded-md px-2 py-1.5 text-left",
@@ -143,9 +163,28 @@ const ItemPaleta = memo(function ItemPaleta({
           no aplica
         </span>
       ) : null}
+      {bloque.salidas !== undefined ? (
+        <span
+          aria-hidden
+          title={textoSalidas(bloque.salidas)}
+          // Ancho fijo de un dígito: la columna de números queda alineada a la
+          // derecha en toda la paleta y se escanea de arriba abajo.
+          className="text-ink-ghost w-2.5 shrink-0 text-right font-mono text-[9.5px] leading-none tabular-nums"
+        >
+          {bloque.salidas === "salto" ? 0 : bloque.salidas === "opciones" ? "n" : bloque.salidas}
+        </span>
+      ) : null}
     </div>
   );
 });
+
+function textoSalidas(n: number | "n" | "salto" | "opciones"): string {
+  if (n === "n") return "Una salida por caso, más «Otro»";
+  if (n === "opciones") return "Una salida por opción, más «Sin respuesta»";
+  if (n === "salto") return "Sin salida propia: sigue en el paso que elijas";
+  if (n === 0) return "Sin salidas: cierra el camino";
+  return n === 1 ? "1 salida" : `${n} salidas`;
+}
 
 /**
  * Paleta de bloques del editor.
@@ -159,6 +198,8 @@ export function PaletaBloques({
   disparadorActual,
   onArrastrar,
   onAgregar,
+  busquedaRef,
+  atajoBusqueda,
   className,
 }: PaletaBloquesProps) {
   const [busqueda, setBusqueda] = useState("");
@@ -204,13 +245,23 @@ export function PaletaBloques({
             className="text-ink-ghost pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2"
           />
           <Input
+            ref={busquedaRef}
             type="search"
+            aria-keyshortcuts={atajoBusqueda ? "Control+K Meta+K" : undefined}
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
             placeholder="Buscar bloque…"
             aria-label="Buscar un bloque por nombre o descripción"
-            className="h-8 pl-8 text-[12px]"
+            className={cn("h-8 pl-8 text-[12px]", atajoBusqueda && "pr-12")}
           />
+          {atajoBusqueda ? (
+            <kbd
+              aria-hidden
+              className="border-line-control text-ink-ghost pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 rounded border px-1 font-mono text-[9.5px] leading-4"
+            >
+              {atajoBusqueda}
+            </kbd>
+          ) : null}
         </div>
       </div>
 
@@ -401,7 +452,7 @@ export function PaletaFlotante({
         className="flex max-h-64 flex-col gap-0.5 overflow-auto p-1.5"
       >
         {bloques.map((b) => (
-          <ItemPaleta key={b.tipo} bloque={b} onAgregar={onElegir} />
+          <ItemPaleta key={b.tipo} bloque={b} onAgregar={onElegir} unClic />
         ))}
       </div>
       <button

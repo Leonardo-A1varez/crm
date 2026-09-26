@@ -1,3 +1,4 @@
+import type { IconoNodo } from "@/components/workflows/canvas/nodos/NodoBase";
 import type { EstadoFlujo } from "@/components/workflows/lista/estado";
 
 /**
@@ -25,6 +26,10 @@ export interface FlujoEnLista {
   ultimaEjecucion: string | null;
   /** Cuántas corridas hay vivas ahora mismo. Le da número a la promesa de pausar. */
   corridasEnCurso: number;
+  /** El disparador de la última versión: su nombre y su ícono. `null` sin uno. */
+  disparador: { nombre: string; icono: IconoNodo | undefined } | null;
+  /** Si la versión publicada arranca a mano: habilita «Disparar ahora». */
+  disparaAMano: boolean;
 }
 
 export type FiltroEstado = EstadoFlujo | "todos";

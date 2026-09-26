@@ -3,7 +3,13 @@ import type { ConversationsRepository } from "@/server/repositories/conversation
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { ParsedMessage } from "@/lib/meta/parse-webhook";
 import type { Canal, Sender } from "@/types/domain";
-import type { Mensaje, MensajeMetadata, PlantillaSaliente, UUID } from "@/types/entities";
+import type {
+  Mensaje,
+  MensajeMetadata,
+  MensajeRico,
+  PlantillaSaliente,
+  UUID,
+} from "@/types/entities";
 
 /**
  * Prefijo de `mensajes.idempotency_key` en los salientes que produce el
@@ -66,10 +72,54 @@ export interface MetaSendTemplateInput {
   plantilla: PlantillaMeta;
 }
 
+/**
+ * Un mensaje de WhatsApp que no es texto ni plantilla: botones de respuesta,
+ * lista, imagen o ubicación. Todos son mensajes de servicio: Meta sólo los deja
+ * salir con la ventana de 24 h abierta ("When the window closes, you can only
+ * send pre-approved template messages", doc de Meta leída el 2026-09-26).
+ *
+ * Los opcionales van en `null` y no se mandan: un `footer` o un `caption`
+ * vacío no le suma nada al mensaje.
+ */
+export type ContenidoRico =
+  | {
+      tipo: "botones";
+      cuerpo: string;
+      /** 1 a 3. El `id` vuelve en `button_reply.id` cuando el lead toca uno. */
+      botones: readonly { id: string; titulo: string }[];
+    }
+  | {
+      tipo: "lista";
+      encabezado: string | null;
+      cuerpo: string;
+      pie: string | null;
+      /** El texto del botón que abre la lista. */
+      boton: string;
+      secciones: readonly {
+        titulo: string | null;
+        filas: readonly { id: string; titulo: string; descripcion: string | null }[];
+      }[];
+    }
+  | { tipo: "imagen"; url: string; caption: string | null }
+  | {
+      tipo: "ubicacion";
+      lat: number;
+      lon: number;
+      nombre: string | null;
+      direccion: string | null;
+    };
+
+export interface MetaSendRicoInput {
+  to: string;
+  contenido: ContenidoRico;
+}
+
 export interface MetaApiClient {
   sendText(input: MetaSendTextInput): Promise<MetaSendResult>;
   /** Sólo WhatsApp: Instagram y Messenger no tienen plantillas aprobadas. */
   sendTemplate(input: MetaSendTemplateInput): Promise<MetaSendResult>;
+  /** Sólo WhatsApp: botones, lista, imagen o ubicación. */
+  sendRico(input: MetaSendRicoInput): Promise<MetaSendResult>;
 }
 
 export interface SendOutboundInput {
@@ -106,6 +156,62 @@ export interface SendTemplateInput {
   idempotencyKey?: string;
 }
 
+/**
+ * Botones, lista, imagen o ubicación, por WhatsApp. Mismo contrato de
+ * idempotencia y de reserva que `SendOutboundInput`. Sin canal: son sólo de
+ * WhatsApp, y quien llama tiene que haberlo chequeado contra la conversación.
+ */
+export interface SendRicoInput {
+  conversacionId: UUID;
+  leadSessionId: UUID;
+  to: string;
+  contenido: ContenidoRico;
+  /**
+   * Sólo imagen subida a Storage: su ruta. `contenido.url` es entonces una URL
+   * firmada, que viaja a Meta pero no se escribe en el hilo.
+   */
+  archivo?: string;
+  sender: Extract<Sender, "ia" | "humano" | "sistema">;
+  senderUserId?: UUID;
+  idempotencyKey?: string;
+}
+
+/** El tipo de fila, el texto buscable y lo que el hilo dibuja de un saliente rico. */
+export function registroDeRico(
+  contenido: ContenidoRico,
+  archivo?: string,
+): {
+  tipo: "interactive" | "image" | "location";
+  texto: string | null;
+  rico: MensajeRico;
+  media_url: string | null;
+} {
+  switch (contenido.tipo) {
+    case "botones":
+      return { tipo: "interactive", texto: contenido.cuerpo, rico: contenido, media_url: null };
+    case "lista":
+      return { tipo: "interactive", texto: contenido.cuerpo, rico: contenido, media_url: null };
+    case "imagen": {
+      const url = archivo === undefined ? contenido.url : null;
+      return {
+        tipo: "image",
+        texto: contenido.caption,
+        rico: { tipo: "imagen", url, archivo: archivo ?? null, caption: contenido.caption },
+        media_url: url,
+      };
+    }
+    case "ubicacion": {
+      const partes = [contenido.nombre, contenido.direccion].filter((p): p is string => !!p);
+      return {
+        tipo: "location",
+        texto: partes.length > 0 ? partes.join(" · ") : null,
+        rico: contenido,
+        media_url: null,
+      };
+    }
+  }
+}
+
 /** Lo que el hilo muestra de una plantilla: cuál salió y con qué valores. */
 export function contenidoDePlantilla(plantilla: PlantillaMeta): string {
   const valores = plantilla.parametrosCuerpo.join(", ");
@@ -136,6 +242,8 @@ export interface MetaApiService {
   sendOutbound(input: SendOutboundInput): Promise<Mensaje>;
   /** Una plantilla aprobada de WhatsApp. La única salida fuera de la ventana de 24 h. */
   sendTemplate(input: SendTemplateInput): Promise<Mensaje>;
+  /** Botones, lista, imagen o ubicación por WhatsApp. Sólo dentro de la ventana de 24 h. */
+  sendRico(input: SendRicoInput): Promise<Mensaje>;
   recordInbound(input: RecordInboundInput): Promise<Mensaje>;
 }
 
@@ -146,8 +254,9 @@ interface Saliente {
   sender: SendOutboundInput["sender"];
   senderUserId?: UUID;
   idempotencyKey?: string;
-  tipo: "text" | "template";
-  contenido: string;
+  tipo: "text" | "template" | "interactive" | "image" | "location";
+  contenido: string | null;
+  media_url?: string | null;
   metadata: MensajeMetadata;
   llamarAMeta: () => Promise<MetaSendResult>;
 }
@@ -193,6 +302,22 @@ export class DefaultMetaApiService implements MetaApiService {
     });
   }
 
+  async sendRico(input: SendRicoInput): Promise<Mensaje> {
+    const registro = registroDeRico(input.contenido, input.archivo);
+    return this.enviar({
+      conversacionId: input.conversacionId,
+      leadSessionId: input.leadSessionId,
+      sender: input.sender,
+      senderUserId: input.senderUserId,
+      idempotencyKey: input.idempotencyKey,
+      tipo: registro.tipo,
+      contenido: registro.texto,
+      media_url: registro.media_url,
+      metadata: { rico: registro.rico },
+      llamarAMeta: () => this.client.sendRico({ to: input.to, contenido: input.contenido }),
+    });
+  }
+
   private async enviar(input: Saliente): Promise<Mensaje> {
     // Una reserva sin `meta_message_id` significa "ya se intentó, desenlace
     // desconocido". No se reenvía: un WhatsApp duplicado no se puede retirar,
@@ -213,7 +338,7 @@ export class DefaultMetaApiService implements MetaApiService {
       sender_user_id: input.senderUserId ?? null,
       tipo: input.tipo,
       contenido: input.contenido,
-      media_url: null,
+      media_url: input.media_url ?? null,
       meta_message_id: null,
       idempotency_key: input.idempotencyKey ?? null,
       metadata: input.metadata,
@@ -259,7 +384,12 @@ export class DefaultMetaApiService implements MetaApiService {
       media_url: parsed.media_url,
       meta_message_id: parsed.meta_message_id,
       idempotency_key: null,
-      metadata: { raw: parsed.raw },
+      metadata: {
+        raw: parsed.raw,
+        ...(parsed.respuesta_interactiva
+          ? { respuesta_interactiva: parsed.respuesta_interactiva }
+          : {}),
+      },
       platform_created_at: parsed.platform_created_at ?? null,
     });
 

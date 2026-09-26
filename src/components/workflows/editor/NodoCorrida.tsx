@@ -28,6 +28,12 @@ export interface DatosNodoCorrida extends Record<string, unknown> {
   plan?: AccionNodo;
   /** Hora del resultado guardado, cuando `plan === "reusa"`. */
   horaReuso?: string;
+  /**
+   * Por dónde pasan las OTRAS corridas de la misma versión (de producción, en
+   * la ventana de `TraficoCorridas`): cuántas pasaron por este bloque, cuántas
+   * fallaron acá y cuántas esperan acá ahora. Ausente = ninguna pasó.
+   */
+  trafico?: { corridas: number; fallaron: number; esperando: number };
 }
 
 export type NodoCorridaFlow = Node<DatosNodoCorrida>;
@@ -139,6 +145,8 @@ export const NodoCorrida = memo(function NodoCorrida({ data }: NodeProps<NodoCor
         </span>
       ) : null}
 
+      {plan === undefined && data.trafico ? <ChipTrafico {...data.trafico} /> : null}
+
       {plan === undefined && data.paso === "activo" && typeof data.progreso === "number" ? (
         <div className="bg-surface-input absolute inset-x-0 -bottom-0.5 h-[3px] overflow-hidden rounded-b-lg">
           <div
@@ -150,5 +158,61 @@ export const NodoCorrida = memo(function NodoCorrida({ data }: NodeProps<NodoCor
     </div>
   );
 });
+
+/**
+ * El conteo de las otras corridas sobre el bloque, arriba a la izquierda: la
+ * esquina derecha es de esta corrida (duración, "salió por tope", el plan) y el
+ * centro de arriba es el conector de entrada. Mismo chip que los de la derecha
+ * para que se lea como un dato más del nodo y no como un botón.
+ *
+ * Cada parte aparece sólo si no es cero: un "0 fallaron" en cada bloque es
+ * ruido que tapa el bloque donde sí fallan. Pasaron puede ser cero con
+ * corridas esperando: las que duermen en un bloque todavía no lo terminaron.
+ */
+function ChipTrafico({
+  corridas,
+  fallaron,
+  esperando,
+}: {
+  corridas: number;
+  fallaron: number;
+  esperando: number;
+}) {
+  const partes = [
+    ...(corridas > 0
+      ? [`${corridas} ${corridas === 1 ? "corrida pasó" : "corridas pasaron"} por este bloque`]
+      : []),
+    ...(fallaron > 0 ? [`${fallaron} ${fallaron === 1 ? "falló" : "fallaron"} acá`] : []),
+    ...(esperando > 0 ? [`${esperando} ${esperando === 1 ? "espera" : "esperan"} acá`] : []),
+  ];
+  return (
+    <span
+      title={partes.join(", ")}
+      className="border-line-card bg-surface-elevated text-ink-secondary absolute -top-2 -left-2 flex items-center gap-1 rounded-full border px-1.5 py-0.5 font-mono text-[9px] leading-tight font-semibold whitespace-nowrap tabular-nums shadow-sm"
+    >
+      <span className="sr-only">{partes.join(", ")}</span>
+      {corridas > 0 ? (
+        <>
+          <span aria-hidden className="text-ink-primary">
+            {corridas}
+          </span>
+          <span aria-hidden className="text-ink-faint font-medium">
+            {corridas === 1 ? "pasó" : "pasaron"}
+          </span>
+        </>
+      ) : null}
+      {fallaron > 0 ? (
+        <span aria-hidden className="text-danger">
+          {fallaron} {fallaron === 1 ? "falló" : "fallaron"}
+        </span>
+      ) : null}
+      {esperando > 0 ? (
+        <span aria-hidden className="text-info">
+          {esperando} {esperando === 1 ? "espera" : "esperan"}
+        </span>
+      ) : null}
+    </span>
+  );
+}
 
 export const TIPOS_NODO_CORRIDA = { corrida: NodoCorrida } as const;

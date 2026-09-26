@@ -3,6 +3,7 @@ import { ValidationError } from "@/lib/errors";
 import type { AudienciaCompilada } from "@/lib/difusion/audiencia";
 import type { AppClient } from "@/server/db/client";
 import { SupabaseDifusionAudienciaRepository } from "@/server/repositories/difusion-audiencia.supabase.repo";
+import { fakePostgrest, uuidDe, type Fila } from "../../helpers/fake-postgrest";
 
 // Filas armadas a mano con la forma de `difusion_resolver_audiencia`: ids con
 // forma de UUID v4 y teléfonos inventados.
@@ -122,5 +123,70 @@ describe("SupabaseDifusionAudienciaRepository.usoCupoDesde", () => {
 
     expect(await repo.usoCupoDesde(desde)).toBe(37);
     expect(rpc).toHaveBeenCalledWith("difusion_uso_cupo_24h", { p_desde: desde.toISOString() });
+  });
+});
+
+describe("SupabaseDifusionAudienciaRepository.estadoConversacional", () => {
+  const A = uuidDe(1);
+  const B = uuidDe(2);
+  const C = uuidDe(3);
+  const DESDE = new Date("2026-09-14T11:00:00.000Z");
+
+  function base(over: Partial<Record<string, Fila[]>> = {}) {
+    return fakePostgrest({
+      lead_session: [
+        { lead_id: A, current_stage: "cotizado", resultado: null },
+        { lead_id: A, current_stage: "cerrado", resultado: "exito" },
+        { lead_id: B, current_stage: "requiere_humano", resultado: null },
+      ],
+      conversaciones: [
+        { id: "c-a-wa", lead_id: A, canal: "wa" },
+        { id: "c-a-ig", lead_id: A, canal: "ig" },
+        { id: "c-c-wa", lead_id: C, canal: "wa" },
+      ],
+      mensajes: [
+        { conversacion_id: "c-a-wa", direction: "in", created_at: "2026-09-14T11:30:00.000Z" },
+        { conversacion_id: "c-a-wa", direction: "in", created_at: "2026-09-14T11:40:00.000Z" },
+        { conversacion_id: "c-a-wa", direction: "out", created_at: "2026-09-14T11:50:00.000Z" },
+        // Instagram no abre la ventana de WhatsApp: no cuenta.
+        { conversacion_id: "c-a-ig", direction: "in", created_at: "2026-09-14T11:55:00.000Z" },
+        // Más viejo que `desde`: no cambia la regla y no se trae.
+        { conversacion_id: "c-c-wa", direction: "in", created_at: "2026-09-14T10:00:00.000Z" },
+      ],
+      ...over,
+    });
+  }
+
+  test("etapa de la sesión ABIERTA y último entrante por WhatsApp desde `desde`", async () => {
+    const repo = new SupabaseDifusionAudienciaRepository(base().db);
+    const r = await repo.estadoConversacional([A, B, C], DESDE);
+
+    expect(r.get(A)).toEqual({
+      etapa: "cotizado",
+      ultimoEntranteAt: new Date("2026-09-14T11:40:00.000Z"),
+    });
+    expect(r.get(B)).toEqual({ etapa: "requiere_humano", ultimoEntranteAt: null });
+    // Sin sesión abierta ni entrante reciente: no aparece.
+    expect(r.has(C)).toBe(false);
+  });
+
+  test("sin leads no consulta nada", async () => {
+    const f = base();
+    const repo = new SupabaseDifusionAudienciaRepository(f.db);
+    expect((await repo.estadoConversacional([], DESDE)).size).toBe(0);
+    expect(f.requests()).toBe(0);
+  });
+
+  // PostgREST corta en 1.000 filas (lección 12): el más reciente tiene que salir
+  // aunque haya más de mil entrantes en la ventana.
+  test("pagina los entrantes hasta una página vacía", async () => {
+    const muchos = Array.from({ length: 1500 }, (_, i) => ({
+      conversacion_id: "c-c-wa",
+      direction: "in",
+      created_at: new Date(DESDE.getTime() + i * 1000).toISOString(),
+    }));
+    const repo = new SupabaseDifusionAudienciaRepository(base({ mensajes: muchos }).db);
+    const r = await repo.estadoConversacional([C], DESDE);
+    expect(r.get(C)?.ultimoEntranteAt).toEqual(new Date(DESDE.getTime() + 1499 * 1000));
   });
 });

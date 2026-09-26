@@ -2,25 +2,21 @@ import { NotFoundError, ValidationError } from "@/lib/errors";
 import { configDeAccion } from "@/lib/workflows/config-nodos";
 import { interpolarVariables } from "@/lib/workflows/variables";
 import type { MetaApiService } from "@/server/services/meta-api.service";
-import type { UUID } from "@/types/entities";
-import type { Nodo } from "@/types/workflows";
+import type { EnvioPlantillaSinSesion } from "@/server/services/workflows/plantilla-sin-sesion.service";
 import { cargarDatosInterpolacion } from "./datos-interpolacion";
 import type { AccionEnviarMensajeDeps } from "./enviar-mensaje";
-import type { AccionHandler, EntornoAccion } from "./registro";
+import type { AccionHandler } from "./registro";
 import { revisarTopesDeEnvio } from "./topes-de-envio";
 
 /** Lo mismo que "Enviar mensaje", pero manda por `sendTemplate`. */
-export type AccionEnviarPlantillaDeps = Omit<AccionEnviarMensajeDeps, "metaApi"> & {
+export type AccionEnviarPlantillaDeps = Omit<
+  AccionEnviarMensajeDeps,
+  "metaApi" | "plantillasSinSesion"
+> & {
   metaApi: Pick<MetaApiService, "sendTemplate">;
+  /** Para la corrida sin sesión: el lead perdido de "Reactivar perdidos". */
+  plantillasSinSesion: EnvioPlantillaSinSesion;
 };
-
-function requireLeadSessionId(nodo: Nodo, entorno: EntornoAccion): UUID {
-  if (entorno.leadSessionId) return entorno.leadSessionId;
-  throw new ValidationError(
-    `el nodo "${nodo.id}" (enviar_plantilla) necesita una sesion activa y la corrida no tiene una`,
-    "lead_session_id_ausente",
-  );
-}
 
 /**
  * "Plantilla HSM": manda una plantilla aprobada de WhatsApp.
@@ -36,11 +32,20 @@ function requireLeadSessionId(nodo: Nodo, entorno: EntornoAccion): UUID {
  *
  * Sólo WhatsApp: Instagram y Messenger no tienen plantillas aprobadas.
  * La idempotencia es la de todo paso que manda algo: `wf:<runId>:<orden>`.
+ *
+ * **Sin sesión también manda.** Una plantilla es lo único que llega a quien
+ * está fuera de la ventana de 24 h, y ese lead suele tener la sesión cerrada:
+ * el cron "Programado" no le pasa sesión a su corrida. Ahí sale por
+ * `plantillasSinSesion` (reserva propia, sin `mensajes`) y entra al hilo del
+ * Inbox cuando el lead responde (`plantilla-sin-sesion.service.ts`). La
+ * decisión se toma con la sesión de la corrida y no con la activa del lead:
+ * un reintento tiene que tomar el mismo camino, o la clave de un lado no
+ * protegería contra el envío del otro.
  */
 export function crearAccionEnviarPlantilla(deps: AccionEnviarPlantillaDeps): AccionHandler {
   return async (nodo, entorno) => {
     const { templateName, idioma, parametros } = configDeAccion("enviar_plantilla", nodo);
-    const leadSessionId = requireLeadSessionId(nodo, entorno);
+    const leadSessionId = entorno.leadSessionId ?? null;
     const ahora = entorno.ahora ?? new Date();
 
     const topes = await revisarTopesDeEnvio(deps, entorno, ahora, "enviar_plantilla");
@@ -80,13 +85,27 @@ export function crearAccionEnviarPlantilla(deps: AccionEnviarPlantillaDeps): Acc
       );
     }
 
+    const plantilla = { nombre: templateName, idioma, parametrosCuerpo };
+    const idempotencyKey = `wf:${entorno.runId}:${entorno.orden}`;
+    if (leadSessionId === null) {
+      const envio = await deps.plantillasSinSesion.enviar({
+        idempotencyKey,
+        workflowRunId: entorno.runId,
+        leadId: entorno.leadId,
+        conversacionId: conversacion.id,
+        to: lead.telefono,
+        plantilla,
+      });
+      return { puerto: "salida", salida: { envio_sin_sesion_id: envio.id } };
+    }
+
     const mensaje = await deps.metaApi.sendTemplate({
       conversacionId: conversacion.id,
       leadSessionId,
       to: lead.telefono,
-      plantilla: { nombre: templateName, idioma, parametrosCuerpo },
+      plantilla,
       sender: "sistema",
-      idempotencyKey: `wf:${entorno.runId}:${entorno.orden}`,
+      idempotencyKey,
     });
 
     return { puerto: "salida", salida: { mensaje_id: mensaje.id } };

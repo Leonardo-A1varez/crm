@@ -7,7 +7,9 @@ import {
   MOTIVO_EXCLUSION,
   esMotivoEximible,
   type CategoriaPlantilla,
+  type ContenidoEnvio,
   type Difusion,
+  type DifusionEnvio,
   type EstadoDifusion,
   type EstadoEnvio,
   type ModoAudiencia,
@@ -15,17 +17,14 @@ import {
   type RutaEnvio,
 } from "@/lib/difusion/modelo";
 import {
-  POLITICA_POR_DEFECTO,
   planificarDifusion,
-  type CandidatoDifusion,
   type EntradaPlanificador,
   type PlanDifusion,
-  type SaturacionMeta,
-  type SupresionActiva,
   type TandaPlanificada,
 } from "@/lib/difusion/planificador";
 import {
   CAMPOS_PARAMETRO,
+  TextoLibreSchema,
   type CampoParametro,
   type ParametroPlantilla,
 } from "@/lib/difusion/parametros";
@@ -33,22 +32,22 @@ import type { DatosInterpolacion } from "@/lib/workflows/variables";
 import type { Logger } from "@/lib/observability/logger";
 import type { Grupo } from "@/lib/ui/condiciones";
 import { LIMITE_MAX_PAGINA } from "@/server/repositories/_paginacion";
-import type {
-  CandidatoResuelto,
-  DifusionAudienciaRepository,
-} from "@/server/repositories/difusion-audiencia.repo";
+import type { DifusionAudienciaRepository } from "@/server/repositories/difusion-audiencia.repo";
 import {
   filasDesdePlan,
   resumenVacio,
+  type ConteoMuestra,
   type DifusionEnviosRepository,
   type FalloPorCodigo,
 } from "@/server/repositories/difusion-envios.repo";
 import type { DifusionProgramacionRepository } from "@/server/repositories/difusion-programacion.repo";
 import type { DifusionSupresionesRepository } from "@/server/repositories/difusion-supresiones.repo";
 import type { DifusionesRepository } from "@/server/repositories/difusiones.repo";
+import type { AdminAuditRepository } from "@/server/repositories/admin-audit.repo";
 import type { TagsRepository } from "@/server/repositories/tags.repo";
 import type { UsersRepository } from "@/server/repositories/users.repo";
 import type { UUID } from "@/types/entities";
+import { aCandidato, leerContextoPlan, type ContextoPlan } from "./contexto-plan";
 
 /**
  * Difusión de punta a punta, del lado del servidor: el borrador, el alcance
@@ -70,6 +69,12 @@ export type EventoDifusionProgramada = ReturnType<typeof eventoDifusionProgramad
 export type EventoDifusionReanudada = ReturnType<typeof eventoDifusionReanudada>;
 
 export interface DifusionServiceDeps {
+  /**
+   * `admin_actions`: eximir una exclusión (en negociación, tope de frecuencia)
+   * queda registrado con quién lo hizo (PRD de difusión §7.3: "la exención es
+   * explícita, por campaña, y queda en la auditoría"). Obligatorio.
+   */
+  audit: Pick<AdminAuditRepository, "create">;
   difusiones: DifusionesRepository;
   envios: DifusionEnviosRepository;
   supresiones: DifusionSupresionesRepository;
@@ -97,6 +102,15 @@ export interface DifusionServiceDeps {
    * alguien le falte un dato.
    */
   datosDelLead?: (leadId: UUID, campos: ReadonlySet<CampoParametro>) => Promise<DatosInterpolacion>;
+  /**
+   * El texto de cada respuesta (por el wamid del entrante, en `mensajes`) y el
+   * nombre de cada lead. Sin él, el detalle cuenta las respuestas pero no las
+   * lista.
+   */
+  leerRespuestas?: (
+    wamids: readonly string[],
+    leadIds: readonly UUID[],
+  ) => Promise<LecturaRespuestas>;
   logger: Logger;
   ahora?: () => Date;
 }
@@ -131,6 +145,12 @@ export interface GuardarBorradorInput {
     /** Una por `{{n}}`, en orden. */
     parametros: ParametroPlantilla[];
   } | null;
+  /**
+   * La versión en texto libre para quien tiene la ventana abierta, con las
+   * variables de la plantilla (`{{lead.nombre}}`). `null` la saca: todos
+   * reciben la plantilla.
+   */
+  textoLibre?: string | null;
 }
 
 export interface AlcanceInput {
@@ -140,6 +160,8 @@ export interface AlcanceInput {
   exentaTopeFrecuencia: boolean;
   /** `null` mientras no se eligió plantilla: se calcula como marketing, que es la que más excluye. */
   plantillaCategoria: CategoriaPlantilla | null;
+  /** La difusión tiene texto libre: quien tiene la ventana abierta lo recibe en vez de la plantilla. */
+  textoLibre?: boolean;
   /** Qué página de la lista de destinatarios devolver. */
   muestra: { desde: number; limite: number };
   /** La difusión que se está armando: no se compara contra sí misma. */
@@ -197,6 +219,8 @@ export interface DestinatarioVista {
   telefono: string;
   vehiculo: string | null;
   ruta: RutaEnvio;
+  /** Qué le sale según el plan; el motor vuelve a mirar la ventana al mandar. */
+  contenido: ContenidoEnvio;
   tanda: number;
   /** Contra el envío anterior; `null` si no se pidió o no hay con qué comparar. */
   diff: "nuevo" | "repite" | null;
@@ -215,6 +239,8 @@ export interface Alcance {
   audienciaInicial: number;
   destinatarios: number;
   porRuta: Record<RutaEnvio, number>;
+  /** Texto libre (gratis) o plantilla, según el plan. */
+  porContenido: Record<ContenidoEnvio, number>;
   /** Los diez motivos del planificador, en su orden de precedencia. */
   exclusiones: ExclusionVista[];
   /** Se calculó suponiendo una plantilla de marketing porque todavía no se eligió una. */
@@ -281,6 +307,8 @@ export interface DifusionVista {
   plantillaCategoria: CategoriaPlantilla | null;
   plantillaIdioma: string | null;
   plantillaParametros: ParametroPlantilla[];
+  /** La versión en texto libre, o `null`: todos reciben la plantilla. */
+  textoLibre: string | null;
   incluirEnNegociacion: boolean;
   exentaTopeFrecuencia: boolean;
   canaryTamano: number | null;
@@ -303,6 +331,30 @@ export interface TandaPersistidaVista {
   porPlantilla: number;
 }
 
+export interface LecturaRespuestas {
+  textos: Map<string, { contenido: string | null; tipo: string }>;
+  nombres: Map<UUID, string>;
+}
+
+export interface RespuestaVista {
+  leadId: UUID | null;
+  nombre: string | null;
+  /** `null` si el mensaje ya no está (se purgó la sesión) o no se pudo leer. */
+  texto: string | null;
+  tipo: string | null;
+  respondidoAt: string;
+}
+
+/** Lo que salió en la muestra, contado por estado y código de Meta. */
+export interface MuestraVista {
+  tamano: number;
+  /** Cuándo la frenó el motor para revisarla. */
+  salioAt: string;
+  /** Cuándo una persona reanudó. `null` = sigue en revisión (o se detuvo). */
+  continuadaAt: string | null;
+  conteo: ConteoMuestra[];
+}
+
 export interface DetalleDifusion {
   difusion: DifusionVista;
   conteo: {
@@ -312,6 +364,12 @@ export interface DetalleDifusion {
   };
   tandas: TandaPersistidaVista[];
   fallos: FalloPorCodigo[];
+  respuestas: { total: number; recientes: RespuestaVista[] };
+  /** Lo reservado en la ventana reciente: de ahí sale el ritmo real. */
+  avance: { reservadosEnVentana: number; ventanaMs: number; calculadoAt: string };
+  muestra: MuestraVista | null;
+  /** Audiencia dinámica: cuántos entraron después de programar (altas, en cola o excluidas). */
+  altasDinamicas: number;
 }
 
 export interface OpcionCatalogo {
@@ -329,7 +387,7 @@ export interface CatalogosAudienciaVista {
 
 export interface DifusionService {
   crearBorrador(input: CrearBorradorInput, actorId: UUID): Promise<Difusion>;
-  guardarBorrador(id: UUID, patch: GuardarBorradorInput): Promise<Difusion>;
+  guardarBorrador(id: UUID, patch: GuardarBorradorInput, actorId: UUID): Promise<Difusion>;
   calcularAlcance(input: AlcanceInput): Promise<Alcance>;
   programar(id: UUID, input: ProgramarInput): Promise<ResultadoProgramar>;
   pausar(id: UUID): Promise<Difusion>;
@@ -360,6 +418,15 @@ export const LIMITE_LISTADO = 100;
 export const MUESTRA_MAX = 200;
 /** Difusiones recientes entre las que se busca la anterior para comparar. */
 const RECIENTES_PARA_DIFF = 50;
+export const ACCION_EXCLUSION_EXIMIDA = "difusion.exclusion_eximida";
+export const ACCION_EXCLUSION_RESTITUIDA = "difusion.exclusion_restituida";
+/** Cuántas respuestas lista el detalle; el total se cuenta aparte. */
+const RESPUESTAS_EN_DETALLE = 20;
+/**
+ * La ventana con que se mide el ritmo real. Decisión propia: cinco minutos
+ * alisan los huecos entre lotes del motor sin arrastrar una tanda de ayer.
+ */
+const VENTANA_RITMO_MS = 5 * 60_000;
 /** Difusiones que se ofrecen como "campaña previa". */
 const LIMITE_CAMPANIAS = 200;
 
@@ -372,17 +439,9 @@ const ESTADO_LEGIBLE: Record<EstadoDifusion, string> = {
   detenida: "detenida",
 };
 
-interface ContextoPlan {
-  candidatos: CandidatoResuelto[];
-  supresiones: SupresionActiva[];
-  saturaciones: SaturacionMeta[];
-  tope: LecturaTope;
-  usado24h: number;
-  maxSalientes: number;
-}
-
 interface OpcionesPlan {
   plantilla: { categoria: CategoriaPlantilla };
+  textoLibre: boolean;
   incluirEnNegociacion: boolean;
   exentaTopeFrecuencia: boolean;
 }
@@ -395,7 +454,7 @@ export class DefaultDifusionService implements DifusionService {
   }
 
   async crearBorrador(input: CrearBorradorInput, actorId: UUID): Promise<Difusion> {
-    return this.deps.difusiones.create({
+    const d = await this.deps.difusiones.create({
       nombre: input.nombre.trim(),
       audiencia: input.audiencia,
       audiencia_toda_la_base: input.todaLaBase,
@@ -404,9 +463,16 @@ export class DefaultDifusionService implements DifusionService {
       exenta_tope_frecuencia: input.exentaTopeFrecuencia,
       creada_por: actorId,
     });
+    await this.auditarExenciones(
+      d.id,
+      actorId,
+      { en_negociacion: false, cap_frecuencia: false },
+      { en_negociacion: d.incluir_en_negociacion, cap_frecuencia: d.exenta_tope_frecuencia },
+    );
+    return d;
   }
 
-  async guardarBorrador(id: UUID, patch: GuardarBorradorInput): Promise<Difusion> {
+  async guardarBorrador(id: UUID, patch: GuardarBorradorInput, actorId: UUID): Promise<Difusion> {
     const actual = await this.exigir(id);
     if (actual.estado !== "borrador") {
       throw new ConflictError(
@@ -414,6 +480,27 @@ export class DefaultDifusionService implements DifusionService {
         "estado_difusion",
       );
     }
+    // Antes de guardar: una exención que se aplicó sin quedar registrada es
+    // lo que el PRD dice que no pasa; un registro de algo que después no se
+    // guardó sólo dice que alguien lo intentó.
+    // Sólo variables que el motor carga, y dentro de lo que Meta acepta. Se
+    // valida antes de auditar: una edición rechazada no deja rastro.
+    const textoLibre =
+      patch.textoLibre === undefined || patch.textoLibre === null
+        ? patch.textoLibre
+        : validarTextoLibre(patch.textoLibre);
+    await this.auditarExenciones(
+      id,
+      actorId,
+      {
+        en_negociacion: actual.incluir_en_negociacion,
+        cap_frecuencia: actual.exenta_tope_frecuencia,
+      },
+      {
+        en_negociacion: patch.incluirEnNegociacion ?? actual.incluir_en_negociacion,
+        cap_frecuencia: patch.exentaTopeFrecuencia ?? actual.exenta_tope_frecuencia,
+      },
+    );
     return this.deps.difusiones.update(id, {
       nombre: patch.nombre?.trim(),
       audiencia: patch.audiencia,
@@ -421,6 +508,7 @@ export class DefaultDifusionService implements DifusionService {
       audiencia_modo: patch.modo,
       incluir_en_negociacion: patch.incluirEnNegociacion,
       exenta_tope_frecuencia: patch.exentaTopeFrecuencia,
+      ...(textoLibre === undefined ? {} : { texto_libre: textoLibre }),
       ...(patch.plantilla === undefined
         ? {}
         : {
@@ -440,6 +528,7 @@ export class DefaultDifusionService implements DifusionService {
 
     const opciones: OpcionesPlan = {
       plantilla: { categoria: input.plantillaCategoria ?? "marketing" },
+      textoLibre: input.textoLibre ?? false,
       incluirEnNegociacion: input.incluirEnNegociacion,
       exentaTopeFrecuencia: input.exentaTopeFrecuencia,
     };
@@ -466,6 +555,7 @@ export class DefaultDifusionService implements DifusionService {
       audienciaInicial: plan.audienciaInicial,
       destinatarios: plan.destinatarios.length,
       porRuta: plan.porRuta,
+      porContenido: plan.porContenido,
       exclusiones: MOTIVO_EXCLUSION.map((motivo) => {
         const eximida =
           (motivo === "en_negociacion" && input.incluirEnNegociacion) ||
@@ -488,6 +578,7 @@ export class DefaultDifusionService implements DifusionService {
           telefono: enmascararTelefono(d.telefono),
           vehiculo: c?.vehiculo ?? null,
           ruta: d.ruta,
+          contenido: d.contenido,
           tanda: d.tanda,
           diff: diff?.porLead.get(d.leadId) ?? null,
         };
@@ -533,6 +624,7 @@ export class DefaultDifusionService implements DifusionService {
         ctx,
         {
           plantilla: { categoria: d.plantilla_categoria },
+          textoLibre: d.texto_libre !== null,
           incluirEnNegociacion: d.incluir_en_negociacion,
           exentaTopeFrecuencia: d.exenta_tope_frecuencia,
         },
@@ -613,6 +705,10 @@ export class DefaultDifusionService implements DifusionService {
         ? await this.deps.difusiones.actualizarSiEstado(id, ["en_revision"], {
             estado: "enviando",
             motivo_revision: null,
+            // La primera reanudación después de la muestra es "se continuó".
+            ...(d.canary_revisado_at !== null && d.canary_continuada_at === null
+              ? { canary_continuada_at: this.ahora() }
+              : {}),
           })
         : null;
     if (!reanudada) {
@@ -713,11 +809,29 @@ export class DefaultDifusionService implements DifusionService {
   async detalle(id: UUID): Promise<DetalleDifusion | null> {
     const d = await this.deps.difusiones.findById(id);
     if (!d) return null;
-    const [conteo, tandas, fallos] = await Promise.all([
+    const ahora = this.ahora();
+    const [
+      conteo,
+      tandas,
+      fallos,
+      respondidos,
+      totalRespuestas,
+      reservados,
+      conteoMuestra,
+      altasDinamicas,
+    ] = await Promise.all([
       this.deps.envios.contarPorDifusion(id),
       this.deps.envios.tandasPorDifusion(id),
       this.deps.envios.fallosPorCodigo(id),
+      this.deps.envios.respondidos(id, RESPUESTAS_EN_DETALLE),
+      this.deps.envios.contarRespondidos(id),
+      this.deps.envios.contarReservadosDesde(id, new Date(ahora.getTime() - VENTANA_RITMO_MS)),
+      d.canary_tamano !== null && d.canary_revisado_at !== null
+        ? this.deps.envios.conteoMuestra(id, d.canary_revisado_at)
+        : Promise.resolve(null),
+      d.audiencia_modo === "dinamica" ? this.deps.envios.contarAltas(id) : Promise.resolve(0),
     ]);
+    const recientes = await this.respuestasVista(respondidos);
     return {
       difusion: vistaDifusion(d),
       conteo: { total: conteo.total, porEstado: conteo.porEstado, porMotivo: conteo.porMotivo },
@@ -729,7 +843,50 @@ export class DefaultDifusionService implements DifusionService {
         porPlantilla: t.porPlantilla,
       })),
       fallos,
+      respuestas: { total: totalRespuestas, recientes },
+      avance: {
+        reservadosEnVentana: reservados,
+        ventanaMs: VENTANA_RITMO_MS,
+        calculadoAt: ahora.toISOString(),
+      },
+      muestra:
+        conteoMuestra !== null && d.canary_tamano !== null && d.canary_revisado_at !== null
+          ? {
+              tamano: d.canary_tamano,
+              salioAt: d.canary_revisado_at.toISOString(),
+              continuadaAt: d.canary_continuada_at?.toISOString() ?? null,
+              conteo: conteoMuestra,
+            }
+          : null,
+      altasDinamicas,
     };
+  }
+
+  private async respuestasVista(envios: readonly DifusionEnvio[]): Promise<RespuestaVista[]> {
+    const wamids = envios.flatMap((e) =>
+      e.respuesta_meta_message_id === null ? [] : [e.respuesta_meta_message_id],
+    );
+    const leadIds = [...new Set(envios.flatMap((e) => (e.lead_id === null ? [] : [e.lead_id])))];
+    const lectura =
+      this.deps.leerRespuestas && envios.length > 0
+        ? await this.deps.leerRespuestas(wamids, leadIds)
+        : null;
+    return envios.flatMap((e) => {
+      if (e.respondido_at === null) return [];
+      const texto =
+        e.respuesta_meta_message_id === null
+          ? undefined
+          : lectura?.textos.get(e.respuesta_meta_message_id);
+      return [
+        {
+          leadId: e.lead_id,
+          nombre: e.lead_id === null ? null : (lectura?.nombres.get(e.lead_id) ?? null),
+          texto: texto?.contenido ?? null,
+          tipo: texto?.tipo ?? null,
+          respondidoAt: e.respondido_at.toISOString(),
+        },
+      ];
+    });
   }
 
   async estadoCupo(): Promise<CupoVista> {
@@ -790,6 +947,28 @@ export class DefaultDifusionService implements DifusionService {
 
   // -----------------------------------------------------------------------
 
+  /**
+   * Una fila de `admin_actions` por exclusión eximible que cambió: eximirla
+   * (dejar que esos leads reciban) o restituirla. `true` = eximida.
+   */
+  private async auditarExenciones(
+    difusionId: UUID,
+    actorId: UUID,
+    antes: Record<"en_negociacion" | "cap_frecuencia", boolean>,
+    despues: Record<"en_negociacion" | "cap_frecuencia", boolean>,
+  ): Promise<void> {
+    for (const motivo of ["en_negociacion", "cap_frecuencia"] as const) {
+      if (antes[motivo] === despues[motivo]) continue;
+      await this.deps.audit.create({
+        actor_user_id: actorId,
+        action: despues[motivo] ? ACCION_EXCLUSION_EXIMIDA : ACCION_EXCLUSION_RESTITUIDA,
+        entity_type: "difusion",
+        entity_id: difusionId,
+        payload: { motivo },
+      });
+    }
+  }
+
   private async exigir(id: UUID): Promise<Difusion> {
     const d = await this.deps.difusiones.findById(id);
     if (!d) throw new NotFoundError(`difusión no encontrada: ${id}`, "difusion", id);
@@ -799,25 +978,7 @@ export class DefaultDifusionService implements DifusionService {
   /** Todo lo que el planificador necesita saber, leído una sola vez. */
   private async contexto(compilada: AudienciaCompilada, ahora: Date): Promise<ContextoPlan> {
     const candidatos = await this.deps.audiencia.resolver(compilada, ahora);
-    const telefonos = candidatos.map((c) => c.telefono);
-    const desdeSaturacion = new Date(
-      ahora.getTime() - POLITICA_POR_DEFECTO.esperaSaturadoHoras * HORA_MS,
-    );
-    const [supresiones, saturados, tope, usado24h, maxSalientes] = await Promise.all([
-      this.deps.supresiones.activasPorTelefonos(telefonos),
-      this.deps.envios.saturadosDesde(telefonos, desdeSaturacion),
-      this.deps.leerTopeMensajeria(),
-      this.deps.audiencia.usoCupoDesde(new Date(ahora.getTime() - DIA_MS)),
-      this.deps.leerMaxSalientes24h(),
-    ]);
-    return {
-      candidatos,
-      supresiones: supresiones.map((s) => ({ telefono: s.telefono, origen: s.origen })),
-      saturaciones: [...saturados].map(([telefono, ultimoAt]) => ({ telefono, ultimoAt })),
-      tope,
-      usado24h,
-      maxSalientes,
-    };
+    return leerContextoPlan(this.deps, candidatos, ahora);
   }
 
   private entrada(
@@ -832,6 +993,7 @@ export class DefaultDifusionService implements DifusionService {
       saturaciones: ctx.saturaciones,
       maxSalientesAutomaticos24h: ctx.maxSalientes,
       plantilla: opciones.plantilla,
+      textoLibre: opciones.textoLibre,
       incluirEnNegociacion: opciones.incluirEnNegociacion,
       exentaTopeFrecuencia: opciones.exentaTopeFrecuencia,
     };
@@ -988,16 +1150,6 @@ function valoresDe(datos: DatosInterpolacion): ValoresDeLead {
   return valores;
 }
 
-function aCandidato(c: CandidatoResuelto): CandidatoDifusion {
-  return {
-    leadId: c.leadId,
-    telefono: c.telefono,
-    etapa: c.etapaActiva,
-    ultimoEntranteAt: c.ultimoEntranteAt,
-    salientesAutomaticos24h: c.salientesAutomaticos24h,
-  };
-}
-
 function vistaTanda(t: TandaPlanificada): TandaVista {
   return {
     tanda: t.tanda,
@@ -1023,6 +1175,7 @@ export function vistaDifusion(d: Difusion): DifusionVista {
     plantillaCategoria: d.plantilla_categoria,
     plantillaIdioma: d.plantilla_idioma,
     plantillaParametros: d.plantilla_parametros,
+    textoLibre: d.texto_libre,
     incluirEnNegociacion: d.incluir_en_negociacion,
     exentaTopeFrecuencia: d.exenta_tope_frecuencia,
     canaryTamano: d.canary_tamano,
@@ -1034,4 +1187,12 @@ export function vistaDifusion(d: Difusion): DifusionVista {
     detenidaPorPersona: d.detenida_por !== null,
     creadaAt: d.created_at.toISOString(),
   };
+}
+
+function validarTextoLibre(texto: string): string {
+  const r = TextoLibreSchema.safeParse(texto);
+  if (!r.success) {
+    throw new ValidationError(r.error.issues[0]?.message ?? "el texto libre no es válido");
+  }
+  return r.data;
 }

@@ -16,8 +16,15 @@ export function GaleriaPlantillas({
   hrefVolver,
   hrefPlantilla,
   hrefEnBlanco,
+  noCorren,
 }: {
   hrefVolver: string;
+  /**
+   * Por id de plantilla, los bloques de su lienzo que el motor no ejecuta. La
+   * tarjeta los avisa antes de abrirla: un flujo con uno de esos no se puede
+   * publicar hasta sacarlo. Sale del grafo real de cada plantilla.
+   */
+  noCorren?: Readonly<Record<string, readonly string[]>>;
   /** A dónde lleva elegir una plantilla: el formulario de parámetros. */
   hrefPlantilla: (id: string) => string;
   hrefEnBlanco: string;
@@ -52,7 +59,12 @@ export function GaleriaPlantillas({
         <div className="flex flex-col gap-5 p-5">
           <ul className="grid grid-cols-3 gap-3">
             {PLANTILLAS.map((p) => (
-              <TarjetaPlantilla key={p.id} plantilla={p} href={hrefPlantilla(p.id)} />
+              <TarjetaPlantilla
+                key={p.id}
+                plantilla={p}
+                href={hrefPlantilla(p.id)}
+                noCorren={noCorren?.[p.id] ?? []}
+              />
             ))}
           </ul>
 
@@ -89,7 +101,15 @@ export function GaleriaPlantillas({
   );
 }
 
-function TarjetaPlantilla({ plantilla, href }: { plantilla: Plantilla; href: string }) {
+function TarjetaPlantilla({
+  plantilla,
+  href,
+  noCorren,
+}: {
+  plantilla: Plantilla;
+  href: string;
+  noCorren: readonly string[];
+}) {
   const { nombre, descripcion, glifo: Glifo, disparador, pasos, reemplaza } = plantilla;
 
   return (
@@ -142,6 +162,13 @@ function TarjetaPlantilla({ plantilla, href }: { plantilla: Plantilla; href: str
           </ol>
         </div>
       </div>
+
+      {noCorren.length > 0 ? (
+        <p className="border-caution/30 bg-caution/10 text-caution rounded-[9px] border px-2.5 py-2 text-[11px] leading-snug text-pretty">
+          Trae {noCorren.map((b) => `«${b}»`).join(", ")}, que todavía no se{" "}
+          {noCorren.length === 1 ? "ejecuta" : "ejecutan"}: hay que sacarlo antes de publicar.
+        </p>
+      ) : null}
 
       <p className="text-ink-ghost border-line-row mt-auto border-t pt-2.5 text-[10.5px] leading-relaxed">
         Reemplaza {reemplaza}.

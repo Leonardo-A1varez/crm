@@ -1,5 +1,6 @@
 export { ConfigTrigger } from "./ConfigTrigger";
 export { ConfigMensajeria } from "./ConfigMensajeria";
+export type { SubirImagenFn } from "./ConfigMensajeriaRica";
 export { ConfigCRM } from "./ConfigCRM";
 export { ConfigLogica } from "./ConfigLogica";
 export { ConfigIntegracion } from "./ConfigIntegracion";

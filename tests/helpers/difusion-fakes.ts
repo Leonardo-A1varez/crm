@@ -1,4 +1,5 @@
 import type { AudienciaCompilada } from "@/lib/difusion/audiencia";
+import type { EstadoConversacional } from "@/lib/difusion/planificador";
 import type {
   CandidatoResuelto,
   DifusionAudienciaRepository,
@@ -25,6 +26,14 @@ export class FakeDifusionAudienciaRepository implements DifusionAudienciaReposit
 
   async usoCupoDesde(_desde: Date): Promise<number> {
     return this.usoCupo;
+  }
+
+  /** Nadie hablando: los tests del motor inyectan su propio estado conversacional. */
+  async estadoConversacional(
+    _leadIds: readonly string[],
+    _entranteDesde: Date,
+  ): Promise<Map<string, EstadoConversacional>> {
+    return new Map();
   }
 }
 

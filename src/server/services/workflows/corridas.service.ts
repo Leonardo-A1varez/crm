@@ -12,15 +12,18 @@ import {
   type Grafo,
   type NodoTipo,
 } from "@/types/workflows";
+import type { LeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type {
+  CorridasPorNodo,
   ReanudarWorkflowRunMotivo,
   RelanzarWorkflowRunMotivo,
   WorkflowRunsRepository,
 } from "@/server/repositories/workflow-runs.repo";
 import type { WorkflowsRepository } from "@/server/repositories/workflows.repo";
-import type { UUID, WorkflowRun, WorkflowRunPaso } from "@/types/entities";
+import { ADMIN_ACTIONS, type AdminAuditService } from "@/server/services/admin-audit.service";
+import type { LeadVehiculo, UUID, WorkflowRun, WorkflowRunPaso } from "@/types/entities";
 import { accionDeNodo } from "./acciones/registro";
 
 /**
@@ -55,6 +58,13 @@ export interface EventoSegmento {
 }
 
 export type EmitirSegmento = (evento: EventoSegmento) => Promise<void>;
+
+/**
+ * Avisa a Inngest que la corrida se canceló (`workflow/corrida.cancelada`):
+ * corta en el acto el segmento que esté dormido en una espera. Lo arma el
+ * bootstrap, por la misma razón que `EmitirSegmento`.
+ */
+export type EmitirCancelacion = (runId: UUID) => Promise<void>;
 
 export type EstadoNodoCorrida = "completado" | "activo" | "saltado" | "fallado" | "pendiente";
 
@@ -123,7 +133,20 @@ export interface VistaCorrida {
   workflow: { id: UUID; nombre: string };
   /** La versión con la que corre: la pinneada, no la publicada hoy. */
   version: { id: UUID; numero: number; grafo: Grafo; maxPasos: number; publicada: boolean };
-  lead: { id: UUID; nombre: string | null };
+  lead: {
+    id: UUID;
+    nombre: string | null;
+    /** El vehículo principal, como se lee: "Hilux 2018". `null` si el lead no tiene. */
+    vehiculo: string | null;
+  };
+  /**
+   * Lo que la corrida mandó, en orden. Se busca por la clave con que lo mandó
+   * (`mensajes.idempotency_key = wf:<runId>:<orden>`). Una corrida de Probar
+   * no mandó nada: trae lo que habría mandado, con `simulado`.
+   */
+  mensajes: MensajeDeCorrida[];
+  /** Por dónde pasaron las corridas de producción de ESTA versión en 30 días. */
+  porNodo: CorridasPorNodo;
   /** Una fila por ejecución, en orden. Un nodo que corrió dos veces aparece dos veces. */
   pasos: WorkflowRunPaso[];
   /** Una por nodo del grafo, en el orden en que la corrida los dejó; los no alcanzados al final. */
@@ -131,6 +154,20 @@ export interface VistaCorrida {
   reanudar: PreviaReanudar;
   ejecutarDeNuevo: PreviaEjecutarDeNuevo;
 }
+
+export interface MensajeDeCorrida {
+  nodoId: string;
+  orden: number;
+  /** `null` si el mensaje ya no se puede leer (purga de sesiones a los 29 días). */
+  texto: string | null;
+  /** Estado de entrega de Meta. `null` si todavía no reportó, o si es simulado. */
+  estado: string | null;
+  at: Date;
+  simulado: boolean;
+}
+
+/** La ventana de "por dónde pasan las corridas": la misma de las métricas del listado. */
+const VENTANA_POR_NODO_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface CorridaReanudada {
   runId: UUID;
@@ -144,17 +181,36 @@ export interface CorridasWorkflowService {
   reanudar(runId: UUID): Promise<CorridaReanudada>;
   /** Devuelve la corrida NUEVA. */
   ejecutarDeNuevo(runId: UUID): Promise<{ runId: UUID }>;
+  /**
+   * "Cancelar corrida": la pasa a `cancelado` si sigue viva, de producción o
+   * de Probar, audita quién la canceló y avisa a Inngest para que corte ya el
+   * segmento dormido en una espera. Una con el segmento en vuelo no ejecuta la
+   * acción siguiente (el segmento relee su estado antes de cada acción).
+   */
+  cancelar(runId: UUID, actorUserId: UUID | null): Promise<void>;
 }
+
+/** Lo que queda escrito en `workflow_runs.error` de una corrida cancelada a mano. */
+export const MOTIVO_CANCELADA_A_MANO = "Cancelada a mano desde el panel.";
 
 export interface CorridasWorkflowDeps {
   workflows: Pick<WorkflowsRepository, "findVersion" | "findWorkflow">;
   runs: Pick<
     WorkflowRunsRepository,
-    "findRun" | "pasosDeRun" | "reanudar" | "relanzar" | "fallarSiVivo"
+    | "findRun"
+    | "pasosDeRun"
+    | "reanudar"
+    | "relanzar"
+    | "fallarSiVivo"
+    | "cancelarSiViva"
+    | "corridasPorNodo"
   >;
   leads: Pick<LeadsRepository, "findById">;
-  messages: Pick<MessagesRepository, "findById">;
+  vehiculos: Pick<LeadVehiculosRepository, "listByLeadId">;
+  messages: Pick<MessagesRepository, "findById" | "findByIdempotencyKey">;
   emitirSegmento: EmitirSegmento;
+  emitirCancelacion: EmitirCancelacion;
+  audit: Pick<AdminAuditService, "recordAction">;
   /** Sufijo único del id de evento de una reanudación. Inyectable para tests. */
   nuevoId?: () => string;
 }
@@ -174,10 +230,12 @@ export class DefaultCorridasWorkflowService implements CorridasWorkflowService {
         "version_ausente",
       );
     }
-    const [workflow, lead, pasos] = await Promise.all([
+    const [workflow, lead, pasos, vehiculos, porNodo] = await Promise.all([
       this.deps.workflows.findWorkflow(version.workflow_id),
       this.deps.leads.findById(run.lead_id),
       this.deps.runs.pasosDeRun(run.id),
+      this.deps.vehiculos.listByLeadId(run.lead_id),
+      this.deps.runs.corridasPorNodo(version.id, new Date(Date.now() - VENTANA_POR_NODO_MS)),
     ]);
     if (!workflow) {
       throw new IllegalStateError(
@@ -198,7 +256,9 @@ export class DefaultCorridasWorkflowService implements CorridasWorkflowService {
         maxPasos: version.max_pasos,
         publicada: version.publicada,
       },
-      lead: { id: run.lead_id, nombre },
+      lead: { id: run.lead_id, nombre, vehiculo: vehiculoLegible(vehiculos[0]) },
+      mensajes: await this.mensajesDeCorrida(run, pasos, version.grafo),
+      porNodo,
       pasos,
       nodos: nodosDeCorrida(version.grafo, run, pasos),
       reanudar: previaReanudar(run, pasos, version.max_pasos),
@@ -239,6 +299,9 @@ export class DefaultCorridasWorkflowService implements CorridasWorkflowService {
    */
   async ejecutarDeNuevo(runId: UUID): Promise<{ runId: UUID }> {
     const r = await this.deps.runs.relanzar(runId);
+    // "Reiniciar" pudo cancelar otra corrida viva del lead: se avisa aunque la
+    // nueva no haya arrancado, para que su espera no siga dormida en Inngest.
+    for (const cancelada of r.cancelados) await this.deps.emitirCancelacion(cancelada);
     if (!r.run) throw errorDeRelanzar(runId, r.motivo);
 
     await this.encolar(
@@ -246,6 +309,55 @@ export class DefaultCorridasWorkflowService implements CorridasWorkflowService {
       "no se pudo arrancar la corrida nueva",
     );
     return { runId: r.run.id };
+  }
+
+  /**
+   * Orden: CAS, auditoría, aviso a Inngest.
+   *
+   * - La auditoría va DESPUÉS del CAS, al revés que el borrado de etiquetas:
+   *   una cancelación que no ocurrió (la corrida ya había cerrado) no deja una
+   *   fila que diga que alguien la canceló. Si el insert de auditoría falla, la
+   *   acción devuelve error aunque la corrida ya esté cancelada.
+   * - El payload no lleva nada del lead (ni su id ni el contexto, que puede
+   *   tener su nombre): versión, estado previo y si era de Probar.
+   * - Si el aviso a Inngest falla, la corrida ya está cancelada y auditada: el
+   *   segmento dormido sale solo al vencer (`tomarSegmento` la ve cerrada). Se
+   *   dice igual, con un `InfraError` que la pantalla muestra.
+   */
+  async cancelar(runId: UUID, actorUserId: UUID | null): Promise<void> {
+    const previa = await this.deps.runs.findRun(runId);
+    const r = await this.deps.runs.cancelarSiViva(runId, MOTIVO_CANCELADA_A_MANO);
+    if (!r.ok) {
+      if (r.motivo === "corrida_no_encontrada") {
+        throw new NotFoundError(`corrida no encontrada: ${runId}`, "workflow_run", runId);
+      }
+      throw new IllegalStateError(
+        "La corrida ya terminó: no hay nada que cancelar.",
+        "corrida_no_viva",
+      );
+    }
+
+    await this.deps.audit.recordAction({
+      actorUserId,
+      action: ADMIN_ACTIONS.WORKFLOW_RUN_CANCEL,
+      entityType: "workflow_run",
+      entityId: runId,
+      payload: {
+        version_id: previa?.workflow_version_id ?? null,
+        estado_previo: previa?.estado ?? null,
+        prueba: previa ? esContextoDePrueba(previa.contexto) : null,
+      },
+    });
+
+    try {
+      await this.deps.emitirCancelacion(runId);
+    } catch (error) {
+      throw new InfraError(
+        "La corrida quedó cancelada, pero no se pudo cortar su espera: se va a cerrar sola cuando venza.",
+        "inngest",
+        error,
+      );
+    }
   }
 
   /**
@@ -272,6 +384,52 @@ export class DefaultCorridasWorkflowService implements CorridasWorkflowService {
         error,
       );
     }
+  }
+
+  private async mensajesDeCorrida(
+    run: WorkflowRun,
+    pasos: readonly WorkflowRunPaso[],
+    grafo: Grafo,
+  ): Promise<MensajeDeCorrida[]> {
+    const envios = pasos.filter((p) => {
+      const nodo = nodoPorId(grafo, p.nodo_id);
+      const accion = nodo ? accionDeNodo(nodo) : undefined;
+      return accion === "enviar_mensaje" || accion === "enviar_plantilla";
+    });
+    if (esContextoDePrueba(run.contexto)) {
+      return envios.flatMap((p) =>
+        textosSimulados(p).map((texto) => ({
+          nodoId: p.nodo_id,
+          orden: p.orden,
+          texto,
+          estado: null,
+          at: p.created_at,
+          simulado: true,
+        })),
+      );
+    }
+    // Por la clave y no por `salida.mensaje_id`: un envío que falló después de
+    // reservar la fila no dejó id en la salida, pero sí existe el mensaje.
+    const encontrados = await Promise.all(
+      envios.map(async (p) => ({
+        paso: p,
+        mensaje: await this.deps.messages.findByIdempotencyKey(`wf:${run.id}:${p.orden}`),
+      })),
+    );
+    return encontrados.flatMap(({ paso, mensaje }) =>
+      mensaje
+        ? [
+            {
+              nodoId: paso.nodo_id,
+              orden: paso.orden,
+              texto: mensaje.contenido,
+              estado: mensaje.estado_entrega,
+              at: mensaje.created_at,
+              simulado: false,
+            },
+          ]
+        : [],
+    );
   }
 
   private nuevoId(): string {
@@ -309,6 +467,24 @@ export class DefaultCorridasWorkflowService implements CorridasWorkflowService {
     );
     return { posible: true, destinatario: { leadId: run.lead_id, nombre }, envios };
   }
+}
+
+/** "Hilux 2018", como lo escribe el diseño; sin modelo, la marca. */
+function vehiculoLegible(v: LeadVehiculo | undefined): string | null {
+  if (!v) return null;
+  const nombre = v.modelo ?? v.marca;
+  if (!nombre) return null;
+  return v.anio !== null ? `${nombre} ${v.anio}` : nombre;
+}
+
+/** Lo que una prueba habría mandado: `salida.simulado[].detalle.texto`. */
+function textosSimulados(paso: WorkflowRunPaso): string[] {
+  const simulado = paso.salida?.["simulado"];
+  if (!Array.isArray(simulado)) return [];
+  return simulado.flatMap((e: unknown) => {
+    const detalle = (e as { detalle?: { texto?: unknown } } | null)?.detalle;
+    return typeof detalle?.texto === "string" ? [detalle.texto] : [];
+  });
 }
 
 /** `enviar_mensaje` deja en la salida del paso el id del mensaje que mandó. */

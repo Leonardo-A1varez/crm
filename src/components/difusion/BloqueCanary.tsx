@@ -12,8 +12,9 @@ import { formatearEntero } from "./formato";
  * número. Va de 1 a n−1, igual que la valida el servidor: tiene que quedar
  * alguien para después de revisarla.
  *
- * Qué pasa con la muestra lo hace el motor de envío, que es otra pieza: acá
- * no se afirma ningún frenado automático que la pantalla no pueda verificar.
+ * Qué pasa con la muestra lo hace el motor de envío: la frena al salir y la
+ * deja en revisión. El frenado automático por 368, 131031 y 131048 también es
+ * del motor (`lib/difusion/reacciones.ts`) y lo dice la pantalla de envío.
  */
 export function BloqueCanary({
   activo,

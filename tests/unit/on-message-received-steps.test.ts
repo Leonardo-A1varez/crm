@@ -96,6 +96,8 @@ function makeDeps() {
     intents,
     identificadores: new InMemoryLeadIdentificadoresRepository(),
     supresiones: new InMemoryDifusionSupresionesRepository(),
+    respuestaDifusion: { registrar: async () => null },
+    plantillasSinSesion: { registrar: async () => 0 },
     configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
     emit,
   };
@@ -128,14 +130,17 @@ describe("onMessageReceivedHandler granular steps", () => {
       "emit-lead-created",
       "upsert-conv",
       "resolve-session",
+      "registrar-respuesta-difusion",
+      "registrar-plantillas-sin-sesion",
       "record-inbound",
       "cancelar-recordatorios",
       // Lead nuevo: dispara "Lead creado" ya con la sesión abierta.
       "emit-workflow-lead-creado",
       // Todo mensaje nuevo dispara los flujos "Mensaje recibido", conteste
-      // quien conteste después.
-      "emit-workflow-mensaje",
+      // quien conteste después. Después de clasificar: el disparo lleva el
+      // intent de este turno, que la base recién tiene cuando contesta el agente.
       "classify",
+      "emit-workflow-mensaje",
       "etiquetar-por-reglas",
       "build-turn",
       "respond",
@@ -164,6 +169,8 @@ describe("onMessageReceivedHandler granular steps", () => {
       "resolve-lead",
       "upsert-conv",
       "resolve-session",
+      "registrar-respuesta-difusion",
+      "registrar-plantillas-sin-sesion",
       "record-inbound",
       "cancelar-recordatorios",
     ]);
@@ -196,14 +203,17 @@ describe("onMessageReceivedHandler granular steps", () => {
       "emit-lead-created",
       "upsert-conv",
       "resolve-session",
+      "registrar-respuesta-difusion",
+      "registrar-plantillas-sin-sesion",
       "record-inbound",
       "cancelar-recordatorios",
       // Lead nuevo: dispara "Lead creado" ya con la sesión abierta.
       "emit-workflow-lead-creado",
       // Todo mensaje nuevo dispara los flujos "Mensaje recibido", conteste
-      // quien conteste después.
-      "emit-workflow-mensaje",
+      // quien conteste después. Después de clasificar: el disparo lleva el
+      // intent de este turno, que la base recién tiene cuando contesta el agente.
       "classify",
+      "emit-workflow-mensaje",
       "etiquetar-por-reglas",
       "build-turn",
       "respond",

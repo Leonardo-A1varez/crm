@@ -86,6 +86,8 @@ function makeDeps() {
     intents,
     identificadores: new InMemoryLeadIdentificadoresRepository(),
     supresiones: new InMemoryDifusionSupresionesRepository(),
+    respuestaDifusion: { registrar: async () => null },
+    plantillasSinSesion: { registrar: async () => 0 },
     configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
     emit,
   };

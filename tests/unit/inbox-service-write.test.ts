@@ -101,6 +101,9 @@ describe("DefaultInboxService write path", () => {
       sendTemplate: async () => {
         throw new Error("el inbox no manda plantillas");
       },
+      sendRico: async () => {
+        throw new Error("el inbox no manda mensajes interactivos");
+      },
     };
     svc = new DefaultInboxService({
       leads,

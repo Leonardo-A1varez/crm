@@ -88,6 +88,7 @@ export const COMPARADORES = [
   "entre",
   "antes_de",
   "despues_de",
+  "hace_mas_de",
   "esta_vacio",
   "no_esta_vacio",
 ] as const;
@@ -115,6 +116,7 @@ export const COMPARADOR_LABEL: Record<Comparador, string> = {
   entre: "está entre",
   antes_de: "es antes de",
   despues_de: "es después de",
+  hace_mas_de: "hace más de",
   esta_vacio: "está vacío",
   no_esta_vacio: "no está vacío",
 };
@@ -132,7 +134,7 @@ export const COMPARADORES_POR_TIPO: Record<TipoCampo, readonly Comparador[]> = {
   multilista: ["tiene", "tiene_todas", "no_tiene", "esta_vacio", "no_esta_vacio"],
   texto: ["es", "no_es", "contiene", "no_contiene", "empieza_con", "esta_vacio", "no_esta_vacio"],
   numero: ["es", "no_es", "mayor_que", "menor_que", "entre", "esta_vacio", "no_esta_vacio"],
-  fecha: ["antes_de", "despues_de", "entre", "esta_vacio", "no_esta_vacio"],
+  fecha: ["antes_de", "despues_de", "entre", "hace_mas_de", "esta_vacio", "no_esta_vacio"],
   booleano: ["es"],
 };
 
@@ -229,6 +231,8 @@ export const PROFUNDIDAD_MAX = 3;
 /** Valor inicial coherente con el tipo del campo y el comparador elegidos. */
 export function valorPorDefecto(tipo: TipoCampo, comparador: Comparador): ValorCondicion {
   if (comparadorSinValor(comparador)) return { tipo: "ninguno" };
+  // "Hace más de N días": sobre una fecha, pero lo que se escribe es un número.
+  if (comparador === "hace_mas_de") return { tipo: "numero", valor: null };
   if (comparador === "entre") {
     return tipo === "fecha"
       ? { tipo: "rangoFecha", desde: null, hasta: null }

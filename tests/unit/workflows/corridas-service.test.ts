@@ -122,12 +122,19 @@ async function escenario() {
     workflows,
     runs,
     leads,
-    messages: { findById: async (id) => mensajes.get(id) ?? null },
+    vehiculos: { listByLeadId: async () => [] },
+    messages: {
+      findById: async (id) => mensajes.get(id) ?? null,
+      findByIdempotencyKey: async (clave) =>
+        [...mensajes.values()].find((m) => m.idempotency_key === clave) ?? null,
+    },
     emitirSegmento: async (evento) => {
       if (emisionCaida) throw new Error("Inngest no responde");
       emitidos.push(evento);
     },
     nuevoId: () => "id-fijo",
+    emitirCancelacion: async () => {},
+    audit: { recordAction: async () => ({}) as never },
   });
 
   const anotar: AccionHandler = async () => {
@@ -205,7 +212,7 @@ describe("vista — lo que pinta CorridaEnVivo", () => {
 
     expect(vista?.workflow).toEqual({ id: ctx.w.id, nombre: "Seguimiento" });
     expect(vista?.version).toMatchObject({ id: ctx.v.id, numero: 1, maxPasos: 50, grafo: GRAFO });
-    expect(vista?.lead).toEqual({ id: ctx.lead.id, nombre: "Juan Pérez" });
+    expect(vista?.lead).toEqual({ id: ctx.lead.id, nombre: "Juan Pérez", vehiculo: null });
     expect(vista?.esPrueba).toBe(false);
     expect(vista?.pasos.map((p) => p.nodo_id)).toEqual(["t", "a", "m"]);
     expect(vista?.nodos.map((n) => [n.nodoId, n.estado, n.ejecuciones])).toEqual([

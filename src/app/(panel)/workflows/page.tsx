@@ -8,6 +8,9 @@ import {
 } from "@/lib/ui/filtros-workflows";
 import { getCurrentRol } from "@/server/auth/guards";
 import { getWorkflowsAdminServiceForRequest } from "@/server/bootstrap/workflows-bootstrap";
+import { searchLeadsAction } from "../leads/_actions/search-leads.action";
+import { dispararWorkflowManualAction } from "./_actions/disparo-manual.actions";
+import { importarFlujoAction } from "./_actions/importar.actions";
 import { contarCorridasVivasAction } from "./_actions/listado.actions";
 import {
   deleteWorkflowAction,
@@ -15,6 +18,8 @@ import {
   pauseWorkflowAction,
   resumeWorkflowAction,
 } from "./_actions/workflows.actions";
+import { DispararAhora } from "./_components/DispararAhora";
+import { ImportarFlujo } from "./_components/ImportarFlujo";
 import { MenuFlujo } from "./_components/MenuFlujo";
 import { OrdenFlujos } from "./_components/OrdenFlujos";
 import {
@@ -93,6 +98,8 @@ export default async function WorkflowsPage({
               conservar={paramsAConservar(filtros)}
             />
             <OrdenFlujos ordenar={ordenar} />
+            {/* Mismo gate que la action: un vendedor no crea flujos. */}
+            {esAdmin ? <ImportarFlujo onImportar={importarFlujoAction} /> : null}
           </>
         }
         // Un vendedor ve la lista y entra a los flujos, pero no los pausa ni los
@@ -101,14 +108,26 @@ export default async function WorkflowsPage({
         renderAcciones={
           esAdmin
             ? (flujo) => (
-                <MenuFlujo
-                  workflowId={flujo.id}
-                  estado={flujo.estado}
-                  onDuplicar={duplicateWorkflowAction}
-                  onPausar={pauseWorkflowAction}
-                  onReanudar={resumeWorkflowAction}
-                  onEliminar={deleteWorkflowAction}
-                />
+                <>
+                  {/* Sólo si lo que corre —la versión publicada— arranca a mano:
+                      la action rechaza cualquier otro disparador. */}
+                  {flujo.disparaAMano ? (
+                    <DispararAhora
+                      workflowId={flujo.id}
+                      nombreFlujo={flujo.nombre}
+                      onBuscarLeads={searchLeadsAction}
+                      onDisparar={dispararWorkflowManualAction}
+                    />
+                  ) : null}
+                  <MenuFlujo
+                    workflowId={flujo.id}
+                    estado={flujo.estado}
+                    onDuplicar={duplicateWorkflowAction}
+                    onPausar={pauseWorkflowAction}
+                    onReanudar={resumeWorkflowAction}
+                    onEliminar={deleteWorkflowAction}
+                  />
+                </>
               )
             : undefined
         }

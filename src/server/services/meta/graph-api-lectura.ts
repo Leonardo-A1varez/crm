@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { InfraError, PermissionDeniedError, RateLimitError, ValidationError } from "@/lib/errors";
+import { env, GRAPH_API_BASE_URL_REAL } from "@/lib/env";
 import { withSpan } from "@/lib/observability/tracing";
 
 /**
@@ -35,7 +36,7 @@ export interface GraphApiMetaLecturaConfig {
   graphApiVersion: string;
   /** `META_WHATSAPP_ACCESS_TOKEN`. Sólo sale en el header `Authorization`. */
   accessToken: string;
-  /** Override de la base (tests). Default `https://graph.facebook.com`. */
+  /** Override de la base (tests). Default `META_GRAPH_API_BASE_URL` (graph.facebook.com salvo el mock local). */
   baseUrl?: string;
   /** Inyectable para tests. Default el `fetch` global. */
   fetchImpl?: typeof fetch;
@@ -108,7 +109,6 @@ export interface MetaLecturaClient {
   ): Promise<{ plantillas: PlantillaCruda[]; hayMas: boolean }>;
 }
 
-const DEFAULT_BASE_URL = "https://graph.facebook.com";
 const DEFAULT_TIMEOUT_MS = 8_000;
 const VERSION_VALIDA = /^v\d+\.\d+$/;
 const ID_VALIDO = /^\d+$/;
@@ -296,7 +296,10 @@ export class GraphApiMetaLecturaClient implements MetaLecturaClient {
       throw new ValidationError("META_GRAPH_API_VERSION no tiene la forma v<major>.<minor>");
     }
     this.fetchImpl = cfg.fetchImpl ?? fetch;
-    this.baseUrl = (cfg.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
+    this.baseUrl = (cfg.baseUrl ?? env.META_GRAPH_API_BASE_URL ?? GRAPH_API_BASE_URL_REAL).replace(
+      /\/+$/,
+      "",
+    );
     this.timeoutMs = cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 

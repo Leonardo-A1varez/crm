@@ -50,6 +50,7 @@ export const NODO_TIPOS_TRIGGER = [
   "trigger_vendedor_asignado",
   "trigger_inactividad",
   "trigger_formulario",
+  "trigger_difusion_respondida",
 ] as const;
 
 // Mensajería (8 tipos)
@@ -124,7 +125,16 @@ export const NODO_TIPOS_INTERNO = [
   "int_debug",
 ] as const;
 
-// Todos los tipos de nodo (57 + 5 legacy)
+// Difusión (5 tipos) — docs/prd-workflows.md §4.6
+export const NODO_TIPOS_DIFUSION = [
+  "dif_audiencia",
+  "dif_enviar",
+  "dif_excluir",
+  "dif_esperar_respuesta",
+  "dif_dividir",
+] as const;
+
+// Todos los tipos de nodo (63 + 5 legacy)
 export const NODO_TIPOS = [
   ...NODO_TIPOS_LEGACY,
   ...NODO_TIPOS_TRIGGER,
@@ -134,6 +144,7 @@ export const NODO_TIPOS = [
   ...NODO_TIPOS_INTEGRACION,
   ...NODO_TIPOS_IA,
   ...NODO_TIPOS_INTERNO,
+  ...NODO_TIPOS_DIFUSION,
 ] as const;
 
 export type NodoTipo = (typeof NODO_TIPOS)[number];
@@ -144,6 +155,7 @@ export type NodoTipoLogica = (typeof NODO_TIPOS_LOGICA)[number];
 export type NodoTipoIntegracion = (typeof NODO_TIPOS_INTEGRACION)[number];
 export type NodoTipoIA = (typeof NODO_TIPOS_IA)[number];
 export type NodoTipoInterno = (typeof NODO_TIPOS_INTERNO)[number];
+export type NodoTipoDifusion = (typeof NODO_TIPOS_DIFUSION)[number];
 
 /** Categoría de un nodo, para asignar estilos visuales */
 export type CategoriaVisual =
@@ -153,7 +165,8 @@ export type CategoriaVisual =
   | "logica"
   | "integracion"
   | "ia"
-  | "interno";
+  | "interno"
+  | "difusion";
 
 /** Devuelve la categoría visual de un tipo de nodo */
 export function categoriaDeTipo(tipo: NodoTipo): CategoriaVisual | null {
@@ -164,6 +177,7 @@ export function categoriaDeTipo(tipo: NodoTipo): CategoriaVisual | null {
   if ((NODO_TIPOS_INTEGRACION as readonly string[]).includes(tipo)) return "integracion";
   if ((NODO_TIPOS_IA as readonly string[]).includes(tipo)) return "ia";
   if ((NODO_TIPOS_INTERNO as readonly string[]).includes(tipo)) return "interno";
+  if ((NODO_TIPOS_DIFUSION as readonly string[]).includes(tipo)) return "difusion";
   return null; // Legacy types
 }
 
@@ -200,8 +214,90 @@ export function esFinal(tipo: NodoTipo): boolean {
   return tipo === "fin" || tipo === "logica_detener";
 }
 
-export const PUERTOS = ["salida", "verdadero", "falso"] as const;
-export type Puerto = (typeof PUERTOS)[number];
+/** "Según el valor": bifurca en una salida por caso más `otro`. */
+export function esSwitch(tipo: NodoTipo): boolean {
+  return tipo === "logica_switch";
+}
+
+/**
+ * "Ir a": no tiene puertos. Su salida es el nodo que eligió en la config
+ * (`nodoDestino`), y el validador la trata como una línea más
+ * (`aristasDeSalto` en `validar-grafo.ts`).
+ */
+export function esSalto(tipo: NodoTipo): boolean {
+  return tipo === "logica_goto";
+}
+
+/**
+ * Los puertos con nombre fijo. `otro` es el de "Según el valor" cuando ningún
+ * caso coincide.
+ */
+export const PUERTOS = ["salida", "verdadero", "falso", "otro", "sin_respuesta"] as const;
+
+/**
+ * El puerto de un caso de "Según el valor": `caso:<id del caso>`. Va por el id
+ * y no por la posición —la misma razón por la que las aristas apuntan a ids de
+ * nodo—: borrar el segundo caso no puede mandar al tercero por la línea del
+ * segundo.
+ */
+export type PuertoDeCaso = `caso:${string}`;
+export type Puerto = (typeof PUERTOS)[number] | PuertoDeCaso | PuertoDeOpcion;
+
+/**
+ * El puerto de una opción de "Mensaje con botones" o "Mensaje de lista":
+ * `opcion:<id de la opción>`. El id es el mismo que viaja a Meta y vuelve en
+ * `button_reply.id`/`list_reply.id`, así que la respuesta del lead elige la
+ * línea sin traducción. Si nadie responde a tiempo, el nodo sale por
+ * `sin_respuesta`.
+ */
+export type PuertoDeOpcion = `opcion:${string}`;
+
+const PREFIJO_OPCION = "opcion:";
+
+/** Por dónde sale un nodo con opciones cuando vence su tiempo máximo. */
+export const PUERTO_SIN_RESPUESTA = "sin_respuesta" satisfies (typeof PUERTOS)[number];
+
+export function puertoDeOpcion(opcionId: string): PuertoDeOpcion {
+  return `${PREFIJO_OPCION}${opcionId}`;
+}
+
+/** El id de la opción de un puerto, o `null` si no es de una opción. */
+export function opcionDePuerto(puerto: string): string | null {
+  return puerto.startsWith(PREFIJO_OPCION) && puerto.length > PREFIJO_OPCION.length
+    ? puerto.slice(PREFIJO_OPCION.length)
+    : null;
+}
+
+/**
+ * El id de una opción: cabe en un puerto, en un handle de React Flow y en el
+ * id de botón de Meta (256) y de fila de lista (200).
+ */
+export const ID_DE_OPCION = /^[A-Za-z0-9_-]{1,32}$/;
+
+const PREFIJO_CASO = "caso:";
+
+export function puertoDeCaso(casoId: string): PuertoDeCaso {
+  return `${PREFIJO_CASO}${casoId}`;
+}
+
+/** El id del caso de un puerto, o `null` si no es de un caso. */
+export function casoDePuerto(puerto: string): string | null {
+  return puerto.startsWith(PREFIJO_CASO) && puerto.length > PREFIJO_CASO.length
+    ? puerto.slice(PREFIJO_CASO.length)
+    : null;
+}
+
+/** El id de un caso: lo que cabe en un puerto y en un handle de React Flow. */
+export const ID_DE_CASO = /^[A-Za-z0-9_-]{1,64}$/;
+
+export function esPuerto(valor: unknown): valor is Puerto {
+  if (typeof valor !== "string") return false;
+  if ((PUERTOS as readonly string[]).includes(valor)) return true;
+  const caso = casoDePuerto(valor);
+  if (caso !== null) return ID_DE_CASO.test(caso);
+  const opcion = opcionDePuerto(valor);
+  return opcion !== null && ID_DE_OPCION.test(opcion);
+}
 
 export const REGLAS_VALIDACION = [
   "disparador_unico",
@@ -211,6 +307,7 @@ export const REGLAS_VALIDACION = [
   "arista_a_nodo_inexistente",
   "condicion_puertos",
   "ciclo_sin_espera",
+  "ir_a_destino",
 ] as const;
 export type ReglaValidacion = (typeof REGLAS_VALIDACION)[number];
 
@@ -304,6 +401,11 @@ export type ResultadoSegmento =
        * corrida terminó, nadie va a reanudarla.
        */
       contexto: ContextoRun;
+      /**
+       * Sólo si cortó porque un nodo mandó opciones y espera que el lead elija
+       * (`ResultadoAccion.esperarRespuesta`): a qué mensaje tiene que responder.
+       */
+      esperaOpcion?: { respondeA: string | null };
     }
   | {
       tipo: "fin";
@@ -330,6 +432,19 @@ export type ResultadoSegmento =
        * datos, no una falla transitoria: reintentarlo repite el mismo error.
        */
       retriable: boolean;
+    }
+  | {
+      /**
+       * El segmento cortó ANTES de correr `nodoId`, sin fallar y sin terminar:
+       *
+       * - `cancelada`: la corrida dejó de estar viva mientras corría (alguien la
+       *   canceló, o la reinició un disparo nuevo). La acción no se ejecutó y el
+       *   estado ya lo escribió quien la canceló.
+       * - `hasta_aca`: "Ejecutar hasta acá" en Probar (`detenerEn`).
+       */
+      tipo: "detenido";
+      nodoId: string;
+      causa: "cancelada" | "hasta_aca";
     };
 
 /** El estado que viaja entre nodos y se persiste en `workflow_runs.contexto`. */
@@ -366,6 +481,8 @@ export interface DatosDisparo {
   tagId?: string;
   etapaAnterior?: CurrentStage | null;
   etapaNueva?: CurrentStage;
+  /** "Difusión respondida": a cuál respondió el lead. */
+  difusionId?: string;
 }
 
 /** Lo que devuelve una acción: por dónde seguir y qué agregar al contexto. */
@@ -388,4 +505,13 @@ export interface ResultadoAccion {
    * ejecutor saca al lead del flujo en vez de seguir por `puerto`.
    */
   salto?: SaltoDeTope;
+  /**
+   * La acción SÍ se ejecutó —mandó botones o una lista— y ahora espera que el
+   * lead elija. El ejecutor corta el segmento reanudando en este mismo nodo
+   * (`puerto` no se usa): `workflow-segmento` espera la respuesta a
+   * `respondeA` hasta `hasta`, y la segunda pasada del nodo sale por la opción
+   * elegida o por «sin respuesta». A diferencia de `diferirHasta`, el
+   * `contexto` de la acción sí se aplica: lleva la espera.
+   */
+  esperarRespuesta?: { hasta: Date; respondeA: string | null };
 }

@@ -3,6 +3,7 @@ import { derivarEstadoWorkflow } from "@/lib/ui/workflow-estado";
 import { GrafoSchema } from "@/lib/validation/workflows.schema";
 import { contextoDeDisparo } from "@/lib/workflows/contexto";
 import { resumenPasos } from "@/lib/workflows/pasos";
+import { disparadorDe, disparadorMatch } from "@/lib/workflows/recorrer";
 import { validarGrafo } from "@/lib/workflows/validar-grafo";
 import { problemasParaPublicar, type ProblemaPublicacion } from "@/lib/workflows/validar-workflow";
 import {
@@ -17,6 +18,7 @@ import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { WorkflowRunsRepository } from "@/server/repositories/workflow-runs.repo";
 import type { WorkflowsRepository } from "@/server/repositories/workflows.repo";
 import type { UUID, Workflow, WorkflowResumen, WorkflowVersion } from "@/types/entities";
+import type { CamposVivosDeps } from "./ejecutor.service";
 import { correrPrueba, sesionSimulada, type EfectoSimulado } from "./simulador.service";
 
 /** Ventana de métricas de la card: "últimos 30 días", igual que la Métricas de siempre. */
@@ -40,6 +42,12 @@ export interface ProbarWorkflowInput {
   /** Lead de prueba: el motor necesita una entidad real para interpolar variables. */
   leadId: UUID;
   userId: UUID | null;
+  /**
+   * "Ejecutar hasta acá": la prueba frena al llegar a este nodo, sin correrlo.
+   * Tiene que ser un nodo del grafo. Si el recorrido no pasa por él, la prueba
+   * corre entera.
+   */
+  hastaNodo?: string;
 }
 
 /**
@@ -56,6 +64,10 @@ export type ResultadoProbar =
        */
       salto?: { nodoId: string; motivo: MotivoSalto };
     }
+  /** Frenó antes de `hastaNodo`. La corrida queda `cancelado`, con el motivo. */
+  | { tipo: "detenido"; nodoId: string; pasos: number }
+  /** Alguien canceló la corrida de prueba mientras corría. */
+  | { tipo: "cancelado"; nodoId: string; pasos: number }
   | { tipo: "fallado"; nodoId: string | null; error: string; motivo: MotivoFallo | null };
 
 export interface ProbarWorkflowResult {
@@ -183,6 +195,12 @@ export class DefaultWorkflowsAdminService implements WorkflowsAdminService {
        * está (`crearSandboxDePrueba`).
        */
       supresiones?: Pick<DifusionSupresionesRepository, "activasPorTelefonos">;
+      /**
+       * Los campos vivos de las condiciones (intent, etiquetas, vehículo…),
+       * leídos de la base real: una prueba ramifica igual que producción. Sin
+       * esto, esos campos quedan ausentes.
+       */
+      camposVivos?: CamposVivosDeps;
     },
   ) {}
 
@@ -389,6 +407,8 @@ export class DefaultWorkflowsAdminService implements WorkflowsAdminService {
         tieneVersionBorrador,
         versionPublicada: publicada?.version ?? null,
         resumenPasos: ultima ? resumenPasos(ultima.grafo) : [],
+        disparadorTipo: ultima ? (disparadorDe(ultima.grafo)?.tipo ?? null) : null,
+        disparoManualPublicado: publicada ? disparadorMatch(publicada.grafo, "manual") : false,
         metricas,
         ultimaEdicion: ultima?.created_at ?? w.created_at,
       };
@@ -497,6 +517,13 @@ export class DefaultWorkflowsAdminService implements WorkflowsAdminService {
   }
 
   async probar(input: ProbarWorkflowInput): Promise<ProbarWorkflowResult> {
+    // Antes de guardar nada: un nodo que no está en el grafo no es "hasta
+    // acá", y correr la prueba entera en su lugar haría lo que no se pidió.
+    if (input.hastaNodo !== undefined && !input.grafo.nodos.some((n) => n.id === input.hastaNodo)) {
+      throw new ValidationError(
+        `"Ejecutar hasta acá" apunta a un bloque que no está en el flujo: ${input.hastaNodo}`,
+      );
+    }
     // Misma puerta que "Guardar": el grafo que se prueba es el que queda
     // guardado como borrador, para que "Probar" y "Guardar" nunca diverjan.
     const version = await this.guardarVersion({
@@ -561,6 +588,14 @@ export class DefaultWorkflowsAdminService implements WorkflowsAdminService {
       sesion,
       runId: run.id,
       supresiones: this.deps.supresiones,
+      detenerEn: input.hastaNodo,
+      camposVivos: this.deps.camposVivos,
+      // La prueba también se puede cancelar desde la corrida: antes de cada
+      // acción se relee si sigue viva.
+      seguir: async () => {
+        const actual = await this.deps.workflowRuns.findRun(run.id);
+        return actual?.estado === "corriendo" || actual?.estado === "esperando";
+      },
       onPaso: async (paso) => {
         await this.deps.workflowRuns.registrarPaso(run.id, {
           nodo_id: paso.nodoId,
@@ -573,6 +608,28 @@ export class DefaultWorkflowsAdminService implements WorkflowsAdminService {
     });
 
     const pasos = r.pasos.at(-1)?.orden ?? 0;
+    if (r.desenlace === "detenido" && r.nodoId !== undefined) {
+      // `cancelado` y no `terminado`: no llegó a un fin, se frenó a pedido. El
+      // historial lo tiene que poder distinguir de una prueba completa.
+      await this.deps.workflowRuns.cancelar(
+        run.id,
+        `Probar se detuvo antes de "${r.nodoId}", como se pidió (Ejecutar hasta acá).`,
+        pasos,
+      );
+      return {
+        runId: run.id,
+        resultado: { tipo: "detenido", nodoId: r.nodoId, pasos },
+        salientes: r.salientes,
+      };
+    }
+    if (r.desenlace === "cancelada" && r.nodoId !== undefined) {
+      // Ya la cerró quien la canceló: no se escribe nada encima.
+      return {
+        runId: run.id,
+        resultado: { tipo: "cancelado", nodoId: r.nodoId, pasos },
+        salientes: r.salientes,
+      };
+    }
     if (r.desenlace === "fin") {
       await this.deps.workflowRuns.terminar(run.id, pasos);
       return { runId: run.id, resultado: { tipo: "completado", pasos }, salientes: r.salientes };

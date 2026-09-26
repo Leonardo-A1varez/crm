@@ -11,6 +11,7 @@ import { formatearEntero, formatearResta } from "./formato";
 import { ListaDestinatarios } from "./ListaDestinatarios";
 import { MedidorCupo } from "./MedidorCupo";
 import { PlanDeReparto } from "./PlanDeReparto";
+import { PruebaAMiNumero, type ResultadoPrueba } from "./PruebaAMiNumero";
 import { CodigoMeta, Cifra, Nota, Panel, Punto } from "./primitivas";
 import { SaludDelNumero } from "./SaludDelNumero";
 import { VerdictoEnvio } from "./VerdictoEnvio";
@@ -70,6 +71,7 @@ export function PreVuelo({
   onReintentar,
   onSalir,
   onProgramar,
+  onEnviarPrueba,
 }: {
   nombre: string;
   estado: EstadoPreVuelo;
@@ -89,6 +91,8 @@ export function PreVuelo({
   onReintentar: () => void;
   onSalir: () => void;
   onProgramar: () => void;
+  /** "Enviar de prueba a mi número". Sin él, la prueba no se ofrece. */
+  onEnviarPrueba?: (pedido: { telefono: string; leadId: string }) => Promise<ResultadoPrueba>;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -133,6 +137,7 @@ export function PreVuelo({
               error={error}
               onSalir={onSalir}
               onProgramar={onProgramar}
+              onEnviarPrueba={onEnviarPrueba}
             />
           )}
         </div>
@@ -155,6 +160,7 @@ function Contenido({
   error,
   onSalir,
   onProgramar,
+  onEnviarPrueba,
 }: {
   calculo: CalculoPreVuelo;
   destinatarios: readonly Destinatario[];
@@ -169,6 +175,7 @@ function Contenido({
   error: string | null;
   onSalir: () => void;
   onProgramar: () => void;
+  onEnviarPrueba?: (pedido: { telefono: string; leadId: string }) => Promise<ResultadoPrueba>;
 }) {
   const { alcance, cupo, tandas, diff, calculado } = calculo;
   const n = alcance.destinatarios;
@@ -278,6 +285,12 @@ function Contenido({
                 totalDestinatarios={n}
                 onCambiar={onCambiarCanary}
               />
+
+              {onEnviarPrueba ? (
+                <div className="border-line-row border-t pt-4">
+                  <PruebaAMiNumero destinatarios={destinatarios} onEnviar={onEnviarPrueba} />
+                </div>
+              ) : null}
 
               <VerdictoEnvio verdicto={verdicto} compacto />
 

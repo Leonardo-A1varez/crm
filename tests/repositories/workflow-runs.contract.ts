@@ -158,6 +158,74 @@ export function runWorkflowRunsContract(
       expect(final?.ended_at).not.toBeNull();
     });
 
+    it("cancelar deja la corrida cancelada con el motivo, sus pasos y ended_at", async () => {
+      const { repo, versionId, leadId } = await makeRepo();
+      const { run } = await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });
+      await repo.esperar(run!.id, "n3", { $cadena: 2 }, 3);
+      await repo.cancelar(run!.id, "cadena cortada", 3);
+      const final = await repo.findRun(run!.id);
+      expect(final).toMatchObject({
+        estado: "cancelado",
+        error: "cadena cortada",
+        pasos_ejecutados: 3,
+      });
+      expect(final?.ended_at).not.toBeNull();
+      // Ya no es viva: con política `ignorar`, la próxima arranca.
+      const siguiente = await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });
+      expect(siguiente.run).not.toBeNull();
+    });
+
+    describe("cancelarSiViva — cancelar a mano", () => {
+      it("cancela una corrida viva, corriendo o esperando, y conserva sus pasos", async () => {
+        const { repo, versionId, leadId } = await makeRepo();
+        const { run } = await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });
+        await repo.esperar(run!.id, "n2", {}, 2);
+        expect(await repo.cancelarSiViva(run!.id, "cancelada a mano")).toEqual({ ok: true });
+        const final = await repo.findRun(run!.id);
+        expect(final).toMatchObject({
+          estado: "cancelado",
+          error: "cancelada a mano",
+          pasos_ejecutados: 2,
+        });
+        expect(final?.ended_at).not.toBeNull();
+      });
+
+      it("una corrida que ya terminó no se toca", async () => {
+        const { repo, versionId, leadId } = await makeRepo();
+        const { run } = await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });
+        await repo.terminar(run!.id, 1);
+        expect(await repo.cancelarSiViva(run!.id, "x")).toEqual({
+          ok: false,
+          motivo: "corrida_no_viva",
+        });
+        expect((await repo.findRun(run!.id))?.estado).toBe("terminado");
+      });
+
+      it("una corrida que no existe se dice", async () => {
+        const { repo } = await makeRepo();
+        expect(await repo.cancelarSiViva("00000000-0000-4000-8000-000000000000", "x")).toEqual({
+          ok: false,
+          motivo: "corrida_no_encontrada",
+        });
+      });
+
+      it("el segmento que seguía en vuelo no la resucita: esperar/terminar/fallar no pisan 'cancelado'", async () => {
+        const { repo, versionId, leadId } = await makeRepo();
+        const { run } = await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });
+        await repo.cancelarSiViva(run!.id, "cancelada a mano");
+        await repo.esperar(run!.id, "n3", {}, 3);
+        await repo.avanzar(run!.id, "n4", {}, 4);
+        await repo.terminar(run!.id, 5);
+        await repo.fallar(run!.id, "otra cosa", 5);
+        await repo.cancelar(run!.id, "otro motivo", 5);
+        expect(await repo.findRun(run!.id)).toMatchObject({
+          estado: "cancelado",
+          error: "cancelada a mano",
+          pasos_ejecutados: 0,
+        });
+      });
+    });
+
     it("fallarSiVivo marca fallado una corrida corriendo y devuelve true", async () => {
       const { repo, versionId, leadId } = await makeRepo();
       const { run } = await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });
@@ -361,7 +429,11 @@ export function runWorkflowRunsContract(
         const { repo, versionId, leadId } = await makeRepo();
         const { run } = await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });
         await repo.terminar(run!.id, 2);
-        expect(await repo.relanzar(run!.id)).toEqual({ run: null, motivo: "corrida_no_fallada" });
+        expect(await repo.relanzar(run!.id)).toEqual({
+          run: null,
+          motivo: "corrida_no_fallada",
+          cancelados: [],
+        });
       });
 
       it("una corrida de Probar no se relanza en producción", async () => {
@@ -373,7 +445,11 @@ export function runWorkflowRunsContract(
           contexto: { [MARCA_CORRIDA_DE_PRUEBA]: true },
         });
         await repo.fallar(run!.id, "boom", 1);
-        expect(await repo.relanzar(run!.id)).toEqual({ run: null, motivo: "corrida_de_prueba" });
+        expect(await repo.relanzar(run!.id)).toEqual({
+          run: null,
+          motivo: "corrida_de_prueba",
+          cancelados: [],
+        });
       });
 
       it("respeta la política de concurrencia: con otra corrida viva no arranca", async () => {
@@ -381,7 +457,11 @@ export function runWorkflowRunsContract(
         const { run } = await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });
         await repo.fallar(run!.id, "boom", 1);
         await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });
-        expect(await repo.relanzar(run!.id)).toEqual({ run: null, motivo: "ya_hay_corrida_viva" });
+        expect(await repo.relanzar(run!.id)).toEqual({
+          run: null,
+          motivo: "ya_hay_corrida_viva",
+          cancelados: [],
+        });
       });
 
       it("una corrida inexistente", async () => {
@@ -389,6 +469,7 @@ export function runWorkflowRunsContract(
         expect(await repo.relanzar("00000000-0000-4000-8000-000000000999")).toEqual({
           run: null,
           motivo: "corrida_no_encontrada",
+          cancelados: [],
         });
       });
     });

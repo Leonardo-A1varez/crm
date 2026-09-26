@@ -121,6 +121,8 @@ function makeDeps(logger?: Logger) {
     intents,
     identificadores,
     supresiones: new InMemoryDifusionSupresionesRepository(),
+    respuestaDifusion: { registrar: async () => null },
+    plantillasSinSesion: { registrar: async () => 0 },
     configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
     emit,
     logger,

@@ -276,39 +276,88 @@ describe("contarSinDato", () => {
 });
 
 describe("lineasCostoMensaje", () => {
-  it("separa lo gratis de la ventana abierta de lo que se cobra por plantilla", () => {
-    const [ventana, plantilla] = lineasCostoMensaje("marketing", 486, 1393, {
-      usdPorMensaje: 0.0447,
-      fuente: "tarifa de prueba",
-    });
+  // Meta: "All marketing template messages are charged"; "utility templates
+  // sent within an open CSW are free" (docs/whatsapp/pricing, 2026-09-25). El
+  // texto libre no es una plantilla: dentro de la ventana no se cobra.
+  const TARIFA = { usdPorMensaje: 0.0447, fuente: "tarifa de prueba" };
+
+  it("marketing sin texto libre: quien tiene la ventana abierta también paga la plantilla", () => {
+    const [ventana, fuera] = lineasCostoMensaje(
+      "marketing",
+      { textoLibre: 0, plantillaEnVentana: 486, fueraDeVentana: 1393 },
+      TARIFA,
+    );
     expect(ventana).toEqual({
       cantidad: 486,
-      concepto: "Ventana de servicio abierta · texto libre",
-      usd: 0,
+      concepto: "Plantilla de marketing · ventana abierta, se cobra igual · tarifa de prueba",
+      usd: 21.72,
     });
-    expect(plantilla).toEqual({
+    expect(fuera).toEqual({
       cantidad: 1393,
-      concepto: "Plantilla de marketing · tarifa de prueba",
+      concepto: "Plantilla de marketing · fuera de la ventana · tarifa de prueba",
       usd: 62.27,
     });
+    expect(totalCosto([ventana!, fuera!])).toBeCloseTo(83.99, 2);
   });
 
-  it("redondea lo cobrado a centavos", () => {
-    const [, plantilla] = lineasCostoMensaje("utility", 0, 3, {
-      usdPorMensaje: 0.0333,
-      fuente: "x",
+  it("con texto libre: la ventana abierta va gratis y sólo se cobra lo de afuera", () => {
+    const lineas = lineasCostoMensaje(
+      "marketing",
+      { textoLibre: 486, plantillaEnVentana: 0, fueraDeVentana: 1393 },
+      TARIFA,
+    );
+    expect(lineas[0]).toEqual({
+      cantidad: 486,
+      concepto: "Texto libre · ventana abierta, gratis",
+      usd: 0,
     });
-    expect(plantilla?.usd).toBe(0.1);
+    expect(
+      lineas.find((l) => l.concepto.startsWith("Plantilla de marketing · ventana"))?.cantidad,
+    ).toBe(0);
+    expect(totalCosto(lineas)).toBeCloseTo(62.27, 2);
   });
 
-  it("sin tarifa no pone precio a lo que se cobra: queda en null y lo dice", () => {
-    const [ventana, plantilla] = lineasCostoMensaje("marketing", 10, 20, null);
-    expect(ventana?.usd).toBe(0);
-    expect(plantilla).toEqual({
-      cantidad: 20,
-      concepto: "Plantilla de marketing · sin tarifa",
-      usd: null,
+  it("con texto libre y sin tarifa: el total sólo depende de lo que se cobra", () => {
+    const lineas = lineasCostoMensaje(
+      "marketing",
+      { textoLibre: 3, plantillaEnVentana: 0, fueraDeVentana: 0 },
+      null,
+    );
+    expect(totalCosto(lineas)).toBe(0);
+  });
+
+  it("utility: dentro de la ventana abierta es gratis, fuera se cobra", () => {
+    const [ventana, fuera] = lineasCostoMensaje(
+      "utility",
+      { textoLibre: 0, plantillaEnVentana: 5, fueraDeVentana: 3 },
+      { usdPorMensaje: 0.0333, fuente: "x" },
+    );
+    expect(ventana).toEqual({
+      cantidad: 5,
+      concepto: "Plantilla de utility · ventana abierta, gratis",
+      usd: 0,
     });
+    expect(fuera?.usd).toBe(0.1);
+  });
+
+  it("marketing sin tarifa: ninguna línea se muestra como gratis", () => {
+    const lineas = lineasCostoMensaje(
+      "marketing",
+      { textoLibre: 0, plantillaEnVentana: 10, fueraDeVentana: 20 },
+      null,
+    );
+    expect(lineas.map((l) => l.usd)).toEqual([null, null]);
+    expect(lineas[1]?.concepto).toBe("Plantilla de marketing · fuera de la ventana · sin tarifa");
+    expect(totalCosto(lineas)).toBeNull();
+  });
+
+  it("utility sin tarifa: lo de la ventana sigue siendo gratis y lo de afuera sin precio", () => {
+    const lineas = lineasCostoMensaje(
+      "utility",
+      { textoLibre: 0, plantillaEnVentana: 10, fueraDeVentana: 20 },
+      null,
+    );
+    expect(lineas.map((l) => l.usd)).toEqual([0, null]);
   });
 });
 

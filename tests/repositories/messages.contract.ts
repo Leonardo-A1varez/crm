@@ -75,6 +75,48 @@ export function runMessagesContract(
       expect(await repo.findById(m.id)).toEqual(m);
     });
 
+    test("registrarSalienteYaEnviado guarda la hora real de envío y el estado de entrega", async () => {
+      const enviado = new Date(Date.now() - 3 * 3_600_000);
+      const leido = new Date(Date.now() - 2 * 3_600_000);
+      const m = await repo.registrarSalienteYaEnviado({
+        ...baseInsert(fixtures, {
+          direction: "out",
+          sender: "sistema",
+          tipo: "template",
+          contenido: "Difusión «Promo» · plantilla «promo_v1»",
+          meta_message_id: "wamid.difusion.001",
+          metadata: { difusion: { difusion_id: "d-1" } },
+        }),
+        created_at: enviado,
+        estado_entrega: "leido",
+        estado_entrega_at: leido,
+      });
+      expect(m.created_at.toISOString()).toBe(enviado.toISOString());
+      expect(m.estado_entrega).toBe("leido");
+      expect(m.estado_entrega_at?.toISOString()).toBe(leido.toISOString());
+      expect(await repo.findByMetaMessageId("wamid.difusion.001")).toEqual(m);
+      // Queda antes que un entrante nuevo en el hilo: el orden es por created_at.
+      await repo.create(baseInsert(fixtures, { meta_message_id: "wamid.respuesta" }));
+      const hilo = await repo.listByConversacion(fixtures.conversacionIds.one);
+      expect(hilo.map((x) => x.meta_message_id)).toEqual(["wamid.respuesta", "wamid.difusion.001"]);
+    });
+
+    test("registrarSalienteYaEnviado con un wamid que ya existe es ConflictError", async () => {
+      await repo.create(baseInsert(fixtures, { meta_message_id: "wamid.dup" }));
+      await expect(
+        repo.registrarSalienteYaEnviado({
+          ...baseInsert(fixtures, {
+            direction: "out",
+            sender: "sistema",
+            meta_message_id: "wamid.dup",
+          }),
+          created_at: new Date(),
+          estado_entrega: null,
+          estado_entrega_at: null,
+        }),
+      ).rejects.toBeInstanceOf(ConflictError);
+    });
+
     test("create permite meta_message_id null (outbound antes de delivery)", async () => {
       const m = await repo.create(baseInsert(fixtures, { meta_message_id: null }));
       expect(m.meta_message_id).toBeNull();
@@ -89,6 +131,25 @@ export function runMessagesContract(
       const found = await repo.findByMetaMessageId("wamid.xyz");
       expect(found?.id).toBe(m.id);
       expect(await repo.findByMetaMessageId("missing")).toBeNull();
+    });
+
+    test("findRespuestaInteractiva trae el entrante que responde a ese wamid", async () => {
+      const opcion = { id: "si", titulo: "Sí", responde_a: "wamid.OUT.1" };
+      const r = await repo.create(
+        baseInsert(fixtures, {
+          meta_message_id: "wamid.IN.1",
+          contenido: "Sí",
+          metadata: { respuesta_interactiva: opcion },
+        }),
+      );
+      await repo.create(
+        baseInsert(fixtures, {
+          meta_message_id: "wamid.IN.2",
+          metadata: { respuesta_interactiva: { ...opcion, responde_a: "wamid.OTRO" } },
+        }),
+      );
+      expect((await repo.findRespuestaInteractiva("wamid.OUT.1"))?.id).toBe(r.id);
+      expect(await repo.findRespuestaInteractiva("wamid.NADA")).toBeNull();
     });
 
     test("findByMetaMessageId nunca matchea mensajes con meta_message_id null", async () => {
@@ -523,6 +584,60 @@ export function runMessagesContract(
         );
         expect(await repo.findUltimoEntranteAt(fixtures.conversacionIds.one)).toBeNull();
         expect(await repo.findUltimoEntranteAt(fixtures.conversacionIdAlt)).not.toBeNull();
+      });
+    });
+
+    describe("aplicarEstadoEntrega concurrente", () => {
+      // Reproduce la carrera vista en el stack local: "entregado" y "leído" del
+      // mismo wamid llegan juntos. Con read-then-write el UPDATE de "entregado"
+      // podía llegar último y hacer retroceder el mensaje. Se repite sobre
+      // varios wamids porque el orden de llegada a Postgres no se controla.
+      test("entregado y leído a la vez: siempre queda leído", async () => {
+        const wamids = Array.from({ length: 12 }, (_, i) => `wamid.carrera.${i}`);
+        for (const w of wamids) {
+          await repo.create(
+            baseInsert(fixtures, { direction: "out", sender: "ia", meta_message_id: w }),
+          );
+        }
+        const at = new Date();
+        await Promise.all(
+          wamids.flatMap((w, i) => {
+            const entregado = () =>
+              repo.aplicarEstadoEntrega(w, { estado: "entregado", at, error: null });
+            const leido = () => repo.aplicarEstadoEntrega(w, { estado: "leido", at, error: null });
+            return i % 2 === 0 ? [entregado(), leido()] : [leido(), entregado()];
+          }),
+        );
+        for (const w of wamids) {
+          expect((await repo.findByMetaMessageId(w))?.estado_entrega).toBe("leido");
+        }
+      });
+
+      test("un estado viejo devuelve la fila como está y no la toca", async () => {
+        await repo.create(
+          baseInsert(fixtures, { direction: "out", sender: "ia", meta_message_id: "wamid.viejo" }),
+        );
+        await repo.aplicarEstadoEntrega("wamid.viejo", {
+          estado: "leido",
+          at: new Date(),
+          error: null,
+        });
+        const out = await repo.aplicarEstadoEntrega("wamid.viejo", {
+          estado: "entregado",
+          at: new Date(),
+          error: null,
+        });
+        expect(out?.estado_entrega).toBe("leido");
+      });
+
+      test("wamid desconocido devuelve null", async () => {
+        expect(
+          await repo.aplicarEstadoEntrega("wamid.de.nadie", {
+            estado: "leido",
+            at: new Date(),
+            error: null,
+          }),
+        ).toBeNull();
       });
     });
   });

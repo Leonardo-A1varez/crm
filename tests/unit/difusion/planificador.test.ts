@@ -2,7 +2,9 @@ import { describe, expect, test } from "vitest";
 import { BudgetExceededError, IllegalStateError, ValidationError } from "@/lib/errors";
 import type { OrigenSupresion } from "@/lib/difusion/modelo";
 import {
+  CONVERSACION_ACTIVA_MINUTOS,
   POLITICA_POR_DEFECTO,
+  motivoConversacional,
   planificarDifusion,
   verificarInvariantesPlan,
   type CandidatoDifusion,
@@ -350,6 +352,39 @@ describe("ruta: gratis por ventana abierta antes que plantilla paga (§7.3.5)", 
   });
 });
 
+describe("contenido: texto libre a quien tiene la ventana abierta (§7.3.5)", () => {
+  test("con texto libre, la ventana abierta recibe texto libre y el resto la plantilla", () => {
+    const plan = planificarDifusion(
+      entrada([lead(1, { ultimoEntranteAt: haceHoras(2) }), lead(2)], { textoLibre: true }),
+    );
+    expect(destinatario(plan, 1)).toMatchObject({
+      ruta: "ventana_abierta",
+      contenido: "texto_libre",
+    });
+    expect(destinatario(plan, 2)).toMatchObject({ ruta: "plantilla", contenido: "plantilla" });
+    expect(plan.porContenido).toEqual({ texto_libre: 1, plantilla: 1 });
+  });
+
+  test("sin texto libre, todos reciben la plantilla, también con la ventana abierta", () => {
+    const plan = planificarDifusion(
+      entrada([lead(1, { ultimoEntranteAt: haceHoras(2) }), lead(2)]),
+    );
+    expect(destinatario(plan, 1)).toMatchObject({
+      ruta: "ventana_abierta",
+      contenido: "plantilla",
+    });
+    expect(destinatario(plan, 2)).toMatchObject({ ruta: "plantilla", contenido: "plantilla" });
+    expect(plan.porContenido).toEqual({ texto_libre: 0, plantilla: 2 });
+  });
+
+  test("la ventana dentro del margen va por plantilla aunque haya texto libre", () => {
+    const plan = planificarDifusion(
+      entrada([lead(1, { ultimoEntranteAt: haceMinutos(24 * 60 - 30) })], { textoLibre: true }),
+    );
+    expect(destinatario(plan, 1)).toMatchObject({ ruta: "plantilla", contenido: "plantilla" });
+  });
+});
+
 describe("saturación del cap de marketing de Meta (131049)", () => {
   const saturado = (horas: number) => [{ telefono: tel(1), ultimoAt: haceHoras(horas) }];
 
@@ -365,11 +400,26 @@ describe("saturación del cap de marketing de Meta (131049)", () => {
     expect(recibe(plan, 1)).toBe(true);
   });
 
-  test("con la ventana abierta sale gratis aunque esté saturado: el mensaje libre no cuenta", () => {
+  test("con la ventana abierta y texto libre sale aunque esté saturado: el texto libre no es una plantilla", () => {
+    const plan = planificarDifusion(
+      entrada([lead(1, { ultimoEntranteAt: haceHoras(2) })], {
+        saturaciones: saturado(1),
+        textoLibre: true,
+      }),
+    );
+    expect(destinatario(plan, 1)).toMatchObject({
+      ruta: "ventana_abierta",
+      contenido: "texto_libre",
+    });
+  });
+
+  test("con la ventana abierta pero sin texto libre le iría la plantilla de marketing: saturado", () => {
+    // El motor excluye al saturado al que le sale una plantilla de marketing;
+    // el plan dice lo mismo, para que el pre-vuelo no prometa un envío que no sale.
     const plan = planificarDifusion(
       entrada([lead(1, { ultimoEntranteAt: haceHoras(2) })], { saturaciones: saturado(1) }),
     );
-    expect(destinatario(plan, 1).ruta).toBe("ventana_abierta");
+    expect(motivo(plan, 1)).toBe("saturado_meta");
   });
 
   test("un 131049 de hace más de 24 h ya no excluye", () => {
@@ -678,3 +728,39 @@ function mulberry32(seed: number): () => number {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+describe("motivoConversacional — la regla que comparten el planificador y el motor", () => {
+  test("requiere_humano gana aunque no haya entrante reciente", () => {
+    expect(motivoConversacional({ etapa: "requiere_humano", ultimoEntranteAt: null }, AHORA)).toBe(
+      "requiere_humano",
+    );
+  });
+
+  test("sesión abierta con un entrante dentro de la hora: conversación activa", () => {
+    expect(
+      motivoConversacional({ etapa: "cotizado", ultimoEntranteAt: haceMinutos(60) }, AHORA),
+    ).toBe("conversacion_activa");
+  });
+
+  test("un minuto más allá del límite ya no es conversación activa", () => {
+    expect(
+      motivoConversacional({ etapa: "cotizado", ultimoEntranteAt: haceMinutos(61) }, AHORA),
+    ).toBeNull();
+  });
+
+  test("un entrante reciente sin sesión abierta no cuenta: no hay nadie hablando", () => {
+    expect(
+      motivoConversacional({ etapa: null, ultimoEntranteAt: haceMinutos(5) }, AHORA),
+    ).toBeNull();
+  });
+
+  test("respeta los minutos que se le pasan", () => {
+    expect(
+      motivoConversacional({ etapa: "nuevo", ultimoEntranteAt: haceMinutos(20) }, AHORA, 15),
+    ).toBeNull();
+  });
+
+  test("la constante es la que usa el planificador por defecto", () => {
+    expect(CONVERSACION_ACTIVA_MINUTOS).toBe(POLITICA_POR_DEFECTO.conversacionActivaMinutos);
+  });
+});

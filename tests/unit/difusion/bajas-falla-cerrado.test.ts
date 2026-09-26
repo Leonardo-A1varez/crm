@@ -25,6 +25,7 @@ describe("bajas sin claves: falla cerrado", () => {
     const sendOutbound = vi.fn(async () => ({ id: "m1" }));
     const deps = {
       messages: { contarSalientesAutomaticos: vi.fn(async () => 0) },
+      plantillasSinSesion: { contarNoAnotadasDesde: vi.fn(async () => 0) },
       metaApi: { sendOutbound },
       conversations: {
         findActivaByLead: vi.fn(async () => ({

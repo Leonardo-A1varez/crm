@@ -1,8 +1,10 @@
 import { InfraError, RateLimitError, ValidationError } from "@/lib/errors";
+import { env, GRAPH_API_BASE_URL_REAL } from "@/lib/env";
 import { withSpan } from "@/lib/observability/tracing";
 import type {
   MetaApiClient,
   MetaSendResult,
+  MetaSendRicoInput,
   MetaSendTemplateInput,
   MetaSendTextInput,
 } from "@/server/services/meta-api.service";
@@ -22,13 +24,11 @@ export interface GraphApiMetaClientConfig {
   fbPageId?: string;
   /** FB Page Access Token (from env `META_FB_PAGE_ACCESS_TOKEN`). Opcional pilot WA-only. */
   fbAccessToken?: string;
-  /** Override base URL (tests). Default `https://graph.facebook.com`. */
+  /** Override base URL (tests). Default `META_GRAPH_API_BASE_URL` (graph.facebook.com salvo el mock local). */
   baseUrl?: string;
   /** Inyectable para tests. Default global `fetch`. */
   fetchImpl?: typeof fetch;
 }
-
-const DEFAULT_BASE_URL = "https://graph.facebook.com";
 
 interface WaSendTextResponse {
   messaging_product?: string;
@@ -75,7 +75,10 @@ export class GraphApiMetaClient implements MetaApiClient {
 
   constructor(private readonly cfg: GraphApiMetaClientConfig) {
     this.fetchImpl = cfg.fetchImpl ?? fetch;
-    this.baseUrl = (cfg.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
+    this.baseUrl = (cfg.baseUrl ?? env.META_GRAPH_API_BASE_URL ?? GRAPH_API_BASE_URL_REAL).replace(
+      /\/+$/,
+      "",
+    );
   }
 
   async sendText(input: MetaSendTextInput): Promise<MetaSendResult> {
@@ -123,6 +126,28 @@ export class GraphApiMetaClient implements MetaApiClient {
         "wa.sendTemplate",
       );
     });
+  }
+
+  /**
+   * Botones, lista, imagen o ubicación, al mismo endpoint que el texto.
+   * Formatos verificados el 2026-09-26 contra la documentación de Meta
+   * (business-messaging/whatsapp/messages: interactive-reply-buttons-messages,
+   * interactive-list-messages, image-messages, location-messages). La ubicación
+   * va con latitud y longitud como texto: así las manda el ejemplo oficial.
+   */
+  async sendRico(input: MetaSendRicoInput): Promise<MetaSendResult> {
+    const { contenido } = input;
+    return withSpan("meta.sendRico", { canal: "wa", tipo: contenido.tipo }, async () =>
+      this.postWa(
+        {
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: input.to,
+          ...cuerpoRico(contenido),
+        },
+        `wa.send.${contenido.tipo}`,
+      ),
+    );
   }
 
   private async sendWa(input: MetaSendTextInput): Promise<MetaSendResult> {
@@ -219,6 +244,62 @@ export class GraphApiMetaClient implements MetaApiClient {
       });
     }
     return { meta_message_id: id };
+  }
+}
+
+/** Lo propio de cada tipo en el cuerpo del POST. Un opcional en `null` no viaja. */
+function cuerpoRico(c: MetaSendRicoInput["contenido"]): Record<string, unknown> {
+  switch (c.tipo) {
+    case "botones":
+      return {
+        type: "interactive",
+        interactive: {
+          type: "button",
+          body: { text: c.cuerpo },
+          action: {
+            buttons: c.botones.map((b) => ({
+              type: "reply",
+              reply: { id: b.id, title: b.titulo },
+            })),
+          },
+        },
+      };
+    case "lista":
+      return {
+        type: "interactive",
+        interactive: {
+          type: "list",
+          ...(c.encabezado ? { header: { type: "text", text: c.encabezado } } : {}),
+          body: { text: c.cuerpo },
+          ...(c.pie ? { footer: { text: c.pie } } : {}),
+          action: {
+            button: c.boton,
+            sections: c.secciones.map((s) => ({
+              ...(s.titulo ? { title: s.titulo } : {}),
+              rows: s.filas.map((f) => ({
+                id: f.id,
+                title: f.titulo,
+                ...(f.descripcion ? { description: f.descripcion } : {}),
+              })),
+            })),
+          },
+        },
+      };
+    case "imagen":
+      return {
+        type: "image",
+        image: { link: c.url, ...(c.caption ? { caption: c.caption } : {}) },
+      };
+    case "ubicacion":
+      return {
+        type: "location",
+        location: {
+          latitude: String(c.lat),
+          longitude: String(c.lon),
+          ...(c.nombre ? { name: c.nombre } : {}),
+          ...(c.direccion ? { address: c.direccion } : {}),
+        },
+      };
   }
 }
 

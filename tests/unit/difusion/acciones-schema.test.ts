@@ -85,6 +85,22 @@ describe("schemas de las acciones de Difusión", () => {
     expect(GuardarBorradorSchema.safeParse({ id: "no-es-uuid" }).success).toBe(false);
   });
 
+  test("guardar borrador acepta el texto libre con variables de la lista, y null lo saca", () => {
+    expect(
+      GuardarBorradorSchema.safeParse({ id: ID, textoLibre: "Hola {{lead.nombre}}" }).success,
+    ).toBe(true);
+    expect(GuardarBorradorSchema.safeParse({ id: ID, textoLibre: null }).success).toBe(true);
+    expect(
+      GuardarBorradorSchema.safeParse({ id: ID, textoLibre: "Hola {{vendedor.nombre}}" }).success,
+    ).toBe(false);
+    expect(GuardarBorradorSchema.safeParse({ id: ID, textoLibre: "  " }).success).toBe(false);
+  });
+
+  test("el alcance acepta si hay texto libre", () => {
+    const base = { ...AUDIENCIA, plantillaCategoria: null, muestra: { desde: 0, limite: 12 } };
+    expect(CalcularAlcanceSchema.safeParse({ ...base, textoLibre: true }).success).toBe(true);
+  });
+
   test("el alcance acota la página de la muestra", () => {
     const base = { ...AUDIENCIA, plantillaCategoria: null, muestra: { desde: 0, limite: 12 } };
     expect(CalcularAlcanceSchema.safeParse(base).success).toBe(true);

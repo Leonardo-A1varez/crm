@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Eyebrow } from "@/components/shared/Eyebrow";
+import type { WorkflowRunEstado } from "@/types/entities";
 import type { Grafo } from "@/types/workflows";
 import { EncuadreInicial } from "./EncuadreInicial";
 import { BarraEditor, ChipEstado } from "./BarraEditor";
@@ -90,6 +91,22 @@ const TIPOS_ARISTA_CORRIDA = { corrida: AristaCorrida } as const;
 /** Cómo está la suscripción en vivo. Se dice siempre: una pantalla "en vivo" congelada miente. */
 export type EstadoConexion = "conectando" | "conectada" | "caida";
 
+/**
+ * Por dónde pasan las corridas de producción de la misma versión en los
+ * últimos `dias` días (las de Probar no cuentan). Se dibuja sobre el lienzo:
+ * un chip por bloque y el total junto al estado en vivo.
+ */
+export interface TraficoCorridas {
+  corridas: number;
+  /** De ésas, las que siguen corriendo o esperando. */
+  vivas: number;
+  /** Número de la versión, para decir de cuál son. */
+  version: number;
+  dias: number;
+  /** Un bloque por el que no pasó ninguna no aparece. */
+  nodos: ReadonlyArray<{ nodoId: string; corridas: number; fallaron: number; esperando: number }>;
+}
+
 export interface CorridaEnVivoProps {
   nombreFlujo: string;
   grafo: Grafo;
@@ -104,6 +121,12 @@ export interface CorridaEnVivoProps {
   topePasos?: number;
   /** Estado de la suscripción. Ausente = la pantalla no escucha cambios. */
   conexion?: EstadoConexion;
+  /**
+   * Estado de la corrida. Con la suscripción conectada, el cartel dice esto y
+   * no "en vivo": una corrida terminada sigue escuchando —si se reanuda, los
+   * pasos nuevos llegan solos— pero ya no está corriendo.
+   */
+  estado?: WorkflowRunEstado;
   volverEtiqueta?: string;
   onVolver: () => void;
   onCancelar?: () => void;
@@ -119,6 +142,8 @@ export interface CorridaEnVivoProps {
   enCurso?: PlanReanudacion | null;
   /** Una franja debajo de la barra: el error de una acción, un aviso. */
   aviso?: ReactNode;
+  /** Las otras corridas de la versión, dibujadas sobre el lienzo. */
+  trafico?: TraficoCorridas;
 }
 
 /**
@@ -148,6 +173,7 @@ export function CorridaEnVivo({
   esPrueba = false,
   topePasos,
   conexion,
+  estado,
   volverEtiqueta = "Editor",
   onVolver,
   onCancelar,
@@ -157,6 +183,7 @@ export function CorridaEnVivo({
   onEjecutarDeNuevo,
   enCurso = null,
   aviso,
+  trafico,
 }: CorridaEnVivoProps) {
   const [plan, setPlan] = useState<PlanReanudacion | null>(null);
   const [pasoAbierto, setPasoAbierto] = useState<string | null>(null);
@@ -168,6 +195,10 @@ export function CorridaEnVivo({
   );
   const fallado = useMemo(() => pasoFallado(pasos), [pasos]);
   const ejecutados = useMemo(() => pasos.filter((p) => p.estado !== "pendiente").length, [pasos]);
+  const traficoPorNodo = useMemo(
+    () => new Map((trafico?.nodos ?? []).map((n) => [n.nodoId, n])),
+    [trafico],
+  );
 
   const nodos = useMemo<NodoCorridaFlow[]>(
     () =>
@@ -175,6 +206,7 @@ export function CorridaEnVivo({
         const p = resolver(n);
         const paso = porNodo.get(n.id);
         const enPlan = mapaPlan?.get(n.id);
+        const t = traficoPorNodo.get(n.id);
         return {
           id: n.id,
           type: "corrida",
@@ -191,10 +223,13 @@ export function CorridaEnVivo({
             duracion: paso?.duracion,
             plan: enPlan?.accion,
             horaReuso: enPlan?.hora,
+            ...(t
+              ? { trafico: { corridas: t.corridas, fallaron: t.fallaron, esperando: t.esperando } }
+              : {}),
           },
         };
       }),
-    [grafo.nodos, porNodo, mapaPlan, resolver],
+    [grafo.nodos, porNodo, mapaPlan, resolver, traficoPorNodo],
   );
 
   const aristas = useMemo<AristaCorridaFlow[]>(
@@ -313,8 +348,13 @@ export function CorridaEnVivo({
               repetir={repetir}
               className="pointer-events-none absolute top-4 left-1/2 -translate-x-1/2"
             />
-          ) : conexion ? (
-            <IndicadorConexion conexion={conexion} className="absolute top-4 right-4" />
+          ) : conexion || trafico ? (
+            <IndicadorConexion
+              conexion={conexion}
+              estado={estado}
+              detalle={trafico ? textoTrafico(trafico) : undefined}
+              className="absolute top-4 right-4"
+            />
           ) : null}
         </div>
 
@@ -361,8 +401,34 @@ const TEXTO_CONEXION: Record<EstadoConexion, string> = {
   caida: "Sin conexión en vivo: recargá para ver lo último",
 };
 
+/** Con la suscripción al día, lo que importa es en qué quedó la corrida. */
+const TEXTO_ESTADO: Record<WorkflowRunEstado, string> = {
+  corriendo: TEXTO_CONEXION.conectada,
+  esperando: "En vivo: la corrida espera para seguir",
+  terminado: "Terminó: no quedan pasos por correr",
+  fallado: "Falló: si la reanudan, los pasos nuevos aparecen acá",
+  cancelado: "Cancelada: no va a correr más",
+};
+
+function textoConexion(conexion: EstadoConexion, estado?: WorkflowRunEstado): string {
+  return conexion === "conectada" && estado ? TEXTO_ESTADO[estado] : TEXTO_CONEXION[conexion];
+}
+
+/** Terminada, fallada o cancelada: nada se mueve, aunque se siga escuchando. */
+function estaQuieta(estado?: WorkflowRunEstado): boolean {
+  return estado === "terminado" || estado === "fallado" || estado === "cancelado";
+}
+
+/** "42 corridas de v3 en 30 días · 3 en marcha": lo que suman los chips de los bloques. */
+function textoTrafico(t: TraficoCorridas): string {
+  if (t.corridas === 0) return `Ninguna otra corrida de v${t.version} en ${t.dias} días`;
+  const total = `${t.corridas.toLocaleString("es-AR")} ${t.corridas === 1 ? "corrida" : "corridas"}`;
+  return `${total} de v${t.version} en ${t.dias} días · ${t.vivas.toLocaleString("es-AR")} en marcha`;
+}
+
 /**
- * Si lo que se ve está vivo o congelado.
+ * Si lo que se ve está vivo o congelado, y cuántas corridas suman los chips de
+ * los bloques.
  *
  * Una pantalla que se llama "en vivo" y dejó de recibir cambios sin avisar es
  * peor que una estática: se mira un fallo que ya se reanudó. Por eso el estado
@@ -370,11 +436,16 @@ const TEXTO_CONEXION: Record<EstadoConexion, string> = {
  */
 function IndicadorConexion({
   conexion,
+  estado,
+  detalle,
   className,
 }: {
-  conexion: EstadoConexion;
+  conexion?: EstadoConexion;
+  estado?: WorkflowRunEstado;
+  detalle?: string;
   className?: string;
 }) {
+  const quieta = conexion === "conectada" && estaQuieta(estado);
   return (
     <div
       role="status"
@@ -384,18 +455,26 @@ function IndicadorConexion({
         className,
       )}
     >
-      <span
-        aria-hidden
-        className={cn(
-          "size-1.5 shrink-0 rounded-full",
-          conexion === "conectada" && "bg-ok",
-          conexion === "conectando" && "bg-info animate-pulse-dot motion-reduce:animate-none",
-          conexion === "caida" && "bg-danger",
-        )}
-      />
-      <span className="text-ink-secondary text-[11px] leading-none font-medium">
-        {TEXTO_CONEXION[conexion]}
-      </span>
+      {conexion ? (
+        <>
+          <span
+            aria-hidden
+            className={cn(
+              "size-1.5 shrink-0 rounded-full",
+              conexion === "conectada" && (quieta ? "bg-line-dot" : "bg-ok"),
+              conexion === "conectando" && "bg-info animate-pulse-dot motion-reduce:animate-none",
+              conexion === "caida" && "bg-danger",
+            )}
+          />
+          <span className="text-ink-secondary text-[11px] leading-none font-medium">
+            {textoConexion(conexion, estado)}
+          </span>
+        </>
+      ) : null}
+      {conexion && detalle ? <span aria-hidden className="bg-line-card h-3 w-px shrink-0" /> : null}
+      {detalle ? (
+        <span className="text-ink-dim text-[11px] leading-none tabular-nums">{detalle}</span>
+      ) : null}
     </div>
   );
 }

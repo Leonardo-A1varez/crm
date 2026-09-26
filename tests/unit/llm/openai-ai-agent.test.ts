@@ -9,6 +9,7 @@ import {
   type AgentConfigProvider,
 } from "@/server/services/agente/config-provider";
 import { componerSystemPrompt } from "@/lib/agente/prompt";
+import { CLAVE_DIFUSION_RESPONDIDA } from "@/lib/difusion/respuesta";
 import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
 import type { AgentLLMInput, AgentTools } from "@/server/services/ai-agent.service";
 import type { LeadSession } from "@/types/entities";
@@ -331,6 +332,35 @@ describe("config en runtime", () => {
     await llm.generate(agentInputFalso());
     expect(capturado.system).toBe(componerSystemPrompt(valores));
     expect(capturado.system).toContain("REGLAS INVIOLABLES");
+  });
+
+  // La plantilla anotada en el hilo sale de la ventana de mensajes a los pocos
+  // turnos; la marca de la sesión la mantiene en el contexto toda la sesión.
+  test("si el cliente respondió a una difusión, el contexto dice a cuál", async () => {
+    const prompts: string[] = [];
+    const llm = makeAgentLLM({
+      doGenerate: async (options) => {
+        for (const m of options.prompt) {
+          if (m.role !== "user") continue;
+          for (const parte of m.content) if (parte.type === "text") prompts.push(parte.text);
+        }
+        return rawTextResult("ok");
+      },
+    });
+    const input = agentInputFalso();
+    await llm.generate({
+      ...input,
+      session: {
+        ...input.session,
+        extras: { [CLAVE_DIFUSION_RESPONDIDA]: "«Promo frenos» · plantilla «promo_frenos_v3»" },
+      },
+    });
+    await llm.generate(agentInputFalso());
+
+    expect(prompts[0]).toContain(
+      '"difusion_respondida": "«Promo frenos» · plantilla «promo_frenos_v3»"',
+    );
+    expect(prompts[1]).toContain('"difusion_respondida": null');
   });
 
   test("recordLlmUsage registra el modelo de la config, no el de bootstrap", async () => {

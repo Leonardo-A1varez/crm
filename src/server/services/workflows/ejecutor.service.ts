@@ -1,10 +1,29 @@
 import { isNonRetriable } from "@/lib/errors";
 import { EVENTOS_ESPERABLES, type EventoEsperable } from "@/lib/workflows/catalogo";
-import { ESPEC_CONFIG_POR_TIPO, normalizarConfig } from "@/lib/workflows/config-nodos";
+import { leerConfigDeTipo } from "@/lib/workflows/config-nodos";
 import { CondicionSchema } from "@/lib/validation/workflows.schema";
-import { evaluarCondicion } from "@/lib/workflows/condiciones";
+import {
+  CAMPOS_VIVOS,
+  camposVivosDe,
+  esCondicionArbol,
+  evaluarCondicion,
+  type CampoCondicion,
+  type Condicion,
+  type ConsultaCamposVivos,
+  type OpcionesEvaluacion,
+} from "@/lib/workflows/condiciones";
+import { CLAVE_INTENT_MENSAJE_AT } from "@/lib/workflows/contexto";
 import { nodoPorId, siguienteNodo } from "@/lib/workflows/recorrer";
-import { CLAVE_MOTIVO_SALTO, esCondicion, esFinal, esTrigger } from "@/types/workflows";
+import { destinoDeSalto } from "@/lib/workflows/validar-grafo";
+import {
+  CLAVE_MOTIVO_SALTO,
+  esCondicion,
+  esFinal,
+  esSalto,
+  esSwitch,
+  esTrigger,
+  puertoDeCaso,
+} from "@/types/workflows";
 import type { UUID } from "@/types/entities";
 import type { ContextoRun, Grafo, Nodo, Puerto, ResultadoSegmento } from "@/types/workflows";
 import type { RegistroDeAcciones } from "./acciones/registro";
@@ -22,6 +41,34 @@ export interface EjecutorDeps {
   ahora: () => Date;
   /** Persistir el paso. El ejecutor no sabe de base: esto lo resuelve quien llama. */
   onPaso: (paso: PasoEjecutado) => Promise<void>;
+  /**
+   * De dónde salen los campos de condición que no siembra el disparo
+   * (`CAMPOS_VIVOS`) y la zona del negocio con que se leen las fechas. Sin
+   * esto, esos campos quedan ausentes (la fila va por "falso") y las fechas
+   * se leen en UTC.
+   */
+  camposVivos?: CamposVivosDeps;
+  /**
+   * ¿La corrida sigue viva? Se pregunta antes de cada acción —lo único que
+   * escribe afuera—. Con `false` el segmento corta sin ejecutarla
+   * (`{ tipo: "detenido", causa: "cancelada" }`). Sin esto no se pregunta.
+   */
+  seguir?: () => Promise<boolean>;
+}
+
+export type { ConsultaCamposVivos };
+
+/**
+ * Devuelve un contexto parcial con los campos pedidos, en las mismas rutas en
+ * que los busca la condición (`{ vehiculo: { marca } }`). Un dato que no existe
+ * no se inventa: queda ausente o `null`.
+ */
+export type CargadorCamposVivos = (consulta: ConsultaCamposVivos) => Promise<ContextoRun>;
+
+export interface CamposVivosDeps {
+  cargar: CargadorCamposVivos;
+  /** `agente_config.horario_timezone`. */
+  zona: () => Promise<string>;
 }
 
 export interface EjecutarSegmentoInput {
@@ -34,14 +81,19 @@ export interface EjecutarSegmentoInput {
   /** Pasos que la corrida ya gastó en segmentos anteriores. */
   pasosPrevios: number;
   maxPasos: number;
+  /**
+   * "Ejecutar hasta acá": al llegar a este nodo el segmento corta sin correrlo
+   * (`{ tipo: "detenido", causa: "hasta_aca" }`). Sólo lo usa Probar.
+   */
+  detenerEn?: string;
 }
 
-const MS_POR_UNIDAD: Readonly<Record<string, number>> = {
+const MS_POR_UNIDAD = {
   segundos: 1_000,
   minutos: 60_000,
   horas: 60 * 60_000,
   dias: 24 * 60 * 60_000,
-};
+} as const;
 
 /**
  * Qué despierta antes de tiempo a una espera: la respuesta del lead, o uno de
@@ -71,6 +123,11 @@ export function eventoQueEspera(nodo: Nodo): EventoEsperado | null {
   return espera?.ok ? (espera.evento ?? null) : null;
 }
 
+/** Los mensajes del schema, sin repetir: son los mismos que muestra el validador. */
+function mensajesDe(error: { issues: readonly { message: string }[] }): string {
+  return [...new Set(error.issues.map((i) => i.message))].join("; ");
+}
+
 /**
  * Cuánto dura una espera. `null` = el nodo no es una espera.
  *
@@ -81,17 +138,16 @@ export function eventoQueEspera(nodo: Nodo): EventoEsperado | null {
  * de tiempo: así el simulador y "Probar" las recorren con el reloj virtual,
  * como si el lead no contestara durante la prueba.
  *
- * Las configs se leen con el contrato de `config-nodos.ts`. Sin config valen lo
- * que el panel muestra elegido sin escribirlo: `logica_esperar` 1 hora,
- * "esperar respuesta" 24 horas, "esperar evento" 7 días.
+ * Las configs se leen con el contrato de `config-nodos.ts` (`leerConfigDeTipo`):
+ * ninguna clave se lee a mano acá. Sin config valen lo que el panel muestra
+ * elegido sin escribirlo: `logica_esperar` 1 hora, "esperar respuesta" 24
+ * horas, "esperar evento" 7 días; la `espera` legacy, que no tiene formulario,
+ * 60 minutos. Un valor inválido —también un `null`— falla, no cae al default.
  */
 function duracionDeEspera(nodo: Nodo): DuracionEspera | null {
   if (nodo.tipo === "logica_esperar_respuesta") {
-    const r = ESPEC_CONFIG_POR_TIPO.logica_esperar_respuesta.schema.safeParse(
-      normalizarConfig(nodo.tipo, nodo.config),
-    );
-    const factor = r.success ? MS_POR_UNIDAD[r.data.unidadTimeout] : undefined;
-    if (!r.success || !(r.data.timeout > 0) || !factor) {
+    const r = leerConfigDeTipo("logica_esperar_respuesta", nodo.config);
+    if (!r.success || !(r.data.timeout > 0)) {
       return {
         ok: false,
         error: `la espera de respuesta "${nodo.id}" no tiene un tiempo máximo válido: ${JSON.stringify(nodo.config["timeout"])}`,
@@ -99,14 +155,12 @@ function duracionDeEspera(nodo: Nodo): DuracionEspera | null {
     }
     return {
       ok: true,
-      ms: r.data.timeout * factor,
+      ms: r.data.timeout * MS_POR_UNIDAD[r.data.unidadTimeout],
       evento: { tipo: "respuesta", disparador: "mensaje_recibido" },
     };
   }
   if (nodo.tipo === "logica_esperar_evento") {
-    const r = ESPEC_CONFIG_POR_TIPO.logica_esperar_evento.schema.safeParse(
-      normalizarConfig(nodo.tipo, nodo.config),
-    );
+    const r = leerConfigDeTipo("logica_esperar_evento", nodo.config);
     // Un evento sin elegir o sin emisor lo rechaza el schema; el mensaje es el
     // mismo con que lo rechaza el validador antes de publicar.
     const problemaEvento = r.success
@@ -115,8 +169,7 @@ function duracionDeEspera(nodo: Nodo): DuracionEspera | null {
     if (problemaEvento) {
       return { ok: false, error: `la espera de evento "${nodo.id}": ${problemaEvento}` };
     }
-    const factor = r.success ? MS_POR_UNIDAD[r.data.unidadTimeoutMax] : undefined;
-    if (!r.success || !(r.data.timeoutMax > 0) || !factor) {
+    if (!r.success || !(r.data.timeoutMax > 0)) {
       return {
         ok: false,
         error: `la espera de evento "${nodo.id}" no tiene un tiempo máximo válido: ${JSON.stringify(nodo.config["timeoutMax"])}`,
@@ -134,28 +187,29 @@ function duracionDeEspera(nodo: Nodo): DuracionEspera | null {
     }
     return {
       ok: true,
-      ms: r.data.timeoutMax * factor,
+      ms: r.data.timeoutMax * MS_POR_UNIDAD[r.data.unidadTimeoutMax],
       evento: { tipo: "evento", disparador: evento },
     };
   }
   if (nodo.tipo === "espera") {
-    const minutos = nodo.config["minutos"];
-    return { ok: true, ms: (typeof minutos === "number" && minutos > 0 ? minutos : 60) * 60_000 };
-  }
-  if (nodo.tipo === "logica_esperar") {
-    const duracion = nodo.config["duracion"] ?? 1;
-    const unidad = nodo.config["unidad"] ?? "horas";
-    const factor =
-      typeof unidad === "string" && Object.hasOwn(MS_POR_UNIDAD, unidad)
-        ? MS_POR_UNIDAD[unidad]
-        : undefined;
-    if (typeof duracion !== "number" || !Number.isFinite(duracion) || duracion <= 0 || !factor) {
+    const r = leerConfigDeTipo("espera", nodo.config);
+    if (!r.success) {
       return {
         ok: false,
-        error: `la espera "${nodo.id}" tiene una duración inválida: ${JSON.stringify(duracion)} ${JSON.stringify(unidad)}`,
+        error: `la espera "${nodo.id}" tiene una duración inválida: ${mensajesDe(r.error)}`,
       };
     }
-    return { ok: true, ms: duracion * factor };
+    return { ok: true, ms: r.data.minutos * MS_POR_UNIDAD.minutos };
+  }
+  if (nodo.tipo === "logica_esperar") {
+    const r = leerConfigDeTipo("logica_esperar", nodo.config);
+    if (!r.success) {
+      return {
+        ok: false,
+        error: `la espera "${nodo.id}" tiene una duración inválida: ${mensajesDe(r.error)}`,
+      };
+    }
+    return { ok: true, ms: r.data.duracion * MS_POR_UNIDAD[r.data.unidad] };
   }
   return null;
 }
@@ -167,19 +221,142 @@ export function conRespondio(contexto: ContextoRun, respondio: boolean): Context
   return { ...contexto, sesion: { ...previa, respondio } };
 }
 
+const esObjeto = (v: unknown): v is Record<string, unknown> =>
+  v !== null && typeof v === "object" && !Array.isArray(v);
+
+/** Hora (ms) del mensaje cuyo intent trae `sesion`, o `null` si no la trae. */
+function horaDelIntent(sesion: unknown): number | null {
+  if (!esObjeto(sesion)) return null;
+  const at = sesion[CLAVE_INTENT_MENSAJE_AT];
+  if (typeof at !== "string") return null;
+  const ms = Date.parse(at);
+  return Number.isNaN(ms) ? null : ms;
+}
+
 /**
- * La condición tal como la guardó el panel, con los defaults que el panel
- * muestra y no escribe: operador "es" (`ConfigLogica.tsx` lo dibuja elegido)
- * y valor vacío. Sin esto, una condición a la que sólo se le eligió el campo
- * fallaría en la corrida con "falta el operador" mientras la pantalla muestra
- * uno elegido.
+ * Los campos vivos sin el intent si el del contexto es de un mensaje igual o
+ * más nuevo. El disparo de "Mensaje recibido" trae el intent de su turno,
+ * clasificado antes de salir; la base recién lo tiene cuando el agente
+ * contesta, así que leída en ese hueco devuelve el turno anterior. Después de
+ * una espera pasa al revés —la base tiene turnos más nuevos que el disparo— y
+ * gana la base. Un contexto sin hora (Probar, otros disparadores) no compite.
  */
-function configDeCondicion(nodo: Nodo): Record<string, unknown> {
-  return {
-    ...nodo.config,
-    operador: nodo.config["operador"] ?? "es",
-    valor: nodo.config["valor"] ?? null,
-  };
+function sinIntentMasViejo(contexto: ContextoRun, vivos: ContextoRun): ContextoRun {
+  const delContexto = horaDelIntent(contexto["sesion"]);
+  const sesionViva = vivos["sesion"];
+  if (delContexto === null || !esObjeto(sesionViva) || !("intent" in sesionViva)) return vivos;
+  const deLaBase = horaDelIntent(sesionViva);
+  if (deLaBase !== null && deLaBase > delContexto) return vivos;
+  const { intent: _descartado, [CLAVE_INTENT_MENSAJE_AT]: _hora, ...resto } = sesionViva;
+  return { ...vivos, sesion: resto };
+}
+
+/** Mezcla dos niveles: `{ lead: {a} }` + `{ lead: {b} }` = `{ lead: {a, b} }`. */
+function conCamposVivos(contexto: ContextoRun, vivosLeidos: ContextoRun): ContextoRun {
+  const vivos = sinIntentMasViejo(contexto, vivosLeidos);
+  const mezcla: ContextoRun = { ...contexto };
+  for (const [clave, valor] of Object.entries(vivos)) {
+    const previo = mezcla[clave];
+    mezcla[clave] = esObjeto(valor) && esObjeto(previo) ? { ...previo, ...valor } : valor;
+  }
+  return mezcla;
+}
+
+/**
+ * Evalúa con los campos vivos recién leídos. El contexto mezclado se usa sólo
+ * para esta evaluación: no pasa a `workflow_runs.contexto`, donde quedaría
+ * viejo en cuanto la corrida espere.
+ */
+async function evaluarConCamposVivos(
+  condicion: Condicion,
+  contexto: ContextoRun,
+  input: EjecutarSegmentoInput,
+  deps: EjecutorDeps,
+): Promise<boolean> {
+  const campos = esCondicionArbol(condicion)
+    ? camposVivosDe(condicion.arbol)
+    : new Set<CampoCondicion>();
+  const lectura = await contextoParaEvaluar(campos, contexto, input, deps);
+  return evaluarCondicion(condicion, lectura.contexto, lectura.opciones);
+}
+
+/**
+ * El contexto con `campos` recién leídos de la base, y la hora y la zona con
+ * que se evalúa. Es lo que comparten la condición y "Según el valor": los dos
+ * miran los mismos campos con el mismo evaluador.
+ */
+async function contextoParaEvaluar(
+  campos: ReadonlySet<CampoCondicion>,
+  contexto: ContextoRun,
+  input: EjecutarSegmentoInput,
+  deps: EjecutorDeps,
+): Promise<{ contexto: ContextoRun; opciones: OpcionesEvaluacion }> {
+  const ahora = deps.ahora();
+  if (!deps.camposVivos) return { contexto, opciones: { ahora, zona: "UTC" } };
+  const [vivos, zona] = await Promise.all([
+    campos.size > 0
+      ? deps.camposVivos.cargar({
+          leadId: input.leadId,
+          leadSessionId: input.leadSessionId ?? null,
+          campos,
+        })
+      : Promise.resolve({}),
+    deps.camposVivos.zona(),
+  ]);
+  return { contexto: conCamposVivos(contexto, vivos), opciones: { ahora, zona } };
+}
+
+type EleccionSwitch =
+  | { ok: true; caso: { id: string; valor: string } | null }
+  | { ok: false; error: string; motivo: "condicion_invalida" }
+  | { ok: false; error: string; motivo: "accion_fallo"; retriable: boolean };
+
+/**
+ * Qué caso toma "Según el valor": el primero, en orden, cuyo valor cumple
+ * `campo es valor` con el evaluador de las condiciones. `null` = ninguno, y
+ * sigue por «Otro». La config se lee con el contrato de `config-nodos.ts`, el
+ * mismo que revisa el validador antes de publicar.
+ */
+async function elegirCaso(
+  nodo: Nodo,
+  contexto: ContextoRun,
+  input: EjecutarSegmentoInput,
+  deps: EjecutorDeps,
+): Promise<EleccionSwitch> {
+  const config = leerConfigDeTipo("logica_switch", nodo.config);
+  if (!config.success) {
+    return {
+      ok: false,
+      motivo: "condicion_invalida",
+      error: `"Según el valor" "${nodo.id}" está mal configurado: ${mensajesDe(config.error)}`,
+    };
+  }
+  // El schema sólo deja pasar campos de `CAMPOS_SWITCH`.
+  const campo = config.data.campo as CampoCondicion;
+  try {
+    const lectura = await contextoParaEvaluar(
+      CAMPOS_VIVOS.has(campo) ? new Set([campo]) : new Set<CampoCondicion>(),
+      contexto,
+      input,
+      deps,
+    );
+    const caso = config.data.casos.find((c) =>
+      evaluarCondicion(
+        { campo, operador: "es", valor: c.valor.trim() },
+        lectura.contexto,
+        lectura.opciones,
+      ),
+    );
+    return { ok: true, caso: caso ?? null };
+  } catch (error) {
+    const detalle = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      motivo: "accion_fallo",
+      retriable: !isNonRetriable(error),
+      error: `"Según el valor" "${nodo.id}" no pudo leer sus datos: ${detalle}`,
+    };
+  }
 }
 
 /**
@@ -215,12 +392,15 @@ function siguienteObligatorio(
  * interceptados) y el reloj.
  *
  * El control de flujo lo resuelve acá: disparadores (`esTrigger`), finales
- * (`esFinal`), condiciones (`esCondicion`) y esperas de tiempo. Todo lo demás
- * es una acción y va al registro, que sabe cuáles tienen handler.
+ * (`esFinal`), condiciones (`esCondicion`), "Según el valor" (`esSwitch`),
+ * "Ir a" (`esSalto`) y esperas de tiempo. Todo lo demás es una acción y va al
+ * registro, que sabe cuáles tienen handler.
  *
  * No cicla nunca, y no por disciplina: el subgrafo sin esperas es acíclico por
- * construcción —es la propiedad que el validador de W1 demuestra— así que el
- * recorrido de un segmento es sobre un DAG y termina en a lo sumo N nodos.
+ * construcción —es la propiedad que el validador de W1 demuestra, contando
+ * cada "Ir a" como una línea a su destino— así que el recorrido de un segmento
+ * es sobre un DAG y termina en a lo sumo N nodos. Un grafo guardado sin
+ * validar lo corta el tope de pasos.
  */
 export async function ejecutarSegmento(
   input: EjecutarSegmentoInput,
@@ -240,6 +420,11 @@ export async function ejecutarSegmento(
         motivo: "grafo_invalido",
         retriable: false,
       };
+    }
+
+    // "Ejecutar hasta acá": se frena ANTES del nodo elegido, sin gastar paso.
+    if (input.detenerEn !== undefined && nodo.id === input.detenerEn) {
+      return { tipo: "detenido", nodoId: nodo.id, causa: "hasta_aca" };
     }
 
     // ANTES de ejecutar, no después: chequear después manda el mensaje 501 y
@@ -323,11 +508,73 @@ export async function ejecutarSegmento(
       continue;
     }
 
+    // "Ir a": salta al paso que eligió. No escribe nada afuera, así que no
+    // pregunta si la corrida sigue viva. Un bucle sin espera lo rechaza el
+    // validador; si uno se guardó sin validar, lo corta el tope de pasos.
+    if (esSalto(nodo.tipo)) {
+      const destino = destinoDeSalto(nodo);
+      if (destino === null || !nodoPorId(input.grafo, destino)) {
+        const error =
+          destino === null
+            ? `el paso "${nodo.id}" no dice a qué paso ir`
+            : `el paso "${nodo.id}" salta a "${destino}", que no existe en el grafo`;
+        await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error });
+        return {
+          tipo: "fallado",
+          nodoId: nodo.id,
+          error,
+          motivo: "grafo_invalido",
+          retriable: false,
+        };
+      }
+      await deps.onPaso({ nodoId: nodo.id, orden, salida: { destino }, error: null });
+      actual = destino;
+      continue;
+    }
+
+    if (esSwitch(nodo.tipo)) {
+      const eleccion = await elegirCaso(nodo, contexto, input, deps);
+      if (!eleccion.ok) {
+        await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: eleccion.error });
+        return {
+          tipo: "fallado",
+          nodoId: nodo.id,
+          error: eleccion.error,
+          motivo: eleccion.motivo,
+          retriable: eleccion.motivo === "accion_fallo" ? eleccion.retriable : false,
+        };
+      }
+      const puerto: Puerto = eleccion.caso ? puertoDeCaso(eleccion.caso.id) : "otro";
+      const sig = siguienteObligatorio(input.grafo, nodo.id, puerto);
+      if (!sig.ok) {
+        await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: sig.error });
+        return {
+          tipo: "fallado",
+          nodoId: nodo.id,
+          error: sig.error,
+          motivo: "grafo_invalido",
+          retriable: false,
+        };
+      }
+      await deps.onPaso({
+        nodoId: nodo.id,
+        orden,
+        salida: eleccion.caso
+          ? { caso: eleccion.caso.id, valor: eleccion.caso.valor.trim() }
+          : { caso: null },
+        error: null,
+      });
+      actual = sig.nodoId;
+      continue;
+    }
+
     if (esCondicion(nodo.tipo)) {
       // Validar y no castear: `config` es `Record<string, unknown>` y un
       // `as Condicion` haría que una condición mal guardada explotara en
       // runtime, a mitad de una corrida, en vez de acá con un motivo legible.
-      const forma = CondicionSchema.safeParse(configDeCondicion(nodo));
+      // El schema pone los defaults que el panel muestra y no escribe
+      // (operador "es", valor vacío): es el mismo que corre el validador.
+      const forma = CondicionSchema.safeParse(nodo.config);
       if (!forma.success) {
         const mensaje = `la condición "${nodo.id}" está mal configurada: ${forma.error.issues[0]?.message ?? "forma inválida"}`;
         await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: mensaje });
@@ -339,7 +586,23 @@ export async function ejecutarSegmento(
           retriable: false,
         };
       }
-      const cumple = evaluarCondicion(forma.data, contexto);
+      // Leer los campos vivos es ir a la base: si falla, se trata como una
+      // acción que falló (reintentable si el error lo es).
+      let cumple: boolean;
+      try {
+        cumple = await evaluarConCamposVivos(forma.data, contexto, input, deps);
+      } catch (error) {
+        const detalle = error instanceof Error ? error.message : String(error);
+        const mensaje = `la condición "${nodo.id}" no pudo leer sus datos: ${detalle}`;
+        await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: mensaje });
+        return {
+          tipo: "fallado",
+          nodoId: nodo.id,
+          error: mensaje,
+          motivo: "accion_fallo",
+          retriable: !isNonRetriable(error),
+        };
+      }
       const sig = siguienteObligatorio(input.grafo, nodo.id, cumple ? "verdadero" : "falso");
       if (!sig.ok) {
         await deps.onPaso({ nodoId: nodo.id, orden, salida: null, error: sig.error });
@@ -354,6 +617,14 @@ export async function ejecutarSegmento(
       await deps.onPaso({ nodoId: nodo.id, orden, salida: { cumple }, error: null });
       actual = sig.nodoId;
       continue;
+    }
+
+    // Una acción escribe afuera (manda, etiqueta, mueve). Si la corrida dejó de
+    // estar viva mientras este segmento corría —la cancelaron, o la reinició
+    // un disparo nuevo—, no se ejecuta ni una más. El paso no se registra: no
+    // corrió.
+    if (deps.seguir && !(await deps.seguir())) {
+      return { tipo: "detenido", nodoId: nodo.id, causa: "cancelada" };
     }
 
     try {
@@ -383,6 +654,31 @@ export async function ejecutarSegmento(
           hasta: r.diferirHasta,
           reanudarEn: nodo.id,
           contexto,
+        };
+      }
+      // Botones o lista: la acción YA mandó y ahora espera que el lead elija.
+      // Corta reanudando en este mismo nodo, con el contexto de la acción —que
+      // lleva la espera—, y le dice a quien llama a qué mensaje esperar la
+      // respuesta. La segunda pasada del nodo sale por la opción elegida.
+      if (r.esperarRespuesta) {
+        const { hasta, respondeA } = r.esperarRespuesta;
+        await deps.onPaso({
+          nodoId: nodo.id,
+          orden,
+          salida: {
+            ...(r.salida ?? {}),
+            hasta: hasta.toISOString(),
+            esperando: "respuesta_interactiva",
+          },
+          error: null,
+        });
+        return {
+          tipo: "espera",
+          nodoId: nodo.id,
+          hasta,
+          reanudarEn: nodo.id,
+          contexto: r.contexto ? { ...contexto, ...r.contexto } : contexto,
+          esperaOpcion: { respondeA },
         };
       }
       // Un tope de seguridad saltó la acción (PRD §6.6): el lead SALE del

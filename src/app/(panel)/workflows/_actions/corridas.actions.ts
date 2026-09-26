@@ -3,10 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { DomainError, PermissionDeniedError } from "@/lib/errors";
 import { CorridaIdSchema } from "@/lib/validation/workflows.schema";
-import { getCurrentRol } from "@/server/auth/guards";
+import { getCurrentRol, rolFromUser } from "@/server/auth/guards";
+import { getAuthenticatedUser } from "@/server/auth/supabase-ssr";
 import { getCorridasWorkflowServiceForRequest } from "@/server/bootstrap/workflows-bootstrap";
 import type { CorridaReanudada, VistaCorrida } from "@/server/services/workflows/corridas.service";
-import type { ActionError } from "@/types/inbox";
+import type { ActionError, ActionResult } from "@/types/inbox";
 
 /**
  * Las acciones de la pantalla "corrida en vivo" (CorridaEnVivo y
@@ -28,7 +29,7 @@ import type { ActionError } from "@/types/inbox";
 async function soloAdmin(): Promise<void> {
   const rol = await getCurrentRol();
   if (rol !== "admin") {
-    throw new PermissionDeniedError("solo un admin puede volver a lanzar una corrida");
+    throw new PermissionDeniedError("solo un admin puede relanzar o cancelar una corrida");
   }
 }
 
@@ -106,4 +107,33 @@ export async function ejecutarCorridaDeNuevoAction(
 
   revalidatePath("/workflows", "layout");
   return { ok: true, data: nueva };
+}
+
+/**
+ * "Cancelar corrida": sólo admin. Pasa a `cancelado` una corrida viva, de
+ * producción o de Probar, con el motivo en `error`, deja en `admin_actions`
+ * quién la canceló y avisa a Inngest, que corta en el acto el segmento que
+ * duerme en una espera (`cancelOn` de `workflow-segmento`). Una con el
+ * segmento en vuelo relee su estado antes de cada acción y no ejecuta la
+ * siguiente. Lo que ya se ejecutó —un mensaje que ya salió— queda como pasó.
+ */
+export async function cancelarCorridaAction(raw: unknown): Promise<ActionResult> {
+  const parsed = CorridaIdSchema.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: "Corrida inválida." };
+
+  // Un solo round-trip a Supabase Auth: el mismo user sirve para gate y actor.
+  const user = await getAuthenticatedUser();
+  if (rolFromUser(user) !== "admin") {
+    return { ok: false, error: "Solo un administrador puede hacer esto." };
+  }
+
+  try {
+    const svc = await getCorridasWorkflowServiceForRequest();
+    await svc.cancelar(parsed.data.runId, user?.id ?? null);
+  } catch (e) {
+    return { ok: false, error: mensajeDeError(e, "No se pudo cancelar la corrida.") };
+  }
+
+  revalidatePath("/workflows", "layout");
+  return { ok: true };
 }

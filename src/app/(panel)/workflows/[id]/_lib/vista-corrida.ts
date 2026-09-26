@@ -9,7 +9,7 @@ import type {
   PreviaRepetir,
 } from "@/components/workflows/editor";
 import type { MotivoSinReanudar, VistaCorrida } from "@/server/services/workflows/corridas.service";
-import type { WorkflowRunPaso } from "@/types/entities";
+import type { WorkflowRunEstado, WorkflowRunPaso } from "@/types/entities";
 
 /**
  * La corrida como la dibuja `CorridaEnVivo`, a partir de lo que devuelve
@@ -28,8 +28,33 @@ export interface PantallaCorrida {
   repetir: PreviaRepetir;
   identificacion: string;
   enVivo: boolean;
+  /** En qué quedó la corrida: el cartel de la suscripción lo dice en vez de "en vivo". */
+  estado: WorkflowRunEstado;
   esPrueba: boolean;
   topePasos: number;
+  /** Lo que mandó la corrida (o habría mandado, si es de Probar), en orden. */
+  mensajes: MensajeEnPantalla[];
+  /** Por dónde pasaron las corridas de esta versión en 30 días. */
+  porNodo: {
+    corridas: number;
+    vivas: number;
+    nodos: {
+      nodoId: string;
+      nombre: string;
+      corridas: number;
+      fallaron: number;
+      esperando: number;
+    }[];
+  };
+}
+
+export interface MensajeEnPantalla {
+  clave: string;
+  /** `null`: ya no se puede leer (purga de sesiones). */
+  texto: string | null;
+  hora: string;
+  estado: string | null;
+  simulado: boolean;
 }
 
 const MOTIVO: Record<MotivoSinReanudar, string> = {
@@ -127,8 +152,31 @@ export function pantallaDeCorrida(vista: VistaCorrida, zona: string): PantallaCo
     pasos,
     reanudar,
     repetir,
-    identificacion: `#${vista.run.id.slice(0, 4)} · ${vista.lead.nombre ?? "Lead sin nombre"} · v${vista.version.numero}`,
+    identificacion: [
+      `#${vista.run.id.slice(0, 4)}`,
+      vista.lead.nombre ?? "Lead sin nombre",
+      ...(vista.lead.vehiculo ? [vista.lead.vehiculo] : []),
+      `v${vista.version.numero}`,
+    ].join(" · "),
+    mensajes: vista.mensajes.map((m) => ({
+      clave: `${m.nodoId}-${m.orden}`,
+      texto: m.texto,
+      hora: hora(m.at),
+      estado: m.estado,
+      simulado: m.simulado,
+    })),
+    porNodo: {
+      corridas: vista.porNodo.corridas,
+      vivas: vista.porNodo.vivas,
+      nodos: vista.porNodo.nodos.map((n) => {
+        const tipo = tipoDe.get(n.nodoId);
+        // Un nodo que ya no está en el grafo de esta versión no puede pasar:
+        // la versión es inmutable. Si pasa, se nombra por su id.
+        return { ...n, nombre: tipo ? nombreDeTipo(tipo) : n.nodoId };
+      }),
+    },
     enVivo: vista.run.estado === "corriendo" || vista.run.estado === "esperando",
+    estado: vista.run.estado,
     esPrueba: vista.esPrueba,
     topePasos: vista.version.maxPasos,
   };

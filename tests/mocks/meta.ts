@@ -3,12 +3,15 @@ import type {
   MetaSendTemplateInput,
   MetaSendTextInput,
   MetaSendResult,
+  MetaSendRicoInput,
 } from "@/server/services/meta-api.service";
 
 export class FakeMetaApiClient implements MetaApiClient {
   public readonly calls: MetaSendTextInput[] = [];
   /** Las plantillas, aparte: `calls` sigue siendo "los textos que salieron". */
   public readonly templateCalls: MetaSendTemplateInput[] = [];
+  /** Botones, listas, imágenes y ubicaciones. */
+  public readonly ricoCalls: MetaSendRicoInput[] = [];
   /** Si está seteado, `sendText` rechaza con este error tras registrar la llamada. */
   failWith: Error | null = null;
   private nextId = 1;
@@ -31,6 +34,12 @@ export class FakeMetaApiClient implements MetaApiClient {
 
   async sendTemplate(input: MetaSendTemplateInput): Promise<MetaSendResult> {
     this.templateCalls.push(input);
+    if (this.failWith) throw this.failWith;
+    return { meta_message_id: `${this.nextMidPrefix}${this.nextId++}` };
+  }
+
+  async sendRico(input: MetaSendRicoInput): Promise<MetaSendResult> {
+    this.ricoCalls.push(input);
     if (this.failWith) throw this.failWith;
     return { meta_message_id: `${this.nextMidPrefix}${this.nextId++}` };
   }

@@ -79,7 +79,11 @@ function grafoCanvas(tipo: NodoTipo, config: Record<string, unknown> = {}): Graf
 describe("dispararHandler", () => {
   it("no arranca nada cuando la politica dice ignorar y ya hay una corrida viva", async () => {
     const runs = {
-      arrancar: vi.fn(async () => ({ run: null, motivo: "ya_hay_corrida_viva" as const })),
+      arrancar: vi.fn(async () => ({
+        run: null,
+        motivo: "ya_hay_corrida_viva" as const,
+        cancelados: [],
+      })),
     };
     const workflows = {
       listarPublicadasPorDisparador: vi.fn(async (d: string) => [version("v1", grafoLegacy(d))]),
@@ -97,8 +101,14 @@ describe("dispararHandler", () => {
     const runs = {
       arrancar: vi
         .fn()
-        .mockResolvedValueOnce({ run: makeRun({ id: "run-a", workflow_version_id: "v1" }) })
-        .mockResolvedValueOnce({ run: makeRun({ id: "run-b", workflow_version_id: "v2" }) }),
+        .mockResolvedValueOnce({
+          run: makeRun({ id: "run-a", workflow_version_id: "v1" }),
+          cancelados: [],
+        })
+        .mockResolvedValueOnce({
+          run: makeRun({ id: "run-b", workflow_version_id: "v2" }),
+          cancelados: [],
+        }),
     };
     const workflows = {
       listarPublicadasPorDisparador: vi.fn(async (d: string) => [
@@ -127,8 +137,12 @@ describe("dispararHandler", () => {
     const runs = {
       arrancar: vi
         .fn()
-        .mockResolvedValueOnce({ run: makeRun({ id: "run-a" }) })
-        .mockResolvedValueOnce({ run: null, motivo: "ya_hay_corrida_viva" as const }),
+        .mockResolvedValueOnce({ run: makeRun({ id: "run-a" }), cancelados: [] })
+        .mockResolvedValueOnce({
+          run: null,
+          motivo: "ya_hay_corrida_viva" as const,
+          cancelados: [],
+        }),
     };
     const workflows = {
       listarPublicadasPorDisparador: vi.fn(async (d: string) => [
@@ -174,8 +188,8 @@ describe("dispararHandler", () => {
     const runs = {
       arrancar: vi
         .fn()
-        .mockResolvedValueOnce({ run: makeRun({ id: "run-a" }) })
-        .mockResolvedValueOnce({ run: makeRun({ id: "run-b" }) }),
+        .mockResolvedValueOnce({ run: makeRun({ id: "run-a" }), cancelados: [] })
+        .mockResolvedValueOnce({ run: makeRun({ id: "run-b" }), cancelados: [] }),
     };
     const workflows = {
       listarPublicadasPorDisparador: vi.fn(async (d: string) => [
@@ -185,7 +199,7 @@ describe("dispararHandler", () => {
     };
 
     // Fase 1 ("step arrancar"): arma la lista JSON-safe.
-    const iniciadas = await arrancarPorDisparador(
+    const { iniciadas } = await arrancarPorDisparador(
       { disparador: "etiqueta_asignada", leadId: "l1", contexto: {} },
       { runs, workflows } as never,
     );
@@ -212,7 +226,7 @@ describe("dispararHandler", () => {
   // (chequeo grueso); el despacho aplica la configuración del trigger.
   it("sólo arranca el flujo cuya etiqueta es la que se puso", async () => {
     const runs = {
-      arrancar: vi.fn(async () => ({ run: makeRun({ id: "run-t1" }) })),
+      arrancar: vi.fn(async () => ({ run: makeRun({ id: "run-t1" }), cancelados: [] })),
     };
     const workflows = {
       listarPublicadasPorDisparador: vi.fn(async () => [
@@ -231,7 +245,9 @@ describe("dispararHandler", () => {
   });
 
   it("un flujo armado en el canvas arranca con el evento de su trigger", async () => {
-    const runs = { arrancar: vi.fn(async () => ({ run: makeRun({ id: "run-m" }) })) };
+    const runs = {
+      arrancar: vi.fn(async () => ({ run: makeRun({ id: "run-m" }), cancelados: [] })),
+    };
     const workflows = {
       listarPublicadasPorDisparador: vi.fn(async () => [
         version("v-m", grafoCanvas("trigger_mensaje", { canal: "whatsapp" })),
@@ -274,7 +290,9 @@ describe("dispararHandler", () => {
   // Programado, inactividad y manual los emite alguien que ya eligió el flujo:
   // el disparo lo nombra y sólo ése arranca.
   it("un disparo dirigido sólo arranca el workflow que nombra", async () => {
-    const runs = { arrancar: vi.fn(async () => ({ run: makeRun({ id: "run-w1" }) })) };
+    const runs = {
+      arrancar: vi.fn(async () => ({ run: makeRun({ id: "run-w1" }), cancelados: [] })),
+    };
     const workflows = {
       listarPublicadasPorDisparador: vi.fn(async () => [
         { ...version("v-w1", grafoCanvas("trigger_manual")), workflow_id: "w1" },
@@ -340,6 +358,7 @@ describe("segmentoHandler", () => {
     const run = makeRun({ workflow_version_id: "v-pinneada" });
     const runs = {
       tomarSegmento: vi.fn(async () => run),
+      findRun: vi.fn(async () => run),
       registrarPaso: vi.fn(async () => {}),
       esperar: vi.fn(async () => {}),
       terminar: vi.fn(async () => {}),
@@ -371,6 +390,7 @@ describe("segmentoHandler", () => {
     const run = makeRun();
     const runs = {
       tomarSegmento: vi.fn(async () => run),
+      findRun: vi.fn(async () => run),
       registrarPaso: vi.fn(async () => {}),
       esperar: vi.fn(async () => {}),
       terminar: vi.fn(async () => {}),
@@ -411,6 +431,7 @@ describe("segmentoHandler", () => {
     const run = makeRun({ nodo_actual: "f", pasos_ejecutados: 3 });
     const runs = {
       tomarSegmento: vi.fn(async () => run),
+      findRun: vi.fn(async () => run),
       registrarPaso: vi.fn(async () => {}),
       esperar: vi.fn(async () => {}),
       terminar: vi.fn(async () => {}),
@@ -444,6 +465,7 @@ describe("segmentoHandler", () => {
     const run = makeRun();
     const runs = {
       tomarSegmento: vi.fn(async () => run),
+      findRun: vi.fn(async () => run),
       registrarPaso: vi.fn(async () => {}),
       esperar: vi.fn(async () => {}),
       terminar: vi.fn(async () => {}),
@@ -473,7 +495,13 @@ describe("segmentoHandler", () => {
       registro,
       ahora: () => AHORA,
     } as never);
-    expect(runs.fallar).toHaveBeenCalledWith(run.id, expect.stringContaining("dato invalido"), 2);
+    // Sin `intento`, el primero: falló sin reintentar.
+    expect(runs.fallar).toHaveBeenCalledWith(
+      run.id,
+      expect.stringContaining("dato invalido"),
+      2,
+      1,
+    );
     expect(r).toEqual({ tipo: "fallado", nodoId: "a", motivo: "accion_fallo" });
   });
 
@@ -481,6 +509,7 @@ describe("segmentoHandler", () => {
     const run = makeRun();
     const runs = {
       tomarSegmento: vi.fn(async () => run),
+      findRun: vi.fn(async () => run),
       registrarPaso: vi.fn(async () => {}),
       esperar: vi.fn(async () => {}),
       terminar: vi.fn(async () => {}),
@@ -533,6 +562,7 @@ describe("segmentoHandler", () => {
     const run = makeRun({ workflow_version_id: "version-borrada" });
     const runs = {
       tomarSegmento: vi.fn(async () => run),
+      findRun: vi.fn(async () => run),
       registrarPaso: vi.fn(async () => {}),
       esperar: vi.fn(async () => {}),
       terminar: vi.fn(async () => {}),
@@ -554,6 +584,7 @@ describe("segmentoHandler", () => {
     const run = makeRun();
     const runs = {
       tomarSegmento: vi.fn(async () => run),
+      findRun: vi.fn(async () => run),
       registrarPaso: vi.fn(async () => {
         throw new ConflictError("duplicado", "workflow_run_pasos_orden_unico");
       }),
@@ -593,6 +624,7 @@ describe("segmentoHandler — esperas de evento", () => {
   function runsQueDevuelven(run: WorkflowRun) {
     return {
       tomarSegmento: vi.fn(async () => run),
+      findRun: vi.fn(async () => run),
       registrarPaso: vi.fn(async () => {}),
       esperar: vi.fn(async () => {}),
       terminar: vi.fn(async () => {}),
@@ -743,6 +775,7 @@ describe("segmentoFalloHandler (onFailure de workflow-segmento)", () => {
       "run-1",
       expect.stringContaining("timeout de red"),
       2,
+      undefined,
     );
     // El mensaje deja explícito que se agotaron los reintentos -- no sólo
     // repite el error crudo, que por sí solo parecería un fallo cualquiera.
@@ -750,6 +783,7 @@ describe("segmentoFalloHandler (onFailure de workflow-segmento)", () => {
       "run-1",
       expect.stringContaining("agotados los reintentos"),
       2,
+      undefined,
     );
   });
 

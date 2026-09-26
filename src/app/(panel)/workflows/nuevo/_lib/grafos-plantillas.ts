@@ -1,3 +1,5 @@
+import { disponibilidadDeTipo } from "@/lib/workflows/disponibilidad";
+import { nombreDeTipo } from "../../[id]/_lib/presentacion-nodos";
 import type { Arista, Grafo, Nodo, NodoTipo, Puerto } from "@/types/workflows";
 
 /**
@@ -137,20 +139,20 @@ const PLANTILLAS_ARMADAS: ReadonlyMap<string, () => PlantillaArmada> = new Map<
         nodos: [
           paso("n1", "trigger_mensaje", 0),
           paso("n2", "logica_condicion", 1),
-          // El bloque de escalado: marca la sesión y pausa al agente.
+          // El bloque de escalado: pausa al agente en la conversación y, por
+          // defecto, le avisa al cliente. Avisarle al vendedor no va: el motor
+          // no tiene canal para hacerlo (`int_notif_vendedor` en
+          // `NO_DISPONIBLES`), y una plantilla que nace sin poder publicarse
+          // obliga a borrar un bloque antes de usarla.
           paso("n3", "crm_escalar_humano", 2),
-          paso("n4", "int_notif_vendedor", 3, {
-            mensaje: "Hay un lead que necesita que lo atienda una persona.",
-          }),
-          paso("n5", "logica_detener", 4),
-          salidaNo("n6", 2),
+          paso("n4", "logica_detener", 3),
+          salidaNo("n5", 2),
         ],
         aristas: [
           arista("n1", "n2"),
           arista("n2", "n3", "verdadero"),
           arista("n3", "n4"),
-          arista("n4", "n5"),
-          arista("n2", "n6", "falso"),
+          arista("n2", "n5", "falso"),
         ],
       },
       pendiente: "decidir en la condición cuándo escalar",
@@ -235,6 +237,21 @@ const PLANTILLAS_ARMADAS: ReadonlyMap<string, () => PlantillaArmada> = new Map<
     }),
   ],
 ]);
+
+/**
+ * Los bloques del grafo que el motor no ejecuta, por nombre y sin repetir. La
+ * galería los avisa antes de abrir la plantilla: un flujo con uno de estos no
+ * se puede publicar hasta sacarlo (`disponibilidad.ts`).
+ */
+export function bloquesQueNoCorren(grafo: Grafo): string[] {
+  return [
+    ...new Set(
+      grafo.nodos
+        .filter((n) => !disponibilidadDeTipo(n.tipo).disponible)
+        .map((n) => nombreDeTipo(n.tipo)),
+    ),
+  ];
+}
 
 /** El grafo inicial de una plantilla, o `null` si ese id no es una plantilla. */
 export function armarPlantilla(id: string): PlantillaArmada | null {

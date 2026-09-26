@@ -1,5 +1,7 @@
 import { vistaSalud, type VistaSalud } from "@/app/(panel)/ajustes/_lib/vistas";
+import { estimarFin, ritmoMedido, tandaActual } from "@/lib/difusion/avance";
 import { describirFallo } from "@/lib/difusion/codigos-meta";
+import { MOTIVO_EXCLUSION } from "@/lib/difusion/modelo";
 import { fechaLegibleEnZona } from "@/lib/zona-horaria";
 import { topeDesdeLimite } from "@/server/services/difusion/tope";
 import type {
@@ -8,6 +10,8 @@ import type {
   Difusion,
   EnvioDifusion,
   FalloPorMotivo,
+  MuestraEnvio,
+  RespuestaEnvio,
   Plantilla,
   PlantillaPausada,
   SaludNumero,
@@ -219,9 +223,59 @@ function fallo(f: DetalleDifusion["fallos"][number]): FalloPorMotivo {
   };
 }
 
+/** "hace 4 min", "hace 3 h"; más de un día, la fecha en la hora del negocio. */
+function haceCuanto(tz: string, iso: string, ahora: Date): string {
+  const ms = Math.max(0, ahora.getTime() - new Date(iso).getTime());
+  const minutos = Math.floor(ms / 60_000);
+  if (minutos < 1) return "recién";
+  if (minutos < 60) return `hace ${minutos} min`;
+  const horas = Math.floor(minutos / 60);
+  if (horas < 24) return `hace ${horas} h`;
+  return fecha(tz, iso);
+}
+
+function respuesta(
+  r: DetalleDifusion["respuestas"]["recientes"][number],
+  tz: string,
+  ahora: Date,
+): RespuestaEnvio {
+  return {
+    clave: `${r.leadId ?? "sin-lead"}-${r.respondidoAt}`,
+    nombre: r.nombre,
+    texto: r.texto,
+    hace: haceCuanto(tz, r.respondidoAt, ahora),
+  };
+}
+
+function muestra(m: NonNullable<DetalleDifusion["muestra"]>, tz: string): MuestraEnvio {
+  const suma = (pred: (c: (typeof m.conteo)[number]) => boolean) =>
+    m.conteo.filter(pred).reduce((n, c) => n + c.cantidad, 0);
+  return {
+    tamano: m.tamano,
+    salioA: fecha(tz, m.salioAt),
+    continuadaA: m.continuadaAt === null ? null : fecha(tz, m.continuadaAt),
+    llegaron: suma((c) => c.estado === "entregado" || c.estado === "leido"),
+    aceptados: suma((c) => c.estado === "aceptado"),
+    fallidos: suma((c) => c.estado === "fallido"),
+    bajasMeta: suma((c) => c.estado === "fallido" && c.codigo === "131050"),
+  };
+}
+
 export function vistaEnvio(detalle: DetalleDifusion, tz: string): EnvioDifusion {
   const { difusion: d, conteo } = detalle;
   const e = conteo.porEstado;
+  const ahora = new Date(detalle.avance.calculadoAt);
+  const tandasPlan = detalle.tandas.map((t) => ({
+    tanda: t.tanda,
+    desde: new Date(t.desde),
+    total: t.total,
+    enCola: t.enCola,
+  }));
+  const porSegundo = ritmoMedido(detalle.avance.reservadosEnVentana, detalle.avance.ventanaMs);
+  const fin = estimarFin({ tandas: tandasPlan, ahora, ritmoPorSeg: porSegundo });
+  const ultimaPendiente = [...detalle.tandas]
+    .filter((t) => t.enCola > 0)
+    .sort((a, b) => b.tanda - a.tanda)[0];
   return {
     id: d.id,
     nombre: d.nombre,
@@ -251,5 +305,20 @@ export function vistaEnvio(detalle: DetalleDifusion, tz: string): EnvioDifusion 
     motivoDetencion: d.motivoDetencion,
     motivoRevision: d.motivoRevision,
     detenidaPorPersona: d.detenidaPorPersona,
+    tandaActual: tandaActual(tandasPlan),
+    ritmo: {
+      porSegundo,
+      finEstimado: fin === null ? null : fecha(tz, fin.toISOString()),
+      ultimaTandaDesde: fin === null && ultimaPendiente ? fecha(tz, ultimaPendiente.desde) : null,
+    },
+    respuestas: {
+      total: detalle.respuestas.total,
+      recientes: detalle.respuestas.recientes.map((r) => respuesta(r, tz, ahora)),
+    },
+    muestra: detalle.muestra === null ? null : muestra(detalle.muestra, tz),
+    exclusionesPorMotivo: MOTIVO_EXCLUSION.flatMap((motivo) =>
+      conteo.porMotivo[motivo] > 0 ? [{ motivo, cantidad: conteo.porMotivo[motivo] }] : [],
+    ),
+    audienciaDinamica: d.audienciaModo === "dinamica" ? { altas: detalle.altasDinamicas } : null,
   };
 }

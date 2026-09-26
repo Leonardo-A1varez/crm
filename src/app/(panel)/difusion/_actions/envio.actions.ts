@@ -1,12 +1,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { RateLimitError } from "@/lib/errors";
 import {
   DetenerSchema,
   DifusionIdSchema,
   ProgramarSchema,
+  PruebaDifusionSchema,
 } from "@/lib/validation/difusion-acciones.schema";
-import { getDifusionServiceForRequest } from "@/server/bootstrap/difusion-bootstrap";
+import {
+  getDifusionServiceForRequest,
+  getPruebaDifusionServiceForRequest,
+} from "@/server/bootstrap/difusion-bootstrap";
 import { errorDeAccion, type ResultadoAccion } from "./action-error";
 import { exigirAdmin } from "./permisos";
 import type {
@@ -94,5 +99,39 @@ export async function reanudarAction(raw: unknown): Promise<ResultadoAccion<null
     return { ok: true, datos: null };
   } catch (e) {
     return errorDeAccion(e, "reanudar");
+  }
+}
+
+/**
+ * "Enviar de prueba a mi número" del pre-vuelo. Sólo admin: manda un WhatsApp
+ * real a un número que escribe la persona. No es un envío de la difusión, no
+ * revalida nada; queda en la auditoría y tiene tope por hora
+ * (`services/difusion/prueba.service.ts`).
+ */
+export async function enviarPruebaAction(
+  raw: unknown,
+): Promise<ResultadoAccion<{ restantes: number }>> {
+  const parsed = PruebaDifusionSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Pedido inválido." };
+  }
+  const admin = await exigirAdmin();
+  if (!admin.ok) return admin;
+
+  try {
+    const svc = await getPruebaDifusionServiceForRequest();
+    const datos = await svc.enviar({
+      difusionId: parsed.data.id,
+      telefono: parsed.data.telefono,
+      leadId: parsed.data.leadId,
+      actorId: admin.usuarioId,
+    });
+    return { ok: true, datos };
+  } catch (e) {
+    // El tope por hora trae su texto para la persona; el resto, el de siempre.
+    if (e instanceof RateLimitError && e.dependency === "difusion_prueba") {
+      return { ok: false, error: e.message };
+    }
+    return errorDeAccion(e, "enviar-prueba");
   }
 }

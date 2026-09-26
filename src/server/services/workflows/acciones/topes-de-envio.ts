@@ -10,7 +10,7 @@ const VEINTICUATRO_HORAS_MS = 24 * 60 * 60 * 1000;
 
 export type DepsTopesDeEnvio = Pick<
   AccionEnviarMensajeDeps,
-  "sessions" | "leads" | "supresiones" | "configProvider" | "messages"
+  "sessions" | "leads" | "supresiones" | "configProvider" | "messages" | "plantillasSinSesion"
 >;
 
 /**
@@ -91,7 +91,11 @@ export async function revisarTopesDeEnvio(
   // 2. TOPE DE FRECUENCIA.
   const cfg = await deps.configProvider.activa();
   const desde = new Date(ahora.getTime() - VEINTICUATRO_HORAS_MS);
-  const usados = await deps.messages.contarSalientesAutomaticos(entorno.leadId, desde);
+  // Las plantillas que salieron sin sesión no están en `mensajes` hasta que
+  // el lead responde; una vez anotadas en el hilo ya las cuenta la primera.
+  const usados =
+    (await deps.messages.contarSalientesAutomaticos(entorno.leadId, desde)) +
+    (await deps.plantillasSinSesion.contarNoAnotadasDesde(entorno.leadId, desde));
   if (usados >= cfg.max_salientes_automaticos_24h) {
     return {
       tipo: "salto",
