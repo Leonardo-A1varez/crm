@@ -102,6 +102,13 @@ describe("next.config — distDir", () => {
   });
 });
 
+describe("next.config — logging", () => {
+  test("no imprime los argumentos de las Server Functions", async () => {
+    const config = await cargarConfig({});
+    expect(config.logging).toMatchObject({ serverFunctions: false });
+  });
+});
+
 describe("next.config — tsconfigPath", () => {
   // Con otro distDir, `next dev` reescribe el tsconfig para sumarle los tipos
   // de ese directorio. El stack local le da uno propio y el tsconfig.json

@@ -123,6 +123,8 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   // Disable x-powered-by header (info leak)
   poweredByHeader: false,
+  // El log de desarrollo imprimía los argumentos de las Server Actions, contraseñas incluidas.
+  logging: { serverFunctions: false },
   // "Enviar imagen" de un flujo sube por Server Action una imagen de hasta
   // 5 MB (el tope de Meta, `imagenes-de-flujo.service.ts`); el default de
   // Next es 1 MB. El margen es para el multipart.
