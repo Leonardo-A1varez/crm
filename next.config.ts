@@ -15,6 +15,37 @@ import type { NextConfig } from "next";
  * Webhooks Meta route (`/api/webhooks/meta`) excluido de CSP via path-specific
  * config en su handler (Meta envía sin browser context).
  */
+const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+/**
+ * El Supabase del stack local (`npm run stack:up`) habla por http/ws en
+ * loopback, y la CSP de producción solo deja salir a `*.supabase.co`: sin esto
+ * Realtime no conecta en local. Se suma el origen únicamente cuando la URL
+ * configurada es de loopback, así que en Vercel el header no cambia.
+ */
+function origenesSupabaseLocal(url: string | undefined): string[] {
+  if (!url) return [];
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return [];
+  }
+  if (!LOOPBACK.has(u.hostname)) return [];
+  if (u.protocol !== "http:" && u.protocol !== "https:") return [];
+  const ws = u.protocol === "https:" ? "wss:" : "ws:";
+  return [`${u.protocol}//${u.host}`, `${ws}//${u.host}`];
+}
+
+const CONNECT_SRC = [
+  "'self'",
+  "https://*.supabase.co",
+  "https://api.openai.com",
+  "https://graph.facebook.com",
+  "wss://*.supabase.co",
+  ...origenesSupabaseLocal(process.env.NEXT_PUBLIC_SUPABASE_URL),
+];
+
 const SECURITY_HEADERS = [
   {
     key: "Strict-Transport-Security",
@@ -60,7 +91,7 @@ const SECURITY_HEADERS = [
       "img-src 'self' data: blob: https://*.supabase.co https://scontent.whatsapp.net https://scontent.cdninstagram.com",
       "media-src 'self' https://*.supabase.co https://scontent.whatsapp.net",
       "font-src 'self' data:",
-      "connect-src 'self' https://*.supabase.co https://api.openai.com https://graph.facebook.com wss://*.supabase.co",
+      `connect-src ${CONNECT_SRC.join(" ")}`,
       "frame-ancestors 'none'",
       "form-action 'self'",
       "base-uri 'self'",
@@ -69,11 +100,33 @@ const SECURITY_HEADERS = [
   },
 ];
 
+/**
+ * Next 16 bloquea el `distDir` con un lockfile (`experimental.lockDistDir`), así
+ * que dos `next dev` sobre el mismo directorio no conviven: el segundo sale. El
+ * stack local (`npm run dev:local`, puerto 3002) usa otro directorio vía
+ * `NEXT_DIST_DIR` (lo setea `scripts/con-stack-local.mjs`) para correr junto al
+ * `npm run dev` del dueño. Sin la variable queda el default `.next`.
+ */
+const DIST_DIR = process.env.NEXT_DIST_DIR?.trim() || undefined;
+
+/**
+ * Con otro distDir, `next dev` reescribe el tsconfig para sumarle los tipos de
+ * ese directorio. El lanzador del stack local le pasa uno propio (ignorado por
+ * git, extiende `tsconfig.json`) para que el trackeado no se toque.
+ */
+const TSCONFIG_PATH = process.env.NEXT_TSCONFIG_PATH?.trim() || undefined;
+
 const nextConfig: NextConfig = {
+  ...(DIST_DIR ? { distDir: DIST_DIR } : {}),
+  ...(TSCONFIG_PATH ? { typescript: { tsconfigPath: TSCONFIG_PATH } } : {}),
   // Strict mode React 19+
   reactStrictMode: true,
   // Disable x-powered-by header (info leak)
   poweredByHeader: false,
+  // "Enviar imagen" de un flujo sube por Server Action una imagen de hasta
+  // 5 MB (el tope de Meta, `imagenes-de-flujo.service.ts`); el default de
+  // Next es 1 MB. El margen es para el multipart.
+  experimental: { serverActions: { bodySizeLimit: "6mb" } },
   async headers() {
     return [
       {

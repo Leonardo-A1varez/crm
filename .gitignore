@@ -15,6 +15,9 @@
 
 # next.js
 /.next/
+# `npm run dev:local` (stack local, NEXT_DIST_DIR): convive con el .next del dueño.
+/.next-local/
+tsconfig.stack-local.json
 /out/
 
 # production

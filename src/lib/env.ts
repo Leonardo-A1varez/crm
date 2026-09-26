@@ -21,6 +21,14 @@ import { parsearClavesBajas } from "@/lib/difusion/claves-bajas";
 
 const isTest = process.env.NODE_ENV === "test";
 
+export const GRAPH_API_BASE_URL_REAL = "https://graph.facebook.com";
+
+function esBaseGraphSegura(valor: string): boolean {
+  const url = new URL(valor);
+  if (url.protocol === "https:") return true;
+  return url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+}
+
 const envSchema = z.object({
   // Supabase
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
@@ -63,6 +71,16 @@ const envSchema = z.object({
   META_WHATSAPP_PHONE_NUMBER_ID: z.string().min(1),
   META_WHATSAPP_ACCESS_TOKEN: z.string().min(1),
   META_GRAPH_API_VERSION: z.string().regex(/^v\d+\.\d+$/, "esperado v<major>.<minor>"),
+  // Base de la Graph API. Existe para apuntar la app al mock local
+  // (`scripts/mock-meta-graph.mjs`, entorno `.env.stack-local`). El token de
+  // WhatsApp viaja en el header de cada pedido, así que fuera de loopback se
+  // exige https: una base http remota lo mandaría en claro. Opcional: sin ella
+  // los clientes usan GRAPH_API_BASE_URL_REAL.
+  META_GRAPH_API_BASE_URL: z
+    .string()
+    .url()
+    .refine(esBaseGraphSegura, "https obligatorio salvo localhost / 127.0.0.1 / [::1]")
+    .optional(),
 
   // Meta IG + FB Messenger (opcionales pilot — WA-only puede arrancar sin estos).
   // Si missing, GraphApiMetaClient.sendText({canal:"ig"|"fb"}) throws ValidationError.
@@ -168,6 +186,7 @@ const testEnvSchema = envSchema.partial().transform(
     // texto. AGENTS.md decia "v21.0 necesita upgrade contractual" sin fecha, y
     // ese apuro nunca existio: era higiene, no incendio.
     META_GRAPH_API_VERSION: partial.META_GRAPH_API_VERSION ?? "v26.0",
+    META_GRAPH_API_BASE_URL: partial.META_GRAPH_API_BASE_URL,
     META_IG_PAGE_ID: partial.META_IG_PAGE_ID,
     META_IG_ACCESS_TOKEN: partial.META_IG_ACCESS_TOKEN,
     META_FB_PAGE_ID: partial.META_FB_PAGE_ID,
