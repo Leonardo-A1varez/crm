@@ -867,7 +867,7 @@ Ninguno se cumple con tests unitarios. Todos exigen ejecución real.
 | Bloqueante                                   | Estado                                                                                                                          |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | **Catálogo de productos**                    | **Vacío a propósito.** Espera el documento de siglas del dueño. Sin catálogo el agente no vende y una difusión no tiene sentido |
-| **Proyecto Supabase aislado**                | Sin él los integration tests no corren                                                                                          |
+| **Proyecto Supabase aislado**                | Resuelto el 2026-09-25 con el stack local: `npm run test:integration:local` (ver `AGENTS.md` lección 10)                        |
 | **Confirmar el pacing de portfolio de Meta** | Dato de fuente tercera. **Si se confirma, cambia el diseño del planificador**                                                   |
 
 | Riesgo                                                                       | Mitigación                                                                            |
@@ -877,3 +877,57 @@ Ninguno se cumple con tests unitarios. Todos exigen ejecución real.
 | Enviar a toda la base                                                        | Agrupamiento visual · separar "ya califican" de "futuros" · lista exacta en pre-vuelo |
 | El bot pisa al humano                                                        | Pausa con vencimiento · la difusión respeta conversaciones vivas                      |
 | Plantilla pausada que nadie despausa                                         | Alerta en salud, marcada como acción manual                                           |
+
+---
+
+## 16. Decisiones del dueño
+
+Registro de lo que el dueño decidió después de escrito este documento. **Si algo de acá contradice una sección anterior, manda esta sección.** El mismo registro está en `docs/prd-workflows.md` y en `docs/prd-workflows-difusion.md`; se actualizan juntos.
+
+### Aceptadas en el chat el 2026-09-26
+
+1. **Texto libre gratis a quien tiene la ventana de 24 h abierta.**
+   - En difusión, el paso Mensaje pide también una versión en texto libre. El motor la manda a los destinatarios con la ventana abierta y la plantilla al resto, y el costo estimado lo refleja.
+   - En flujos, "Enviar mensaje" tiene categoría Servicio o Marketing. La categoría decide si se puede mandar texto libre o si hace falta plantilla.
+2. **Un flujo puede interceptar al agente.** Si el mensaje cumple la condición del disparador "Mensaje recibido", responde el flujo y el agente de IA no contesta ese turno. Queda registrado en `turnos_interceptados` y marcado en el hilo del Inbox.
+3. **"Avisar al equipo" es una notificación en el panel.** No es WhatsApp ni email, así que no depende de Meta ni del cupo.
+4. **Audiencia dinámica:** antes de cada tanda se vuelve a evaluar la audiencia. Los leads que empezaron a coincidir se suman a las tandas siguientes hasta que la difusión termina.
+
+### Aceptadas antes (la fuente no registra la fecha)
+
+- El tope del round robin cuenta las sesiones abiertas a la vez.
+- Un flujo no mueve una sesión a `perdido` ni a `requiere_humano`.
+- Valores de difusión: 15 % de reserva del cupo, audiencia de hasta 50.000, conversación activa de 60 min y margen de ventana de 60 min.
+- Las bajas se guardan como HMAC del teléfono.
+- Confirmación de baja: «Listo, no te enviaremos más promociones. Si fue un error, escríbenos y lo revertimos.»
+- Una BAJA corta al agente de IA en ese turno.
+- "Seguimiento de cotización": a las 72 h escala a una persona, no marca perdido.
+
+### Pendientes de confirmación del dueño
+
+Están implementadas en la rama `feat/workflows-difusion` (commit `d95c3cb`), pero **las decidió el agente, no el dueño.** Hasta que el dueño las confirme, cualquiera se puede cambiar.
+
+**«Delegar al agente» (`ia_delegar`).** El bloque no contesta nada: el agente del pipeline sigue respondiendo cada mensaje, con las instrucciones del tramo sumadas al prompt antes de las reglas inviolables. El flujo observa y sale por una de cinco salidas. Valores en `src/lib/workflows/config-nodos.ts` y `src/lib/workflows/delegacion.ts`:
+
+| Decisión                                   | Qué quedó                                                                                                                                       |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Condición de vuelta                        | Un intent, una condición del Twin o las dos. **Al menos una es obligatoria**: sin ninguna, «Resuelto» sería inalcanzable.                       |
+| Tiempo máximo                              | Positivo, **arranca en 1440 minutos** y no puede pasar de 7 días.                                                                               |
+| Topes del tramo                            | 20 turnos por defecto (de 1 a 50) y USD 0,50 por defecto (hasta USD 20). Pasado cualquiera, sale por «No pudo».                                 |
+| Instrucciones                              | Hasta 1000 caracteres.                                                                                                                          |
+| Pausa → salida                             | `unknown_intents`, `quote_limit` y `discount_limit` salen por «No pudo». Cualquier otro motivo de pausa y la sesión cerrada salen por «Humano». |
+| No pudo                                    | El agente no respondió, se llegó al tope de turnos o de gasto del tramo, o se llegó al tope de gasto diario del agente.                         |
+| Error                                      | El turno del agente falló después de agotar los reintentos.                                                                                     |
+| Baja durante el tramo                      | La corrida termina sin seguir por ninguna salida: un flujo no le vuelve a escribir a quien pidió que no.                                        |
+| Orden si pasan varias cosas en un turno    | baja → error → sesión cerrada → pausa → resuelto → no pudo → vencido.                                                                           |
+| Turno interceptado por otro flujo          | No cuenta como turno del tramo.                                                                                                                 |
+| Varias delegaciones activas del mismo lead | Sus instrucciones se suman, en orden de arranque.                                                                                               |
+
+**Auto-handoff por intents desconocidos.** El pipeline mandaba siempre una sola clasificación, así que con el umbral de fábrica (2) nunca pausaba. Ahora:
+
+- la racha se arma con los turnos anteriores de la sesión, leídos de la base;
+- un turno sin intent suma a la racha;
+- la cortan un turno con intent, un turno resuelto por una regla IF/THEN y un turno sin clasificación (interceptado por un flujo, con la IA pausada o fuera de horario);
+- el umbral viaja en el evento, para que el pipeline y `auto-handoff` usen el mismo valor.
+
+Probado contra el stack local: con umbral 2, el segundo mensaje sin intent pausó la IA y dejó un `handoff_events` con `unknown_intents`.

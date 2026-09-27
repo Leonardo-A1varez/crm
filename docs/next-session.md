@@ -1,89 +1,104 @@
-# Próxima sesión: pantalla de Métricas
+# Próxima sesión: cerrar workflows y difusión, y desplegarlos
 
 > **Este documento NO define cómo se trabaja. Eso lo define `AGENTS.md`, que rige el 100% del tiempo.**
 >
-> Acá solo se dice **dónde** está puesto el foco y qué se encontró explorando. Si algo de este archivo pareciera permitir saltarse una regla de `AGENTS.md` —la validación funcional antes que la UI, el paso a paso, la honestidad sobre lo que no se verificó, los skills obligatorios— **el que está mal es este archivo**.
+> Acá solo se dice **dónde** está puesto el foco y qué quedó abierto. Si algo de este archivo pareciera permitir saltarse una regla de `AGENTS.md` —la validación funcional antes que la UI, el paso a paso, la honestidad sobre lo que no se verificó, los skills obligatorios— **el que está mal es este archivo**.
 >
 > Acotar el foco limita el alcance, nunca el rigor.
 
-**El foco es Métricas.** Si aparece algo de otra pantalla, se anota y se deja. Método en `AGENTS.md §5.1`.
+Escrito el 2026-09-26. Todo lo que dice "verificado" tiene al lado el comando o la fuente; el resto está marcado como pendiente o sin verificar.
 
 ---
 
-## Dónde mirar
+## 1. Estado de la rama
 
-- `docs/runbooks/como-correr-el-crm.md` — cómo levantarlo y por qué cada proceso está ahí.
-- `docs/handoff-rediseno-README.md` — la spec de diseño de esta pantalla. **Si el código no coincide con ese archivo, el que está mal es el código.**
+| Qué                       | Estado                                                              | Cómo comprobarlo                                                    |
+| ------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `feat/workflows-difusion` | 13 commits sobre `master`, **no existe en el remoto**               | `git log --oneline master..HEAD` · `git ls-remote --heads origin`   |
+| `master` local            | 27 commits sin pushear sobre `origin/master` (`91de606`)            | `git log --oneline origin/master..master`                           |
+| Migraciones               | 88 archivos, las 88 aplicadas en crm-dev                            | `ls supabase/migrations/*.sql \| wc -l` · `supabase migration list` |
+| Código en Vercel          | **No desplegado.** Producción corre lo que había en `origin/master` | —                                                                   |
 
-Para ver la pantalla alcanza con `npm run dev` (queda en `http://localhost:3001/metricas`). Inngest y ngrok **no hacen falta**: Métricas solo lee.
+**Falta:** push de `master`, push de la rama y PR contra `master`. Antes del PR, semgrep sobre los archivos tocados (CLAUDE.md global). El PR es grande: conviene que el cuerpo remita a `AGENTS.md` §2 en lugar de repetir la lista.
 
----
+### Orden del deploy
 
-## Dónde está parada la pantalla
-
-Existe y funciona. Tiene tres cortes —Total, Vendedores, Agente— y es **honesta**: donde no puede calcular algo no inventa un número, dibuja un bloque punteado con `Faltante.tsx` que dice qué iba ahí y qué falta para poder medirlo.
-
-Esos bloques son el punto de partida, porque **dos de los cuatro ya están vencidos**.
-
----
-
-## Lo primero: dos huecos que ya no son huecos
-
-Verificado contra `crm-dev` el 2026-08-16.
-
-### 1. "1ra respuesta" — el dato ya existe
-
-`PanelTotal.tsx` dice que no se puede medir porque _"mensajes.created_at es la hora en que el webhook insertó la fila, no la hora en que el cliente escribió"_.
-
-**Eso dejó de ser cierto.** `mensajes.platform_created_at` existe desde la migración `20260812222808` y ya tiene **8 filas con la hora real de Meta**. La métrica se puede calcular: es el tiempo entre el entrante y el saliente que lo contesta.
-
-Cuidado con lo que sigue siendo verdad: `platform_created_at` es **nullable** —los mensajes viejos no la tienen y algunos payloads no la traen— así que el corte tiene que excluir los nulos y **decir sobre cuántos mensajes se calculó**. Un promedio sobre 8 de 20 mensajes que se presenta como "el promedio" es peor que no mostrarlo.
-
-### 2. "Por qué se escaló a humano" — la tabla ya existe
-
-`PanelVendedores.tsx` dice que _"la sesión termina en requiere_humano sin guardar qué lo disparó"_.
-
-**Tampoco es cierto.** `handoff_events` guarda `reason_code` con ocho valores posibles (`unknown_intents`, `sensitive_keyword`, `quote_limit`, `discount_limit`, `rule_handoff`, `manual_pause`, `manual_resume`, `other`), `action` (`pause`/`resume`) y `previous_stage`. El repo tiene contract test contra Postgres desde el 2026-08-16.
-
-Hoy tiene **0 filas** porque nadie escaló todavía, no porque no se guarde. La pantalla tiene que distinguir esos dos casos: "todavía no pasó" no es lo mismo que "no se puede medir", y hoy dice lo segundo.
-
-### Los otros dos siguen siendo ciertos
-
-- **Costo por lead** — el gasto está en `llm_usage`, pero falta el denominador: leads del período.
-- **Ticket promedio** — `lead_session.precio_cotizado` es lo que se cotizó, no lo que se facturó. No hay tabla de venta ni de orden. Este necesita una decisión de producto, no código.
+1. **`db:push` a crm-dev: ya está hecho.** El ledger remoto tiene las 88 y la última es `20260926180000_turnos_interceptados_y_notificaciones`. Antes de cualquier push nuevo, `AGENTS.md` lección 16: frenar a los agentes, `supabase db push --dry-run` y comparar.
+2. **Variables en Vercel** (sección 3), antes de que entre el código.
+3. **Recién ahí, el código.** Al revés, el código nuevo corre contra columnas y RPC que no existen.
 
 ---
 
-## Lo que hay para trabajar
+## 2. Qué falta del diseño
 
-`metrics.repo.ts` ya expone once lecturas: sesiones, mensajes, leads, ejecuciones de regla, clasificaciones de turno, tool calls, gasto de IA y handoffs desde una fecha, más los catálogos de intents, reglas activas y usuarios. **Tiene contract test contra Postgres** (`tests/repositories/metrics.contract.ts`), que verifica el corte por fecha de las ocho series.
+La auditoría contra `Workflows y Difusion.dc.html` (2026-09-25) contó 37 faltantes. Las tandas posteriores cerraron casi todos: Importar, ícono del disparador, errores sobre el nodo con arreglos, atajos, chips de variables, vista previa contra un lead real, campos vivos y contador en la condición, cancelar corrida, mensajes y corridas por nodo, intentos, Difusión respondida, prueba a mi número, avance y canary en el envío, exclusiones por motivo, rol por número y Delegar al agente.
 
-O sea: los datos están y el repo está probado. Lo que falta es de la pantalla para arriba.
+**Siguen abiertos:**
+
+- **Bloques que no corren:** Clasificar, Extraer, Sentimiento, Spam y Enviar documento. Los 5 bloques de Difusión existen en la paleta pero quedan "no disponibles", porque el motor corre un flujo por lead y esos operan sobre un grupo.
+- **"Faltan N días para subir de nivel":** no se puede calcular. Meta pide haber usado al menos la mitad del límite en 7 días; es una condición, no una cuenta de días, y la API no expone el uso del portfolio. Queda vacío a propósito.
+- **Columna "resp." del listado de Difusiones:** sin tocar. Hace falta una RPC para no caer en N+1.
+- **Aviso de sanción de Meta:** está en `/difusion` y en Ajustes, pero **no** en `/difusion/nueva` ni en `/difusion/[id]`.
+
+**Del QA visual quedaron sin arreglar** (los números son de ese QA, medidos con el panel oculto):
+
+- C3: una corrida `esperando` mostraba el nodo "Detener" como "Ejecutando".
+- C4: la corrida cancelada no muestra el motivo, que sí está en `workflow_runs.error`.
+- D3: el diff de publicación tiene un párrafo que le habla al equipo, no al usuario.
+- E2: la paleta corta con elipsis los nombres largos de los bloques.
+- E7: las conexiones tienen `aria-label` en inglés y con ids internos, y los nodos no tienen `aria-label`.
+- E11: los avisos de error del lienzo quedan debajo de la barra de zoom.
+- T1: `/difusion`, `/difusion/[id]` y `/ajustes` no tienen `loading.tsx` (`find "src/app/(panel)" -name loading.tsx`).
+
+**Nunca se miró:**
+
+- La **comparación visual humana** de ninguna pantalla nueva.
+- Los pasos 2 y 3 del asistente de difusión, porque avanzar escribe en la base.
+- Una difusión «enviando» con el botón Detener.
+- El Realtime de la campanita de avisos en vivo.
+- El diff y la corrida con el `colorMode` nuevo.
+- El bloque CSS de React Flow sin inyectarlo a mano: el dev server no recompiló `globals.css`.
 
 ---
 
-## Advertencia sobre los datos
+## 3. Pendientes del dueño
 
-`crm-dev` tiene **un solo lead real** con 20 mensajes, y nada más. Con ese volumen **casi toda métrica va a dar cero, uno, o un porcentaje sin sentido**.
-
-No confundir "la métrica está mal" con "no hay datos". Antes de dar por roto un número, contar las filas de la tabla que lo alimenta. Si hace falta volumen para ver algo, se siembra a propósito y **se borra al terminar** — no se deja tirado como pasó con los dos "Carlos Gómez".
-
----
-
-## Al cerrar la pantalla
-
-Cuando el dueño diga que Métricas está terminada, preparar el cierre sin que lo pida (`AGENTS.md §5.1`): todo commiteado, `typecheck` + `lint` + `test` corridos **con el número real reportado**, `test:integration` si se tocó SQL o repos, y decir en voz alta lo que quedó sin verificar.
-
-Eso es el cierre de la pantalla, **no un reemplazo de las reglas**: durante toda la sesión siguen valiendo el paso a paso de `AGENTS.md §5`, la validación funcional antes que la UI (§0.5), los skills obligatorios (§0.7 y §0.11) y la honestidad técnica sin filtros (§0.8).
+- [ ] **Suscribir `account_update` en Meta.** Sin eso, la escalera de sanciones de Ajustes no recibe eventos reales. Solo se probó con un webhook firmado a mano contra el stack local.
+- [ ] **Cargar `DIFUSION_BAJAS_HMAC_CLAVES` y `DIFUSION_BAJAS_HMAC_VERSION_ACTIVA` en `.env.local` y en Vercel antes del deploy.** Sin ellas, las bajas de difusión no se pueden registrar ni consultar (`src/server/repositories/difusion-supresiones.hash.ts`). Van las dos juntas; con una sola, `env.ts` rechaza el arranque. El formato está en `.env.local.example` y la rotación en `docs/runbooks/secrets-rotation.md`.
+- [ ] **Agregar `META_GRAPH_API_BASE_URL` a `.env.local.example`** como opcional, con default `https://graph.facebook.com`. Un hook bloquea que un agente edite ese archivo («contiene secretos»).
+- [ ] **Puertos de Inngest local expuestos.** `inngest:local` bindea la API (8298) a `127.0.0.1`, pero el gateway de Connect (8299) y sus gRPC (50062/50063) quedan en todas las interfaces: el CLI 1.45.1 no tiene flag para eso. Si la red no es de confianza, hay que bloquearlos con el firewall de Windows. Es decisión del dueño; ningún agente toca el firewall.
+- [ ] **Confirmar las decisiones pendientes** de «Delegar al agente» y del auto-handoff: tabla en `docs/prd-workflows.md` §16, la misma que `docs/prd-workflows-difusion.md` §15.
 
 ---
 
-## Deuda que NO se toca en esta sesión
+## 4. Hallazgos abiertos
 
-Se anota y se deja:
+Formato de `AGENTS.md` §0.4: observación → causa → fix. Ninguno se arregló.
 
-- **Ninguna pantalla se revisó visualmente** en toda la sesión anterior. El panel del navegador nunca estuvo desplegado, así que todo se verificó leyendo el HTML del servidor: prueba que el contenido llega, no que se vea bien.
-- **El catálogo está vacío a propósito**, esperando el documento de siglas y abreviaturas del dueño.
-- **Productos** necesita el filtrado y los parámetros de cuánta información se procesa. Va después de Métricas.
-- **`/ajustes`** sigue siendo `PantallaPendiente`.
-- **Sin deploy.** El webhook depende de un túnel ngrok que hay que levantar y re-apuntar a mano en cada arranque.
+| #   | Observación                                                                  | Causa (leída en el código)                                                                                                                                                                                                                               | Fix propuesto                                                                                                                                                                                                                                                                |
+| --- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **`difusion_envios.telefono` guarda el teléfono en claro.**                  | La migración `20260925040000` pasó a HMAC solo `difusion_supresiones`; su encabezado dice que no toca `difusion_envios.telefono` ni `programar_difusion()`.                                                                                              | Decidir si el envío necesita el teléfono después de mandar (reintentos, estados). Si no, borrarlo al cerrar la difusión o guardar solo el hash. Es PII bajo las leyes de §0.9.                                                                                               |
+| 2   | **El tope de gasto diario del agente no se aplica.**                         | `CostTracker.exceedsCap` no tiene ningún llamador fuera de su definición (`grep -rn exceedsCap src`). Solo «Delegar al agente» respeta `tope_gasto_diario_usd`; el pipeline no.                                                                          | Consultar el tope antes de cada llamada LLM del pipeline y decidir qué pasa al superarlo (política de kill switch de `agente_config`). Choca con la decisión del dueño de no usar Upstash: con el tracker en memoria, en serverless el tope no se comparte entre instancias. |
+| 3   | **Inbox, Twin y Métricas muestran horas en la zona del navegador.**          | `format(…, "HH:mm")` de date-fns sin zona en `MessageBubble.tsx`, `AuditoriaTurno.tsx`, `TwinPanel.tsx`; `Intl`/`toLocaleDateString` sin `timeZone` en `IntentsSinRegla.tsx` y `GestionCampanias.tsx`. Workflows ya usa la zona del negocio (`f760483`). | Reusar el helper de zona del negocio de workflows en esas pantallas. Leads: no encontré el formateo de horas en `src/components/leads`; falta ubicarlo.                                                                                                                      |
+| 4   | **Inputs sin foco visible en Inbox, Leads y Twin.**                          | Reportado por el pulido del 2026-09-26, fuera de su alcance. No lo medí.                                                                                                                                                                                 | Mismo patrón que se aplicó en Workflows: `focus-visible:outline-solid`, o anillo en el contenedor con `has-[input:focus-visible]`.                                                                                                                                           |
+| 5   | **La línea de «Ir a» no se dibuja en el lienzo.**                            | El salto vive en la config del nodo, no en `grafo.aristas`. `aristasDeSalto`, que lo traduce a arista, solo lo usan el validador, el ejecutor y `pasos.ts` (historial); ningún componente del lienzo. Leído en el código, no mirado en el navegador.     | Dibujar una arista punteada, no editable, desde el nodo «Ir a» hasta su destino.                                                                                                                                                                                             |
+| 6   | **La reactivación semanal podría mandar texto fuera de la ventana de 24 h.** | `src/inngest/callbacks/send-reactivation.ts` manda con `metaApi.sendOutbound` (texto libre) a leads perdidos, que por definición suelen tener la ventana cerrada. Meta solo acepta plantillas fuera de la ventana. No se probó contra Meta.              | Mandar plantilla cuando la ventana esté cerrada, igual que hace «Reactivar perdidos» de workflows con `workflow_plantillas_sin_sesion`.                                                                                                                                      |
+| 7   | **El detector de duplicados puede no ver el mismo teléfono con y sin `+`.**  | `leads_que_comparten_identificador` compara `valor` exacto (migración `20260814250000`). No verifiqué cómo se normaliza el valor al escribirlo.                                                                                                          | **Tarea aparte:** normalizar a E.164 sin `+` al escribir y hacer un backfill, o comparar sobre una columna normalizada.                                                                                                                                                      |
+
+---
+
+## 5. Cómo levantar lo necesario
+
+- Pantallas y flujos sin tocar crm-dev ni Meta: stack local, `docs/runbooks/como-correr-el-crm.md` §4.1.
+- Integration tests: `npm run test:integration:local`. Vacía el stack local; no se corre si otro agente está haciendo E2E ahí.
+- crm-dev: CLI enlazado, o lectura con `mcp__plugin_supabase_supabase__execute_sql` y `project_id` `emubzkouwvuzlrtsgorx`. **No con `mcp__supabase__*`**, que apunta a otro proyecto (`AGENTS.md` lección 15).
+
+---
+
+## Deuda que sigue de antes
+
+- **El catálogo está vacío a propósito**, esperando el documento de siglas del dueño. Sin catálogo, el agente no vende y una difusión de repuestos no tiene qué ofrecer.
+- **Productos** necesita el filtrado y los parámetros de cuánta información se procesa. Está bloqueada por lo anterior.
+- **Métricas** se trabajó en `master` (ventas, rango libre, campañas), pero no hay registro de cierre.
+- **`revert_lead_merge` nunca se ejecutó.**
+- **Sin `EXPLAIN` con volumen representativo.**
