@@ -138,6 +138,13 @@ export type PosicionEnEscalera =
       desde: string | null;
       /** Por qué el escalón es una inferencia y no un dato de Meta. `null` si es dato. */
       inferido: string | null;
+      /**
+       * Presente cuando el escalón es un bloqueo y la consulta de `health_status`
+       * dice que la cuenta puede enviar. Las dos fuentes no se contradicen en
+       * silencio: la consulta es el estado de ahora y manda para "¿puedo
+       * mandar?"; el escalón es el último aviso guardado. El texto explica eso.
+       */
+      contradicho?: string;
     }
   | { tipo: "no-disponible"; motivo: string };
 

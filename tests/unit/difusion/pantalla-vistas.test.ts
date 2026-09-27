@@ -187,6 +187,77 @@ describe("saludDelNumero", () => {
   });
 });
 
+describe("saludDelNumero — aviso de sanción (mismo criterio que Ajustes)", () => {
+  /** Un bloqueo de plantillas guardado por el webhook `account_update`. */
+  const BLOQUEO_PLANTILLAS = {
+    estado: "ok" as const,
+    datos: {
+      registros: [
+        {
+          evento: {
+            tipo: "restriccion" as const,
+            restricciones: [
+              {
+                tipo: "RESTRICTED_BIZ_INITIATED_MESSAGING" as const,
+                vence: null,
+                remediacion: null,
+              },
+            ],
+          },
+          at: new Date("2026-09-10T15:00:00Z"),
+        },
+      ],
+      truncado: false,
+    },
+  };
+
+  it("sin las sanciones leídas no inventa un aviso", () => {
+    expect(saludDelNumero(salud(), TZ).sancion).toBeNull();
+  });
+
+  it("si Meta dice que puede enviar, el bloqueo guardado es «último aviso», con la explicación", () => {
+    const { sancion, envio } = saludDelNumero(salud(), TZ, BLOQUEO_PLANTILLAS);
+    expect(envio.estado).toBe("disponible");
+    expect(sancion).toMatchObject({
+      escalon: "Bloqueo de plantillas",
+      desde: "10/09",
+      historico: true,
+    });
+    expect(sancion?.explicacion).toContain("10/09");
+  });
+
+  it("si Meta también frena el envío, el bloqueo es el estado de hoy", () => {
+    const { sancion } = saludDelNumero(
+      salud({
+        estadoDeEnvio: { estado: "ok", valor: { puedeEnviar: "LIMITED", entidades: [] } },
+      }),
+      TZ,
+      BLOQUEO_PLANTILLAS,
+    );
+    expect(sancion).toMatchObject({ historico: false, explicacion: null, desde: "10/09" });
+  });
+
+  it("sin sanciones entre los avisos guardados, no hay aviso", () => {
+    const { sancion } = saludDelNumero(salud(), TZ, {
+      estado: "ok",
+      datos: {
+        registros: [
+          {
+            evento: { tipo: "otro", evento: "PARTNER_ADDED" },
+            at: new Date("2026-09-01T15:00:00Z"),
+          },
+        ],
+        truncado: false,
+      },
+    });
+    expect(sancion).toBeNull();
+  });
+
+  it("si la base no respondió, no hay aviso (el motivo lo muestra Ajustes)", () => {
+    expect(saludDelNumero(salud(), TZ, { estado: "error", mensaje: "timeout" }).sancion).toBeNull();
+  });
+});
+
 describe("plantillasParaDifusion", () => {
   it("ofrece sólo marketing y utility, ordenadas por nombre, y cuenta las de otra categoría", () => {
     const r = plantillasParaDifusion(salud());

@@ -138,7 +138,9 @@ const ItemPaleta = memo(function ItemPaleta({
       role="option"
       aria-selected={false}
       aria-disabled={!aplica || undefined}
-      title={motivoNoAplica ?? bloque.descripcion}
+      // El nombre va primero: la fila lo trunca y el `title` es la única forma
+      // de leerlo entero con el mouse.
+      title={`${bloque.nombre}: ${motivoNoAplica ?? bloque.descripcion}`}
       aria-label={
         (aplica
           ? `${bloque.nombre}. ${bloque.descripcion}`
@@ -158,11 +160,7 @@ const ItemPaleta = memo(function ItemPaleta({
       <span className="text-ink-body flex-1 truncate text-[11.5px] leading-none font-medium">
         {bloque.nombre}
       </span>
-      {!aplica ? (
-        <span className="text-ink-ghost shrink-0 font-mono text-[9px] tracking-wide uppercase">
-          no aplica
-        </span>
-      ) : null}
+      {!aplica ? <span className="text-ink-ghost shrink-0 text-[10px]">no aplica</span> : null}
       {bloque.salidas !== undefined ? (
         <span
           aria-hidden

@@ -34,12 +34,14 @@ export function TarjetaFlujo({ flujo, acciones }: { flujo: FlujoEnLista; accione
           >
             {nombre}
           </Link>
-          <p className="text-ink-faint truncate text-[11.5px]">{resumen}</p>
+          <p className="text-ink-faint truncate text-[11.5px]" title={resumen}>
+            {resumen}
+          </p>
         </div>
         <BadgeEstado estado={estado} />
       </div>
 
-      <div className="border-line-row flex items-end gap-5 border-t pt-3">
+      <div className="border-line-row flex flex-wrap items-end gap-x-4 gap-y-2.5 border-t pt-3">
         <Dato valor={formatearEntero(corridas30d)} label="corridas 30 d" />
         <Dato
           valor={huboCorridas ? formatearPorcentaje(tasaExito) : "—"}
@@ -134,7 +136,7 @@ function IconoDisparador({ disparador }: { disparador: FlujoEnLista["disparador"
 
 function Dato({ valor, label, atenuado }: { valor: string; label: string; atenuado?: boolean }) {
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1 whitespace-nowrap">
       <span
         className={
           atenuado

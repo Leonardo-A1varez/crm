@@ -31,4 +31,15 @@ describe("initials", () => {
     expect(initials("")).toBe("?");
     expect(initials("   ")).toBe("?");
   });
+
+  test("ignora las palabras que no empiezan con letra: paréntesis, números, signos", () => {
+    expect(initials("Lucía Paredes (prueba)")).toBe("LP");
+    expect(initials("Tanda Cuatro 12025550180 (prueba)")).toBe("TC");
+    expect(initials("Admin (dev)")).toBe("A");
+  });
+
+  test("sin ninguna palabra que empiece con letra devuelve interrogacion", () => {
+    expect(initials("(prueba)")).toBe("?");
+    expect(initials("+1 555 0100")).toBe("?");
+  });
 });

@@ -1,10 +1,16 @@
-import { vistaSalud, type VistaSalud } from "@/app/(panel)/ajustes/_lib/vistas";
+import {
+  REGISTROS_NO_LEIDOS,
+  vistaSalud,
+  type RegistrosDeLaBase,
+  type VistaSalud,
+} from "@/app/(panel)/ajustes/_lib/vistas";
 import { estimarFin, ritmoMedido, tandaActual } from "@/lib/difusion/avance";
 import { describirFallo } from "@/lib/difusion/codigos-meta";
 import { MOTIVO_EXCLUSION } from "@/lib/difusion/modelo";
 import { fechaLegibleEnZona } from "@/lib/zona-horaria";
 import { topeDesdeLimite } from "@/server/services/difusion/tope";
 import type {
+  AvisoSancion,
   CategoriaPlantilla,
   Dato,
   Difusion,
@@ -109,8 +115,12 @@ function pausadasDe(plantillas: VistaSalud["plantillas"]): Dato<PlantillaPausada
  * (`vistaSalud`): es la misma lectura de Meta vista desde otra pantalla, y dos
  * traducciones del mismo `GREEN` terminan diciendo cosas distintas.
  */
-export function saludDelNumero(salud: SaludWhatsApp, tz: string): SaludNumero {
-  const vista = vistaSalud(salud, tz);
+export function saludDelNumero(
+  salud: SaludWhatsApp,
+  tz: string,
+  sanciones: RegistrosDeLaBase["sanciones"] = REGISTROS_NO_LEIDOS.sanciones,
+): SaludNumero {
+  const vista = vistaSalud(salud, tz, { ...REGISTROS_NO_LEIDOS, sanciones });
   const tope = topeDesdeLimite(salud.limite);
   return {
     calidad: calidadDelConfigurado(vista.numeros),
@@ -120,7 +130,27 @@ export function saludDelNumero(salud: SaludWhatsApp, tz: string): SaludNumero {
         : { estado: "sin-dato", motivo: tope.motivo },
     envio: vista.envio,
     plantillasPausadas: pausadasDe(vista.plantillas),
+    sancion: avisoDeSancion(vista),
     fuente: vista.fuente,
+  };
+}
+
+/**
+ * La posición de la escalera de Ajustes, reducida a un aviso. No decide nada:
+ * `vistaSalud` ya contrastó el escalón con `health_status`, y un escalón
+ * `contradicho` es el "último aviso" y no "estás acá", igual que allá.
+ */
+function avisoDeSancion(vista: Pick<VistaSalud, "posicion" | "escalones">): AvisoSancion | null {
+  const { posicion } = vista;
+  if (posicion.tipo !== "en-escalon") return null;
+  const escalon = vista.escalones[posicion.indice];
+  if (!escalon) return null;
+  return {
+    escalon: escalon.nombre,
+    consecuencia: escalon.consecuencia,
+    desde: posicion.desde,
+    historico: posicion.contradicho !== undefined,
+    explicacion: posicion.contradicho ?? null,
   };
 }
 

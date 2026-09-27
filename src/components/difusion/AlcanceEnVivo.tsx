@@ -224,7 +224,10 @@ function Resumen({
               >
                 <InitialsAvatar nombre={d.nombre || "?"} size={26} />
                 <span className="min-w-0 flex-1">
-                  <span className="text-ink-primary block truncate text-[11.5px] font-medium">
+                  <span
+                    className="text-ink-primary block truncate text-[11.5px] font-medium"
+                    title={d.nombre || undefined}
+                  >
                     {d.nombre || "Sin nombre"}
                   </span>
                   <span className="text-ink-ghost block truncate font-mono text-[10px]">

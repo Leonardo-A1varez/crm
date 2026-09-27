@@ -145,6 +145,38 @@ describe("EscaleraSanciones", () => {
 
     expect(screen.getByText(/estás acá · 12\/08/)).toBeTruthy();
   });
+
+  test("si la consulta de ahora contradice el escalón, lo presenta como último aviso y dice por qué", () => {
+    render(
+      <EscaleraSanciones
+        escalones={ESCALONES}
+        posicion={{
+          tipo: "en-escalon",
+          indice: 1,
+          desde: "26/09",
+          inferido: null,
+          contradicho: "explicación de prueba",
+        }}
+        envio={{ estado: "disponible" }}
+      />,
+    );
+
+    expect(screen.queryByText(/estás acá/)).toBeNull();
+    expect(screen.getByText(/último aviso · 26\/09/)).toBeTruthy();
+    expect(screen.getByText("explicación de prueba")).toBeTruthy();
+  });
+
+  test("con el envío bloqueado no dibuja el chip verde de sin sanciones", () => {
+    render(
+      <EscaleraSanciones
+        escalones={ESCALONES}
+        posicion={{ tipo: "sin-sancion", observadoDesde: "1 sep" }}
+        envio={{ estado: "bloqueado", detalle: "detalle de prueba" }}
+      />,
+    );
+
+    expect(screen.queryByText("sin sanciones")).toBeNull();
+  });
 });
 
 describe("TablaNumeros", () => {
@@ -271,7 +303,7 @@ describe("DatosEmpresa", () => {
       <DatosEmpresa datos={{ registro: null, zonaHoraria: "America/Argentina/Buenos_Aires" }} />,
     );
 
-    expect(screen.getByText(/la tabla empresas está vacía/)).toBeTruthy();
+    expect(screen.getByText(/Todavía no hay datos de la empresa cargados/)).toBeTruthy();
     expect(screen.getByText("America/Argentina/Buenos_Aires")).toBeTruthy();
     expect(container.querySelectorAll("input")).toHaveLength(0);
   });
@@ -310,7 +342,7 @@ describe("UsuariosYRoles", () => {
 
     expect(screen.getAllByText("sin dato")).toHaveLength(1);
     expect(screen.queryByText("nunca entró")).toBeNull();
-    expect(screen.getByText(/auth\.users/)).toBeTruthy();
+    expect(screen.getByText(/El último acceso todavía no se muestra/)).toBeTruthy();
   });
 });
 

@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { SearchIcon } from "@/components/icons";
+import { initials } from "@/lib/ui/initials";
 import { FOCO, TRANSICION_CONTROL } from "@/lib/ui/motion";
 import { estadoVentana, restanteLegible } from "@/lib/ventana";
 import { interpolarVariables, type DatosInterpolacion } from "@/lib/workflows/variables";
@@ -27,11 +28,6 @@ export type LeerVistaPreviaFn = (
 const CORTO: ReadonlyMap<string, string> = new Map(
   VARIABLES_DISPONIBLES.map((v) => [v.key, v.corto]),
 );
-
-function iniciales(nombre: string): string {
-  const partes = nombre.trim().split(/\s+/).filter(Boolean);
-  return (partes[0]?.[0] ?? "?").toUpperCase() + (partes[1]?.[0] ?? "").toUpperCase();
-}
 
 /**
  * La vista previa de «Enviar mensaje» contra un lead real.
@@ -157,7 +153,7 @@ export function VistaPreviaContraLead({
               aria-hidden
               className="bg-surface-hover text-ink-secondary grid size-5 shrink-0 place-items-center rounded-full font-mono text-[9px] font-semibold"
             >
-              {iniciales(lead.nombre)}
+              {initials(lead.nombre)}
             </span>
             <span className="text-ink-primary min-w-0 flex-1 truncate text-[11.5px] font-medium">
               {lead.nombre}

@@ -72,7 +72,12 @@ export function EscaleraSanciones({
     <section className="border-line-card bg-surface-card flex flex-col gap-3.5 rounded-[14px] border p-5">
       <div className="flex flex-wrap items-center gap-2.5">
         <Eyebrow>Escalera de sanciones</Eyebrow>
-        {posicion.tipo === "sin-sancion" ? (
+        {/* "sin sanciones" en verde al lado de un "Bloqueado" en rojo se lee como
+            contradicción: el bloqueo puede no ser una sanción, pero eso lo explica
+            el párrafo de "Meta dice", no un chip verde. */}
+        {posicion.tipo === "sin-sancion" &&
+        envio.estado !== "limitado" &&
+        envio.estado !== "bloqueado" ? (
           <span
             className="inline-flex items-center gap-1.5 rounded-[6px] px-2 py-1 text-[10.5px] leading-none font-semibold"
             style={{ color: "var(--color-ok)", backgroundColor: tinte("var(--color-ok)", 12) }}
@@ -94,6 +99,25 @@ export function EscaleraSanciones({
         >
           <span className="font-semibold">Meta dice:</span> {envio.detalle}
         </p>
+      ) : null}
+
+      {posicion.tipo === "en-escalon" && posicion.contradicho !== undefined ? (
+        <div className="bg-surface-input flex items-start gap-2.5 rounded-[11px] px-3.5 py-3">
+          <HelpIcon
+            size={14}
+            strokeWidth={2.25}
+            className="text-ink-faint mt-px shrink-0"
+            aria-hidden
+          />
+          <div className="flex min-w-0 flex-col gap-1">
+            <p className="text-ink-primary text-[11.5px] leading-snug font-[650]">
+              La escalera no coincide con lo que Meta dice ahora.
+            </p>
+            <p className="text-ink-secondary text-[11px] leading-relaxed text-pretty">
+              {posicion.contradicho}
+            </p>
+          </div>
+        </div>
       ) : null}
 
       {posicion.tipo === "no-disponible" ? (
@@ -123,6 +147,7 @@ export function EscaleraSanciones({
             lugar={lugarDe(posicion, i)}
             desde={posicion.tipo === "en-escalon" ? posicion.desde : null}
             inferido={posicion.tipo === "en-escalon" ? posicion.inferido : null}
+            historico={posicion.tipo === "en-escalon" && posicion.contradicho !== undefined}
             ultimo={i === escalones.length - 1}
           />
         ))}
@@ -168,12 +193,15 @@ function Escalon({
   lugar,
   desde,
   inferido,
+  historico,
   ultimo,
 }: {
   escalon: EscalonSancion;
   lugar: Lugar;
   desde: string | null;
   inferido: string | null;
+  /** El escalón sale de un aviso viejo que la consulta de ahora contradice. */
+  historico: boolean;
   ultimo: boolean;
 }) {
   const esActual = lugar === "actual";
@@ -245,7 +273,7 @@ function Escalon({
               className="shrink-0 font-mono text-[10.5px] font-semibold tabular-nums"
               style={{ color }}
             >
-              estás acá · {desde}
+              {historico ? "último aviso" : "estás acá"} · {desde}
             </span>
           ) : (
             <span className="text-ink-ghost shrink-0 font-mono text-[10.5px] tabular-nums">

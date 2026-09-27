@@ -122,7 +122,7 @@ export function PanelConfig({
           <p className="text-ink-ghost text-center text-[12px] leading-relaxed text-balance">
             Elegí un bloque del lienzo para configurarlo.
           </p>
-          <p className="text-ink-ghost/70 text-center text-[10.5px] leading-relaxed text-balance">
+          <p className="text-ink-ghost text-center text-[10.5px] leading-relaxed text-balance">
             También podés arrastrar uno nuevo desde la izquierda, o soltarlo sobre una línea para
             insertarlo entre dos pasos.
           </p>

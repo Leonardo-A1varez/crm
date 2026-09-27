@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Casilla } from "@/components/shared/Casilla";
 import { LockClock } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import {
@@ -86,14 +87,12 @@ export function ExclusionesAudiencia({
               )}
             >
               {e.eximible ? (
-                <input
-                  type="checkbox"
+                <Casilla
                   checked={e.aplicada}
                   onChange={(ev) =>
                     ev.target.checked ? onAlternar(e.motivo, true) : setPendiente(e.motivo)
                   }
                   aria-label={`Excluir: ${d.etiqueta}`}
-                  className="border-line-control checked:bg-ink-primary checked:border-ink-primary focus-visible:ring-ring/50 size-[18px] shrink-0 appearance-none rounded-[5px] border transition-colors duration-150 focus-visible:ring-3 focus-visible:outline-none"
                 />
               ) : (
                 <span

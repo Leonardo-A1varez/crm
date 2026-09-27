@@ -39,11 +39,11 @@ export function DatosEmpresa({
   return (
     <SeccionAjuste
       titulo="Empresa"
-      nota="Razón social y teléfono de contacto no tienen dónde guardarse: la tabla empresas sólo tiene nombre e identificación fiscal."
+      nota="Por ahora el CRM guarda sólo el nombre y la identificación fiscal. La razón social y el teléfono de contacto todavía no se pueden cargar."
     >
       {registro === null ? (
         <p className="border-line-control text-ink-secondary mb-4 max-w-[720px] rounded-[11px] border border-dashed px-3.5 py-3 text-[11.5px] leading-relaxed">
-          No hay datos de la empresa cargados: la tabla empresas está vacía.
+          Todavía no hay datos de la empresa cargados.
         </p>
       ) : null}
 

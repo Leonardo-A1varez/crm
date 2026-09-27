@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useMemo } from "react";
+import { Casilla } from "@/components/shared/Casilla";
 import { ConstructorCondiciones } from "@/components/shared/condiciones";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -192,11 +193,10 @@ export function ConstructorAudiencia({
                     : "border-line-card bg-surface-card/50 hover:border-line-control",
                 )}
               >
-                <input
-                  type="checkbox"
+                <Casilla
                   checked={todaLaBase}
                   onChange={(e) => onCambiarTodaLaBase(e.target.checked)}
-                  className="border-line-control checked:bg-ink-primary checked:border-ink-primary mt-[1px] size-[18px] shrink-0 appearance-none rounded-[5px] border transition-colors duration-150 focus-visible:outline-none"
+                  className="mt-[1px]"
                 />
                 <span className="flex min-w-0 flex-col gap-1">
                   <span className="text-ink-primary text-[12px] font-[650]">

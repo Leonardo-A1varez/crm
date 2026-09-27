@@ -141,9 +141,16 @@
   --ink-secondary: #383d47;
   --ink-muted: #565c68;
   --ink-dim: #5a616e;
-  --ink-faint: #646b78;
-  --ink-fainter: #6d7481;
-  --ink-ghost: #757c89;
+  /* Los tres últimos escalones de tinta se subieron a 4.5:1 (AA para texto
+     de cuerpo) sobre la superficie de texto más clara del tema, `surface-hover`
+     en claro y el `#1c1f24` de los badges en oscuro. Antes `ink-ghost` daba
+     3.61 acá y 2.86 en oscuro, y se usa en más de 200 textos de 10-12 px.
+     La escalera se comprime: lo que separa jerarquía por debajo de `ink-dim`
+     pasa a ser tamaño y peso, no un gris que no se lee.
+     Reproducir: node scripts/verificar-paleta-clara.mjs (sección D). */
+  --ink-faint: #606773;
+  --ink-fainter: #636976;
+  --ink-ghost: #656c78;
 
   /* La marca no se invierte: mismo rojo en los dos temas. */
   --brand: #d61f1f;
@@ -331,9 +338,10 @@
   --ink-secondary: #c8ccd3;
   --ink-muted: #a9aeb7;
   --ink-dim: #8b909a;
-  --ink-faint: #7c838e;
-  --ink-fainter: #6e7580;
-  --ink-ghost: #5f6672;
+  /* Ver el bloque de `:root`: mínimo 4.5:1 sobre `#1c1f24`. */
+  --ink-faint: #868d97;
+  --ink-fainter: #838a94;
+  --ink-ghost: #818791;
 
   --brand: #d61f1f;
   --brand-hover: #ff5c5c;
@@ -465,5 +473,77 @@
     background: var(--color-line-dot);
     border: 2px solid transparent;
     background-clip: content-box;
+  }
+}
+
+/* Crédito de React Flow. No se oculta: la librería es MIT, pero sus autores
+   piden quitarlo sólo con una suscripción a React Flow Pro
+   (reactflow.dev/learn/troubleshooting/remove-attribution, leído el
+   2026-09-26). Lo que sí se arregla es que no se lea: el fondo blanco al 50 %
+   sobre el lienzo oscuro con el gris #999 daba 1,3:1. Sin fondo propio y con
+   la tinta más tenue del sistema, que ya pasa 4,5:1. */
+.react-flow {
+  --xy-attribution-background-color: transparent;
+}
+
+/* El lienzo de React Flow (editor, diff de publicación y corrida) pinta con los
+   tokens de la app. React Flow trae dos paletas propias (`.light`/`.dark`) que
+   leen `--xy-*-default`; redefinir acá las `--xy-*` sin sufijo les gana a las
+   dos, así que el lienzo sigue a `:root`/`.dark` como cualquier otra pantalla.
+   El `colorMode` lo alinea `useColorModeLienzo` (clase de la raíz), pero los
+   colores no dependen de eso. Lo que no se lista (nodos por defecto, `group`)
+   no se usa: los tres lienzos dibujan nodos y aristas propios. */
+.react-flow {
+  --xy-background-color: var(--surface-root);
+  --xy-background-pattern-color: var(--line-dot);
+
+  --xy-edge-stroke: var(--line-control);
+  --xy-edge-stroke-selected: var(--ink-dim);
+  --xy-connectionline-stroke: var(--ink-dim);
+  --xy-edge-label-background-color: var(--surface-panel);
+  --xy-edge-label-color: var(--ink-body);
+
+  --xy-handle-background-color: var(--surface-panel);
+  --xy-handle-border-color: var(--line-control);
+
+  --xy-selection-background-color: color-mix(in srgb, var(--brand) 8%, transparent);
+  --xy-selection-border: 1px dotted color-mix(in srgb, var(--brand) 70%, transparent);
+
+  --xy-minimap-background-color: var(--surface-panel);
+  --xy-minimap-mask-background-color: color-mix(in srgb, var(--surface-root) 78%, transparent);
+  --xy-minimap-node-background-color: var(--surface-avatar);
+
+  --xy-controls-button-background-color: var(--surface-panel);
+  --xy-controls-button-background-color-hover: var(--surface-hover);
+  --xy-controls-button-color: var(--ink-secondary);
+  --xy-controls-button-color-hover: var(--ink-primary);
+  --xy-controls-button-border-color: var(--line-control);
+  --xy-controls-box-shadow: none;
+}
+.react-flow .react-flow__attribution a {
+  color: var(--color-ink-ghost);
+}
+
+/* Foco de teclado en el lienzo (WCAG 2.4.7). React Flow hace los nodos y las
+   conexiones alcanzables con Tab pero les saca el `outline` en `:focus-visible`,
+   y el cambio de trazo que deja a cambio no se ve: las conexiones del editor
+   pintan su trazo en línea, y un estilo en línea le gana a la hoja. Sin esto el
+   teclado recorría paradas invisibles. El anillo es el mismo del resto del
+   panel (`ring-brand/60`, 2 px).
+
+   La regla de la conexión va en `@layer base` y con `!important` a propósito:
+   el trazo lo fija `AristaInsertable` con utilidades `!stroke-*`, y entre
+   declaraciones `!important` gana la de la capa ANTERIOR — una `!important`
+   fuera de capa o en `utilities` pierde contra ellas. Sólo aplica con foco. */
+.react-flow .react-flow__node:focus-visible,
+.react-flow .react-flow__node.selectable:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-brand) 60%, transparent);
+  outline-offset: 3px;
+  border-radius: 10px;
+}
+@layer base {
+  .react-flow .react-flow__edge:focus-visible .react-flow__edge-path {
+    stroke: var(--color-brand) !important;
+    stroke-width: 2.5px !important;
   }
 }

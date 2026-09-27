@@ -229,12 +229,19 @@ export function ResumenValidacion({
     <div className={cn("flex items-center gap-1.5", className)}>
       {visibles.map((s) => {
         const n = conteos[s];
+        // `conteos` cuenta BLOQUES, no problemas: un bloque nuevo sin conectar
+        // ni configurar trae tres errores y suma uno. Decir «1 error» con tres
+        // listados en el panel era mentir; «1 bloque con error» no.
+        const bloques = `${n} ${n === 1 ? "bloque" : "bloques"}`;
         const texto =
           s === "error"
-            ? `${n} ${n === 1 ? "error bloquea" : "errores bloquean"} publicar`
+            ? `${bloques} con error`
             : s === "stale"
               ? `${n} desactualizado${n === 1 ? "" : "s"}`
               : `${n} sin publicar`;
+        // La cola larga sólo entra si la barra tiene lugar (`@6xl/barra`); el
+        // nombre accesible la lleva siempre.
+        const cola = s === "error" ? " bloquea publicar" : "";
 
         return (
           <button
@@ -242,6 +249,7 @@ export function ResumenValidacion({
             type="button"
             onClick={() => onIrA?.(s)}
             title={`${SEVERIDAD_AYUDA[s]} Ir al primero.`}
+            aria-label={`${texto}${cola}. Ir al primero.`}
             className={cn(
               "inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-[11.5px] font-medium",
               "hover:brightness-110",
@@ -253,7 +261,10 @@ export function ResumenValidacion({
             )}
           >
             <span aria-hidden className={cn("size-1.5 rounded-full", SEVERIDAD_PUNTO[s])} />
-            <span className="tabular-nums">{texto}</span>
+            <span className="tabular-nums">
+              {texto}
+              {cola ? <span className="hidden @6xl/barra:inline">{cola}</span> : null}
+            </span>
           </button>
         );
       })}

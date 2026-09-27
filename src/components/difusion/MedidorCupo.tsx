@@ -98,8 +98,8 @@ export function MedidorCupo({ cupo, tandas }: { cupo: Cupo; tandas: readonly Tan
                 style={{
                   width: `${anchoTramo(t.cantidad, riel.escala)}%`,
                   opacity: resaltado === null || resaltado === t.clave ? 1 : 0.28,
-                  ...(t.clave === "excedente"
-                    ? rayado(COLOR_CUPO.excedente)
+                  ...(t.clave === "excedente" || t.clave === "reserva"
+                    ? rayado(COLOR_CUPO[t.clave])
                     : { backgroundColor: COLOR_CUPO[t.clave] }),
                 }}
               />
@@ -138,8 +138,8 @@ export function MedidorCupo({ cupo, tandas }: { cupo: Cupo; tandas: readonly Tan
               aria-hidden
               className="ring-surface-card size-[9px] shrink-0 rounded-[3px] ring-2"
               style={
-                t.clave === "excedente"
-                  ? rayado(COLOR_CUPO.excedente)
+                t.clave === "excedente" || t.clave === "reserva"
+                  ? rayado(COLOR_CUPO[t.clave])
                   : { backgroundColor: COLOR_CUPO[t.clave] }
               }
             />

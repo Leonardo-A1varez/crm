@@ -196,8 +196,33 @@ export interface SaludNumero {
   /** El agregado de `health_status`. */
   envio: EnvioSegunMeta;
   plantillasPausadas: Dato<PlantillaPausada[]>;
+  /**
+   * El escalón de la escalera de sanciones que marca el último `account_update`
+   * guardado. `null` cuando no hay sanción que avisar: ninguna, o no se pudo
+   * leer (el motivo lo dice Ajustes, que es donde se arregla).
+   */
+  sancion: AvisoSancion | null;
   /** De qué versión de la API y cuándo se leyó. */
   fuente: string;
+}
+
+/**
+ * Una sanción de Meta, vista desde Difusión. Sale de la misma traducción que
+ * la escalera de Ajustes (`vistaSalud`), con su mismo criterio de coherencia.
+ */
+export interface AvisoSancion {
+  escalon: string;
+  /** Qué deja de poder hacerse, en castellano. */
+  consecuencia: string;
+  /** "26/09" en la hora del negocio. `null` si el registro no la trae. */
+  desde: string | null;
+  /**
+   * `health_status` dice que la cuenta puede enviar y el escalón es un bloqueo:
+   * manda la consulta, y el escalón se lee como "último aviso", no como "estás
+   * acá". `explicacion` dice por qué.
+   */
+  historico: boolean;
+  explicacion: string | null;
 }
 
 // --- costo -------------------------------------------------------------------

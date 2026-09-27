@@ -1,6 +1,7 @@
 "use client";
 
 import { useId } from "react";
+import { Casilla } from "@/components/shared/Casilla";
 import { formatearEntero } from "./formato";
 
 /**
@@ -39,12 +40,11 @@ export function BloqueCanary({
       <label
         className={posible ? "flex cursor-pointer items-start gap-2.5" : "flex items-start gap-2.5"}
       >
-        <input
-          type="checkbox"
+        <Casilla
           checked={marcado}
           disabled={!posible}
           onChange={(e) => onCambiar({ activo: e.target.checked, tamano })}
-          className="border-line-control checked:bg-ink-primary checked:border-ink-primary focus-visible:ring-ring/50 mt-[1px] size-[18px] shrink-0 appearance-none rounded-[5px] border transition-colors duration-150 focus-visible:ring-3 focus-visible:outline-none disabled:opacity-50"
+          className="mt-[1px]"
         />
         <span className="flex min-w-0 flex-col gap-1">
           <span className="text-ink-primary text-[12px] font-[650]">

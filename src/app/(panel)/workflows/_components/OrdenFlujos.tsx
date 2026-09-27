@@ -36,7 +36,7 @@ export function OrdenFlujos({ ordenar }: { ordenar: OrdenarWorkflows }) {
       value={ordenar}
       onChange={(e) => cambiar(e.target.value)}
       aria-label="Ordenar los flujos"
-      className="border-line-control bg-surface-root text-ink-secondary h-8 shrink-0 rounded-[9px] border px-2 text-[11.5px] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-brand)]"
+      className="border-line-control bg-surface-root text-ink-secondary h-8 shrink-0 rounded-[9px] border px-2 text-[11.5px] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-brand)] focus-visible:outline-solid"
     >
       {ORDENAR_WORKFLOWS.map((o) => (
         <option key={o} value={o}>

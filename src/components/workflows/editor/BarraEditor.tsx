@@ -15,6 +15,13 @@ import { FOCO, MEDIDAS, PRESION_TACTIL, TRANSICION_CONTROL } from "./tokens-edit
  * botón de volver esté siempre en el mismo píxel al pasar de editar a ver el
  * diff y de ahí a la corrida — moverlo 4 px entre pantallas es de las cosas
  * que nadie nombra y todos sienten.
+ *
+ * Tiene que entrar entera en el ancho que deja la barra lateral a 1280 px
+ * (~1058 px). Las acciones nunca se encogen; lo que cede, en este orden, es el
+ * nombre del flujo (se trunca, con el nombre completo en `title`) y los textos
+ * largos del contexto, que tienen una versión corta por debajo de `@6xl/barra`
+ * (72rem de barra). La consulta es al ancho de la barra y no al del viewport:
+ * la barra lateral y los paneles hacen que el viewport no diga cuánto lugar hay.
  */
 export function BarraEditor({
   titulo,
@@ -37,7 +44,7 @@ export function BarraEditor({
     <header
       style={{ height: MEDIDAS.BARRA }}
       className={cn(
-        "border-line-layout bg-surface-panel flex shrink-0 items-center gap-3 border-b pr-4 pl-3.5",
+        "border-line-layout bg-surface-panel @container/barra flex shrink-0 items-center gap-3 border-b pr-4 pl-3.5",
         className,
       )}
     >
@@ -54,7 +61,10 @@ export function BarraEditor({
         </Button>
       ) : null}
 
-      <h1 className="text-ink-primary shrink-0 text-[14px] leading-none font-semibold tracking-tight">
+      <h1
+        title={titulo}
+        className="text-ink-primary min-w-[6rem] truncate text-[14px] leading-tight font-semibold tracking-tight"
+      >
         {titulo}
       </h1>
 

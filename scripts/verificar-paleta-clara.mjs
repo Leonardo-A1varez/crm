@@ -486,6 +486,69 @@ if (!rampaOk) {
   fallas.push(`la rampa de ${TRAMOS_DECLARADOS} tramos no llega al objetivo CVD ${CVD_OBJETIVO}`);
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// D. TINTA DE TEXTO (`--ink-*`), los dos temas, leída de `globals.css`.
+//    Vara: 4.5:1 (WCAG 1.4.3, texto de cuerpo) sobre cada superficie donde se
+//    escribe texto. `ink-ghost` se usa en más de 200 textos de 10-12 px, así
+//    que no califica como "texto grande" en ningún caso.
+//    Las superficies de texto oscuras incluyen `#1c1f24`, el fondo de los
+//    badges (`bg-surface-*` + borde) medido en el QA del 2026-09-26.
+// ───────────────────────────────────────────────────────────────────────────
+
+const { readFileSync } = await import("node:fs");
+const css = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+function bloque(selector) {
+  const inicio = css.indexOf(`${selector} {`);
+  if (inicio < 0) throw new Error(`no encontré el bloque ${selector} en globals.css`);
+  return css.slice(inicio, css.indexOf("\n}", inicio));
+}
+function variable(texto, nombre) {
+  const m = texto.match(new RegExp(`--${nombre}:\\s*(#[0-9a-fA-F]{6})`));
+  if (!m) throw new Error(`falta --${nombre}`);
+  return m[1];
+}
+const TINTAS = [
+  "ink-primary",
+  "ink-body",
+  "ink-secondary",
+  "ink-muted",
+  "ink-dim",
+  "ink-faint",
+  "ink-fainter",
+  "ink-ghost",
+];
+const SUPERFICIES_TEXTO = {
+  claro: {
+    selector: ":root",
+    fondos: ["surface-card", "surface-root", "surface-input", "surface-hover"],
+  },
+  oscuro: {
+    selector: ".dark",
+    fondos: ["surface-root", "surface-card", "surface-input", "surface-bubble-in"],
+    extra: ["#1c1f24"],
+  },
+};
+for (const [tema, conf] of Object.entries(SUPERFICIES_TEXTO)) {
+  const b = bloque(conf.selector);
+  const fondos = [...conf.fondos.map((f) => variable(b, f)), ...(conf.extra ?? [])];
+  console.log(`\nTinta de texto — tema ${tema}\n  (fondos ${fondos.join(" · ")})\n`);
+  let anterior = Infinity;
+  for (const tinta of TINTAS) {
+    const hex = variable(b, tinta);
+    const peor = Math.min(...fondos.map((f) => contraste(aRgb(hex), aRgb(f))));
+    const ok = peor >= CONTRASTE_MINIMO;
+    // La escalera tiene que seguir bajando: un escalón "más tenue" que
+    // contrasta más que el anterior invierte la jerarquía.
+    const orden = peor <= anterior + 1e-9;
+    console.log(
+      `  ${tinta.padEnd(14)} ${hex}  peor ${peor.toFixed(2)}  ${ok ? "ok" : "BAJO"}${orden ? "" : "  FUERA DE ORDEN"}`,
+    );
+    if (!ok) fallas.push(`${tema}: --${tinta} ${peor.toFixed(2)} < ${CONTRASTE_MINIMO}`);
+    if (!orden) fallas.push(`${tema}: --${tinta} contrasta más que el escalón anterior`);
+    anterior = peor;
+  }
+}
+
 if (fallas.length > 0) {
   console.error(`\nFALLA: ${fallas.join("; ")}`);
   process.exit(1);

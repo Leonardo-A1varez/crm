@@ -1,19 +1,20 @@
 "use client";
 
+import Link from "next/link";
 import { BadgeSalud } from "@/components/ajustes/BadgeSalud";
 import { DESCRIPTOR_CALIDAD, DESCRIPTOR_ENVIO } from "@/components/ajustes/descriptores";
-import { Add, Warning } from "@/components/icons";
+import { Add, HelpIcon, Warning } from "@/components/icons";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Eyebrow } from "@/components/shared/Eyebrow";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { anchoTramo, rielDeCupo } from "./cupo";
+import { anchoTramo, rielDeCupo, type RielCupo } from "./cupo";
 import { ESTADO_DIFUSION } from "./estado-difusion";
-import { COLOR_CUPO, tinte } from "./paleta";
+import { COLOR_CUPO, rayado, tinte } from "./paleta";
 import { formatearEntero, formatearEscalon, formatearUsd } from "./formato";
 import { Cifra, Nota, Panel, Punto } from "./primitivas";
-import type { Cupo, Dato, ListadoVista, SaludNumero } from "./tipos";
+import type { AvisoSancion, Cupo, Dato, ListadoVista, SaludNumero } from "./tipos";
 import type { EnvioSegunMeta } from "@/components/ajustes/tipos";
 import type { ReactNode } from "react";
 
@@ -38,6 +39,67 @@ function textoEnvio(envio: EnvioSegunMeta): string {
     case "sin-dato":
       return `Estado de envío sin dato: ${envio.motivo}`;
   }
+}
+
+/**
+ * La sanción de Meta, arriba de todo: es lo único de esta pantalla que puede
+ * frenar una difusión entera antes de armarla.
+ *
+ * Mismo criterio que la escalera de Ajustes: el color se gasta sólo en "estás
+ * acá". Si `health_status` dice que la cuenta puede enviar, el escalón es el
+ * último aviso guardado y no el estado de hoy: va en gris, con la explicación,
+ * igual que el recuadro "no coincide" de Ajustes.
+ */
+function AvisoSancionMeta({ aviso }: { aviso: AvisoSancion }) {
+  const color = aviso.historico ? "var(--color-ink-faint)" : "var(--color-caution)";
+  const marca = aviso.historico ? "último aviso" : "estás acá";
+  return (
+    <section
+      aria-label="Sanción de Meta"
+      className="flex items-start gap-3 rounded-[11px] border px-4 py-3"
+      style={
+        aviso.historico
+          ? {
+              borderColor: "var(--color-line-card)",
+              backgroundColor: "var(--color-surface-input)",
+            }
+          : {
+              borderColor: tinte("var(--color-caution)", 40),
+              backgroundColor: tinte("var(--color-caution)", 8),
+            }
+      }
+    >
+      {aviso.historico ? (
+        <HelpIcon
+          size={15}
+          strokeWidth={2.25}
+          className="text-ink-faint mt-px shrink-0"
+          aria-hidden
+        />
+      ) : (
+        <Warning size={15} className="text-caution mt-px shrink-0" aria-hidden />
+      )}
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+          <h2 className="text-ink-primary text-[12px] leading-snug font-[650] text-balance">
+            Escalera de sanciones de Meta: {aviso.escalon}
+          </h2>
+          <span className="font-mono text-[10.5px] font-semibold tabular-nums" style={{ color }}>
+            {aviso.desde === null ? marca : `${marca} · ${aviso.desde}`}
+          </span>
+        </div>
+        <p className="text-ink-secondary text-[11px] leading-relaxed text-pretty">
+          {aviso.explicacion ?? aviso.consecuencia}
+        </p>
+      </div>
+      <Link
+        href="/ajustes?tab=salud"
+        className="text-ink-secondary hover:text-ink-primary shrink-0 self-center rounded-[6px] px-2 py-1.5 text-[11px] font-semibold underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--color-brand)] focus-visible:outline-solid"
+      >
+        Ver en Ajustes
+      </Link>
+    </section>
+  );
 }
 
 function subtitulo(listado: Dato<ListadoVista>): ReactNode {
@@ -100,6 +162,7 @@ export function ListadoDifusiones({
       />
 
       <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-auto p-5">
+        {salud.sancion ? <AvisoSancionMeta aviso={salud.sancion} /> : null}
         <div className="grid grid-cols-4 gap-3">
           <Panel titulo="Cupo de la ventana móvil">
             {cupo.estado === "sin-dato" ? (
@@ -117,24 +180,7 @@ export function ListadoDifusiones({
                     / {formatearEscalon(cupo.tope)}
                   </span>
                 </div>
-                <div
-                  className="bg-surface-input flex h-[6px] overflow-hidden rounded-full"
-                  aria-hidden
-                >
-                  {riel.tramos.map((t, i) => (
-                    <div
-                      key={t.clave}
-                      className={cn(
-                        "h-full",
-                        i < riel.tramos.length - 1 && "border-surface-card border-r-2",
-                      )}
-                      style={{
-                        width: `${anchoTramo(t.cantidad, riel.escala)}%`,
-                        backgroundColor: COLOR_CUPO[t.clave],
-                      }}
-                    />
-                  ))}
-                </div>
+                <RielDelListado riel={riel} />
                 <Nota>
                   {formatearEntero(cupo.porTanda)} libres para plantillas en las próximas 24 h. El
                   uso se cuenta con los envíos de este CRM: Meta no lo expone.
@@ -319,5 +365,71 @@ function SinDato({ titulo }: { titulo: string }) {
       <span aria-hidden>—</span>
       <span className="sr-only">{titulo}</span>
     </span>
+  );
+}
+
+/**
+ * El riel chico de la tarjeta de cupo. Sin leyenda, un tramo ámbar del 15 %
+ * pegado al uso se leía como "15 % usado" cuando se había usado el 0,25 %.
+ *
+ *   - Lo usado arranca a la izquierda: es lo único que se consumió.
+ *   - Lo reservado se ancla a la DERECHA, contra el tope, y va rayado: es cupo
+ *     apartado, no gastado. El rayado es la codificación secundaria; el color
+ *     es el del medidor del asistente, para que se reconozca de una pantalla
+ *     a la otra.
+ *   - Debajo, una leyenda con las dos cifras: dos tramos sin nombre no se leen.
+ */
+function RielDelListado({ riel }: { riel: RielCupo }) {
+  const usado = riel.tramos.find((t) => t.clave === "usado")?.cantidad ?? 0;
+  const reserva = riel.tramos.find((t) => t.clave === "reserva")?.cantidad ?? 0;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="bg-surface-input relative h-[6px] overflow-hidden rounded-full" aria-hidden>
+        {usado > 0 ? (
+          <div
+            className="absolute inset-y-0 left-0 min-w-[2px] rounded-full"
+            style={{
+              width: `${anchoTramo(usado, riel.escala)}%`,
+              backgroundColor: COLOR_CUPO.usado,
+            }}
+          />
+        ) : null}
+        {reserva > 0 ? (
+          <div
+            className="border-surface-card absolute inset-y-0 right-0 border-l-2"
+            style={{
+              width: `${anchoTramo(reserva, riel.escala)}%`,
+              ...rayado(COLOR_CUPO.reserva),
+            }}
+          />
+        ) : null}
+      </div>
+      <ul className="flex flex-wrap gap-x-3 gap-y-0.5">
+        <li className="text-ink-faint flex items-center gap-1.5 text-[10.5px]">
+          <span
+            aria-hidden
+            className="size-[8px] shrink-0 rounded-[2px]"
+            style={{ backgroundColor: COLOR_CUPO.usado }}
+          />
+          usado
+          <span className="text-ink-secondary font-mono tabular-nums">
+            {formatearEntero(usado)}
+          </span>
+        </li>
+        {reserva > 0 ? (
+          <li className="text-ink-faint flex items-center gap-1.5 text-[10.5px]">
+            <span
+              aria-hidden
+              className="size-[8px] shrink-0 rounded-[2px]"
+              style={rayado(COLOR_CUPO.reserva)}
+            />
+            reservado para conversaciones
+            <span className="text-ink-secondary font-mono tabular-nums">
+              {formatearEntero(reserva)}
+            </span>
+          </li>
+        ) : null}
+      </ul>
+    </div>
   );
 }

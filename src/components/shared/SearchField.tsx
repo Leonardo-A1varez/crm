@@ -34,7 +34,7 @@ export function SearchField({
       {Object.entries(conservar ?? {}).map(([clave, valor]) => (
         <input key={clave} type="hidden" name={clave} value={valor} />
       ))}
-      <div className="bg-surface-elevated border-line-card flex items-center gap-2 rounded-[9px] border py-1 pr-1 pl-2.5">
+      <div className="bg-surface-elevated border-line-card has-[input:focus-visible]:ring-brand/60 flex items-center gap-2 rounded-[9px] border py-1 pr-1 pl-2.5 has-[input:focus-visible]:ring-2">
         <SearchIcon className="text-ink-ghost shrink-0" size={15} />
         <input
           type="search"

@@ -77,8 +77,8 @@ export function UsuariosYRoles({ usuarios }: { usuarios: readonly UsuarioDelPane
         extra={`${usuarios.length}`}
         nota={
           algunoSinDato
-            ? "Cada cuenta de acceso nueva suma su fila en la tabla usuarios. El último acceso vive en auth.users y esta pantalla no lo lee: por eso dice «sin dato»."
-            : "Cada cuenta de acceso nueva suma su fila en la tabla usuarios."
+            ? "Cada cuenta de acceso nueva aparece acá. El último acceso todavía no se muestra: por eso dice «sin dato»."
+            : "Cada cuenta de acceso nueva aparece acá."
         }
       >
         {usuarios.length === 0 ? (

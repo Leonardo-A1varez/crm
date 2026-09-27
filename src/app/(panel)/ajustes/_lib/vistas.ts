@@ -2,6 +2,7 @@ import { normalizarRangos } from "@/lib/agente/horario";
 import { formatearEntero } from "@/lib/ui/metricas";
 import { MOTIVO_SALTO } from "@/lib/workflows/motivos-salto";
 import {
+  ESCALON,
   historialDeSanciones,
   posicionEnLaEscalera,
   type RegistroDeCuenta,
@@ -580,15 +581,48 @@ function contarPendientes(salud: SaludWhatsApp, envio: EnvioSegunMeta): number {
 }
 
 /**
- * Para quien reusa la traducción de Meta sin leer la base: Difusión toma de
- * acá sólo números y plantillas (`difusion/_lib/vistas.ts`). Lo que depende
- * de la base queda `no-disponible`, nunca inventado.
+ * Para quien reusa la traducción de Meta sin leer toda la base: Difusión toma
+ * de acá números, plantillas y, si le pasa las sanciones leídas, la posición
+ * en la escalera (`difusion/_lib/vistas.ts`). Lo que no se leyó queda
+ * `no-disponible`, nunca inventado.
  */
-const REGISTROS_NO_LEIDOS: RegistrosDeLaBase = {
+export const REGISTROS_NO_LEIDOS: RegistrosDeLaBase = {
   sanciones: { estado: "no-disponible", motivo: "Esta pantalla no lee los account_update." },
   uso: { estado: "no-disponible", motivo: "Esta pantalla no calcula el uso del cupo." },
   roles: { estado: "ok", datos: new Map() },
 };
+
+/**
+ * Qué manda cuando `health_status` y la escalera no coinciden.
+ *
+ * La escalera sale del último `account_update` guardado y el escalón es una
+ * inferencia (`ESCALON` en `lib/meta/account-update.ts`); `health_status` es
+ * una consulta a Meta hecha al abrir la pantalla. Para "¿se puede mandar
+ * ahora?" vale la consulta. Si la escalera marca un bloqueo y la consulta dice
+ * que se puede enviar, el escalón deja de presentarse como "estás acá" y se
+ * explica por qué: dibujar las dos afirmaciones lado a lado sin decir nada era
+ * decirle al operador que puede y que no puede mandar a la vez.
+ *
+ * Una advertencia no bloquea nada, así que no contradice a "puede enviar".
+ */
+function contrastarConEnvio(
+  posicion: PosicionEnEscalera,
+  envio: EnvioSegunMeta,
+  consultado: string,
+): PosicionEnEscalera {
+  if (
+    posicion.tipo !== "en-escalon" ||
+    envio.estado !== "disponible" ||
+    posicion.indice < ESCALON.bloqueoPlantillas
+  ) {
+    return posicion;
+  }
+  const aviso = posicion.desde === null ? "del último aviso" : `del aviso del ${posicion.desde}`;
+  return {
+    ...posicion,
+    contradicho: `Meta, consultada el ${consultado}, dice que la cuenta puede enviar: eso es lo que vale hoy. Este escalón sale ${aviso}, que es un evento guardado y no una consulta, así que puede ser una restricción que ya se levantó. Antes de lanzar una difusión de plantillas, confirmalo en el Business Support Home.`,
+  };
+}
 
 export function vistaSalud(
   salud: SaludWhatsApp,
@@ -596,10 +630,16 @@ export function vistaSalud(
   registros: RegistrosDeLaBase = REGISTROS_NO_LEIDOS,
 ): VistaSalud {
   const envio = envioDeLaCuenta(salud.estadoDeEnvio);
+  const sanciones = vistaSanciones(registros.sanciones, zonaHoraria, salud.consultadoAt);
   return {
     cupo: vistaCupo(salud, registros.uso),
     escalones: ESCALERA_DE_SANCIONES,
-    ...vistaSanciones(registros.sanciones, zonaHoraria, salud.consultadoAt),
+    ...sanciones,
+    posicion: contrastarConEnvio(
+      sanciones.posicion,
+      envio,
+      fechaLegibleEnZona(zonaHoraria, salud.consultadoAt),
+    ),
     envio,
     numeros: vistaNumeros(salud, registros.roles),
     plantillas: vistaPlantillas(salud),

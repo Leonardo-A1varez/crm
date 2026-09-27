@@ -76,7 +76,7 @@ export function FormularioNuevoFlujo({
           maxLength={NOMBRE_MAX}
           required
           autoFocus
-          className="border-line-input bg-surface-input text-ink-primary rounded-[9px] border px-3 py-2 text-[12.5px] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-brand)]"
+          className="border-line-input bg-surface-input text-ink-primary rounded-[9px] border px-3 py-2 text-[12.5px] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-brand)] focus-visible:outline-solid"
         />
       </label>
 
@@ -90,7 +90,7 @@ export function FormularioNuevoFlujo({
           onChange={(e) => setDescripcion(e.target.value)}
           maxLength={DESCRIPCION_MAX}
           rows={3}
-          className="border-line-input bg-surface-input text-ink-primary resize-y rounded-[9px] border px-3 py-2 text-[12.5px] leading-relaxed outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-brand)]"
+          className="border-line-input bg-surface-input text-ink-primary resize-y rounded-[9px] border px-3 py-2 text-[12.5px] leading-relaxed outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-brand)] focus-visible:outline-solid"
         />
       </label>
 

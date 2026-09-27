@@ -1,5 +1,6 @@
 import { getLogger } from "@/lib/observability/get-logger";
 import { getCurrentRol } from "@/server/auth/guards";
+import { getRegistrosWhatsAppServiceForRequest } from "@/server/bootstrap/ajustes-bootstrap";
 import {
   getDifusionServiceForRequest,
   leerSaludWhatsAppCacheada,
@@ -20,7 +21,9 @@ export const dynamic = "force-dynamic";
  *   - el cupo de 24 h → `estadoCupo()`: el escalón que devuelve Meta y el uso
  *     contado con los envíos de este CRM, porque Meta no lo expone;
  *   - calidad, estado de envío y plantillas pausadas → la misma lectura de
- *     Meta que usa Ajustes.
+ *     Meta que usa Ajustes;
+ *   - el aviso de sanción → los `account_update` guardados, contrastados con
+ *     el `health_status` de Meta por la misma traducción que Ajustes.
  *
  * Cada lectura falla por su lado y la tarjeta dice el motivo en su lugar.
  */
@@ -32,9 +35,14 @@ export default async function DifusionPage() {
     zonaDelNegocio(logger),
     leerSaludWhatsAppCacheada(),
   ]);
-  const [listado, cupo] = await Promise.all([
+  const [listado, cupo, sanciones] = await Promise.all([
     leerParaPantalla("listado", () => svc.listar(), logger),
     leerParaPantalla("cupo", () => svc.estadoCupo(), logger),
+    leerParaPantalla(
+      "sanciones",
+      async () => (await getRegistrosWhatsAppServiceForRequest()).sanciones(),
+      logger,
+    ),
   ]);
 
   const vistaListado: Dato<ListadoVista> =
@@ -65,7 +73,7 @@ export default async function DifusionPage() {
       <PantallaListado
         listado={vistaListado}
         cupo={vistaCupo}
-        salud={saludDelNumero(salud, tz)}
+        salud={saludDelNumero(salud, tz, sanciones)}
         puedeCrear={rol === "admin"}
       />
     </div>

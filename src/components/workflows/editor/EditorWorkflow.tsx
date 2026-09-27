@@ -356,12 +356,13 @@ function EditorConLienzo(props: EditorWorkflowProps) {
             ) : null}
             {cambiosSinPublicar > 0 ? (
               <ChipEstado tono="info">
-                borrador con <span className="font-mono tabular-nums">{cambiosSinPublicar}</span>{" "}
+                <span className="hidden @6xl/barra:inline">borrador con </span>
+                <span className="font-mono tabular-nums">{cambiosSinPublicar}</span>{" "}
                 {cambiosSinPublicar === 1 ? "cambio" : "cambios"}
               </ChipEstado>
             ) : null}
             {guardadoA ? (
-              <span className="text-ink-ghost shrink-0 font-mono text-[11px] tabular-nums">
+              <span className="text-ink-ghost hidden shrink-0 font-mono text-[11px] tabular-nums @6xl/barra:inline">
                 guardado {guardadoA}
               </span>
             ) : null}
@@ -369,7 +370,15 @@ function EditorConLienzo(props: EditorWorkflowProps) {
         }
         acciones={
           <>
-            <ResumenValidacion conteos={conteos} onIrA={irAPrimero} />
+            {/*
+              Sin «N sin publicar»: con cambios pendientes, el chip «borrador con
+              N cambios» de la izquierda ya lo dice, y los dos juntos eran el
+              mismo dato repetido en una barra que no tenía lugar.
+            */}
+            <ResumenValidacion
+              conteos={cambiosSinPublicar > 0 ? { ...conteos, sin_publicar: 0 } : conteos}
+              onIrA={irAPrimero}
+            />
             <Button
               type="button"
               variant="outline"

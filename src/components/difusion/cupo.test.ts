@@ -29,6 +29,7 @@ const SALUD: SaludNumero = {
   escalon: { estado: "ok", valor: 2000 },
   envio: { estado: "disponible" },
   plantillasPausadas: { estado: "ok", valor: [] },
+  sancion: null,
   fuente: "Leído de Meta.",
 };
 

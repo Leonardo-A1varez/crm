@@ -745,6 +745,64 @@ describe("vistaSalud — escalera con account_update", () => {
     expect(v.historial[0]?.detalle).toContain("ADULT");
   });
 
+  const RESTRICCION_PLANTILLAS: RegistrosDeLaBase["sanciones"] = {
+    estado: "ok",
+    datos: {
+      registros: [
+        {
+          evento: {
+            tipo: "restriccion",
+            restricciones: [
+              { tipo: "RESTRICTED_BIZ_INITIATED_MESSAGING", vence: null, remediacion: null },
+            ],
+          },
+          at: new Date("2026-09-10T15:00:00Z"),
+        },
+      ],
+      truncado: false,
+    },
+  };
+
+  test("si health_status dice que puede enviar, un bloqueo de la escalera se marca como aviso viejo, no como estado", () => {
+    const { posicion, envio } = vistaSalud(salud(), ZONA, conSanciones(RESTRICCION_PLANTILLAS));
+    expect(envio.estado).toBe("disponible");
+    expect(posicion).toMatchObject({ tipo: "en-escalon", indice: 1, desde: "10/09" });
+    const texto = posicion.tipo === "en-escalon" ? posicion.contradicho : undefined;
+    expect(texto).toContain(fechaLegibleEnZona(ZONA, CONSULTADO));
+    expect(texto).toContain("10/09");
+  });
+
+  test("si health_status también frena el envío, no hay contradicción que explicar", () => {
+    const { posicion } = vistaSalud(
+      salud({
+        estadoDeEnvio: { estado: "ok", valor: { puedeEnviar: "LIMITED", entidades: [] } },
+      }),
+      ZONA,
+      conSanciones(RESTRICCION_PLANTILLAS),
+    );
+    expect(posicion.tipo === "en-escalon" && posicion.contradicho).toBeFalsy();
+  });
+
+  test("una advertencia no bloquea nada: no contradice a puede enviar", () => {
+    const { posicion } = vistaSalud(
+      salud(),
+      ZONA,
+      conSanciones({
+        estado: "ok",
+        datos: {
+          registros: [
+            {
+              evento: { tipo: "infraccion", violacion: "ADULT" },
+              at: new Date("2026-08-12T15:00:00Z"),
+            },
+          ],
+          truncado: false,
+        },
+      }),
+    );
+    expect(posicion.tipo === "en-escalon" && posicion.contradicho).toBeFalsy();
+  });
+
   test("sin sanción se dice desde cuándo se escucha, no a secas", () => {
     const at = new Date("2026-09-01T15:00:00Z");
     const { posicion } = vistaSalud(
