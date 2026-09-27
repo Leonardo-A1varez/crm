@@ -2,13 +2,7 @@
 
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SelectOpciones } from "@/components/shared/SelectOpciones";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2 } from "lucide-react";
 import { editorDeConfig, type ConfigDeTipo } from "@/lib/workflows/config-nodos";
@@ -44,22 +38,19 @@ export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIn
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Metodo</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.metodo)}
               onValueChange={(v) => onChange(c.con("metodo", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="GET">GET</SelectItem>
-                <SelectItem value="POST">POST</SelectItem>
-                <SelectItem value="PUT">PUT</SelectItem>
-                <SelectItem value="PATCH">PATCH</SelectItem>
-                <SelectItem value="DELETE">DELETE</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "GET", label: "GET" },
+                { value: "POST", label: "POST" },
+                { value: "PUT", label: "PUT" },
+                { value: "PATCH", label: "PATCH" },
+                { value: "DELETE", label: "DELETE" },
+              ]}
+            />
           </label>
 
           <label className="block">
@@ -267,20 +258,17 @@ export function ConfigIntegracion({ tipo, config, onChange, readonly }: ConfigIn
 
           <label className="block">
             <span className={labelClass}>Payload</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.payloadTipo)}
               onValueChange={(v) => onChange(c.con("payloadTipo", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="completo">Lead + Sesion completo</SelectItem>
-                <SelectItem value="minimo">Solo ID y etapa</SelectItem>
-                <SelectItem value="custom">Personalizado</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "completo", label: "Lead + Sesion completo" },
+                { value: "minimo", label: "Solo ID y etapa" },
+                { value: "custom", label: "Personalizado" },
+              ]}
+            />
           </label>
 
           {c.valores.payloadTipo === "custom" && (
@@ -433,20 +421,17 @@ return resultado;`}
 
           <label className="block">
             <span className={labelClass}>Operacion</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.operacion)}
               onValueChange={(v) => onChange(c.con("operacion", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="append">Agregar fila</SelectItem>
-                <SelectItem value="read">Leer datos</SelectItem>
-                <SelectItem value="update">Actualizar fila</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "append", label: "Agregar fila" },
+                { value: "read", label: "Leer datos" },
+                { value: "update", label: "Actualizar fila" },
+              ]}
+            />
           </label>
 
           {c.valores.operacion === "append" && (

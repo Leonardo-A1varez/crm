@@ -2,13 +2,7 @@
 
 import { useCallback } from "react";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SelectOpciones } from "@/components/shared/SelectOpciones";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2 } from "lucide-react";
 import { TextareaConVariables } from "./TextareaConVariables";
@@ -93,42 +87,30 @@ export function ConfigLogica({
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Campo</span>
-            <Select
+            <SelectOpciones
               value={String(config.campo ?? "")}
               onValueChange={(v) => handleChange("campo", v)}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue placeholder="Seleccionar campo" />
-              </SelectTrigger>
-              <SelectContent>
-                {CAMPOS_CONDICION.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {c}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              placeholder="Seleccionar campo"
+              opciones={CAMPOS_CONDICION.map((c) => ({ value: c, label: c }))}
+            />
           </label>
 
           <label className="block">
             <span className={labelClass}>Operador</span>
-            <Select
+            <SelectOpciones
               value={operador}
               onValueChange={(v) => handleChange("operador", v)}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {OPERADORES.map((o) => (
-                  <SelectItem key={o} value={o}>
-                    {operadoresConEtiqueta[o] ?? o.replace("_", " ")}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                ...OPERADORES.map((o) => ({
+                  value: o,
+                  label: operadoresConEtiqueta[o] ?? o.replace("_", " "),
+                })),
+              ]}
+            />
           </label>
 
           {operadorRequiereValor(operador) && (
@@ -171,24 +153,18 @@ export function ConfigLogica({
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Campo que mira</span>
-            <Select
+            <SelectOpciones
               value={campoId}
               onValueChange={(v) => onChange(c.con("campo", v))}
               disabled={readonly}
-              // Base UI muestra el valor crudo (`lead.canal`) si no sabe su etiqueta.
-              items={Object.fromEntries(camposSwitch.map((x) => [x.id, x.etiqueta]))}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue placeholder="Elegí un campo" />
-              </SelectTrigger>
-              <SelectContent>
-                {camposSwitch.map((x) => (
-                  <SelectItem key={x.id} value={x.id}>
-                    {x.grupo ? `${x.grupo} · ${x.etiqueta}` : x.etiqueta}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              placeholder="Elegí un campo"
+              opciones={camposSwitch.map((x) => ({
+                value: x.id,
+                label: x.etiqueta,
+                grupo: x.grupo,
+              }))}
+            />
           </label>
 
           <fieldset className="flex flex-col gap-2">
@@ -207,26 +183,15 @@ export function ConfigLogica({
               return (
                 <div key={caso.id} className="flex items-center gap-2">
                   {opciones ? (
-                    <Select
+                    <SelectOpciones
                       value={caso.valor}
-                      onValueChange={(v) => cambiarCaso(idx, v ?? "")}
+                      onValueChange={(v) => cambiarCaso(idx, v)}
                       disabled={readonly}
-                      items={Object.fromEntries(opciones.map((o) => [o.valor, o.etiqueta]))}
-                    >
-                      <SelectTrigger
-                        className={`${selectClass} flex-1`}
-                        aria-label={`Valor del caso ${idx + 1}`}
-                      >
-                        <SelectValue placeholder="Elegí un valor" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {opciones.map((o) => (
-                          <SelectItem key={o.valor} value={o.valor}>
-                            {o.etiqueta}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      className={`${selectClass} flex-1`}
+                      aria-label={`Valor del caso ${idx + 1}`}
+                      placeholder="Elegí un valor"
+                      opciones={opciones.map((o) => ({ value: o.valor, label: o.etiqueta }))}
+                    />
                   ) : (
                     <Input
                       className={`${inputClass} flex-1`}
@@ -290,42 +255,31 @@ export function ConfigLogica({
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Campo a validar</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.campo ?? "")}
               onValueChange={(v) => onChange(c.con("campo", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue placeholder="Seleccionar campo" />
-              </SelectTrigger>
-              <SelectContent>
-                {CAMPOS_CONDICION.map((campo) => (
-                  <SelectItem key={campo} value={campo}>
-                    {campo}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              placeholder="Seleccionar campo"
+              opciones={CAMPOS_CONDICION.map((campo) => ({ value: campo, label: campo }))}
+            />
           </label>
 
           <label className="block">
             <span className={labelClass}>Tipo de validacion</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.validacion)}
               onValueChange={(v) => onChange(c.con("validacion", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="requerido">Requerido</SelectItem>
-                <SelectItem value="email">Es email valido</SelectItem>
-                <SelectItem value="telefono">Es telefono valido</SelectItem>
-                <SelectItem value="numero">Es numero</SelectItem>
-                <SelectItem value="regex">Expresion regular</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "requerido", label: "Requerido" },
+                { value: "email", label: "Es email valido" },
+                { value: "telefono", label: "Es telefono valido" },
+                { value: "numero", label: "Es numero" },
+                { value: "regex", label: "Expresion regular" },
+              ]}
+            />
           </label>
 
           {c.valores.validacion === "regex" && (
@@ -370,21 +324,18 @@ export function ConfigLogica({
                 onChange={(e) => onChange(c.con("duracion", Number(e.target.value)))}
                 disabled={readonly}
               />
-              <Select
+              <SelectOpciones
                 value={String(c.valores.unidad)}
                 onValueChange={(v) => onChange(c.con("unidad", v))}
                 disabled={readonly}
-              >
-                <SelectTrigger className={`${selectClass} flex-1`}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="segundos">Segundos</SelectItem>
-                  <SelectItem value="minutos">Minutos</SelectItem>
-                  <SelectItem value="horas">Horas</SelectItem>
-                  <SelectItem value="dias">Dias</SelectItem>
-                </SelectContent>
-              </Select>
+                className={`${selectClass} flex-1`}
+                opciones={[
+                  { value: "segundos", label: "Segundos" },
+                  { value: "minutos", label: "Minutos" },
+                  { value: "horas", label: "Horas" },
+                  { value: "dias", label: "Dias" },
+                ]}
+              />
             </div>
           </label>
         </div>
@@ -406,20 +357,17 @@ export function ConfigLogica({
                 onChange={(e) => onChange(c.con("timeout", Number(e.target.value)))}
                 disabled={readonly}
               />
-              <Select
+              <SelectOpciones
                 value={String(c.valores.unidadTimeout)}
                 onValueChange={(v) => onChange(c.con("unidadTimeout", v))}
                 disabled={readonly}
-              >
-                <SelectTrigger className={`${selectClass} flex-1`}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="minutos">Minutos</SelectItem>
-                  <SelectItem value="horas">Horas</SelectItem>
-                  <SelectItem value="dias">Dias</SelectItem>
-                </SelectContent>
-              </Select>
+                className={`${selectClass} flex-1`}
+                opciones={[
+                  { value: "minutos", label: "Minutos" },
+                  { value: "horas", label: "Horas" },
+                  { value: "dias", label: "Dias" },
+                ]}
+              />
             </div>
           </label>
 
@@ -447,21 +395,19 @@ export function ConfigLogica({
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Evento a esperar</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.evento ?? "")}
               onValueChange={(v) => onChange(c.con("evento", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue placeholder="Seleccionar evento" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="etiqueta_asignada">Etiqueta asignada</SelectItem>
-                <SelectItem value="etapa_cambiada">Etapa cambiada</SelectItem>
-                <SelectItem value="vendedor_asignado">Vendedor asignado</SelectItem>
-                <SelectItem value="comprobante_subido">Comprobante subido</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              placeholder="Seleccionar evento"
+              opciones={[
+                { value: "etiqueta_asignada", label: "Etiqueta asignada" },
+                { value: "etapa_cambiada", label: "Etapa cambiada" },
+                { value: "vendedor_asignado", label: "Vendedor asignado" },
+                { value: "comprobante_subido", label: "Comprobante subido" },
+              ]}
+            />
           </label>
 
           <label className="block">
@@ -475,19 +421,16 @@ export function ConfigLogica({
                 onChange={(e) => onChange(c.con("timeoutMax", Number(e.target.value)))}
                 disabled={readonly}
               />
-              <Select
+              <SelectOpciones
                 value={String(c.valores.unidadTimeoutMax)}
                 onValueChange={(v) => onChange(c.con("unidadTimeoutMax", v))}
                 disabled={readonly}
-              >
-                <SelectTrigger className={`${selectClass} flex-1`}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="horas">Horas</SelectItem>
-                  <SelectItem value="dias">Dias</SelectItem>
-                </SelectContent>
-              </Select>
+                className={`${selectClass} flex-1`}
+                opciones={[
+                  { value: "horas", label: "Horas" },
+                  { value: "dias", label: "Dias" },
+                ]}
+              />
             </div>
           </label>
         </div>
@@ -550,28 +493,17 @@ export function ConfigLogica({
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Paso al que salta</span>
-            <Select
+            <SelectOpciones
               value={existe ? destino : ""}
               onValueChange={(v) => onChange(c.con("nodoDestino", v))}
               disabled={readonly}
-              items={Object.fromEntries(
-                pasos.map((x) => [
-                  x.id,
-                  repetidos.has(x.nombre) ? `${x.nombre} (${x.id})` : x.nombre,
-                ]),
-              )}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue placeholder="Elegí un paso" />
-              </SelectTrigger>
-              <SelectContent>
-                {pasos.map((x) => (
-                  <SelectItem key={x.id} value={x.id}>
-                    {repetidos.has(x.nombre) ? `${x.nombre} (${x.id})` : x.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              placeholder="Elegí un paso"
+              opciones={pasos.map((x) => ({
+                value: x.id,
+                label: repetidos.has(x.nombre) ? `${x.nombre} (${x.id})` : x.nombre,
+              }))}
+            />
           </label>
 
           {!existe ? (
@@ -594,20 +526,17 @@ export function ConfigLogica({
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Resultado</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.resultado)}
               onValueChange={(v) => onChange(c.con("resultado", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="exito">Exito</SelectItem>
-                <SelectItem value="error">Error</SelectItem>
-                <SelectItem value="cancelado">Cancelado</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "exito", label: "Exito" },
+                { value: "error", label: "Error" },
+                { value: "cancelado", label: "Cancelado" },
+              ]}
+            />
           </label>
 
           <label className="block">
@@ -630,21 +559,18 @@ export function ConfigLogica({
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Accion en caso de error</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.accion)}
               onValueChange={(v) => onChange(c.con("accion", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="continuar">Continuar</SelectItem>
-                <SelectItem value="reintentar">Reintentar</SelectItem>
-                <SelectItem value="detener">Detener workflow</SelectItem>
-                <SelectItem value="notificar">Notificar y continuar</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "continuar", label: "Continuar" },
+                { value: "reintentar", label: "Reintentar" },
+                { value: "detener", label: "Detener workflow" },
+                { value: "notificar", label: "Notificar y continuar" },
+              ]}
+            />
           </label>
 
           {c.valores.accion === "reintentar" && (

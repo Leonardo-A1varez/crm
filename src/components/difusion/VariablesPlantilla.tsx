@@ -2,15 +2,7 @@
 
 import { Eyebrow } from "@/components/shared/Eyebrow";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SelectOpciones } from "@/components/shared/SelectOpciones";
 import { cn } from "@/lib/utils";
 import { CAMPOS_VARIABLE, etiquetaCampo } from "./campos-mensaje";
 import { contarSinDato, segmentar, variablesDe } from "./mensaje";
@@ -24,12 +16,12 @@ import type {
   ValoresLead,
 } from "./tipos";
 
-/** Para que el disparador del desplegable muestre la etiqueta y no el id del campo. */
-const ETIQUETA_POR_CAMPO: Record<string, string> = Object.fromEntries(
-  CAMPOS_VARIABLE.map((c) => [c.id, c.etiqueta]),
-);
-
-const GRUPOS: readonly string[] = [...new Set(CAMPOS_VARIABLE.map((c) => c.grupo))];
+/** Agrupadas por `grupo`, en el orden del catálogo. */
+const OPCIONES_CAMPO = CAMPOS_VARIABLE.map((c) => ({
+  value: c.id,
+  label: c.etiqueta,
+  grupo: c.grupo,
+}));
 
 /**
  * Un respaldo es una o dos palabras en lugar de un dato. Más largo deja de
@@ -191,34 +183,16 @@ function FilaVariable({
         {token}
       </span>
 
-      <Select
-        items={ETIQUETA_POR_CAMPO}
+      <SelectOpciones
         value={campo}
-        onValueChange={(v) => {
-          if (v) onCambiar({ campo: v as CampoVariable, respaldo });
-        }}
-      >
-        <SelectTrigger
-          size="sm"
-          aria-label={`Dato del lead para ${token}`}
-          aria-describedby={idCobertura}
-          className="bg-surface-panel w-full min-w-0"
-        >
-          <SelectValue placeholder="Elegir un dato del lead…" />
-        </SelectTrigger>
-        <SelectContent>
-          {GRUPOS.map((grupo) => (
-            <SelectGroup key={grupo}>
-              <SelectLabel>{grupo}</SelectLabel>
-              {CAMPOS_VARIABLE.filter((c) => c.grupo === grupo).map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.etiqueta}
-                </SelectItem>
-              ))}
-            </SelectGroup>
-          ))}
-        </SelectContent>
-      </Select>
+        onValueChange={(v) => onCambiar({ campo: v, respaldo })}
+        size="sm"
+        aria-label={`Dato del lead para ${token}`}
+        aria-describedby={idCobertura}
+        className="bg-surface-panel w-full min-w-0"
+        placeholder="Elegir un dato del lead…"
+        opciones={OPCIONES_CAMPO}
+      />
 
       <label htmlFor={idInput} className="text-ink-faint text-[11px] whitespace-nowrap">
         Si falta

@@ -4,13 +4,7 @@ import { useEffect, useId, useState } from "react";
 import { ImagePlus, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SelectOpciones } from "@/components/shared/SelectOpciones";
 import { editorDeConfig, type ConfigDeTipo } from "@/lib/workflows/config-nodos";
 import { nuevoIdDeOpcion } from "@/lib/workflows/opciones-interactivas";
 import { EditorConVariables } from "./EditorConVariables";
@@ -91,22 +85,20 @@ function TiempoMaximo({
           onChange={(e) => onTimeout(e.target.value === "" ? undefined : Number(e.target.value))}
           disabled={readonly}
         />
-        <Select
+        <SelectOpciones
           value={String(unidad)}
           onValueChange={(v) => {
             if (v !== null) onUnidad(v);
           }}
           disabled={readonly}
-        >
-          <SelectTrigger className={`${SELECT} w-[120px]`} aria-label="Unidad del tiempo máximo">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="minutos">minutos</SelectItem>
-            <SelectItem value="horas">horas</SelectItem>
-            <SelectItem value="dias">días</SelectItem>
-          </SelectContent>
-        </Select>
+          className={`${SELECT} w-[120px]`}
+          aria-label="Unidad del tiempo máximo"
+          opciones={[
+            { value: "minutos", label: "minutos" },
+            { value: "horas", label: "horas" },
+            { value: "dias", label: "días" },
+          ]}
+        />
       </div>
       <p id={ayudaId} className={`${AYUDA} mt-1`}>
         Si no elige antes, el flujo sigue por «Sin respuesta».

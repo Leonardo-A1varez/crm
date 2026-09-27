@@ -4,13 +4,7 @@ import { useState } from "react";
 import { KeyboardArrowDown } from "@/components/icons";
 import { Eyebrow } from "@/components/shared/Eyebrow";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SelectOpciones } from "@/components/shared/SelectOpciones";
 import { etiquetaCampo } from "./campos-mensaje";
 import { CostoEstimado } from "./CostoEstimado";
 import {
@@ -129,34 +123,24 @@ export function VistaPreviaMensaje({
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center gap-1.5">
               <span className="text-ink-faint shrink-0 text-[11px]">Así le llega a</span>
-              <Select
-                items={Object.fromEntries(
-                  destinatarios.map((d) => [d.leadId, d.nombre || "Sin nombre"]),
-                )}
+              <SelectOpciones
                 value={lead.leadId}
                 onValueChange={(v) => {
                   const i = destinatarios.findIndex((d) => d.leadId === v);
                   if (i >= 0) setActual(i);
                 }}
-              >
-                <SelectTrigger
-                  size="sm"
-                  aria-label="Persona de la audiencia para la vista previa"
-                  className="bg-surface-card min-w-0 flex-1"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {destinatarios.map((d, i) => (
-                    <SelectItem key={d.leadId} value={d.leadId}>
-                      {d.nombre || "Sin nombre"}
-                      {(huecos[i]?.length ?? 0) > 0 ? (
-                        <span className="text-caution font-mono text-[10px]">sin dato</span>
-                      ) : null}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                size="sm"
+                aria-label="Persona de la audiencia para la vista previa"
+                className="bg-surface-card min-w-0 flex-1"
+                opciones={destinatarios.map((d, i) => ({
+                  value: d.leadId,
+                  label: d.nombre || "Sin nombre",
+                  detalle:
+                    (huecos[i]?.length ?? 0) > 0 ? (
+                      <span className="text-caution font-mono text-[10px]">sin dato</span>
+                    ) : null,
+                }))}
+              />
               <Button
                 variant="outline"
                 size="icon-sm"

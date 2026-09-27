@@ -2,13 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SelectOpciones } from "@/components/shared/SelectOpciones";
 import { PRESION_TACTIL, TRANSICION_CONTROL } from "./tokens-editor";
 
 export interface SalidaDespues {
@@ -45,7 +39,11 @@ export function DespuesDeEsto({
   readonly,
 }: DespuesDeEstoProps) {
   if (salidas.length === 0) return null;
-  const items = Object.fromEntries(destinos.map((d) => [d.id, `${d.nombre} · ${d.id}`]));
+  const opciones = destinos.map((d) => ({
+    value: d.id,
+    label: d.nombre,
+    detalle: <span className="text-ink-ghost font-mono text-[10.5px]">{d.id}</span>,
+  }));
 
   return (
     <section aria-labelledby="despues-de-esto" className="flex flex-col gap-2">
@@ -69,40 +67,24 @@ export function DespuesDeEsto({
             </p>
           ) : (
             <>
-              <Select
-                items={items}
+              <SelectOpciones
                 value={null}
-                onValueChange={(v) => {
-                  if (v) onConectar(s.puerto, String(v));
-                }}
+                onValueChange={(v) => onConectar(s.puerto, v)}
                 disabled={readonly || destinos.length === 0}
-              >
-                <SelectTrigger
-                  size="sm"
-                  aria-label={
-                    s.etiqueta
-                      ? `Conectar la salida «${s.etiqueta}» a un paso que ya existe`
-                      : "Conectar la salida a un paso que ya existe"
-                  }
-                  className="bg-surface-root w-full text-[11.5px]"
-                >
-                  <SelectValue
-                    placeholder={
-                      destinos.length === 0
-                        ? "No hay otro paso al que conectar"
-                        : "Conectar a un paso existente…"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {destinos.map((d) => (
-                    <SelectItem key={d.id} value={d.id}>
-                      <span className="min-w-0 flex-1 truncate">{d.nombre}</span>
-                      <span className="text-ink-ghost font-mono text-[10.5px]">{d.id}</span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                size="sm"
+                aria-label={
+                  s.etiqueta
+                    ? `Conectar la salida «${s.etiqueta}» a un paso que ya existe`
+                    : "Conectar la salida a un paso que ya existe"
+                }
+                className="bg-surface-root w-full text-[11.5px]"
+                placeholder={
+                  destinos.length === 0
+                    ? "No hay otro paso al que conectar"
+                    : "Conectar a un paso existente…"
+                }
+                opciones={opciones}
+              />
               <Button
                 type="button"
                 variant="outline"

@@ -2,13 +2,7 @@
 
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SelectOpciones } from "@/components/shared/SelectOpciones";
 import { Copy, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { editorDeConfig } from "@/lib/workflows/config-nodos";
@@ -57,40 +51,34 @@ export function ConfigTrigger({
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Canal</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.canal)}
               onValueChange={(v) => onChange(c.con("canal", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos los canales</SelectItem>
-                <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                <SelectItem value="instagram">Instagram</SelectItem>
-                <SelectItem value="messenger">Messenger</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "todos", label: "Todos los canales" },
+                { value: "whatsapp", label: "WhatsApp" },
+                { value: "instagram", label: "Instagram" },
+                { value: "messenger", label: "Messenger" },
+              ]}
+            />
           </label>
 
           <label className="block">
             <span className={labelClass}>Filtro de mensaje</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.filtro)}
               onValueChange={(v) => onChange(c.con("filtro", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos los mensajes</SelectItem>
-                <SelectItem value="solo_texto">Solo texto</SelectItem>
-                <SelectItem value="solo_media">Solo media</SelectItem>
-                <SelectItem value="contiene">Contiene palabra</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "todos", label: "Todos los mensajes" },
+                { value: "solo_texto", label: "Solo texto" },
+                { value: "solo_media", label: "Solo media" },
+                { value: "contiene", label: "Contiene palabra" },
+              ]}
+            />
           </label>
 
           {c.valores.filtro === "contiene" && (
@@ -137,22 +125,19 @@ export function ConfigTrigger({
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Frecuencia</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.frecuencia)}
               onValueChange={(v) => onChange(c.con("frecuencia", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="cada_hora">Cada hora</SelectItem>
-                <SelectItem value="diario">Diario</SelectItem>
-                <SelectItem value="semanal">Semanal</SelectItem>
-                <SelectItem value="mensual">Mensual</SelectItem>
-                <SelectItem value="personalizado">Personalizado</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "cada_hora", label: "Cada hora" },
+                { value: "diario", label: "Diario" },
+                { value: "semanal", label: "Semanal" },
+                { value: "mensual", label: "Mensual" },
+                { value: "personalizado", label: "Personalizado" },
+              ]}
+            />
           </label>
 
           {c.valores.frecuencia !== "personalizado" && (
@@ -215,23 +200,20 @@ export function ConfigTrigger({
 
           <label className="block">
             <span className={labelClass}>Timezone</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.timezone)}
               onValueChange={(v) => onChange(c.con("timezone", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="America/Mexico_City">Mexico (CDMX)</SelectItem>
-                <SelectItem value="America/Bogota">Colombia</SelectItem>
-                <SelectItem value="America/Santiago">Chile</SelectItem>
-                <SelectItem value="America/Argentina/Buenos_Aires">Argentina</SelectItem>
-                <SelectItem value="America/Sao_Paulo">Brasil</SelectItem>
-                <SelectItem value="America/Lima">Peru</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "America/Mexico_City", label: "Mexico (CDMX)" },
+                { value: "America/Bogota", label: "Colombia" },
+                { value: "America/Santiago", label: "Chile" },
+                { value: "America/Argentina/Buenos_Aires", label: "Argentina" },
+                { value: "America/Sao_Paulo", label: "Brasil" },
+                { value: "America/Lima", label: "Peru" },
+              ]}
+            />
           </label>
         </div>
       );
@@ -301,22 +283,14 @@ export function ConfigTrigger({
                 ? "Cuando se asigna la etiqueta"
                 : "Cuando se remueve la etiqueta"}
             </span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.tagId ?? "")}
               onValueChange={(v) => onChange(c.con("tagId", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue placeholder="Seleccionar etiqueta" />
-              </SelectTrigger>
-              <SelectContent>
-                {tags.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              placeholder="Seleccionar etiqueta"
+              opciones={tags.map((t) => ({ value: t.id, label: t.nombre }))}
+            />
           </label>
         </div>
       );
@@ -328,43 +302,28 @@ export function ConfigTrigger({
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Etapa origen</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.etapaOrigen)}
               onValueChange={(v) => onChange(c.con("etapaOrigen", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="cualquiera">Cualquiera</SelectItem>
-                {etapas.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>
-                    {e.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "cualquiera", label: "Cualquiera" },
+                ...etapas.map((e) => ({ value: e.id, label: e.nombre })),
+              ]}
+            />
           </label>
 
           <label className="block">
             <span className={labelClass}>Etapa destino</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.etapaDestino ?? "")}
               onValueChange={(v) => onChange(c.con("etapaDestino", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue placeholder="Seleccionar etapa" />
-              </SelectTrigger>
-              <SelectContent>
-                {etapas.map((e) => (
-                  <SelectItem key={e.id} value={e.id}>
-                    {e.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              placeholder="Seleccionar etapa"
+              opciones={etapas.map((e) => ({ value: e.id, label: e.nombre }))}
+            />
           </label>
         </div>
       );
@@ -385,20 +344,17 @@ export function ConfigTrigger({
                 onChange={(e) => onChange(c.con("duracion", Number(e.target.value)))}
                 disabled={readonly}
               />
-              <Select
+              <SelectOpciones
                 value={String(c.valores.unidad)}
                 onValueChange={(v) => onChange(c.con("unidad", v))}
                 disabled={readonly}
-              >
-                <SelectTrigger className={`${selectClass} flex-1`}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="minutos">Minutos</SelectItem>
-                  <SelectItem value="horas">Horas</SelectItem>
-                  <SelectItem value="dias">Dias</SelectItem>
-                </SelectContent>
-              </Select>
+                className={`${selectClass} flex-1`}
+                opciones={[
+                  { value: "minutos", label: "Minutos" },
+                  { value: "horas", label: "Horas" },
+                  { value: "dias", label: "Dias" },
+                ]}
+              />
             </div>
           </label>
         </div>
@@ -412,25 +368,18 @@ export function ConfigTrigger({
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Cuando alguien responde</span>
-            <Select
+            <SelectOpciones
               value={elegida === "" ? CUALQUIER_DIFUSION : elegida}
               onValueChange={(v) =>
                 onChange(c.con("difusionId", v === CUALQUIER_DIFUSION ? "" : v))
               }
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={CUALQUIER_DIFUSION}>Cualquier difusión</SelectItem>
-                {difusiones.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>
-                    {d.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: CUALQUIER_DIFUSION, label: "Cualquier difusión" },
+                ...difusiones.map((d) => ({ value: d.id, label: d.nombre })),
+              ]}
+            />
           </label>
           <p className="text-ink-faint text-[11px] leading-snug text-pretty">
             Arranca con el primer mensaje que el lead manda después de recibir la difusión, hasta 7

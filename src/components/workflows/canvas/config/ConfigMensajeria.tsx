@@ -1,13 +1,7 @@
 "use client";
 
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SelectOpciones } from "@/components/shared/SelectOpciones";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2 } from "lucide-react";
 import {
@@ -44,6 +38,15 @@ const ETIQUETA_CANAL_DE_ENVIO: Readonly<Record<CanalDeEnvio, string>> = {
   messenger: "Messenger",
 };
 
+/** Idiomas de plantilla de Meta que ofrece el panel, con su nombre en pantalla. */
+const IDIOMA_PLANTILLA: Readonly<Record<string, string>> = {
+  es: "Español",
+  es_MX: "Español (México)",
+  es_AR: "Español (Argentina)",
+  pt_BR: "Portugués (Brasil)",
+  en: "Inglés",
+};
+
 /** Cómo se llama en pantalla cada categoría de «Enviar mensaje». */
 const ETIQUETA_CATEGORIA: Readonly<Record<CategoriaDeMensaje, string>> = {
   servicio: "Servicio",
@@ -77,23 +80,17 @@ export function ConfigMensajeria({
       return (
         <div className="flex flex-col gap-3">
           <label className="block">
-            <span className={labelClass}>Canal de envio</span>
-            <Select
+            <span className={labelClass}>Canal de envío</span>
+            <SelectOpciones
               value={String(c.valores.canal)}
               onValueChange={(v) => onChange(c.con("canal", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CANALES_DE_ENVIO.map((canal) => (
-                  <SelectItem key={canal} value={canal}>
-                    {ETIQUETA_CANAL_DE_ENVIO[canal]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={CANALES_DE_ENVIO.map((canal) => ({
+                value: canal,
+                label: ETIQUETA_CANAL_DE_ENVIO[canal],
+              }))}
+            />
           </label>
 
           <fieldset className="flex flex-col gap-1.5">
@@ -360,22 +357,13 @@ function CamposPlantilla({
 
       <label className="block">
         <span className={labelClass}>Idioma</span>
-        <Select
+        <SelectOpciones
           value={String(valores.idioma ?? "es")}
           onValueChange={(v) => cambiar("idioma", v)}
           disabled={readonly}
-        >
-          <SelectTrigger className={selectClass}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="es">Espanol</SelectItem>
-            <SelectItem value="es_MX">Espanol (Mexico)</SelectItem>
-            <SelectItem value="es_AR">Espanol (Argentina)</SelectItem>
-            <SelectItem value="pt_BR">Portugues (Brasil)</SelectItem>
-            <SelectItem value="en">Ingles</SelectItem>
-          </SelectContent>
-        </Select>
+          className={selectClass}
+          opciones={Object.entries(IDIOMA_PLANTILLA).map(([value, label]) => ({ value, label }))}
+        />
       </label>
 
       <div>

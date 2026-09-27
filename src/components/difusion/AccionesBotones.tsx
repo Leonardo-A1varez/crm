@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SelectOpciones } from "@/components/shared/SelectOpciones";
 import { cn } from "@/lib/utils";
 import { Nota } from "./primitivas";
 import type {
@@ -56,9 +50,7 @@ export const ACCION_BOTON: Record<TipoAccionBoton, DescriptorAccion> = {
 
 const ORDEN_ACCIONES: readonly TipoAccionBoton[] = ["agente", "humano", "etiquetar", "baja"];
 
-const ETIQUETA_POR_ACCION: Record<string, string> = Object.fromEntries(
-  ORDEN_ACCIONES.map((t) => [t, ACCION_BOTON[t].etiqueta]),
-);
+const OPCIONES_ACCION = ORDEN_ACCIONES.map((t) => ({ value: t, label: ACCION_BOTON[t].etiqueta }));
 
 function nuevaAccion(tipo: TipoAccionBoton): AccionBoton {
   return tipo === "etiquetar" ? { tipo, etiqueta: null } : { tipo };
@@ -158,29 +150,15 @@ function FilaBoton({
       </span>
 
       <div className="flex min-w-0 items-center gap-2">
-        <Select
-          items={ETIQUETA_POR_ACCION}
+        <SelectOpciones
           value={accion.tipo}
-          onValueChange={(v) => {
-            if (v) onCambiar(nuevaAccion(v as TipoAccionBoton));
-          }}
-        >
-          <SelectTrigger
-            size="sm"
-            aria-label={`Qué pasa al tocar «${boton.texto}»`}
-            aria-describedby={idConsecuencia}
-            className="bg-surface-panel w-[184px] shrink-0"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ORDEN_ACCIONES.map((t) => (
-              <SelectItem key={t} value={t}>
-                {ACCION_BOTON[t].etiqueta}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          onValueChange={(v) => onCambiar(nuevaAccion(v))}
+          size="sm"
+          aria-label={`Qué pasa al tocar «${boton.texto}»`}
+          aria-describedby={idConsecuencia}
+          className="bg-surface-panel w-[184px] shrink-0"
+          opciones={OPCIONES_ACCION}
+        />
 
         {accion.tipo === "etiquetar" ? (
           <SelectorEtiqueta
@@ -226,37 +204,25 @@ function SelectorEtiqueta({
     return <span className="text-ink-ghost text-[11px]">Sin etiquetas cargadas</span>;
   }
 
-  const items = Object.fromEntries(etiquetas.map((e) => [e.valor, e.etiqueta]));
-
   return (
-    <Select
-      items={items}
+    <SelectOpciones
       value={valor}
-      onValueChange={(v) => {
-        if (v) onElegir(String(v));
-      }}
-    >
-      <SelectTrigger
-        size="sm"
-        aria-label={`Etiqueta para «${boton}»`}
-        className="bg-surface-panel min-w-0 flex-1"
-      >
-        <SelectValue placeholder="Elegir etiqueta…" />
-      </SelectTrigger>
-      <SelectContent>
-        {etiquetas.map((e) => (
-          <SelectItem key={e.valor} value={e.valor}>
-            {e.color ? (
-              <span
-                aria-hidden
-                className="size-1.5 shrink-0 self-center rounded-full"
-                style={{ backgroundColor: e.color }}
-              />
-            ) : null}
-            {e.etiqueta}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+      onValueChange={onElegir}
+      size="sm"
+      aria-label={`Etiqueta para «${boton}»`}
+      className="bg-surface-panel min-w-0 flex-1"
+      placeholder="Elegir etiqueta…"
+      opciones={etiquetas.map((e) => ({
+        value: e.valor,
+        label: e.etiqueta,
+        adorno: e.color ? (
+          <span
+            aria-hidden
+            className="size-1.5 shrink-0 self-center rounded-full"
+            style={{ backgroundColor: e.color }}
+          />
+        ) : null,
+      }))}
+    />
   );
 }

@@ -4,15 +4,7 @@ import { useState } from "react";
 import { Add, Close } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SelectOpciones } from "@/components/shared/SelectOpciones";
 import { FOCO, PRESION_TACTIL, TRANSICION_CONTROL } from "@/lib/ui/motion";
 import {
   OPERADOR_FRASE,
@@ -367,30 +359,20 @@ function FilaCondicion({
 
         <SelectorCampo campos={campos} valor={regla.campoId} onElegir={elegirCampo} />
 
-        <Select
-          value={regla.comparador ?? ""}
-          onValueChange={(v) => elegirComparador(String(v) as Comparador)}
+        <SelectOpciones
+          value={regla.comparador}
+          onValueChange={(v) => elegirComparador(v as Comparador)}
           disabled={!campo}
-          // Base UI muestra el valor crudo (`no_es`) si no sabe su etiqueta.
-          items={Object.fromEntries(
-            comparadores.map((c) => [c, campo ? etiquetaComparador(campo, c) : c]),
-          )}
-        >
-          <SelectTrigger
-            size="sm"
-            aria-label="Comparador"
-            className="bg-surface-panel w-[124px] shrink-0"
-          >
-            <SelectValue placeholder="…" />
-          </SelectTrigger>
-          <SelectContent>
-            {comparadores.map((c) => (
-              <SelectItem key={c} value={c}>
-                {campo ? etiquetaComparador(campo, c) : c}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          size="sm"
+          aria-label="Comparador"
+          className="bg-surface-panel w-[124px] shrink-0"
+          placeholder="…"
+          opciones={
+            campo
+              ? comparadores.map((c) => ({ value: c, label: etiquetaComparador(campo, c) }))
+              : []
+          }
+        />
 
         {onQuitar ? (
           <button
@@ -437,8 +419,7 @@ function FilaCondicion({
  *
  * Un desplegable plano de 20 campos obliga a leerlos todos para encontrar uno;
  * separados en "Lead", "Sesión", "Vehículo" se busca en el bloque y no en la
- * lista. Si ningún campo declara grupo, sale plano: encabezados de una sola
- * sección son ruido.
+ * lista. Si ningún campo declara grupo, `SelectOpciones` lo deja plano.
  */
 function SelectorCampo({
   campos,
@@ -449,44 +430,16 @@ function SelectorCampo({
   valor: string | null;
   onElegir: (id: string) => void;
 }) {
-  const grupos = new Map<string, CampoCondicion[]>();
-  for (const c of campos) {
-    const clave = c.grupo ?? "";
-    const actual = grupos.get(clave);
-    if (actual) actual.push(c);
-    else grupos.set(clave, [c]);
-  }
-  const agrupado = grupos.size > 1 || !grupos.has("");
-
   return (
-    <Select
-      value={valor ?? ""}
-      onValueChange={(v) => onElegir(String(v))}
-      // Sin esto el disparador muestra el id (`lead.etapa`) y no "Etapa".
-      items={Object.fromEntries(campos.map((c) => [c.id, c.etiqueta]))}
-    >
-      <SelectTrigger size="sm" aria-label="Campo" className="bg-surface-panel min-w-0 flex-1">
-        <SelectValue placeholder="Elegir campo…" />
-      </SelectTrigger>
-      <SelectContent>
-        {agrupado
-          ? [...grupos].map(([nombre, lista]) => (
-              <SelectGroup key={nombre || "otros"}>
-                {nombre ? <SelectLabel>{nombre}</SelectLabel> : null}
-                {lista.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.etiqueta}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            ))
-          : campos.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.etiqueta}
-              </SelectItem>
-            ))}
-      </SelectContent>
-    </Select>
+    <SelectOpciones
+      value={valor}
+      onValueChange={onElegir}
+      size="sm"
+      aria-label="Campo"
+      className="bg-surface-panel min-w-0 flex-1"
+      placeholder="Elegir campo…"
+      opciones={campos.map((c) => ({ value: c.id, label: c.etiqueta, grupo: c.grupo }))}
+    />
   );
 }
 
@@ -514,26 +467,15 @@ function EditorValor({
 }) {
   if (valor.tipo === "opcion") {
     return (
-      <Select
-        value={valor.valor ?? ""}
-        onValueChange={(v) => onCambiar({ tipo: "opcion", valor: String(v) })}
-        items={Object.fromEntries((campo.opciones ?? []).map((o) => [o.valor, o.etiqueta]))}
-      >
-        <SelectTrigger
-          size="sm"
-          aria-label={campo.etiqueta}
-          className="bg-surface-panel min-w-0 flex-1 font-mono"
-        >
-          <SelectValue placeholder="Elegir de la lista…" />
-        </SelectTrigger>
-        <SelectContent>
-          {(campo.opciones ?? []).map((o) => (
-            <SelectItem key={o.valor} value={o.valor}>
-              {o.etiqueta}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <SelectOpciones
+        value={valor.valor}
+        onValueChange={(v) => onCambiar({ tipo: "opcion", valor: v })}
+        size="sm"
+        aria-label={campo.etiqueta}
+        className="bg-surface-panel min-w-0 flex-1 font-mono"
+        placeholder="Elegir de la lista…"
+        opciones={(campo.opciones ?? []).map((o) => ({ value: o.valor, label: o.etiqueta }))}
+      />
     );
   }
 
@@ -640,23 +582,17 @@ function EditorValor({
 
   if (valor.tipo === "booleano") {
     return (
-      <Select
+      <SelectOpciones
         value={valor.valor ? "si" : "no"}
         onValueChange={(v) => onCambiar({ tipo: "booleano", valor: v === "si" })}
-        items={{ si: "sí", no: "no" }}
-      >
-        <SelectTrigger
-          size="sm"
-          aria-label={campo.etiqueta}
-          className="bg-surface-panel min-w-0 flex-1"
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="si">sí</SelectItem>
-          <SelectItem value="no">no</SelectItem>
-        </SelectContent>
-      </Select>
+        size="sm"
+        aria-label={campo.etiqueta}
+        className="bg-surface-panel min-w-0 flex-1"
+        opciones={[
+          { value: "si", label: "sí" },
+          { value: "no", label: "no" },
+        ]}
+      />
     );
   }
 
@@ -734,22 +670,15 @@ function SelectorMultiple({
       })}
 
       {disponibles.length > 0 ? (
-        <Select value="" onValueChange={(v) => onCambiar([...seleccionadas, String(v)])}>
-          <SelectTrigger
-            size="sm"
-            aria-label={`Agregar a ${etiqueta}`}
-            className="text-ink-ghost h-6 w-auto border-none bg-transparent px-1.5 text-[10.5px] shadow-none"
-          >
-            <SelectValue placeholder={seleccionadas.length === 0 ? "Elegir de la lista…" : "+"} />
-          </SelectTrigger>
-          <SelectContent>
-            {disponibles.map((o) => (
-              <SelectItem key={o.valor} value={o.valor}>
-                {o.etiqueta}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SelectOpciones
+          value={null}
+          onValueChange={(v) => onCambiar([...seleccionadas, v])}
+          size="sm"
+          aria-label={`Agregar a ${etiqueta}`}
+          className="text-ink-ghost h-6 w-auto border-none bg-transparent px-1.5 text-[10.5px] shadow-none"
+          placeholder={seleccionadas.length === 0 ? "Elegir de la lista…" : "+"}
+          opciones={disponibles.map((o) => ({ value: o.valor, label: o.etiqueta }))}
+        />
       ) : opciones.length === 0 ? (
         // El catálogo llegó vacío. Decirlo es mejor que un recuadro mudo que se
         // lee como "no hay nada que elegir acá" cuando en realidad no cargó.

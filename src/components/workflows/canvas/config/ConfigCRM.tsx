@@ -2,13 +2,7 @@
 
 import { useId } from "react";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SelectOpciones } from "@/components/shared/SelectOpciones";
 import { X } from "lucide-react";
 import { editorDeConfig } from "@/lib/workflows/config-nodos";
 import { ETIQUETA_CAMPO_TWIN } from "@/lib/workflows/campo-twin";
@@ -108,7 +102,7 @@ export function ConfigCRM({
               })}
             </div>
 
-            <Select
+            <SelectOpciones
               value=""
               onValueChange={(v) => {
                 if (v && !selectedTags.includes(v)) {
@@ -116,20 +110,14 @@ export function ConfigCRM({
                 }
               }}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue placeholder="Agregar etiqueta..." />
-              </SelectTrigger>
-              <SelectContent>
-                {tags
+              className={selectClass}
+              placeholder="Agregar etiqueta..."
+              opciones={[
+                ...tags
                   .filter((t) => !selectedTags.includes(t.id))
-                  .map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.nombre}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
+                  .map((t) => ({ value: t.id, label: t.nombre })),
+              ]}
+            />
           </div>
         </div>
       );
@@ -141,24 +129,18 @@ export function ConfigCRM({
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Mover a etapa</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.etapaId ?? "")}
               onValueChange={(v) => onChange(c.con("etapaId", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue placeholder="Seleccionar etapa" />
-              </SelectTrigger>
-              <SelectContent>
-                {etapas
+              className={selectClass}
+              placeholder="Seleccionar etapa"
+              opciones={[
+                ...etapas
                   .filter((e) => esPasoDelEmbudo(e.id))
-                  .map((e) => (
-                    <SelectItem key={e.id} value={e.id}>
-                      {e.nombre}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
+                  .map((e) => ({ value: e.id, label: e.nombre })),
+              ]}
+            />
           </label>
         </div>
       );
@@ -170,22 +152,14 @@ export function ConfigCRM({
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Asignar a vendedor</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.vendedorId ?? "")}
               onValueChange={(v) => onChange(c.con("vendedorId", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue placeholder="Seleccionar vendedor" />
-              </SelectTrigger>
-              <SelectContent>
-                {vendedores.map((v) => (
-                  <SelectItem key={v.id} value={v.id}>
-                    {v.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              placeholder="Seleccionar vendedor"
+              opciones={vendedores.map((v) => ({ value: v.id, label: v.nombre }))}
+            />
           </label>
         </div>
       );
@@ -237,7 +211,7 @@ export function ConfigCRM({
               })}
             </div>
 
-            <Select
+            <SelectOpciones
               value=""
               onValueChange={(v) => {
                 if (v && !selectedVendedores.includes(v)) {
@@ -245,20 +219,14 @@ export function ConfigCRM({
                 }
               }}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue placeholder="Agregar vendedor..." />
-              </SelectTrigger>
-              <SelectContent>
-                {vendedores
+              className={selectClass}
+              placeholder="Agregar vendedor..."
+              opciones={[
+                ...vendedores
                   .filter((v) => !selectedVendedores.includes(v.id))
-                  .map((v) => (
-                    <SelectItem key={v.id} value={v.id}>
-                      {v.nombre}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
+                  .map((v) => ({ value: v.id, label: v.nombre })),
+              ]}
+            />
           </div>
 
           <div>
@@ -328,23 +296,17 @@ export function ConfigCRM({
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Campo del Twin</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.campo ?? "")}
               onValueChange={(v) => onChange(c.con("campo", v))}
               disabled={readonly}
-              items={ETIQUETA_CAMPO_TWIN}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue placeholder="Elegí un campo" />
-              </SelectTrigger>
-              <SelectContent>
-                {CAMPOS_TWIN_EDITABLES.map((campo) => (
-                  <SelectItem key={campo} value={campo}>
-                    {ETIQUETA_CAMPO_TWIN[campo]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              placeholder="Elegí un campo"
+              opciones={CAMPOS_TWIN_EDITABLES.map((campo) => ({
+                value: campo,
+                label: ETIQUETA_CAMPO_TWIN[campo],
+              }))}
+            />
           </label>
 
           <EditorConVariables
@@ -403,42 +365,32 @@ export function ConfigCRM({
                 onChange={(e) => onChange(c.con("vencimiento", Number(e.target.value)))}
                 disabled={readonly}
               />
-              <Select
+              <SelectOpciones
                 value={String(c.valores.unidadVencimiento)}
                 onValueChange={(v) => onChange(c.con("unidadVencimiento", v))}
                 disabled={readonly}
-              >
-                <SelectTrigger className={`${selectClass} flex-1`}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="minutos">Minutos</SelectItem>
-                  <SelectItem value="horas">Horas</SelectItem>
-                  <SelectItem value="dias">Dias</SelectItem>
-                </SelectContent>
-              </Select>
+                className={`${selectClass} flex-1`}
+                opciones={[
+                  { value: "minutos", label: "Minutos" },
+                  { value: "horas", label: "Horas" },
+                  { value: "dias", label: "Dias" },
+                ]}
+              />
             </div>
           </label>
 
           <label className="block">
             <span className={labelClass}>Asignar a</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.asignarA)}
               onValueChange={(v) => onChange(c.con("asignarA", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="vendedor_actual">Vendedor actual</SelectItem>
-                {vendedores.map((v) => (
-                  <SelectItem key={v.id} value={v.id}>
-                    {v.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "vendedor_actual", label: "Vendedor actual" },
+                ...vendedores.map((v) => ({ value: v.id, label: v.nombre })),
+              ]}
+            />
           </label>
         </div>
       );
@@ -497,22 +449,19 @@ export function ConfigCRM({
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Motivo de archivo</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.motivo)}
               onValueChange={(v) => onChange(c.con("motivo", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="sin_interes">Sin interes</SelectItem>
-                <SelectItem value="no_calificado">No calificado</SelectItem>
-                <SelectItem value="duplicado">Duplicado</SelectItem>
-                <SelectItem value="sin_respuesta">Sin respuesta</SelectItem>
-                <SelectItem value="otro">Otro</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "sin_interes", label: "Sin interes" },
+                { value: "no_calificado", label: "No calificado" },
+                { value: "duplicado", label: "Duplicado" },
+                { value: "sin_respuesta", label: "Sin respuesta" },
+                { value: "otro", label: "Otro" },
+              ]}
+            />
           </label>
         </div>
       );

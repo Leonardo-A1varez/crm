@@ -1,13 +1,7 @@
 "use client";
 
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SelectOpciones } from "@/components/shared/SelectOpciones";
 import { Textarea } from "@/components/ui/textarea";
 import { MAX_TEXTO_AVISO, editorDeConfig } from "@/lib/workflows/config-nodos";
 import { cn } from "@/lib/utils";
@@ -55,28 +49,16 @@ export function ConfigInterno({
           </p>
           <label className="block">
             <span className={labelClass}>Avisar a</span>
-            <Select
-              // Sin `items` el Select muestra el valor crudo ("vendedor_asignado").
-              items={{
-                vendedor_asignado: "Vendedor asignado",
-                ...Object.fromEntries(vendedores.map((v) => [v.id, v.nombre])),
-              }}
+            <SelectOpciones
               value={String(c.valores.destinatario)}
               onValueChange={(v) => onChange(c.con("destinatario", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="vendedor_asignado">Vendedor asignado</SelectItem>
-                {vendedores.map((v) => (
-                  <SelectItem key={v.id} value={v.id}>
-                    {v.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "vendedor_asignado", label: "Vendedor asignado" },
+                ...vendedores.map((v) => ({ value: v.id, label: v.nombre })),
+              ]}
+            />
             <span className="text-ink-faint mt-1 block text-[10.5px] leading-snug">
               Si no hay vendedor asignado, o la persona elegida ya no está activa, el aviso les
               llega a los admins.
@@ -118,28 +100,15 @@ export function ConfigInterno({
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Canal/Grupo</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.canalId ?? "")}
               onValueChange={(v) => onChange(c.con("canalId", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue placeholder="Seleccionar canal" />
-              </SelectTrigger>
-              <SelectContent>
-                {canales.length === 0 ? (
-                  <SelectItem value="" disabled>
-                    No hay canales configurados
-                  </SelectItem>
-                ) : (
-                  canales.map((canal) => (
-                    <SelectItem key={canal.id} value={canal.id}>
-                      {canal.nombre}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              placeholder="Seleccionar canal"
+              sinOpciones="No hay canales configurados"
+              opciones={canales.map((canal) => ({ value: canal.id, label: canal.nombre }))}
+            />
           </label>
 
           <label className="block">
@@ -184,19 +153,16 @@ export function ConfigInterno({
 
           <label className="block">
             <span className={labelClass}>Autor</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.autor)}
               onValueChange={(v) => onChange(c.con("autor", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="sistema">Sistema (Workflow)</SelectItem>
-                <SelectItem value="vendedor_asignado">Vendedor asignado</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "sistema", label: "Sistema (Workflow)" },
+                { value: "vendedor_asignado", label: "Vendedor asignado" },
+              ]}
+            />
           </label>
 
           <div className="text-ink-faint bg-surface-hover rounded-md p-2 text-[10px]">
@@ -212,21 +178,18 @@ export function ConfigInterno({
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Nivel de log</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.nivel)}
               onValueChange={(v) => onChange(c.con("nivel", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="debug">Debug</SelectItem>
-                <SelectItem value="info">Info</SelectItem>
-                <SelectItem value="warn">Warning</SelectItem>
-                <SelectItem value="error">Error</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "debug", label: "Debug" },
+                { value: "info", label: "Info" },
+                { value: "warn", label: "Warning" },
+                { value: "error", label: "Error" },
+              ]}
+            />
           </label>
 
           <label className="block">

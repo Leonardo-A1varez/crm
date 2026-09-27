@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Eyebrow } from "@/components/shared/Eyebrow";
+import { useColorModeLienzo } from "./color-mode-lienzo";
 import { EncuadreInicial } from "./EncuadreInicial";
 import { BarraEditor } from "./BarraEditor";
 import { MEDIDAS, PRESION_TACTIL, TRANSICION_CONTROL } from "./tokens-editor";
@@ -176,6 +177,7 @@ export function DiffPublicacion({
   onVolver,
   onPublicar,
 }: DiffPublicacionProps) {
+  const colorMode = useColorModeLienzo();
   const total = diff.total + cambiosDelFlujo.length;
   const sinCambios = total === 0;
   const notaLarga = maxNota !== undefined && nota.length > maxNota;
@@ -239,6 +241,7 @@ export function DiffPublicacion({
         <div className="bg-surface-root relative min-w-0 flex-1">
           <ReactFlowProvider>
             <ReactFlow<NodoDiffFlow, AristaDiffFlow>
+              colorMode={colorMode}
               nodes={nodos}
               edges={aristas}
               nodeTypes={TIPOS_NODO_DIFF}
@@ -252,12 +255,7 @@ export function DiffPublicacion({
               // El encuadre al abrir lo hace `<EncuadreInicial>`: la prop
               // `fitView` sólo cuenta los nodos ya medidos.
             >
-              <Background
-                variant={BackgroundVariant.Dots}
-                gap={18}
-                size={1}
-                className="!text-line-layout"
-              />
+              <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
               <EncuadreInicial />
             </ReactFlow>
           </ReactFlowProvider>

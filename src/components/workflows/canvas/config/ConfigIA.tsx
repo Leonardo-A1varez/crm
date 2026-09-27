@@ -1,13 +1,7 @@
 "use client";
 
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SelectOpciones } from "@/components/shared/SelectOpciones";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2, X } from "lucide-react";
 import { editorDeConfig, type ConfigDeTipo } from "@/lib/workflows/config-nodos";
@@ -80,7 +74,7 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
               })}
             </div>
 
-            <Select
+            <SelectOpciones
               value=""
               onValueChange={(v) => {
                 if (v && !selectedIntents.includes(v)) {
@@ -88,20 +82,14 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
                 }
               }}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue placeholder="Agregar intent..." />
-              </SelectTrigger>
-              <SelectContent>
-                {intents
+              className={selectClass}
+              placeholder="Agregar intent..."
+              opciones={[
+                ...intents
                   .filter((i) => !selectedIntents.includes(i.id))
-                  .map((i) => (
-                    <SelectItem key={i.id} value={i.id}>
-                      {i.nombre}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
+                  .map((i) => ({ value: i.id, label: i.nombre })),
+              ]}
+            />
           </div>
 
           <label className="block">
@@ -154,20 +142,17 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
 
           <label className="block">
             <span className={labelClass}>Modelo</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.modelo)}
               onValueChange={(v) => onChange(c.con("modelo", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="gpt-4o-mini">GPT-4o Mini (rapido)</SelectItem>
-                <SelectItem value="gpt-4o">GPT-4o (preciso)</SelectItem>
-                <SelectItem value="gpt-4-turbo">GPT-4 Turbo</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "gpt-4o-mini", label: "GPT-4o Mini (rapido)" },
+                { value: "gpt-4o", label: "GPT-4o (preciso)" },
+                { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
+              ]}
+            />
           </label>
 
           <label className="block">
@@ -273,7 +258,7 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
                       placeholder="nombre_campo"
                       disabled={readonly}
                     />
-                    <Select
+                    <SelectOpciones
                       value={campo.tipo}
                       onValueChange={(v) => {
                         const newCampos = [...campos];
@@ -284,17 +269,14 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
                         onChange(c.con("campos", newCampos));
                       }}
                       disabled={readonly}
-                    >
-                      <SelectTrigger className={`${selectClass} w-[100px]`}>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="texto">Texto</SelectItem>
-                        <SelectItem value="numero">Numero</SelectItem>
-                        <SelectItem value="fecha">Fecha</SelectItem>
-                        <SelectItem value="booleano">Si/No</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      className={`${selectClass} w-[100px]`}
+                      opciones={[
+                        { value: "texto", label: "Texto" },
+                        { value: "numero", label: "Numero" },
+                        { value: "fecha", label: "Fecha" },
+                        { value: "booleano", label: "Si/No" },
+                      ]}
+                    />
                     {!readonly && (
                       <Button
                         type="button"
@@ -364,19 +346,16 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
 
           <label className="block">
             <span className={labelClass}>Tipo de analisis</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.tipoAnalisis)}
               onValueChange={(v) => onChange(c.con("tipoAnalisis", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="basico">Basico (positivo/negativo/neutro)</SelectItem>
-                <SelectItem value="detallado">Detallado (con emociones)</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "basico", label: "Basico (positivo/negativo/neutro)" },
+                { value: "detallado", label: "Detallado (con emociones)" },
+              ]}
+            />
           </label>
 
           <label className="block">
@@ -399,20 +378,17 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
         <div className="flex flex-col gap-3">
           <label className="block">
             <span className={labelClass}>Que resumir</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.fuente)}
               onValueChange={(v) => onChange(c.con("fuente", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="conversacion">Conversacion completa</SelectItem>
-                <SelectItem value="ultimos_mensajes">Ultimos N mensajes</SelectItem>
-                <SelectItem value="texto">Texto especifico</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "conversacion", label: "Conversacion completa" },
+                { value: "ultimos_mensajes", label: "Ultimos N mensajes" },
+                { value: "texto", label: "Texto especifico" },
+              ]}
+            />
           </label>
 
           {c.valores.fuente === "ultimos_mensajes" && (
@@ -445,20 +421,17 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
 
           <label className="block">
             <span className={labelClass}>Longitud del resumen</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.longitud)}
               onValueChange={(v) => onChange(c.con("longitud", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="corto">Corto (1-2 oraciones)</SelectItem>
-                <SelectItem value="medio">Medio (1 parrafo)</SelectItem>
-                <SelectItem value="largo">Largo (varios parrafos)</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "corto", label: "Corto (1-2 oraciones)" },
+                { value: "medio", label: "Medio (1 parrafo)" },
+                { value: "largo", label: "Largo (varios parrafos)" },
+              ]}
+            />
           </label>
 
           <label className="block">
@@ -492,39 +465,33 @@ export function ConfigIA({ tipo, config, onChange, intents, readonly }: ConfigIA
 
           <label className="block">
             <span className={labelClass}>Idioma origen</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.idiomaOrigen)}
               onValueChange={(v) => onChange(c.con("idiomaOrigen", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="auto">Detectar automaticamente</SelectItem>
-                <SelectItem value="es">Espanol</SelectItem>
-                <SelectItem value="en">Ingles</SelectItem>
-                <SelectItem value="pt">Portugues</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "auto", label: "Detectar automaticamente" },
+                { value: "es", label: "Espanol" },
+                { value: "en", label: "Ingles" },
+                { value: "pt", label: "Portugues" },
+              ]}
+            />
           </label>
 
           <label className="block">
             <span className={labelClass}>Idioma destino</span>
-            <Select
+            <SelectOpciones
               value={String(c.valores.idiomaDestino)}
               onValueChange={(v) => onChange(c.con("idiomaDestino", v))}
               disabled={readonly}
-            >
-              <SelectTrigger className={selectClass}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="es">Espanol</SelectItem>
-                <SelectItem value="en">Ingles</SelectItem>
-                <SelectItem value="pt">Portugues</SelectItem>
-              </SelectContent>
-            </Select>
+              className={selectClass}
+              opciones={[
+                { value: "es", label: "Espanol" },
+                { value: "en", label: "Ingles" },
+                { value: "pt", label: "Portugues" },
+              ]}
+            />
           </label>
 
           <label className="block">

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { camposDeCondicion } from "@/app/(panel)/workflows/[id]/_lib/campos-condicion";
 import { presentacionDe } from "@/app/(panel)/workflows/[id]/_lib/presentacion-nodos";
 import { ConfigLogica } from "@/components/workflows/canvas/config";
@@ -71,9 +71,13 @@ describe("panel de «Según el valor»", () => {
   it("sólo ofrece los campos que se comparan por igualdad", async () => {
     render(<Panel tipo="logica_switch" inicial={{}} onConfig={() => {}} />);
     fireEvent.mouseDown(screen.getByRole("combobox"));
-    const opciones = (await screen.findAllByRole("option")).map((o) => o.textContent);
-    expect(opciones).toContain("Sesión · Intent detectado");
-    expect(opciones).not.toContain("Sesión · Precio cotizado");
+    // Agrupados bajo su encabezado ("Lead", "Sesión"), como el constructor de condiciones.
+    const sesion = await screen.findByRole("group", { name: "Sesión" });
+    const opciones = within(sesion)
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    expect(opciones).toContain("Intent detectado");
+    expect(opciones).not.toContain("Precio cotizado");
   });
 
   it("quitar un caso tiene nombre accesible con su valor", () => {

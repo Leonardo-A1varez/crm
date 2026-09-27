@@ -18,6 +18,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { cn } from "@/lib/utils";
+import { useColorModeLienzo } from "./color-mode-lienzo";
 import { categoriaColor } from "./contrato-nodos";
 import { EncuadreInicial, useEncuadrarTodo } from "./EncuadreInicial";
 import { CURVA, DURACION, FOCO, MEDIDAS, TRANSICION_CONTROL } from "./tokens-editor";
@@ -122,6 +123,7 @@ export function LienzoEditor({
 }: LienzoEditorProps) {
   const raizRef = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
+  const colorMode = useColorModeLienzo();
 
   /**
    * Marca el lienzo mientras hay un arrastre en curso.
@@ -230,6 +232,7 @@ export function LienzoEditor({
       className={cn("group/lienzo bg-surface-root relative min-w-0 flex-1", className)}
     >
       <ReactFlow<NodoEditor, AristaEditor>
+        colorMode={colorMode}
         nodes={nodos}
         edges={aristas}
         nodeTypes={TIPOS_NODO_EDITOR}
@@ -259,19 +262,13 @@ export function LienzoEditor({
         snapGrid={[16, 16]}
         deleteKeyCode={editable ? ["Backspace", "Delete"] : null}
       >
-        <Background
-          variant={BackgroundVariant.Dots}
-          gap={18}
-          size={1}
-          className="!text-line-layout"
-        />
+        <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
         <MiniMap
           pannable
           zoomable
           ariaLabel="Mapa del flujo"
           nodeColor={(n) => categoriaColor((n as NodoEditor).data.categoria)}
           nodeStrokeWidth={0}
-          maskColor="color-mix(in srgb, var(--surface-root) 78%, transparent)"
           style={{ width: MEDIDAS.MINIMAPA_ANCHO, height: MEDIDAS.MINIMAPA_ALTO }}
           // `!m-0` no es layout con márgenes: anula el margen propio que React
           // Flow le inyecta al minimapa, que sumado al `bottom-3.5` lo dejaría
