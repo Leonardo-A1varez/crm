@@ -136,6 +136,10 @@ describe("onMessageReceivedHandler granular steps", () => {
       "cancelar-recordatorios",
       // Lead nuevo: dispara "Lead creado" ya con la sesión abierta.
       "emit-workflow-lead-creado",
+      // Memorizados: una reejecución que cruza la hora de cierre o un cambio
+      // de config entre pasadas no cambian el camino.
+      "leer-config",
+      "decidir-horario",
       // Todo mensaje nuevo dispara los flujos "Mensaje recibido", conteste
       // quien conteste después. Después de clasificar: el disparo lleva el
       // intent de este turno, que la base recién tiene cuando contesta el agente.
@@ -209,6 +213,10 @@ describe("onMessageReceivedHandler granular steps", () => {
       "cancelar-recordatorios",
       // Lead nuevo: dispara "Lead creado" ya con la sesión abierta.
       "emit-workflow-lead-creado",
+      // Memorizados: una reejecución que cruza la hora de cierre o un cambio
+      // de config entre pasadas no cambian el camino.
+      "leer-config",
+      "decidir-horario",
       // Todo mensaje nuevo dispara los flujos "Mensaje recibido", conteste
       // quien conteste después. Después de clasificar: el disparo lleva el
       // intent de este turno, que la base recién tiene cuando contesta el agente.

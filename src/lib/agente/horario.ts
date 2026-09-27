@@ -75,6 +75,7 @@ function momentoLocal(tz: string, ahora: Date): { dia: DiaSemana; minutos: numbe
 
 /**
  * Los bordes cuentan como abierto: un rango 08:00-18:00 incluye las 18:00.
+ * Un rango invertido o de duración cero no abre nunca.
  *
  * Ante timezone invalida o `Intl` que falla, devuelve `true` (abierto). Cerrar
  * el agente por una zona mal escrita seria peor que responder: el fallo se
@@ -88,7 +89,10 @@ export function estaAbierto(horario: Horario, timezone: string, ahora: Date): bo
   for (const rango of rangos) {
     const desde = aMinutos(rango.desde);
     const hasta = aMinutos(rango.hasta);
-    if (desde === null || hasta === null) continue;
+    // Invertido o de duración cero no es un rango: misma regla que
+    // `normalizarRangos`. Sin esto, 00:00-00:00 abría el minuto de medianoche
+    // mientras `tieneAlgunRango` decía que no hay horario.
+    if (desde === null || hasta === null || desde >= hasta) continue;
     if (momento.minutos >= desde && momento.minutos <= hasta) return true;
   }
   return false;

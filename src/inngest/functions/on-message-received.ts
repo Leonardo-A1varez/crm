@@ -583,8 +583,30 @@ export async function onMessageReceivedHandler(
     // interceptor no intercepta y contesta el agente
     // (`interceptor.service.ts`). Queda en el log con el motivo; en
     // `turnos_interceptados` sólo entran los turnos que contesta un flujo.
-    const config = await deps.configProvider.get();
-    const abierto = estaAbierto(config.horario, config.horario_timezone, new Date());
+    // La config del turno se memoriza: Inngest vuelve a correr el handler en
+    // cada paso, y si el admin guarda entre dos pasadas, el mismo turno
+    // mezclaría dos configs (plantilla, tope de descuento, umbral de escalado).
+    // Sólo los campos que este handler lee: `instrucciones` y el resto los lee
+    // el agente adentro de `respond`, que ya es un step, y no hace falta
+    // guardarlos en el estado del run.
+    const config = await step.run("leer-config", async () => {
+      const c = await deps.configProvider.get();
+      return {
+        horario: c.horario,
+        horario_timezone: c.horario_timezone,
+        plantilla_fuera_horario: c.plantilla_fuera_horario,
+        ventana_contexto_mensajes: c.ventana_contexto_mensajes,
+        descuento_max_pct: c.descuento_max_pct,
+        escalar_umbral_intents: c.escalar_umbral_intents,
+      };
+    });
+    // Step propio: Inngest vuelve a correr el handler en cada paso, y una
+    // lectura del reloj afuera de un step cambia si una pasada cruza la hora
+    // de cierre — el interceptor ya decidió con el negocio abierto y la pasada
+    // siguiente manda la plantilla de fuera de horario.
+    const abierto = await step.run("decidir-horario", async () =>
+      estaAbierto(config.horario, config.horario_timezone, new Date()),
+    );
     const interceptor = deps.interceptor;
     const avisarDescarte = (decision: DecisionIntercepcion) => {
       if (decision.tipo === "no" && decision.descartada) {

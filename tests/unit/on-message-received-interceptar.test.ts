@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { InMemoryRuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
 import { InMemoryTurnClassificationsRepository } from "@/server/repositories/turn-classifications.repo";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
@@ -28,6 +28,7 @@ import {
   onMessageReceivedHandler,
   type EmittedEvent,
   type OnMessageReceivedDeps,
+  type StepRunner,
 } from "@/inngest/functions/on-message-received";
 import type { ParsedMessage } from "@/lib/meta/parse-webhook";
 import type { WorkflowVersion } from "@/types/entities";
@@ -473,6 +474,17 @@ describe("on-message-received — fuera de horario no se intercepta", () => {
     };
   }
 
+  // El handler lee el reloj real. Se fija en el minuto más hostil para este
+  // horario: 00:00:30 en Buenos Aires (la zona de fábrica), el único en que un
+  // rango 00:00-00:00 podría leerse como abierto.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-27T03:00:30Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   test("contesta la plantilla de fuera de horario y el turno no queda interceptado", async () => {
     const ctx = makeDeps([version(escalarHorario())]);
     ctx.deps.configProvider = new StaticAgentConfigProvider(cerrado);
@@ -491,6 +503,125 @@ describe("on-message-received — fuera de horario no se intercepta", () => {
     const [disparo] = disparosMensaje(ctx.emitted);
     expect(disparo).toBeDefined();
     expect(disparo?.data.interceptadoPor).toBeUndefined();
+  });
+});
+
+/**
+ * Como Inngest: cada pasada corre a lo sumo un step nuevo, los ya corridos
+ * devuelven lo memorizado y la pasada termina ahí (el step siguiente no
+ * resuelve nunca). `alCorrer` se llama después de ejecutar cada step nuevo.
+ */
+class PasoAPaso implements StepRunner {
+  private readonly memo = new Map<string, unknown>();
+  private corrioUno = false;
+  private terminarPasada: () => void = () => {};
+  constructor(private readonly alCorrer: (nombre: string) => void) {}
+
+  async run<T>(nombre: string, fn: () => Promise<T>): Promise<T> {
+    if (this.memo.has(nombre)) return this.memo.get(nombre) as T;
+    if (this.corrioUno) {
+      this.terminarPasada();
+      return new Promise<T>(() => {});
+    }
+    const valor = await fn();
+    this.memo.set(nombre, valor);
+    this.corrioUno = true;
+    this.alCorrer(nombre);
+    return valor;
+  }
+
+  async ejecutar<R>(handler: (step: StepRunner) => Promise<R>): Promise<R> {
+    for (let pasada = 0; pasada < 100; pasada++) {
+      this.corrioUno = false;
+      const finDePasada = new Promise<"pasada">((resolve) => {
+        this.terminarPasada = () => resolve("pasada");
+      });
+      const r = await Promise.race([handler(this), finDePasada]);
+      if (r !== "pasada") return r;
+    }
+    throw new Error("el handler no terminó en 100 pasadas");
+  }
+}
+
+/**
+ * Inngest vuelve a correr el handler desde arriba en cada paso y sólo memoriza
+ * lo que pasó por `step.run`. Una decisión tomada afuera de un step se vuelve a
+ * tomar en cada pasada: si entre dos pasadas el negocio cierra, el mismo
+ * mensaje se trata de dos formas.
+ */
+describe("on-message-received — la decisión de horario sobrevive a una reejecución", () => {
+  const ABIERTO_8_A_18 = { desde: "08:00", hasta: "18:00" };
+  const deOchoASeis = {
+    ...CONFIG_DE_FABRICA,
+    horario: {
+      lun: [ABIERTO_8_A_18],
+      mar: [ABIERTO_8_A_18],
+      mie: [ABIERTO_8_A_18],
+      jue: [ABIERTO_8_A_18],
+      vie: [ABIERTO_8_A_18],
+      sab: [ABIERTO_8_A_18],
+      dom: [ABIERTO_8_A_18],
+    },
+    plantilla_fuera_horario: "Estamos cerrados, te respondemos al abrir.",
+  };
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test("abierto al decidir y cerrado en la pasada siguiente: contesta el flujo, no la plantilla", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // Lunes 17:59 en Buenos Aires.
+    vi.setSystemTime(new Date("2026-09-28T20:59:00Z"));
+    const ctx = makeDeps([version(responderHorario(regla("lead.canal", "wa")))]);
+    ctx.deps.configProvider = new StaticAgentConfigProvider(deOchoASeis);
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+
+    const step = new PasoAPaso((nombre) => {
+      // El interceptor ya decidió con el negocio abierto; las pasadas que
+      // siguen corren con el negocio cerrado (18:01).
+      if (nombre === "decidir-intercepcion") vi.setSystemTime(new Date("2026-09-28T21:01:00Z"));
+    });
+    const r = await step.ejecutar((s) =>
+      onMessageReceivedHandler({ parsed: parsed() }, ctx.deps, s),
+    );
+
+    expect(r.agentSource).toBe("flujo");
+    expect(r.sent).toBe(false);
+    const mensajes = await ctx.messages.listByConversacion(r.conversacionId);
+    expect(mensajes.filter((m) => m.direction === "out")).toEqual([]);
+    const entrante = mensajes.find((m) => m.direction === "in")!;
+    expect(await ctx.turnos.listByMensajeIds([entrante.id])).toMatchObject([
+      { workflow_id: "wf-horario", motivo: "condicion" },
+    ]);
+  });
+
+  test("un cambio de config entre dos pasadas no altera el turno: usa la primera", async () => {
+    const ctx = makeDeps([]);
+    // Primera lectura: admite hasta 30 % de descuento. Después el admin baja
+    // el tope a 0; las pasadas siguientes leerían esa y descartarían la
+    // respuesta del agente como descuento excedido.
+    const generosa = { ...CONFIG_DE_FABRICA, descuento_max_pct: 30 };
+    const estricta = { ...CONFIG_DE_FABRICA, descuento_max_pct: 0 };
+    let vigente = generosa;
+    ctx.deps.configProvider = { get: async () => vigente, invalidar: () => {} };
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("Te hago un 20% en las pastillas.");
+
+    const step = new PasoAPaso((nombre) => {
+      // `decidir-horario` es el primer step que corre con la config ya leída.
+      if (nombre === "decidir-horario") vigente = estricta;
+    });
+    const r = await step.ejecutar((s) =>
+      onMessageReceivedHandler({ parsed: parsed() }, ctx.deps, s),
+    );
+
+    expect(r.agentSource).toBe("llm");
+    expect(r.sent).toBe(true);
+    const mensajes = await ctx.messages.listByConversacion(r.conversacionId);
+    expect(mensajes.filter((m) => m.direction === "out").map((m) => m.contenido)).toEqual([
+      "Te hago un 20% en las pastillas.",
+    ]);
   });
 });
 

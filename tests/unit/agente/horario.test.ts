@@ -69,6 +69,17 @@ describe("estaAbierto", () => {
     expect(estaAbierto(h, TZ, new Date("2026-08-12T18:30:00Z"))).toBe(true);
   });
 
+  test("un rango de duracion cero no abre ni en su propio minuto", () => {
+    // Misma regla que `normalizarRangos`: desde == hasta es un rango invalido.
+    // 2026-09-27T03:00:30Z es domingo 00:00:30 en Buenos Aires.
+    const h = {} as Horario;
+    for (const dia of DIAS_SEMANA) h[dia] = [{ desde: "00:00", hasta: "00:00" }];
+    expect(estaAbierto(h, TZ, new Date("2026-09-27T03:00:30Z"))).toBe(false);
+    // 2026-08-10 es lunes; 10:00 local = 13:00 UTC.
+    const lunes = horario({ lun: [{ desde: "10:00", hasta: "10:00" }] });
+    expect(estaAbierto(lunes, TZ, new Date("2026-08-10T13:00:00Z"))).toBe(false);
+  });
+
   test("timezone invalida no explota: degrada a abierto", () => {
     // Cerrar el agente por una timezone mal escrita seria peor que responder.
     const h = horario({ lun: [{ desde: "08:00", hasta: "18:00" }] });
