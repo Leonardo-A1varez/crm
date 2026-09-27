@@ -92,14 +92,6 @@ export const NO_DISPONIBLES: Readonly<Partial<Record<NodoTipo, string>>> = {
   ia_resumir: TODAVIA_SIN_IA,
   ia_traducir: TODAVIA_SIN_IA,
   ia_spam: TODAVIA_SIN_IA,
-  // PRD §4.5. Hacerlo de verdad pide tres cosas que el motor no tiene: un
-  // nodo con cinco salidas (el motor sólo conoce `salida` y Sí/No), un evento
-  // por turno del agente con el intent que detectó, y re-evaluar el nodo en
-  // cada uno. La versión de la rama `workflows-fundacion` devolvía
-  // `pendiente_ejecucion: true` sin observar al agente: no se portó.
-  ia_delegar:
-    "El motor todavía no sabe cederle un tramo al agente y observarlo: le faltan las cinco salidas del bloque y un aviso por cada turno del agente.",
-
   // ── Internos ──────────────────────────────────────────────────────────
   int_notif_grupo: "No hay canales de grupo conectados.",
   int_comentario: "El CRM no tiene comentarios internos: no hay dónde guardarlo.",

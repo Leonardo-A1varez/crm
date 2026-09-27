@@ -79,6 +79,7 @@ import {
   recordatorioCancelado,
   workflowCorridaCancelada,
   workflowSegmentoPendiente,
+  workflowDelegacionTurno,
 } from "@/inngest/events";
 import { makePurgeSession } from "@/inngest/callbacks/purge-session";
 import { makeSendReactivation } from "@/inngest/callbacks/send-reactivation";
@@ -92,6 +93,7 @@ import { DefaultAsignacionService } from "@/server/services/asignacion/asignacio
 import { DefaultUsuariosService } from "@/server/services/usuarios/usuarios.service";
 
 import { crearRegistroDeAcciones } from "@/server/services/workflows/acciones/registro";
+import { crearPuertosDelegacion } from "@/server/services/workflows/puertos-delegacion";
 import { SupabaseImagenesDeFlujoRepository } from "@/server/repositories/imagenes-de-flujo.supabase.repo";
 import type { ConfigProviderParaEnviarMensaje } from "@/server/services/workflows/acciones/enviar-mensaje";
 import { SupabaseMetaOperationalEventsRepository } from "@/server/repositories/meta-operational-events.supabase.repo";
@@ -168,6 +170,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   //     con lo que se puede responder cuánto costó una conversación o un lead.
   // El segundo no reemplaza al primero: un total diario no se desagrega, y una
   // suma de filas no sirve para cortar a mitad de turno.
+  const llmUsage = new SupabaseLlmUsageRepository(db);
   const costTracker = new PersistingCostTracker({
     inner: makeCostTracker({
       pricing: OPENAI_PRICING,
@@ -176,7 +179,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       upstashToken: env.UPSTASH_REDIS_REST_TOKEN,
       logger,
     }),
-    repo: new SupabaseLlmUsageRepository(db),
+    repo: llmUsage,
     pricing: OPENAI_PRICING,
     logger,
   });
@@ -303,6 +306,13 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     }),
     // "Enviar imagen" subida desde el panel: se firma al mandar.
     imagenesDeFlujo: new SupabaseImagenesDeFlujoRepository(db),
+    // "Delegar al agente": por qué se pausó la sesión, cuánto se gastó en LLM
+    // (sesión y día) y la condición del Twin con los campos de ahora.
+    ...crearPuertosDelegacion({ handoffEvents, llmUsage, config: agenteConfigProvider }),
+    camposVivos: camposVivosDeCondicion(
+      new SupabaseCondicionWorkflowRepository(db),
+      agenteConfigProvider,
+    ),
   });
 
   // ===== Callbacks =====
@@ -454,6 +464,9 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
         },
         conversations: makeConversationsParaEnviarMensaje({ conversations, messages }),
       }),
+      // "Delegar al agente": las instrucciones de los tramos vivos van al
+      // prompt del agente y cada turno se les avisa.
+      delegaciones: workflowRuns,
       // Apaga el seguimiento apenas el cliente vuelve a escribir.
       recordatorios,
       cancelarAvisoRecordatorio: async (input) => {
@@ -484,6 +497,10 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       sessions,
       // Los flujos con trigger "Etapa cambiada".
       emitirDisparo: makeEmitirDisparoWorkflow(inngest),
+      // "Delegar al agente": el Twin del turno ya está escrito.
+      emitirAvisoTramo: async (aviso) => {
+        await inngest.send({ name: workflowDelegacionTurno.name, data: aviso.data, id: aviso.id });
+      },
     },
     detectIntentsBatch: {
       sessions,

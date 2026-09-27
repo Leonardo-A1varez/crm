@@ -312,6 +312,33 @@ export function runMessagesContract(
       expect(list.map((m) => m.id)).toEqual([ids[2], ids[3]]);
     });
 
+    test("listBySessionId con direction aplica el limit sobre esa dirección", async () => {
+      const entrantes: string[] = [];
+      for (let i = 0; i < 3; i++) {
+        const m = await repo.create(baseInsert(fixtures, { meta_message_id: `dir_in_${i}` }));
+        entrantes.push(m.id);
+        await new Promise((r) => setTimeout(r, 5));
+        // Varios salientes por entrante: con un limit sobre el hilo entero, los
+        // entrantes más viejos quedarían afuera.
+        for (let j = 0; j < 2; j++) {
+          await repo.create(
+            baseInsert(fixtures, {
+              direction: "out",
+              sender: "ia",
+              meta_message_id: `dir_out_${i}_${j}`,
+            }),
+          );
+          await new Promise((r) => setTimeout(r, 5));
+        }
+      }
+
+      const list = await repo.listBySessionId(fixtures.leadSessionId, {
+        limit: 2,
+        direction: "in",
+      });
+      expect(list.map((m) => m.id)).toEqual([entrantes[1], entrantes[2]]);
+    });
+
     test("listBySessionIds trae los hilos de varias sesiones en una sola lectura", async () => {
       const a = await repo.create(baseInsert(fixtures, { meta_message_id: "tanda_a" }));
       await new Promise((r) => setTimeout(r, 5));

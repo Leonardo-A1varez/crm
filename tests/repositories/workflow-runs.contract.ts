@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WorkflowRunsRepository } from "@/server/repositories/workflow-runs.repo";
+import { CLAVE_DELEGACION } from "@/lib/workflows/delegacion";
 import { MARCA_CORRIDA_DE_PRUEBA } from "@/types/workflows";
 
 /**
@@ -543,6 +544,67 @@ export function runWorkflowRunsContract(
           contexto: { [MARCA_CORRIDA_DE_PRUEBA]: true },
         });
         expect(await repo.hayCorridaViva(workflowId, leadId)).toBe(false);
+      });
+    });
+
+    // Lo que lee el pipeline antes de cada turno del agente: los tramos que un
+    // flujo le delegó al agente y siguen vivos ("Delegar al agente").
+    describe("delegacionesActivas", () => {
+      const AHORA = new Date("2026-09-26T10:00:00Z");
+      const tramo = (hasta: string, instrucciones: string | null = "Pedí el año.") => ({
+        [CLAVE_DELEGACION]: {
+          nodoId: "d",
+          desde: "2026-09-26T09:00:00.000Z",
+          hasta,
+          turnos: 0,
+          costoBaseUsd: 0,
+          instrucciones,
+        },
+      });
+
+      it("devuelve la corrida esperando con un tramo que no venció, con sus instrucciones", async () => {
+        const { repo, versionId, leadId } = await makeRepo();
+        const { run } = await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });
+        await repo.esperar(run!.id, "d", tramo("2026-09-27T10:00:00.000Z"), 2);
+        expect(await repo.delegacionesActivas(leadId, AHORA)).toEqual([
+          { runId: run!.id, instrucciones: "Pedí el año." },
+        ]);
+      });
+
+      it("un tramo vencido, una espera sin tramo o una corrida terminada no cuentan", async () => {
+        const { repo, versionId, leadId } = await makeRepo();
+        const { run } = await repo.arrancar({ versionId, leadId, sessionId: null, contexto: {} });
+        await repo.esperar(run!.id, "d", tramo("2026-09-26T09:30:00.000Z"), 2);
+        expect(await repo.delegacionesActivas(leadId, AHORA)).toEqual([]);
+        await repo.esperar(run!.id, "e", {}, 3);
+        expect(await repo.delegacionesActivas(leadId, AHORA)).toEqual([]);
+        await repo.esperar(run!.id, "d", tramo("2026-09-27T10:00:00.000Z"), 4);
+        await repo.terminar(run!.id, 4);
+        expect(await repo.delegacionesActivas(leadId, AHORA)).toEqual([]);
+      });
+
+      it("es por lead y deja afuera las de Probar", async () => {
+        const { repo, versionId, leadId } = await makeRepo();
+        const otro = await repo.arrancar({
+          versionId,
+          leadId: "00000000-0000-4000-8000-00000000000d",
+          sessionId: null,
+          contexto: {},
+        });
+        await repo.esperar(otro.run!.id, "d", tramo("2026-09-27T10:00:00.000Z"), 2);
+        const prueba = await repo.arrancar({
+          versionId,
+          leadId,
+          sessionId: null,
+          contexto: { [MARCA_CORRIDA_DE_PRUEBA]: true },
+        });
+        await repo.esperar(
+          prueba.run!.id,
+          "d",
+          { [MARCA_CORRIDA_DE_PRUEBA]: true, ...tramo("2026-09-27T10:00:00.000Z") },
+          2,
+        );
+        expect(await repo.delegacionesActivas(leadId, AHORA)).toEqual([]);
       });
     });
   });

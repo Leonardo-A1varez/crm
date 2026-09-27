@@ -23,6 +23,9 @@ import { InMemoryTurnClassificationsRepository } from "@/server/repositories/tur
 import { DefaultAiAgentService } from "@/server/services/ai-agent.service";
 import { DefaultCatalogMatcherService } from "@/server/services/catalog-matcher.service";
 import { DefaultHandoffService } from "@/server/services/handoff.service";
+import { InMemoryHandoffEventsRepository } from "@/server/repositories/handoff-events.repo";
+import { InMemoryLlmUsageRepository } from "@/server/repositories/llm-usage.repo";
+import { crearPuertosDelegacion } from "@/server/services/workflows/puertos-delegacion";
 import { DefaultIntentClassifierService } from "@/server/services/intent-classifier.service";
 import { DefaultLeadMergeDetectorService } from "@/server/services/lead-merge-detector.service";
 import { InMemoryLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
@@ -198,7 +201,8 @@ export function makeSmokeBundle(): SmokeBundle {
     llmBundle.twinExtractor,
     vehiculos,
   );
-  const handoff = new DefaultHandoffService(sessions);
+  const handoffEvents = new InMemoryHandoffEventsRepository(sessions);
+  const handoff = new DefaultHandoffService(sessions, undefined, handoffEvents);
   const metaApi = new DefaultMetaApiService(conversations, messages, metaClient);
   const mergeDetector = new DefaultLeadMergeDetectorService(
     leads,
@@ -276,6 +280,13 @@ export function makeSmokeBundle(): SmokeBundle {
       conversations: makeConversationsParaEnviarMensaje({ conversations, messages }),
       notificaciones: new InMemoryNotificacionesRepository(),
     }),
+    // "Delegar al agente": en el smoke no hay gasto registrado ni campos vivos.
+    ...crearPuertosDelegacion({
+      handoffEvents,
+      llmUsage: new InMemoryLlmUsageRepository(),
+      config: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
+    }),
+    camposVivos: { cargar: async () => ({}), zona: async () => "UTC" },
   });
 
   // ===== Callbacks =====

@@ -52,6 +52,11 @@ export interface PasoCorrida {
   /** Lo que entró y lo que salió del paso. Se muestran al clickearlo. */
   entrada?: Readonly<Record<string, string>>;
   salida?: Readonly<Record<string, string>>;
+  /**
+   * Una línea de progreso bajo el nombre. La usa "Delegar al agente":
+   * "turno 3 · esperando intent consulta_producto".
+   */
+  progreso?: string;
 }
 
 /** Las dos formas de volver a lanzar una corrida fallada. Nunca se llaman igual. */

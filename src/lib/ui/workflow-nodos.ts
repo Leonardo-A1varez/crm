@@ -351,10 +351,17 @@ export function clasesPuerto(tono: TonoPuerto): string {
  * desconocido es una rama más, no un error.
  */
 export function tonoDePuerto(id: string): TonoPuerto {
-  if (id === "si" || id === "ok" || id === "verdadero" || id === "respuesta" || id === "evento") {
+  if (
+    id === "si" ||
+    id === "ok" ||
+    id === "verdadero" ||
+    id === "respuesta" ||
+    id === "evento" ||
+    id === "resuelto"
+  ) {
     return "ok";
   }
-  if (id === "error" || id === "falla") return "falla";
+  if (id === "error" || id === "falla" || id === "no_pudo") return "falla";
   if (id === "timeout" || id === "humano") return "alerta";
   return "neutro";
 }

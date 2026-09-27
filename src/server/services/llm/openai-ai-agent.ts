@@ -133,7 +133,7 @@ export class OpenAiAgentLLM implements AgentLLM {
       () =>
         generateText({
           model: this.cfg.provider(modelo),
-          system: componerSystemPrompt(config),
+          system: componerSystemPrompt(config, input.instruccionesTramo ?? []),
           prompt: [
             "Contexto:",
             contextBlock,

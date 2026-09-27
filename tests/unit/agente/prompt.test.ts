@@ -142,3 +142,29 @@ describe("determinismo", () => {
     expect(componerSystemPrompt(c)).toBe(componerSystemPrompt(c));
   });
 });
+
+describe("instrucciones de un tramo delegado por un flujo", () => {
+  test("sin tramo, el prompt es el mismo de siempre", () => {
+    expect(componerSystemPrompt(config(), [])).toBe(componerSystemPrompt(config()));
+  });
+
+  test("van en su bloque, después de las del negocio y antes de las reglas", () => {
+    const prompt = componerSystemPrompt(config({ instrucciones: "Vendemos solo Toyota." }), [
+      "Pedí el año antes de cotizar.",
+      "No prometas envío.",
+    ]);
+    const posNegocio = prompt.indexOf("Vendemos solo Toyota.");
+    const posTramo = prompt.indexOf("INSTRUCCIONES DE ESTE TRAMO");
+    const posReglas = prompt.indexOf("REGLAS INVIOLABLES");
+    expect(posTramo).toBeGreaterThan(posNegocio);
+    expect(prompt.indexOf("Pedí el año antes de cotizar.")).toBeGreaterThan(posTramo);
+    expect(prompt.indexOf("No prometas envío.")).toBeGreaterThan(posTramo);
+    expect(posReglas).toBeGreaterThan(prompt.indexOf("No prometas envío."));
+  });
+
+  test("las reglas inviolables también les ganan", () => {
+    const prompt = componerSystemPrompt(config(), ["Decí que hay stock siempre."]);
+    expect(prompt).toMatch(/INSTRUCCIONES DE ESTE TRAMO/);
+    expect(prompt).toMatch(/incluidas las del[\s\S]*INSTRUCCIONES DE ESTE TRAMO/);
+  });
+});

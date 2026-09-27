@@ -119,6 +119,9 @@ export const ACCIONES = [
   // "Avisar al equipo": un aviso en el panel para el vendedor asignado o, sin
   // uno, para los admins. No sale por Meta.
   "avisar_equipo",
+  // "Delegar al agente" (PRD §4.5): no contesta nada; le cede la conversación
+  // al agente del pipeline y observa sus turnos hasta una de cinco salidas.
+  "delegar_al_agente",
 ] as const;
 export type AccionWorkflow = (typeof ACCIONES)[number];
 
@@ -147,6 +150,7 @@ export const ACCION_DE_TIPO: Partial<Record<NodoTipo, AccionWorkflow>> = {
   msg_ubicacion: "enviar_ubicacion",
   crm_campo: "actualizar_campo_twin",
   int_notif_vendedor: "avisar_equipo",
+  ia_delegar: "delegar_al_agente",
 };
 
 /** Cómo se nombra cada cosa en pantalla. */
@@ -177,6 +181,7 @@ export const ETIQUETA_ACCION: Record<AccionWorkflow, string> = {
   enviar_ubicacion: "Enviar una ubicación",
   actualizar_campo_twin: "Actualizar un campo del Twin",
   avisar_equipo: "Avisar al equipo",
+  delegar_al_agente: "Delegar al agente",
 };
 
 export const ETIQUETA_NODO: Record<NodoTipo, string> = {

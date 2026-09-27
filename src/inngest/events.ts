@@ -7,6 +7,7 @@ import {
 } from "@/lib/difusion/eventos";
 import type { ParsedMessage } from "@/lib/meta/parse-webhook";
 import type { IntentClassification } from "@/lib/validation/ai";
+import type { DelegacionDelTurno, TurnoDelegacion } from "@/lib/workflows/delegacion";
 import type { DispararWorkflowInput } from "@/lib/workflows/disparos";
 import type { Canal, EstadoEntrega } from "@/types/domain";
 import type { UUID } from "@/types/entities";
@@ -60,6 +61,8 @@ export const turnCompleted = eventType("lead-session/turn.completed", {
     leadSessionId: UUID;
     conversationTurn: string[];
     mensajeOrigenId?: UUID;
+    /** El turno de los tramos delegados al agente ("Delegar al agente"). */
+    delegacion?: DelegacionDelTurno;
   }>(),
 });
 
@@ -175,7 +178,23 @@ export const workflowSegmentoPendiente = eventType("workflow/segmento.pendiente"
     profundidad?: number;
     /** Sólo al reanudar un nodo con botones o lista: lo que eligió el lead. */
     opcionElegida?: { id: string; titulo: string };
+    /** Sólo al reanudar "Delegar al agente": el turno que lo despertó. */
+    turnoAgente?: TurnoDelegacion;
   }>(),
+});
+
+/**
+ * Un turno del agente mientras un flujo le delegó la conversación ("Delegar al
+ * agente", `lib/workflows/delegacion.ts`). Lo emite `on-message-received` sólo
+ * si el lead tiene una delegación activa (`tipo` turno/error/baja), y
+ * `update-lead-twin` cuando termina de escribir el Twin de ese turno (`twin`).
+ * Lo espera `workflow-segmento` (`step.waitForEvent`) filtrando por lead.
+ *
+ * Idempotency key al emitir: `delegacion-turno:<mensaje entrante>` y
+ * `delegacion-twin:<mensaje entrante>`.
+ */
+export const workflowDelegacionTurno = eventType("workflow/delegacion.turno", {
+  schema: staticSchema<TurnoDelegacion & { leadId: UUID }>(),
 });
 
 /**

@@ -2,7 +2,12 @@ import { useState, type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { opcionesDeEtapas } from "@/app/(panel)/workflows/[id]/_lib/opciones-editor";
-import { ConfigCRM, ConfigInterno, ConfigMensajeria } from "@/components/workflows/canvas/config";
+import {
+  ConfigCRM,
+  ConfigDelegar,
+  ConfigInterno,
+  ConfigMensajeria,
+} from "@/components/workflows/canvas/config";
 import { ACCION_DE_TIPO } from "@/lib/workflows/catalogo";
 import { validarWorkflow } from "@/lib/workflows/validar-workflow";
 import { puertosDeNodo } from "@/lib/workflows/validar-grafo";
@@ -30,11 +35,15 @@ interface Receta {
   formulario: (config: Config, onChange: (siguiente: Config) => void) => ReactElement;
   /** Lo mínimo que haría una persona: elegir la primera opción, escribir un texto. */
   completar: () => Promise<void>;
-  /** Lo que la prueba habría hecho afuera (`EfectoSimulado`), sin la hora. */
-  efecto: { accion: string; detalle: Record<string, unknown> };
+  /**
+   * Lo que la prueba habría hecho afuera (`EfectoSimulado`), sin la hora.
+   * `null`: el bloque no escribe nada afuera ("Delegar al agente" observa).
+   */
+  efecto: { accion: string; detalle: Record<string, unknown> } | null;
 }
 
 const TAGS = [{ id: "tag-vip", nombre: "VIP" }];
+const INTENTS = [{ id: "intent-cotizar", nombre: "consulta_producto" }];
 const VENDEDORES = [
   { id: "ven-ana", nombre: "Ana" },
   { id: "ven-beto", nombre: "Beto" },
@@ -319,6 +328,17 @@ const RECETAS: Readonly<Record<string, Receta>> = {
     // En Probar no se le deja un aviso a nadie: se anota a quién iba.
     efecto: { accion: "avisar_equipo", detalle: { destinatario: "vendedor_asignado" } },
   },
+  ia_delegar: {
+    formulario: (config, onChange) => (
+      <ConfigDelegar config={config} onChange={onChange} intents={INTENTS} />
+    ),
+    completar: async () => {
+      fireEvent.click(screen.getByRole("checkbox", { name: "Se detecte el intent" }));
+      await elegirPrimeraOpcion("Elegir intent");
+    },
+    // No manda nada: en la prueba el agente no conversa y el tramo vence.
+    efecto: null,
+  },
 };
 
 /** Monta el formulario con estado, como el editor: cada cambio vuelve como `config`. */
@@ -407,9 +427,9 @@ describe("contrato de config: formulario → validador → acción", () => {
       const r = await probar(grafo);
       expect(r.error).toBeUndefined();
       expect(r.desenlace).toBe("fin");
-      expect(r.pasos.flatMap((p) => p.efectos)).toEqual([
-        { ...receta.efecto, en: expect.any(String) },
-      ]);
+      expect(r.pasos.flatMap((p) => p.efectos)).toEqual(
+        receta.efecto ? [{ ...receta.efecto, en: expect.any(String) }] : [],
+      );
     },
   );
 });

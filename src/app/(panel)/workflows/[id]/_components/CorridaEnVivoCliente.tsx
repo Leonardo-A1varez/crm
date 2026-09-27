@@ -83,7 +83,10 @@ export function CorridaEnVivoCliente({
 
   const conexion = useCorridaEnVivo(runId, () => void releer());
 
-  const pantalla = useMemo(() => pantallaDeCorrida(vista, zona), [vista, zona]);
+  const pantalla = useMemo(
+    () => pantallaDeCorrida(vista, zona, catalogos),
+    [vista, zona, catalogos],
+  );
   const resolver = useCallback((n: Nodo) => presentacionDe(n, catalogos), [catalogos]);
 
   const reanudar = useCallback(() => {

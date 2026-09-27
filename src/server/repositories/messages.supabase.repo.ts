@@ -177,12 +177,9 @@ export class SupabaseMessagesRepository implements MessagesRepository {
     if (!isUuid(sessionId)) return [];
     const limit = filter.limit ?? DEFAULT_LIMIT;
     // DESC + limit trae los N más recientes; reverse → ASC para el thread.
-    const { data, error } = await this.db
-      .from("mensajes")
-      .select()
-      .eq("lead_session_id", sessionId)
-      .order("created_at", { ascending: false })
-      .limit(limit);
+    let q = this.db.from("mensajes").select().eq("lead_session_id", sessionId);
+    if (filter.direction !== undefined) q = q.eq("direction", filter.direction);
+    const { data, error } = await q.order("created_at", { ascending: false }).limit(limit);
     if (error) throw mapPostgrestError(error, { resource: "mensaje" });
     return (data ?? []).map(mapRow).reverse();
   }

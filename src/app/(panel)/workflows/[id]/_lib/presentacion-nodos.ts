@@ -132,7 +132,15 @@ export function salidasDe(
 ): SalidaNodo[] | undefined {
   const puertos = puertosDeNodo(nodo);
   if (puertos.length === 1 && puertos[0] === "salida") return undefined;
-  return puertos.map((p) => ({ id: p, label: etiquetaDePuertoEnLienzo(nodo, p, catalogos) }));
+  return puertos.map((p) => ({
+    id: p,
+    // Cinco chips en 200 px: en el chip va el rótulo corto del diseño
+    // (`IA_PUERTOS`); en el panel y en la línea, el completo.
+    label:
+      nodo.tipo === "ia_delegar" && p === "sin_respuesta"
+        ? "Sin resp."
+        : etiquetaDePuertoEnLienzo(nodo, p, catalogos),
+  }));
 }
 
 /**
@@ -178,11 +186,47 @@ export function resumenDe(
     const campo = campoDeSwitch(nodo, catalogos);
     if (campo) return `Según ${campo.etiqueta.toLowerCase()}`;
   }
+  if (nodo.tipo === "ia_delegar") return resumenDelegar(nodo.config, catalogos);
   // Se ve en el lienzo sin abrir el panel: este flujo calla al agente.
   if (nodo.tipo === "trigger_mensaje" && nodo.config["interceptaLlm"] === true) {
     return `${CATALOGO.get(nodo.tipo)?.descripcion ?? "Mensaje recibido"} · intercepta el LLM`;
   }
   return CATALOGO.get(nodo.tipo)?.descripcion;
+}
+
+const UNIDAD_CORTA: Readonly<Record<string, [string, string]>> = {
+  minutos: ["min", "min"],
+  horas: ["hora", "horas"],
+  dias: ["día", "días"],
+};
+
+/**
+ * "Delegar al agente" en una frase, como el diseño: cuándo vuelve y el tiempo
+ * máximo. Se lee de la config cruda —el lienzo dibuja un bloque a medio
+ * armar— con los mismos defaults que el contrato (1440 minutos).
+ */
+function resumenDelegar(
+  config: Record<string, unknown>,
+  catalogos: CatalogosDeCondicion | undefined,
+): string {
+  const intentId = typeof config["intentId"] === "string" ? config["intentId"].trim() : "";
+  const conTwin = config["condicionTwin"] !== undefined && config["condicionTwin"] !== null;
+  const intent =
+    intentId === ""
+      ? null
+      : (catalogos?.intents.find((i) => i.id === intentId)?.nombre ?? "un intent");
+  const cuando =
+    intent && conTwin
+      ? `Vuelve con intent ${intent} o la condición del Twin`
+      : intent
+        ? `Vuelve con intent ${intent}`
+        : conTwin
+          ? "Vuelve cuando se cumple la condición del Twin"
+          : "Falta elegir cuándo vuelve";
+  const timeout = typeof config["timeout"] === "number" ? config["timeout"] : 1440;
+  const unidad = typeof config["unidadTimeout"] === "string" ? config["unidadTimeout"] : "minutos";
+  const [uno, varios] = UNIDAD_CORTA[unidad] ?? ["min", "min"];
+  return `${cuando} · máx ${timeout} ${timeout === 1 ? uno : varios}`;
 }
 
 /**

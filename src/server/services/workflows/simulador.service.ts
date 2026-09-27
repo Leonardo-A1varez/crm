@@ -61,6 +61,8 @@ export interface EntradaSandbox {
    * no se dio de baja: lo dice `crearSandboxDePrueba`.
    */
   supresiones?: Pick<DifusionSupresionesRepository, "activasPorTelefonos">;
+  /** Los campos vivos de la condición del Twin de "Delegar al agente". */
+  camposVivos?: CamposVivosDeps;
 }
 
 /**
@@ -83,12 +85,16 @@ export interface EntradaSandbox {
  * - el round robin no ve el historial ni quién está activo: asume a todos los
  *   candidatos disponibles y sin sesiones, así que elige al primero de la
  *   lista (en producción, al que hace más tiempo que no recibe);
- * - asignar un vendedor no avisa a nadie: una prueba no arranca otros flujos.
+ * - asignar un vendedor no avisa a nadie: una prueba no arranca otros flujos;
+ * - "Delegar al agente": en la prueba el agente no conversa, así que el tramo
+ *   vence y sale por «Sin respuesta» (o por «Humano» si un paso anterior
+ *   escaló); el gasto de LLM de la prueba es cero.
  */
 export function crearSandboxDePrueba(entrada: EntradaSandbox): SandboxDePrueba {
   const efectos: EfectoSimulado[] = [];
   const enviados: Date[] = [];
   let sesion: LeadSession = { ...entrada.sesion };
+  let ultimaPausa: PauseHandoffInput["reasonCode"] | null = null;
 
   const anotar = (accion: AccionWorkflow, detalle: Record<string, unknown>): void => {
     efectos.push({ accion, detalle, en: entrada.reloj().toISOString() });
@@ -152,9 +158,8 @@ export function crearSandboxDePrueba(entrada: EntradaSandbox): SandboxDePrueba {
     },
     handoff: {
       pause: async (pedido: PauseHandoffInput | UUID) => {
-        anotar("escalar_a_humano", {
-          motivo: typeof pedido === "string" ? "manual_pause" : pedido.reasonCode,
-        });
+        ultimaPausa = typeof pedido === "string" ? "manual_pause" : pedido.reasonCode;
+        anotar("escalar_a_humano", { motivo: ultimaPausa });
         sesion = { ...sesion, ia_pausada: true, current_stage: "requiere_humano" };
         return { ...sesion };
       },
@@ -212,6 +217,17 @@ export function crearSandboxDePrueba(entrada: EntradaSandbox): SandboxDePrueba {
         return { destinatarios: 1, para: "vendedor_asignado" };
       },
     },
+    // "Delegar al agente": la prueba no gasta LLM y el tope diario es el de
+    // fábrica. El motivo de pausa es el del escalado de esta misma prueba.
+    pausas: { ultimoMotivo: async () => ultimaPausa },
+    gastoLlm: {
+      deSesion: async () => 0,
+      delDia: async () => 0,
+      topeDiario: async () => CONFIG_DE_FABRICA.tope_gasto_diario_usd,
+    },
+    // Sin los campos vivos de la base, la condición del Twin se evalúa con la
+    // sesión y el contexto de la prueba: los vivos quedan ausentes.
+    camposVivos: entrada.camposVivos ?? { cargar: async () => ({}), zona: async () => "UTC" },
     // La prueba no firma nada en Storage: la imagen no sale.
     imagenesDeFlujo: { urlFirmada: async (ruta) => `simulado://mensajes_media/${ruta}` },
     candadoReparto: new NoopSessionLock(),
@@ -459,6 +475,7 @@ export async function correrPrueba(entrada: EntradaPrueba): Promise<ResultadoPru
     reloj: () => reloj,
     inicio: entrada.desde,
     supresiones: entrada.supresiones,
+    camposVivos: entrada.camposVivos,
   });
   const registro = entrada.registro ?? crearRegistroDeAcciones(sandbox.puertos);
   const pasos: PasoDePrueba[] = [];

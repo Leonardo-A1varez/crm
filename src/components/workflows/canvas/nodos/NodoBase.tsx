@@ -223,12 +223,16 @@ export function NodoBase({
       )}
 
       {conChips && (
-        <div className="flex gap-0.5 px-2.5 pb-2.5">
+        <div className={cn("flex px-2.5 pb-2.5", salidas.length >= 5 ? "gap-px" : "gap-0.5")}>
           {salidas.map((salida) => (
             <span
               key={salida.id}
+              title={salida.label}
               className={cn(
-                "flex-1 truncate rounded-[5px] px-1 py-0.5 text-center font-mono text-[8.5px] leading-tight font-semibold",
+                "flex-1 truncate rounded-[5px] py-0.5 text-center text-[8.5px] leading-tight font-semibold",
+                // Con cinco salidas ("Delegar al agente") el rótulo en mono no
+                // entra en 36 px: va en la sans, más angosta, y sin relleno.
+                salidas.length >= 5 ? "px-0 tracking-tight" : "px-1 font-mono",
                 clasesPuerto(salida.tono ?? tonoDePuerto(salida.id)),
               )}
             >

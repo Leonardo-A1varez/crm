@@ -1,5 +1,6 @@
 import { NotFoundError } from "@/lib/errors";
 import { esperaOpcionCoincide } from "@/lib/workflows/respuesta-interactiva";
+import { delegacionActivaDe } from "@/lib/workflows/delegacion";
 import {
   MOTIVOS_SALTO,
   esContextoDePrueba,
@@ -120,6 +121,13 @@ const ESTADOS_VIVOS: readonly WorkflowRunEstado[] = ["corriendo", "esperando"];
  * nada. Sin esto, un reintento reejecuta el segmento entero: si ese segmento
  * manda un WhatsApp, el cliente lo recibe dos veces.
  */
+/** Un tramo delegado al agente que sigue vivo (`delegacionesActivas`). */
+export interface DelegacionActiva {
+  runId: UUID;
+  /** Las instrucciones extra del tramo, o `null` si no tiene. */
+  instrucciones: string | null;
+}
+
 export interface WorkflowRunsRepository {
   arrancar(input: ArrancarWorkflowRunInput): Promise<ArrancarWorkflowRunResult>;
   /**
@@ -220,6 +228,14 @@ export interface WorkflowRunsRepository {
    * corrida nueva no arranca y no puede contestar el turno.
    */
   hayCorridaViva(workflowId: UUID, leadId: UUID): Promise<boolean>;
+  /**
+   * Los tramos que un flujo le delegó al agente ("Delegar al agente") y siguen
+   * vivos para el lead a esta hora: corridas de producción esperando con un
+   * `$delegacion` que no venció. Es lo que lee el pipeline antes de cada turno
+   * del agente, para sumar las instrucciones al prompt y avisarles el turno.
+   * En el orden en que arrancaron.
+   */
+  delegacionesActivas(leadId: UUID, ahora: Date): Promise<DelegacionActiva[]>;
   /**
    * Métricas de corridas por workflow, sólo las iniciadas después de `desde`.
    * Una llamada para TODOS los workflows a la vez (no una por workflow): es lo
@@ -365,6 +381,21 @@ export class InMemoryWorkflowRunsRepository implements WorkflowRunsRepository {
       };
     }
     return null;
+  }
+
+  async delegacionesActivas(leadId: UUID, ahora: Date): Promise<DelegacionActiva[]> {
+    const salida: Array<DelegacionActiva & { started_at: Date }> = [];
+    for (const r of this.runs.values()) {
+      if (r.lead_id !== leadId || r.estado !== "esperando") continue;
+      if (esContextoDePrueba(r.contexto)) continue;
+      const activa = delegacionActivaDe(r.contexto, ahora);
+      if (activa) {
+        salida.push({ runId: r.id, instrucciones: activa.instrucciones, started_at: r.started_at });
+      }
+    }
+    return salida
+      .sort((a, b) => a.started_at.getTime() - b.started_at.getTime())
+      .map(({ runId, instrucciones }) => ({ runId, instrucciones }));
   }
 
   async hayCorridaViva(workflowId: UUID, leadId: UUID): Promise<boolean> {

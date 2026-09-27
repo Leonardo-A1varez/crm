@@ -37,6 +37,11 @@ export interface AgentTurnInput {
    * sin mensaje detrás (el preview de la consola).
    */
   mensajeOrigenId?: UUID | null;
+  /**
+   * Lo que pidieron los flujos que le delegaron la conversación al agente
+   * ("Delegar al agente"): va al prompt mientras dure el tramo.
+   */
+  instruccionesTramo?: string[];
 }
 
 export interface ToolCallRecord {
@@ -66,6 +71,8 @@ export interface AgentLLMInput {
   tools: AgentTools;
   /** Mensaje entrante del turno; solo se usa para atribuir el gasto. */
   mensajeOrigenId?: UUID | null;
+  /** Ver `AgentTurnInput.instruccionesTramo`. */
+  instruccionesTramo?: string[];
 }
 
 export interface AgentLLMResult {
@@ -206,6 +213,9 @@ export class DefaultAiAgentService implements AiAgentService {
       classification: input.classification,
       tools,
       mensajeOrigenId: input.mensajeOrigenId ?? null,
+      ...(input.instruccionesTramo && input.instruccionesTramo.length > 0
+        ? { instruccionesTramo: input.instruccionesTramo }
+        : {}),
     });
 
     return {

@@ -9,6 +9,7 @@ import { crearAccionEnviarPlantilla, type AccionEnviarPlantillaDeps } from "./en
 import { crearAccionesDeMensajeriaRica, type AccionesMensajeriaRicaDeps } from "./enviar-rico";
 import { crearAccionesInternas, type AccionesInternasDeps } from "./internas";
 import { crearAccionAvisarEquipo, type AccionAvisarEquipoDeps } from "./avisar-equipo";
+import { crearAccionDelegar, type AccionDelegarDeps } from "./delegar";
 
 /** Todo lo que una acción necesita saber de la corrida que la invoca. */
 export interface EntornoAccion {
@@ -110,7 +111,8 @@ export type PuertosAcciones = AccionesInternasDeps &
   AccionesMensajeriaRicaDeps &
   AccionesAsignacionDeps &
   AccionActualizarCampoTwinDeps &
-  AccionAvisarEquipoDeps;
+  AccionAvisarEquipoDeps &
+  AccionDelegarDeps;
 
 /**
  * **EL registro de acciones.** Hay uno solo en el proyecto y se arma acá.
@@ -133,6 +135,8 @@ export function crearRegistroDeAcciones(puertos: PuertosAcciones): RegistroDeAcc
     enviar_plantilla: enviarPlantilla,
     actualizar_campo_twin: crearAccionActualizarCampoTwin(puertos),
     avisar_equipo: crearAccionAvisarEquipo(puertos),
+    // "Delegar al agente": no manda nada, observa los turnos del agente.
+    delegar_al_agente: crearAccionDelegar(puertos),
     ...crearAccionesDeMensajeriaRica(puertos),
   } satisfies Record<AccionWorkflow, AccionHandler>;
   return crearRegistro(handlers);

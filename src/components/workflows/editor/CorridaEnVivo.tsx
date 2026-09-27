@@ -19,6 +19,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Eyebrow } from "@/components/shared/Eyebrow";
 import type { WorkflowRunEstado } from "@/types/entities";
 import type { Grafo } from "@/types/workflows";
+import { useColorModeLienzo } from "./color-mode-lienzo";
 import { EncuadreInicial } from "./EncuadreInicial";
 import { BarraEditor, ChipEstado } from "./BarraEditor";
 import { MEDIDAS, PRESION_TACTIL, TRANSICION_CONTROL, FOCO } from "./tokens-editor";
@@ -185,6 +186,7 @@ export function CorridaEnVivo({
   aviso,
   trafico,
 }: CorridaEnVivoProps) {
+  const colorMode = useColorModeLienzo();
   const [plan, setPlan] = useState<PlanReanudacion | null>(null);
   const [pasoAbierto, setPasoAbierto] = useState<string | null>(null);
 
@@ -318,6 +320,7 @@ export function CorridaEnVivo({
         <div className="bg-surface-root relative min-w-0 flex-1">
           <ReactFlowProvider>
             <ReactFlow<NodoCorridaFlow, AristaCorridaFlow>
+              colorMode={colorMode}
               nodes={nodos}
               edges={aristas}
               nodeTypes={TIPOS_NODO_CORRIDA}
@@ -331,12 +334,7 @@ export function CorridaEnVivo({
               // El encuadre al abrir lo hace `<EncuadreInicial>`: la prop
               // `fitView` sólo cuenta los nodos ya medidos.
             >
-              <Background
-                variant={BackgroundVariant.Dots}
-                gap={18}
-                size={1}
-                className="!text-line-layout"
-              />
+              <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
               <EncuadreInicial />
             </ReactFlow>
           </ReactFlowProvider>
@@ -558,6 +556,16 @@ function FilaPaso({
           </span>
         ) : null}
       </button>
+
+      {paso.progreso ? (
+        <span
+          className={cn(
+            "text-ink-faint pl-4 font-mono text-[9.5px] leading-snug text-pretty tabular-nums",
+          )}
+        >
+          {paso.progreso}
+        </span>
+      ) : null}
 
       {planAccion && planAccion !== "no_alcanzado" ? (
         <span

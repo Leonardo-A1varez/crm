@@ -1,6 +1,7 @@
 import { campoHoraEnZona } from "@/lib/zona-horaria";
 import { duracionLegible } from "../../_lib/historial";
 import { nombreDeTipo } from "./presentacion-nodos";
+import type { CatalogosDeCondicion } from "./campos-condicion";
 
 import type {
   EnvioRepetido,
@@ -89,7 +90,74 @@ function comoPares(
   return Object.keys(pares).length > 0 ? pares : undefined;
 }
 
-export function pantallaDeCorrida(vista: VistaCorrida, zona: string): PantallaCorrida {
+const SALIDA_DELEGACION: Readonly<Record<string, string>> = {
+  resuelto: "Resuelto",
+  humano: "Humano",
+  no_pudo: "No pudo",
+  sin_respuesta: "Sin respuesta",
+  error: "Error",
+};
+
+const MOTIVO_DELEGACION: Readonly<Record<string, string>> = {
+  intent: "se detectó el intent",
+  campo_twin: "se cumplió la condición del Twin",
+  pausa: "la conversación pasó a una persona",
+  sesion_cerrada: "la sesión se cerró",
+  sin_respuesta_ia: "el agente no contestó",
+  tope_turnos: "llegó al tope de turnos",
+  tope_costo: "llegó al tope de gasto del tramo",
+  tope_gasto_diario: "se agotó el gasto del día del agente",
+  vencio: "venció el tiempo máximo",
+  turno_fallido: "falló el turno del agente",
+  sin_sesion: "la corrida no tiene sesión",
+};
+
+/** "0,0123": el gasto del tramo, con coma decimal y sin ceros de más. */
+const usd = (n: number) => `USD ${String(Number(n.toFixed(4))).replace(".", ",")}`;
+
+/**
+ * El progreso de "Delegar al agente" en una línea, leído de la salida de su
+ * último paso (`acciones/delegar.ts`): mientras espera, en qué turno va y qué
+ * espera ("turno 3 · esperando intent consulta_producto", como el diseño); al
+ * volver, por qué salida y por qué. `null` si la salida no es de un tramo.
+ */
+export function progresoDeDelegacion(
+  salida: Record<string, unknown> | null,
+  catalogos?: CatalogosDeCondicion,
+): string | null {
+  if (!salida) return null;
+  const turnos = typeof salida["turnos"] === "number" ? salida["turnos"] : 0;
+  if (salida["esperando"] === "turno_agente") {
+    const intentId = salida["esperando_intent"];
+    const intent =
+      typeof intentId === "string"
+        ? (catalogos?.intents.find((i) => i.id === intentId)?.nombre ?? "elegido")
+        : null;
+    const espera =
+      intent && salida["esperando_twin"] === true
+        ? `esperando intent ${intent} o la condición del Twin`
+        : intent
+          ? `esperando intent ${intent}`
+          : "esperando la condición del Twin";
+    return `${turnos > 0 ? `turno ${turnos}` : "sin turnos todavía"} · ${espera}`;
+  }
+  const vuelve = salida["vuelve_por"];
+  if (typeof vuelve !== "string" || !(vuelve in SALIDA_DELEGACION)) return null;
+  const motivo = typeof salida["motivo"] === "string" ? MOTIVO_DELEGACION[salida["motivo"]] : null;
+  const costo = typeof salida["costo_usd"] === "number" ? salida["costo_usd"] : 0;
+  return [
+    `volvió por ${SALIDA_DELEGACION[vuelve]}`,
+    ...(motivo ? [motivo] : []),
+    `${turnos} ${turnos === 1 ? "turno" : "turnos"}`,
+    usd(costo),
+  ].join(" · ");
+}
+
+export function pantallaDeCorrida(
+  vista: VistaCorrida,
+  zona: string,
+  catalogos?: CatalogosDeCondicion,
+): PantallaCorrida {
   const pasosPorOrden = new Map<number, WorkflowRunPaso>(vista.pasos.map((p) => [p.orden, p]));
   const hora = (at: Date | string) => campoHoraEnZona(zona, instante(at));
   const tipoDe = new Map(vista.version.grafo.nodos.map((n) => [n.id, n.tipo]));
@@ -117,6 +185,9 @@ export function pantallaDeCorrida(vista: VistaCorrida, zona: string): PantallaCo
       salida: ultima
         ? comoPares(ultima.salida, ultima.error !== null ? { error: ultima.error } : undefined)
         : undefined,
+      ...(n.tipo === "ia_delegar" && ultima
+        ? { progreso: progresoDeDelegacion(ultima.salida, catalogos) ?? undefined }
+        : {}),
     };
   });
 

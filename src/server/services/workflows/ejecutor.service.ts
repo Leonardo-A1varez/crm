@@ -681,6 +681,26 @@ export async function ejecutarSegmento(
           esperaOpcion: { respondeA },
         };
       }
+      // "Delegar al agente": el agente tiene la conversación y el nodo espera
+      // su próximo turno. Corta reanudando en este mismo nodo, igual que
+      // botones: la pasada siguiente, con el turno anotado, decide la salida.
+      if (r.esperarTurnoAgente) {
+        const { hasta } = r.esperarTurnoAgente;
+        await deps.onPaso({
+          nodoId: nodo.id,
+          orden,
+          salida: { ...(r.salida ?? {}), hasta: hasta.toISOString(), esperando: "turno_agente" },
+          error: null,
+        });
+        return {
+          tipo: "espera",
+          nodoId: nodo.id,
+          hasta,
+          reanudarEn: nodo.id,
+          contexto: r.contexto ? { ...contexto, ...r.contexto } : contexto,
+          esperaTurnoAgente: true,
+        };
+      }
       // Un tope de seguridad saltó la acción (PRD §6.6): el lead SALE del
       // flujo. No se sigue por `r.puerto` —eso es el bug que Braze documenta
       // contra sí mismo: el tope salta un mensaje y el paso siguiente le pega

@@ -232,7 +232,29 @@ export function esSalto(tipo: NodoTipo): boolean {
  * Los puertos con nombre fijo. `otro` es el de "Según el valor" cuando ningún
  * caso coincide.
  */
-export const PUERTOS = ["salida", "verdadero", "falso", "otro", "sin_respuesta"] as const;
+export const PUERTOS = [
+  "salida",
+  "verdadero",
+  "falso",
+  "otro",
+  "sin_respuesta",
+  // "Delegar al agente" (PRD §4.5): sus cinco salidas son éstas y
+  // `sin_respuesta`, la misma que vence en botones y lista.
+  "resuelto",
+  "humano",
+  "no_pudo",
+  "error",
+] as const;
+
+/** Las cinco salidas de "Delegar al agente", en el orden en que se dibujan (PRD §4.5). */
+export const PUERTOS_DELEGACION = [
+  "resuelto",
+  "humano",
+  "no_pudo",
+  "sin_respuesta",
+  "error",
+] as const satisfies readonly (typeof PUERTOS)[number][];
+export type PuertoDelegacion = (typeof PUERTOS_DELEGACION)[number];
 
 /**
  * El puerto de un caso de "Según el valor": `caso:<id del caso>`. Va por el id
@@ -406,6 +428,11 @@ export type ResultadoSegmento =
        * (`ResultadoAccion.esperarRespuesta`): a qué mensaje tiene que responder.
        */
       esperaOpcion?: { respondeA: string | null };
+      /**
+       * Sólo si cortó porque "Delegar al agente" espera el turno siguiente del
+       * agente (`ResultadoAccion.esperarTurnoAgente`).
+       */
+      esperaTurnoAgente?: true;
     }
   | {
       tipo: "fin";
@@ -514,4 +541,11 @@ export interface ResultadoAccion {
    * `contexto` de la acción sí se aplica: lleva la espera.
    */
   esperarRespuesta?: { hasta: Date; respondeA: string | null };
+  /**
+   * "Delegar al agente": el nodo le cedió la conversación al agente y espera
+   * su próximo turno (`workflow/delegacion.turno`) o, a más tardar, `hasta`.
+   * Como `esperarRespuesta`: corta reanudando en este mismo nodo, con el
+   * `contexto` de la acción aplicado, y la pasada siguiente decide la salida.
+   */
+  esperarTurnoAgente?: { hasta: Date };
 }

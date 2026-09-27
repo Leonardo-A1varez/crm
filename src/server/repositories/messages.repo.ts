@@ -37,6 +37,9 @@ export interface ListByConversacionFilter {
 export interface ListBySessionFilter {
   // Conserva los N más recientes (el thread muestra el final de la conversación).
   limit?: number;
+  // Solo esa dirección, y el limit cuenta sobre ella: los últimos N entrantes
+  // no dependen de cuántos salientes hubo entre medio.
+  direction?: Direction;
 }
 
 const DEFAULT_LIMIT = 50;
@@ -309,7 +312,11 @@ export class InMemoryMessagesRepository implements MessagesRepository {
 
   async listBySessionId(sessionId: UUID, filter: ListBySessionFilter = {}): Promise<Mensaje[]> {
     const limit = filter.limit ?? DEFAULT_LIMIT;
-    const rows = Array.from(this.store.values()).filter((m) => m.lead_session_id === sessionId);
+    const rows = Array.from(this.store.values()).filter(
+      (m) =>
+        m.lead_session_id === sessionId &&
+        (filter.direction === undefined || m.direction === filter.direction),
+    );
     rows.sort((a, b) => a.created_at.getTime() - b.created_at.getTime());
     return rows.slice(-limit).map(cloneMensaje);
   }

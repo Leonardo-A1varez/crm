@@ -157,3 +157,42 @@ describe("updateLeadTwinHandler — disparo etapa_cambiada", () => {
     expect(result.disparo).toBeNull();
   });
 });
+
+describe("updateLeadTwinHandler — tramos delegados al agente", () => {
+  test("con tramos del turno, arma el aviso del turno con el Twin ya escrito", async () => {
+    const ctx = await setup();
+    const s = await seedSession(ctx.sessions);
+    ctx.llm.enqueue({ current_stage: "cotizado" });
+    const r = await updateLeadTwinHandler(
+      {
+        leadSessionId: s.id,
+        conversationTurn: ["x"],
+        mensajeOrigenId: "m-1",
+        delegacion: { runIds: ["run-1"], intentId: "i-1", respondio: true },
+      },
+      ctx.deps,
+    );
+    expect(r.avisoTramo).toEqual({
+      id: "delegacion-turno:m-1",
+      data: {
+        leadId: s.lead_id,
+        mensajeId: "m-1",
+        runIds: ["run-1"],
+        tipo: "turno",
+        intentId: "i-1",
+        respondio: true,
+      },
+    });
+  });
+
+  test("sin tramos, ningún aviso", async () => {
+    const ctx = await setup();
+    const s = await seedSession(ctx.sessions);
+    ctx.llm.enqueue({});
+    const r = await updateLeadTwinHandler(
+      { leadSessionId: s.id, conversationTurn: ["x"], mensajeOrigenId: "m-1" },
+      ctx.deps,
+    );
+    expect(r.avisoTramo).toBeNull();
+  });
+});

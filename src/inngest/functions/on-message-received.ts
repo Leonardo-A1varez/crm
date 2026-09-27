@@ -45,6 +45,11 @@ import type { IntentClassifierService } from "@/server/services/intent-classifie
 import type { MetaApiService } from "@/server/services/meta-api.service";
 import type { RuleEngineService } from "@/server/services/rule-engine.service";
 import type { HandoffService } from "@/server/services/handoff.service";
+import type {
+  DelegacionActiva,
+  WorkflowRunsRepository,
+} from "@/server/repositories/workflow-runs.repo";
+import type { DelegacionDelTurno, TurnoDelegacion } from "@/lib/workflows/delegacion";
 import type { Canal } from "@/types/domain";
 import type { Lead, LeadSession, MetaUserIds, UUID } from "@/types/entities";
 
@@ -55,11 +60,24 @@ export { CONFIRMACION_BAJA };
 export type EmittedEvent =
   | {
       name: "lead-session/turn.completed";
-      data: { leadSessionId: UUID; conversationTurn: string[]; mensajeOrigenId?: UUID };
+      data: {
+        leadSessionId: UUID;
+        conversationTurn: string[];
+        mensajeOrigenId?: UUID;
+        /**
+         * El turno de los tramos delegados al agente: el extractor se lo avisa
+         * cuando termina (`update-lead-twin`), con el Twin ya escrito.
+         */
+        delegacion?: DelegacionDelTurno;
+      };
     }
   | {
       name: "lead-session/auto-handoff.evaluate";
-      data: { leadSessionId: UUID; recentClassifications: IntentClassification[] };
+      data: {
+        leadSessionId: UUID;
+        recentClassifications: IntentClassification[];
+        threshold?: number;
+      };
     }
   | {
       name: "lead/created";
@@ -75,6 +93,12 @@ export type EmittedEvent =
       name: "workflow/respuesta.interactiva";
       data: { leadId: UUID; respondeA: string | null; opcionId: string; titulo: string };
       /** Deduplicación de Inngest: `respuesta-interactiva:<wamid del entrante>`. */
+      id: string;
+    }
+  | {
+      name: "workflow/delegacion.turno";
+      data: TurnoDelegacion & { leadId: UUID };
+      /** Deduplicación de Inngest: `delegacion-<tipo>:<entrante>`. */
       id: string;
     };
 
@@ -140,6 +164,14 @@ export interface OnMessageReceivedDeps {
    */
   interceptor?: InterceptorTurno;
   /**
+   * Los tramos que un flujo le delegó al agente ("Delegar al agente",
+   * `lib/workflows/delegacion.ts`): sus instrucciones van al prompt y cada
+   * turno se les avisa con `workflow/delegacion.turno`. Opcional: sin él el
+   * agente contesta como siempre y ningún tramo se entera; `bootstrap.ts` lo
+   * wirea.
+   */
+  delegaciones?: Pick<WorkflowRunsRepository, "delegacionesActivas">;
+  /**
    * Para apagar el seguimiento cuando el cliente vuelve solo. Opcional con
    * default Noop —mismo criterio que `dispatches` en el cron de reactivación—
    * para que los callers viejos sigan compilando; `bootstrap.ts` lo wirea.
@@ -193,6 +225,10 @@ export async function onMessageReceivedHandler(
   });
 
   logger.info("pipeline-start");
+
+  // Si el turno falla después de leer los tramos delegados, se les avisa por
+  // «Error» antes de propagar (ver el `catch`).
+  let avisarErrorAlTramo: (() => Promise<void>) | null = null;
 
   try {
     const isDuplicate = await step.run("dedup", async () => {
@@ -474,9 +510,43 @@ export async function onMessageReceivedHandler(
     // que quieran contestarle chocan con los topes, que bloquean a quien está
     // en la lista. Tampoco se emite `turn.completed`: sin respuesta del agente
     // no hay turno que extraer al Twin, y extraerlo sería otra llamada al LLM.
+    // "Delegar al agente": los tramos vivos del lead, y el aviso de cada turno.
+    // `tipo` arma el id de deduplicación: un turno avisa una sola vez de cada
+    // cosa, y el error no se come al turno si un reintento después sale bien.
+    const leerTramos = (nombre: string) =>
+      deps.delegaciones
+        ? step.run(nombre, () => deps.delegaciones!.delegacionesActivas(lead.id, new Date()))
+        : Promise.resolve([] as DelegacionActiva[]);
+    const avisarTramo = (
+      tramos: DelegacionActiva[],
+      tipo: TurnoDelegacion["tipo"],
+      intentNombre: string | null,
+      respondio: boolean,
+    ) =>
+      tramos.length === 0
+        ? Promise.resolve()
+        : step.run(`emit-delegacion-${tipo}`, async () => {
+            const intent =
+              intentNombre !== null ? await deps.intents.findByNombre(intentNombre) : null;
+            await deps.emit({
+              name: "workflow/delegacion.turno",
+              id: `delegacion-${tipo}:${inbound.id}`,
+              data: {
+                leadId: lead.id,
+                mensajeId: inbound.id,
+                runIds: tramos.map((t) => t.runId),
+                tipo,
+                intentId: intent?.id ?? null,
+                respondio,
+              },
+            });
+          });
+
     if (resultadoBaja === "nueva" || resultadoBaja === "repetida") {
       // La baja corta antes del LLM: no se clasifica.
       await emitirMensajeRecibido(null);
+      // Un tramo delegado se entera: el flujo no le vuelve a escribir.
+      await avisarTramo(await leerTramos("leer-delegaciones-baja"), "baja", null, false);
       const sent = resultadoBaja === "nueva";
       logger.info("pipeline-complete", { duplicate: false, sent, skipped: "baja" });
       return {
@@ -629,6 +699,13 @@ export async function onMessageReceivedHandler(
     // después el turno falla como fallaba antes: el agente no contesta sin
     // clasificar. Un turno que ya contesta un flujo lo sigue contestando: su
     // respuesta no depende del intent, y queda anotado antes de fallar.
+    // Los tramos delegados se leen antes de clasificar: si el turno falla de
+    // acá en adelante, el tramo sale por «Error» (ver el `catch`).
+    const tramos = await leerTramos("leer-delegaciones");
+    if (tramos.length > 0) {
+      avisarErrorAlTramo = () => avisarTramo(tramos, "error", null, false);
+    }
+
     let classification: Awaited<ReturnType<typeof deps.intentClassifier.classify>>;
     try {
       classification = await step.run("classify", () =>
@@ -746,6 +823,13 @@ export async function onMessageReceivedHandler(
         conversationTurn,
         classification,
         mensajeOrigenId: inbound.id,
+        ...(tramos.some((t) => t.instrucciones !== null)
+          ? {
+              instruccionesTramo: tramos.flatMap((t) =>
+                t.instrucciones !== null ? [t.instrucciones] : [],
+              ),
+            }
+          : {}),
       }),
     );
     logger.info("agent-decision", {
@@ -805,6 +889,9 @@ export async function onMessageReceivedHandler(
                 ia_pausada: true,
               }),
         );
+        // El tramo ve la sesión en manos de una persona (`discount_limit`).
+        avisarErrorAlTramo = null;
+        await avisarTramo(tramos, "turno", classification.intent_nombre, false);
         logger.info("pipeline-complete", {
           duplicate: false,
           sent: false,
@@ -853,6 +940,25 @@ export async function onMessageReceivedHandler(
       logger.info("send-skipped", { reason: "handoff" });
     }
 
+    // El turno ya salió. A los tramos delegados no se les avisa desde acá: lo
+    // hace el extractor cuando termina, con el Twin de este turno escrito
+    // (`update-lead-twin`). Viaja el intent del turno y si el agente contestó.
+    avisarErrorAlTramo = null;
+    const delegacion: DelegacionDelTurno | null =
+      tramos.length === 0
+        ? null
+        : await step.run("delegacion-del-turno", async () => {
+            const intent =
+              classification.intent_nombre !== null
+                ? await deps.intents.findByNombre(classification.intent_nombre)
+                : null;
+            return {
+              runIds: tramos.map((t) => t.runId),
+              intentId: intent?.id ?? null,
+              respondio: sent,
+            };
+          });
+
     await step.run("emit-turn", () =>
       deps.emit({
         name: "lead-session/turn.completed",
@@ -863,16 +969,34 @@ export async function onMessageReceivedHandler(
           // escribe el extractor queda con `mensaje_origen_id: null` y el Twin
           // no puede decir de qué mensaje ni de qué hora salió cada dato.
           mensajeOrigenId: inbound.id,
+          ...(delegacion ? { delegacion } : {}),
         },
       }),
     );
 
-    await step.run("emit-handoff-eval", () =>
-      deps.emit({
+    // §4.2: N turnos seguidos sin intent escalan. El evento lleva la racha y
+    // no solo este turno: con `[classification]` el evaluador nunca juntaba
+    // más de uno y, con el umbral de fábrica (2), no escalaba jamás. La racha
+    // se lee acá y no en `auto-handoff` porque este pipeline está serializado
+    // por lead: nadie escribe un turno nuevo entre la lectura y el evento. El
+    // turno actual va en memoria —su auditoría puede no estar escrita todavía—
+    // y el umbral viaja con el evento para que las dos puntas usen la misma
+    // config aunque el admin la cambie en el medio.
+    await step.run("emit-handoff-eval", async () => {
+      const umbral = config.escalar_umbral_intents;
+      const previos =
+        classification.intent_nombre === null
+          ? await turnosPreviosSinIntent(session.id, inbound.id, umbral - 1, deps)
+          : [];
+      await deps.emit({
         name: "lead-session/auto-handoff.evaluate",
-        data: { leadSessionId: session.id, recentClassifications: [classification] },
-      }),
-    );
+        data: {
+          leadSessionId: session.id,
+          recentClassifications: [...previos, classification],
+          threshold: umbral,
+        },
+      });
+    });
 
     logger.info("pipeline-complete", { duplicate: false, sent });
 
@@ -891,8 +1015,56 @@ export async function onMessageReceivedHandler(
       error_name: (e as Error).name,
       error_message: (e as Error).message,
     });
+    // El turno falló con un tramo delegado vivo: sale por «Error». Si el aviso
+    // también falla, se propaga el error original, que es el que importa.
+    if (avisarErrorAlTramo) {
+      try {
+        await avisarErrorAlTramo();
+      } catch (aviso) {
+        logger.error("delegacion-aviso-error-fallido", { error_name: (aviso as Error).name });
+      }
+    }
     throw e;
   }
+}
+
+/**
+ * Los entrantes anteriores de la sesión que el agente contestó sin reconocer
+ * intent, seguidos y pegados al turno actual, del más viejo al más nuevo y
+ * hasta `max`. Es la racha del §4.2.
+ *
+ * Solo alarga la racha un turno con fila en `turn_classifications` e intent
+ * nulo. Todo lo demás la corta: un intent reconocido —lo haya contestado el
+ * LLM o una regla, que audita en `rule_executions`— y también un turno que el
+ * agente no contestó (lo interceptó un flujo, la IA estaba pausada, fuera de
+ * horario, una baja). El escalado mide si el agente entiende al cliente: las
+ * respuestas libres que pide un flujo ("¿tu patente?") no tienen intent por
+ * diseño, y contarlas escalaría al primer turno del agente después del flujo.
+ * Cortar en los turnos pausados es además lo que evita que, al reanudar la IA,
+ * un solo turno sin intent la vuelva a pausar.
+ */
+async function turnosPreviosSinIntent(
+  sessionId: UUID,
+  mensajeActualId: UUID,
+  max: number,
+  deps: Pick<OnMessageReceivedDeps, "messages" | "turnClassifications">,
+): Promise<IntentClassification[]> {
+  if (max <= 0) return [];
+  const entrantes = await deps.messages.listBySessionId(sessionId, {
+    direction: "in",
+    limit: max + 1,
+  });
+  const previos = entrantes
+    .filter((m) => m.id !== mensajeActualId)
+    .reverse()
+    .slice(0, max);
+  const racha: IntentClassification[] = [];
+  for (const m of previos) {
+    const turno = await deps.turnClassifications.findByMensajeId(m.id);
+    if (turno === null || turno.intent_nombre !== null) break;
+    racha.push({ intent_nombre: null, confidence: turno.confidence });
+  }
+  return racha.reverse();
 }
 
 async function resolveLead(

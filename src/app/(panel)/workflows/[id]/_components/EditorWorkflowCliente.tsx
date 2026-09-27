@@ -88,6 +88,7 @@ import {
 import { camposDeCondicion } from "../_lib/campos-condicion";
 import { CampoTopePasos } from "./CampoTopePasos";
 import { FormularioCondicion } from "./FormularioCondicion";
+import { FormularioDelegar } from "./FormularioDelegar";
 
 import type { CatalogosDeCondicion } from "../_lib/campos-condicion";
 import type { WorkflowRunDetalle, WorkflowVersion } from "@/types/entities";
@@ -1306,6 +1307,19 @@ function formularioDe(
   // Va antes del `switch` porque `condicion` legacy no tiene categoría.
   if (esCondicion(tipo)) {
     return <FormularioCondicion config={config} onChange={onChange} readonly={readonly} />;
+  }
+
+  // "Delegar al agente": su condición del Twin usa el mismo constructor, con
+  // los catálogos de esta página.
+  if (tipo === "ia_delegar") {
+    return (
+      <FormularioDelegar
+        config={config}
+        onChange={onChange}
+        intents={catalogos.intents}
+        readonly={readonly}
+      />
+    );
   }
 
   switch (categoriaDeTipo(tipo)) {

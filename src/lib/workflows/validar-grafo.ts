@@ -8,6 +8,7 @@ import {
   esSwitch,
   esTrigger,
   puertoDeCaso,
+  PUERTOS_DELEGACION,
 } from "@/types/workflows";
 import type { Arista, Grafo, Nodo, NodoTipo, ProblemaGrafo, Puerto } from "@/types/workflows";
 import { esperaOpcion, etiquetaDePuertoDeOpcion, puertosDeOpciones } from "./opciones-interactivas";
@@ -31,6 +32,8 @@ export function puertosDe(tipo: NodoTipo): Puerto[] {
   if (esSwitch(tipo)) return ["otro"];
   // Botones y lista: una salida por opción (`puertosDeNodo`) y ésta.
   if (esperaOpcion(tipo)) return ["sin_respuesta"];
+  // "Delegar al agente": cinco salidas fijas (PRD §4.5).
+  if (tipo === "ia_delegar") return [...PUERTOS_DELEGACION];
   return ["salida"];
 }
 
@@ -88,6 +91,14 @@ export function etiquetaDePuerto(nodo: Pick<Nodo, "tipo" | "config">, puerto: Pu
       return "Otro";
     case "sin_respuesta":
       return "Sin respuesta";
+    case "resuelto":
+      return "Resuelto";
+    case "humano":
+      return "Humano";
+    case "no_pudo":
+      return "No pudo";
+    case "error":
+      return "Error";
   }
   const casoId = casoDePuerto(puerto);
   if (casoId !== null) {

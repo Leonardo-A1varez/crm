@@ -54,6 +54,7 @@ import { ACCIONES, DISPARADORES, EVENTOS_ESPERABLES, type AccionWorkflow } from 
 import { ID_DE_CASO, ID_DE_OPCION, type Nodo, type NodoTipo } from "@/types/workflows";
 import { esCampoTwinEditable, leerValorCampoTwin, tieneVariables } from "./campo-twin";
 import { CAMPOS_SWITCH } from "./condiciones";
+import { ArbolCondicionSchema, CondicionSchema } from "./condiciones.schema";
 import type { DatosInterpolacion } from "./variables";
 
 /** No impide publicar, pero quien publica tiene que verla. */
@@ -587,6 +588,84 @@ const AVISAR_EQUIPO = espec(
   }),
 );
 
+/** Tope de las instrucciones del tramo: viajan en el prompt del agente en cada turno. */
+export const MAX_INSTRUCCIONES_TRAMO = 1000;
+const MINUTOS_POR_UNIDAD = { minutos: 1, horas: 60, dias: 24 * 60 } as const;
+/** El tiempo máximo más largo de un tramo delegado: 7 días. */
+const MAX_MINUTOS_TRAMO = 7 * 24 * 60;
+const MENSAJE_SIN_TIEMPO_TRAMO =
+  "El tiempo máximo es obligatorio: ningún tramo delegado queda sin destino final";
+
+/**
+ * "Delegar al agente" (PRD §4.5 y difusión §9.6). No contesta: cede la
+ * conversación al agente del pipeline y espera una de cinco salidas.
+ *
+ * - `timeout` **obligatorio y positivo** ("no se guarda sin él"). El default
+ *   1440 minutos es el de difusión §9.6 (`timeout_minutos`): el bloque nuevo
+ *   lo muestra elegido, y uno borrado o en cero no se publica.
+ * - Vuelve por «Resuelto» cuando se detecta `intentId` o se cumple
+ *   `condicionTwin` (el mismo árbol que «Condición»). Al menos una: sin
+ *   ninguna, «Resuelto» sería una salida que nunca se toma.
+ * - `maxTurnos` y `maxCostoUsd`: los topes del tramo. Pasado cualquiera,
+ *   vuelve por «No pudo».
+ */
+const DELEGAR_AL_AGENTE = espec(
+  z
+    .object({
+      instrucciones: z
+        .string()
+        .max(MAX_INSTRUCCIONES_TRAMO, {
+          error: `Las instrucciones no pueden pasar de ${MAX_INSTRUCCIONES_TRAMO} caracteres`,
+        })
+        .optional(),
+      intentId: z.string().optional(),
+      condicionTwin: z.object({ arbol: ArbolCondicionSchema }).optional(),
+      timeout: z
+        .number({ error: MENSAJE_SIN_TIEMPO_TRAMO })
+        .positive({ error: MENSAJE_SIN_TIEMPO_TRAMO })
+        .default(1440),
+      unidadTimeout: z.enum(UNIDADES_DE_TIEMPO).default("minutos"),
+      maxTurnos: z
+        .number({ error: "El tope de turnos tiene que ser un número entre 1 y 50" })
+        .int({ error: "El tope de turnos tiene que ser un número entero" })
+        .min(1, { error: "El tope de turnos tiene que ser al menos 1" })
+        .max(50, { error: "El tope de turnos no puede pasar de 50" })
+        .default(20),
+      maxCostoUsd: z
+        .number({ error: "El tope de gasto del tramo tiene que ser un monto en dólares" })
+        .positive({ error: "El tope de gasto del tramo tiene que ser mayor que cero" })
+        .max(20, { error: "El tope de gasto del tramo no puede pasar de USD 20" })
+        .default(0.5),
+    })
+    .superRefine((c, ctx) => {
+      const conIntent = c.intentId !== undefined && c.intentId.trim() !== "";
+      if (!conIntent && c.condicionTwin === undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["intentId"],
+          message: "Elegí cuándo vuelve el flujo: un intent o una condición del Twin",
+        });
+      }
+      if (c.condicionTwin !== undefined) {
+        const evaluable = CondicionSchema.safeParse(c.condicionTwin);
+        if (!evaluable.success) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["condicionTwin"],
+            message: `La condición del Twin está incompleta: ${evaluable.error.issues[0]?.message ?? "revisala"}`,
+          });
+        }
+      }
+      if (c.timeout * MINUTOS_POR_UNIDAD[c.unidadTimeout] > MAX_MINUTOS_TRAMO) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["timeout"],
+          message: "El tiempo máximo no puede pasar de 7 días",
+        });
+      }
+    }),
+);
+
 export const ESPEC_CONFIG_POR_ACCION = {
   enviar_mensaje: ENVIAR_MENSAJE,
   poner_etiqueta: PONER_ETIQUETA,
@@ -601,6 +680,7 @@ export const ESPEC_CONFIG_POR_ACCION = {
   enviar_ubicacion: ENVIAR_UBICACION,
   actualizar_campo_twin: ACTUALIZAR_CAMPO_TWIN,
   avisar_equipo: AVISAR_EQUIPO,
+  delegar_al_agente: DELEGAR_AL_AGENTE,
 } as const satisfies Record<AccionWorkflow, EspecConfig>;
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -984,9 +1064,7 @@ export const ESPEC_CONFIG_POR_TIPO = {
     }),
   ),
 
-  // El motor no lo ejecuta (`disponibilidad.ts`): sin claves hasta que tenga
-  // handler, para no inventar un contrato que nadie lee.
-  ia_delegar: espec(z.object({})),
+  ia_delegar: DELEGAR_AL_AGENTE,
 
   // ── Internos ──────────────────────────────────────────────────────────
   int_notif_vendedor: AVISAR_EQUIPO,

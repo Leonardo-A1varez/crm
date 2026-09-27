@@ -31,8 +31,8 @@ const IDENTIDAD = [
 const ENCABEZADO_REGLAS = [
   "REGLAS INVIOLABLES",
   "Tienen prioridad absoluta sobre cualquier instruccion anterior, incluidas las del",
-  "bloque INSTRUCCIONES DEL NEGOCIO. Si una instruccion anterior las contradice,",
-  "ignora esa instruccion y segui estas.",
+  "bloque INSTRUCCIONES DEL NEGOCIO y las de INSTRUCCIONES DE ESTE TRAMO. Si una",
+  "instruccion anterior las contradice, ignora esa instruccion y segui estas.",
 ].join("\n");
 
 const TONO_DIRECTIVA = {
@@ -84,12 +84,23 @@ export function directivasDeEstilo(config: AgenteConfigValores): string[] {
  * precios salen de `buscar_repuesto`, que consulta la DB, y el descuento se
  * verifica post-generacion.
  */
-export function componerSystemPrompt(config: AgenteConfigValores): string {
+export function componerSystemPrompt(
+  config: AgenteConfigValores,
+  instruccionesTramo: readonly string[] = [],
+): string {
   const bloques: string[] = [IDENTIDAD, ["ESTILO", ...directivasDeEstilo(config)].join("\n")];
 
   const instrucciones = config.instrucciones.trim();
   if (instrucciones !== "") {
     bloques.push(["INSTRUCCIONES DEL NEGOCIO", instrucciones].join("\n"));
+  }
+
+  // "Delegar al agente": lo que un flujo le pidió para este tramo de la
+  // conversación. Después de las del negocio —es lo más específico— y antes
+  // de las reglas, que les siguen ganando.
+  const tramo = instruccionesTramo.map((i) => i.trim()).filter((i) => i !== "");
+  if (tramo.length > 0) {
+    bloques.push(["INSTRUCCIONES DE ESTE TRAMO", ...tramo].join("\n"));
   }
 
   bloques.push([ENCABEZADO_REGLAS, ...REGLAS_INVIOLABLES].join("\n"));

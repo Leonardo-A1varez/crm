@@ -2,6 +2,7 @@ import { NonRetriableError } from "inngest";
 import { inngest } from "@/inngest/client";
 import {
   workflowCorridaCancelada,
+  workflowDelegacionTurno,
   workflowDisparoRecibido,
   workflowRespuestaInteractiva,
   workflowSegmentoPendiente,
@@ -16,6 +17,7 @@ import {
 } from "@/lib/workflows/cadena";
 import { disparadorDe, nodoPorId } from "@/lib/workflows/recorrer";
 import { conOpcionElegida, type OpcionElegida } from "@/lib/workflows/respuesta-interactiva";
+import { conTurnoAgente, type TurnoDelegacion } from "@/lib/workflows/delegacion";
 import {
   conRespondio,
   ejecutarSegmento,
@@ -54,6 +56,12 @@ export interface WorkflowSegmentoInput {
    * que sale por su línea. Ausente = venció sin respuesta.
    */
   opcionElegida?: OpcionElegida;
+  /**
+   * Sólo al reanudar "Delegar al agente": el turno del agente que despertó la
+   * espera. Se anota en el tramo antes de volver a correr el nodo, que decide
+   * si vuelve o sigue esperando. Ausente = venció el tiempo máximo.
+   */
+  turnoAgente?: TurnoDelegacion;
   /**
    * En qué intento de Inngest corre este segmento, desde 1 (`attempt + 1`).
    * Si falla sin reintento queda en `workflow_runs.intentos`. Sin él, 1.
@@ -118,6 +126,8 @@ export type WorkflowSegmentoResultado =
       esperaEvento?: EsperaEvento;
       /** Sólo en botones o lista: la respuesta a qué mensaje la despierta. */
       esperaOpcion?: EsperaOpcion;
+      /** Sólo en "Delegar al agente": de qué lead se esperan los turnos del agente. */
+      esperaTurnoAgente?: EsperaTurnoAgente;
     }
   | { tipo: "fin" }
   | { tipo: "cadena_cortada"; profundidad: number }
@@ -147,6 +157,26 @@ export interface EsperaOpcion {
   respondeA: string | null;
   /** ISO. Cuándo cortó el segmento. */
   desde: string;
+}
+
+/** Lo que necesita `step.waitForEvent` para esperar el turno del agente. */
+export interface EsperaTurnoAgente {
+  leadId: UUID;
+  /** ISO. Cuándo cortó el segmento. */
+  desde: string;
+}
+
+/**
+ * La expresión `if` de `step.waitForEvent` para "Delegar al agente": un
+ * `workflow/delegacion.turno` del mismo lead. Si el turno es de ESTA corrida
+ * lo decide el nodo (`runIds`), no el filtro: dos flujos que delegan en el
+ * mismo lead ven el mismo turno.
+ */
+export function filtroDeTurnoAgente(leadId: string): string {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(leadId)) {
+    throw new ValidationError(`id de lead inválido para esperar un turno del agente: ${leadId}`);
+  }
+  return `async.data.leadId == '${leadId}'`;
 }
 
 /**
@@ -195,6 +225,7 @@ export function datosDelSiguienteSegmento(input: {
   respondio: boolean;
   despertadoPor: { data: { profundidad?: number } } | null;
   opcionElegida?: OpcionElegida | null;
+  turnoAgente?: TurnoDelegacion | null;
 }): WorkflowSegmentoInput {
   const profundidad = input.despertadoPor?.data.profundidad;
   return {
@@ -203,6 +234,7 @@ export function datosDelSiguienteSegmento(input: {
     ...(input.respondio ? { respondio: true } : {}),
     ...(profundidad !== undefined ? { profundidad } : {}),
     ...(input.opcionElegida ? { opcionElegida: input.opcionElegida } : {}),
+    ...(input.turnoAgente ? { turnoAgente: input.turnoAgente } : {}),
   };
 }
 
@@ -309,9 +341,9 @@ export async function segmentoHandler(
   const conProf = conProfundidad(run.contexto, profundidad);
   // El lead eligió una opción mientras el nodo de botones o lista esperaba: se
   // anota en la espera y la segunda pasada del nodo sale por su línea.
-  const contextoBase = input.opcionElegida
-    ? conOpcionElegida(conProf, input.opcionElegida)
-    : conProf;
+  // Lo mismo con el turno del agente en un tramo delegado.
+  const conOpcion = input.opcionElegida ? conOpcionElegida(conProf, input.opcionElegida) : conProf;
+  const contextoBase = input.turnoAgente ? conTurnoAgente(conOpcion, input.turnoAgente) : conOpcion;
 
   let ultimoOrden = run.pasos_ejecutados;
   const onPaso = async (paso: PasoEjecutado) => {
@@ -387,6 +419,16 @@ export async function segmentoHandler(
         hasta: resultado.hasta.toISOString(),
         desdePaso: ultimoOrden,
         esperaOpcion: { leadId: run.lead_id, respondeA: resultado.esperaOpcion.respondeA, desde },
+      };
+    }
+    // "Delegar al agente" espera el turno del agente, no un disparo.
+    if (resultado.esperaTurnoAgente) {
+      return {
+        tipo: "espera",
+        nodoId: resultado.nodoId,
+        hasta: resultado.hasta.toISOString(),
+        desdePaso: ultimoOrden,
+        esperaTurnoAgente: { leadId: run.lead_id, desde },
       };
     }
     const evento = nodo ? eventoQueEspera(nodo) : null;
@@ -521,12 +563,20 @@ export function makeWorkflowSegmentoFn(deps: WorkflowSegmentoDeps) {
       },
     },
     async ({ event, step, attempt }) => {
-      const { runId, desdePaso, respondio, profundidad, opcionElegida } = event.data;
+      const { runId, desdePaso, respondio, profundidad, opcionElegida, turnoAgente } = event.data;
 
       const resultado = await step.run(`workflow-segmento-${runId}-${desdePaso}`, async () => {
         try {
           return await segmentoHandler(
-            { runId, desdePaso, respondio, profundidad, opcionElegida, intento: attempt + 1 },
+            {
+              runId,
+              desdePaso,
+              respondio,
+              profundidad,
+              opcionElegida,
+              turnoAgente,
+              intento: attempt + 1,
+            },
             deps,
           );
         } catch (error) {
@@ -558,9 +608,23 @@ export function makeWorkflowSegmentoFn(deps: WorkflowSegmentoDeps) {
         let respondioAntes = false;
         let despertadoPor: { data: { profundidad?: number } } | null = null;
         let opcionElegida: OpcionElegida | null = null;
+        let turnoAgente: TurnoDelegacion | null = null;
         const espera = resultado.esperaEvento;
         const esperaOpcion = resultado.esperaOpcion;
-        if (esperaOpcion) {
+        const esperaTurno = resultado.esperaTurnoAgente;
+        if (esperaTurno) {
+          // "Delegar al agente": el próximo turno del agente con este lead, o
+          // nada hasta el tiempo máximo del tramo, que no se estira.
+          const llego = await step.waitForEvent(`esperar-turno-agente-${base}`, {
+            event: workflowDelegacionTurno,
+            timeout: new Date(resultado.hasta),
+            if: filtroDeTurnoAgente(esperaTurno.leadId),
+          });
+          if (llego) {
+            const { leadId: _lead, ...turno } = llego.data;
+            turnoAgente = turno;
+          }
+        } else if (esperaOpcion) {
           // Botones o lista: la respuesta del lead a ESE mensaje, o nada hasta
           // el tiempo máximo. Venció: puede que la respuesta haya llegado en
           // el hueco antes de que la espera quedara registrada; se busca una
@@ -610,6 +674,7 @@ export function makeWorkflowSegmentoFn(deps: WorkflowSegmentoDeps) {
             respondio: respondioAntes,
             despertadoPor,
             opcionElegida,
+            turnoAgente,
           }),
           id: `workflow-segmento-pendiente:${runId}:${resultado.desdePaso}`,
         });

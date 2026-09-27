@@ -15,6 +15,7 @@ import type {
   WorkflowRunPaso,
 } from "@/types/entities";
 import { esperaOpcionCoincide } from "@/lib/workflows/respuesta-interactiva";
+import { delegacionActivaDe } from "@/lib/workflows/delegacion";
 import { esContextoDePrueba, esMotivoSalto, type MotivoSalto } from "@/types/workflows";
 import { saltosEnCero } from "./workflow-runs.repo";
 import type {
@@ -24,6 +25,7 @@ import type {
   CancelarWorkflowRunResult,
   CorridasPorNodo,
   CorridasVivasDeVersion,
+  DelegacionActiva,
   ReanudarWorkflowRunMotivo,
   ReanudarWorkflowRunResult,
   RelanzarWorkflowRunMotivo,
@@ -427,6 +429,30 @@ export class SupabaseWorkflowRunsRepository implements WorkflowRunsRepository {
       }
     }
     return null;
+  }
+
+  /**
+   * Mismo patrón que `esperandoOpcion`: las que esperan del lead (índice
+   * parcial `workflow_runs_vivas`) y el filtro del tramo en JS, con el mismo
+   * predicado que la impl en memoria (`delegacionActivaDe`).
+   */
+  async delegacionesActivas(leadId: UUID, ahora: Date): Promise<DelegacionActiva[]> {
+    if (!isUuid(leadId)) return [];
+    const { data, error } = await this.db
+      .from("workflow_runs")
+      .select("id, contexto")
+      .eq("lead_id", leadId)
+      .eq("estado", "esperando")
+      .order("started_at", { ascending: true })
+      .range(0, MAX_ESPERANDO_POR_LEAD - 1);
+    if (error) throw mapPostgrestError(error, { resource: "workflow_runs" });
+    const salida: DelegacionActiva[] = [];
+    for (const r of (data ?? []) as { id: string; contexto: Record<string, unknown> }[]) {
+      if (esContextoDePrueba(r.contexto)) continue;
+      const activa = delegacionActivaDe(r.contexto, ahora);
+      if (activa) salida.push({ runId: r.id, instrucciones: activa.instrucciones });
+    }
+    return salida;
   }
 
   /**
