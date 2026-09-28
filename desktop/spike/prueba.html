@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'sha256-nUPd1B6TjL4vQPbpw9SDm6aYOlZsDpCcOTKncBTzbsU='; form-action 'none'; base-uri 'none'"
+    />
+    <title>Spike: abrir chat</title>
+  </head>
+  <body>
+    <h1>Spike: abrir chat en WhatsApp Web</h1>
+    <p>El texto queda precargado en WhatsApp. Se envía solo si una persona presiona Enter allá.</p>
+    <form id="form">
+      <p>
+        <label for="telefono">Teléfono (E.164, con o sin +)</label><br />
+        <input id="telefono" name="telefono" type="tel" autocomplete="off" required />
+      </p>
+      <p>
+        <label for="texto">Texto</label><br />
+        <textarea id="texto" name="texto" rows="4" cols="50" maxlength="4096"></textarea>
+      </p>
+      <p><button type="submit">Abrir chat</button></p>
+    </form>
+    <pre id="resultado" aria-live="polite"></pre>
+    <script>
+      document.getElementById("form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const salida = document.getElementById("resultado");
+        salida.textContent = "cargando…";
+        const telefono = document.getElementById("telefono").value;
+        const texto = document.getElementById("texto").value;
+        const r = await window.crmEscritorio.abrirChat(telefono, texto);
+        salida.textContent = JSON.stringify(r);
+      });
+    </script>
+  </body>
+</html>
