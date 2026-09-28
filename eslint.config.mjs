@@ -189,6 +189,8 @@ const eslintConfig = defineConfig([
     // errores de estilo sobre código que no es nuestro. `.gitignore` ya lo
     // excluye del repo; esto lo saca del lint.
     "supabase/.temp/**",
+    // JS compilado de la app de escritorio; su fuente (desktop/src) sí se lintea.
+    "desktop/dist/**",
   ]),
 ]);
 
