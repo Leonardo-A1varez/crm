@@ -1,6 +1,8 @@
 import { shell } from "electron";
 import type { IpcMainInvokeEvent, Session, WebContents } from "electron";
 
+import { recorteValido } from "./preferencias-vista";
+
 // Hosts a los que la vista de WhatsApp puede navegar en el frame principal.
 // Medido con SPIKE_AUTOCHECK antes del login (autocheck-*.json, campos
 // `redirecciones` y `navegacionesBloqueadas`): ni `/` ni `/send` redirigen a
@@ -12,6 +14,8 @@ export type PoliticaNavegacion = (url: string) => boolean;
 
 export interface Bitacora {
   navegacionBloqueada?: (host: string) => void;
+  /** Se dispara al empezar cada `cargar()` de la vista de WhatsApp (para tests/autocheck). */
+  cargaIniciada?: () => void;
 }
 
 function parsear(url: string): URL | null {
@@ -128,4 +132,91 @@ export function validarTexto(entrada: unknown): Validado<string> {
 /** Para logs: nunca el número completo (regla de PII del proyecto). */
 export function ultimos4(telefono: string): string {
   return `…${telefono.slice(-4)}`;
+}
+
+export interface AreaWhatsapp {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface LimiteArea {
+  width: number;
+  height: number;
+}
+
+/**
+ * El área llega en CSS px del renderer (`getBoundingClientRect()`), o `null`
+ * al desmontarse. Se valida: 4 números finitos no negativos, y que el
+ * rectángulo quepa dentro del contenido de la ventana (mismas unidades CSS —
+ * el caller ya dividió por el zoom antes de armar `limite`).
+ */
+export function validarAreaWhatsapp(
+  entrada: unknown,
+  limite: LimiteArea,
+): Validado<AreaWhatsapp | null> {
+  if (entrada === null) return { ok: true, valor: null };
+  if (typeof entrada !== "object") return { ok: false, motivo: "area_no_es_objeto" };
+  const o = entrada as Record<string, unknown>;
+  const valores = [o.x, o.y, o.width, o.height];
+  if (!valores.every((n) => typeof n === "number" && Number.isFinite(n))) {
+    return { ok: false, motivo: "area_numeros_invalidos" };
+  }
+  const [x, y, width, height] = valores as [number, number, number, number];
+  if (x < 0 || y < 0 || width < 0 || height < 0) return { ok: false, motivo: "area_negativa" };
+  if (x + width > limite.width || y + height > limite.height) {
+    return { ok: false, motivo: "area_fuera_de_ventana" };
+  }
+  return { ok: true, valor: { x, y, width, height } };
+}
+
+export interface OpcionesMostrarWhatsapp {
+  recargar: boolean;
+}
+
+/** Único campo aceptado: `recargar` booleano opcional. Cualquier otra clave rechaza el mensaje. */
+export function validarOpcionesMostrar(entrada: unknown): Validado<OpcionesMostrarWhatsapp> {
+  if (entrada === undefined) return { ok: true, valor: { recargar: false } };
+  if (typeof entrada !== "object" || entrada === null) {
+    return { ok: false, motivo: "opciones_invalidas" };
+  }
+  const o = entrada as Record<string, unknown>;
+  if (Object.keys(o).some((clave) => clave !== "recargar")) {
+    return { ok: false, motivo: "opciones_invalidas" };
+  }
+  if (o.recargar !== undefined && typeof o.recargar !== "boolean") {
+    return { ok: false, motivo: "recargar_invalido" };
+  }
+  return { ok: true, valor: { recargar: o.recargar === true } };
+}
+
+export interface CambiosVistaWhatsapp {
+  recorteIzquierdo?: number;
+  completo?: boolean;
+}
+
+/**
+ * `configurarVistaWhatsApp`: solo `recorteIzquierdo` (entero 0–1200 DIP) y
+ * `completo` (booleano). Cualquier otra clave, o un tipo/rango incorrecto,
+ * rechaza el mensaje entero. `{}` es válido y no cambia nada.
+ */
+export function validarCambiosVista(entrada: unknown): Validado<CambiosVistaWhatsapp> {
+  if (typeof entrada !== "object" || entrada === null || Array.isArray(entrada)) {
+    return { ok: false, motivo: "cambios_invalidos" };
+  }
+  const o = entrada as Record<string, unknown>;
+  if (Object.keys(o).some((c) => c !== "recorteIzquierdo" && c !== "completo")) {
+    return { ok: false, motivo: "cambios_invalidos" };
+  }
+  const cambios: CambiosVistaWhatsapp = {};
+  if (o.recorteIzquierdo !== undefined) {
+    if (!recorteValido(o.recorteIzquierdo)) return { ok: false, motivo: "recorte_invalido" };
+    cambios.recorteIzquierdo = o.recorteIzquierdo;
+  }
+  if (o.completo !== undefined) {
+    if (typeof o.completo !== "boolean") return { ok: false, motivo: "completo_invalido" };
+    cambios.completo = o.completo;
+  }
+  return { ok: true, valor: cambios };
 }

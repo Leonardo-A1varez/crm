@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'sha256-nUPd1B6TjL4vQPbpw9SDm6aYOlZsDpCcOTKncBTzbsU='; form-action 'none'; base-uri 'none'"
+      content="default-src 'none'; script-src 'sha256-lrPCHNCRom9ycHoIwhKOHmxJlp4vgciLvdXk3xYDLm0='; form-action 'none'; base-uri 'none'"
     />
     <title>Spike: abrir chat</title>
   </head>
@@ -24,6 +24,13 @@
     </form>
     <pre id="resultado" aria-live="polite"></pre>
     <script>
+      // Este modo (CRM_URL=spike) no tiene router: no existe una ruta
+      // /whatsapp real que navegar. El main ya trata esta página como si
+      // estuviera en la sección (ver README); acá solo falta reportar un
+      // área fija para que la vista de WhatsApp se vuelva visible a la
+      // derecha, igual que en el spike original de dos paneles.
+      window.crmEscritorio.reportarAreaWhatsApp({ x: 820, y: 20, width: 760, height: 900 });
+
       document.getElementById("form").addEventListener("submit", async (e) => {
         e.preventDefault();
         const salida = document.getElementById("resultado");

@@ -2,14 +2,25 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { app, ipcMain, Menu } from "electron";
-import type { WebContents } from "electron";
+import type { BaseWindow, WebContents } from "electron";
 
-import { hostDe, normalizarTelefono, remitenteValido, ultimos4, validarTexto } from "./seguridad";
+import {
+  normalizarTelefono,
+  remitenteValido,
+  ultimos4,
+  validarAreaWhatsapp,
+  validarCambiosVista,
+  validarOpcionesMostrar,
+  validarTexto,
+} from "./seguridad";
 import type { OrigenCrm } from "./seguridad";
+import { CoordinadorWhatsapp, pathnameDe } from "./coordinador-whatsapp";
+import type { ConfigVistaWhatsapp, EstadoCoordinador } from "./coordinador-whatsapp";
+import { chequeosCalibracion } from "./autocheck-calibracion";
+import { chequeosRecorte } from "./autocheck-recorte";
 import { crearVentana } from "./ventana";
 import { crearVistaCrm, resolverOrigenCrm } from "./vista-crm";
-import { crearVistaWhatsapp, URL_WHATSAPP } from "./vista-whatsapp";
-import type { ModoUa, ResultadoCarga, VistaWhatsapp } from "./vista-whatsapp";
+import type { ModoUa } from "./vista-whatsapp";
 
 const DEBUG = process.env.DEBUG === "1";
 const AUTOCHECK = process.env.SPIKE_AUTOCHECK === "1";
@@ -28,10 +39,19 @@ app.enableSandbox();
 const instanciaUnica = app.requestSingleInstanceLock();
 if (!instanciaUnica) app.quit();
 
-function registrarAbrirChat(crm: WebContents, origen: OrigenCrm, wa: VistaWhatsapp): void {
+/**
+ * Los 5 canales de invocación que expone `crmEscritorio`. Todos exigen el mismo
+ * remitente: frame principal de la vista del CRM, en su origen permitido.
+ */
+function registrarCanalesCrm(
+  crm: WebContents,
+  origen: OrigenCrm,
+  ventana: BaseWindow,
+  coordinador: CoordinadorWhatsapp,
+): void {
   ipcMain.handle(
     "crm:abrir-chat",
-    async (event, telefono: unknown, texto: unknown): Promise<ResultadoCarga> => {
+    async (event, telefono: unknown, texto: unknown) => {
       if (!remitenteValido(event, crm, origen)) {
         log("abrirChat rechazado: remitente no permitido");
         return { ok: false, motivo: "remitente_no_permitido" };
@@ -41,7 +61,7 @@ function registrarAbrirChat(crm: WebContents, origen: OrigenCrm, wa: VistaWhatsa
       const txt = validarTexto(texto);
       if (!txt.ok) return { ok: false, motivo: txt.motivo };
 
-      const resultado = await wa.abrirChat(tel.valor, txt.valor);
+      const resultado = await coordinador.abrirChat(tel.valor, txt.valor);
       log("abrirChat", {
         telefono: ultimos4(tel.valor),
         largoTexto: txt.valor.length,
@@ -50,6 +70,63 @@ function registrarAbrirChat(crm: WebContents, origen: OrigenCrm, wa: VistaWhatsa
       return resultado;
     },
   );
+
+  // Fire-and-forget (ipcRenderer.send): no hay respuesta que mandar, un
+  // mensaje inválido simplemente se ignora sin tirar la app.
+  ipcMain.on("crm:reportar-area-whatsapp", (event, area: unknown) => {
+    if (!remitenteValido(event, crm, origen)) {
+      log("reportarAreaWhatsApp rechazado: remitente no permitido");
+      return;
+    }
+    const { width, height } = ventana.getContentBounds();
+    const zoom = crm.getZoomFactor();
+    const limite = { width: width / zoom, height: height / zoom };
+    const validado = validarAreaWhatsapp(area, limite);
+    if (!validado.ok) {
+      log("reportarAreaWhatsApp rechazado", { motivo: validado.motivo });
+      return;
+    }
+    coordinador.reportarArea(validado.valor);
+  });
+
+  ipcMain.handle("crm:mostrar-whatsapp", async (event, opciones: unknown) => {
+    if (!remitenteValido(event, crm, origen)) {
+      log("mostrarWhatsApp rechazado: remitente no permitido");
+      return { ok: false, motivo: "remitente_no_permitido" };
+    }
+    const validado = validarOpcionesMostrar(opciones);
+    if (!validado.ok) return { ok: false, motivo: validado.motivo };
+    const resultado = await coordinador.mostrar(validado.valor);
+    log("mostrarWhatsApp", resultado);
+    return resultado;
+  });
+
+  ipcMain.handle("crm:obtener-vista-whatsapp", (event) => {
+    if (!remitenteValido(event, crm, origen)) {
+      log("obtenerVistaWhatsApp rechazado: remitente no permitido");
+      return { ok: false, motivo: "remitente_no_permitido" };
+    }
+    return coordinador.obtenerConfigVista();
+  });
+
+  ipcMain.handle("crm:configurar-vista-whatsapp", (event, cambios: unknown) => {
+    if (!remitenteValido(event, crm, origen)) {
+      log("configurarVistaWhatsApp rechazado: remitente no permitido");
+      return { ok: false, motivo: "remitente_no_permitido" };
+    }
+    const validado = validarCambiosVista(cambios);
+    if (!validado.ok) return { ok: false, motivo: validado.motivo };
+    return coordinador.configurarVista(validado.valor);
+  });
+}
+
+/** El recorte efectivo cambió por un resize (no por el CRM): el CRM lo muestra en vivo. */
+function avisarCambioVista(crm: WebContents, estado: ConfigVistaWhatsapp): void {
+  if (!crm.isDestroyed()) crm.send("crm:vista-whatsapp-cambio", estado);
+}
+
+function archivoPreferenciasVista(): string {
+  return path.join(app.getPath("userData"), "vista-whatsapp.json");
 }
 
 app.whenReady().then(async () => {
@@ -65,40 +142,49 @@ app.whenReady().then(async () => {
   }
 
   const origen = resolverOrigenCrm(process.env.CRM_URL);
-  const wa = crearVistaWhatsapp({ particion: "persist:whatsapp", modoUa: MODO_UA });
   const crm = crearVistaCrm({ origen, particion: "persist:crm", devTools: DEBUG });
-  registrarAbrirChat(crm.webContents, origen, wa);
-  crearVentana(crm, wa.vista);
+  const ventana = crearVentana(crm);
+  const coordinador = new CoordinadorWhatsapp({
+    ventana,
+    crmWebContents: crm.webContents,
+    particion: "persist:whatsapp",
+    modoUa: MODO_UA,
+    archivoPreferencias: archivoPreferenciasVista(),
+    alCambiarVista: (estado) => avisarCambioVista(crm.webContents, estado),
+  });
+  ventana.on("resize", () => coordinador.recalcular());
+  ventana.on("closed", () => {
+    crm.webContents.close();
+    coordinador.cerrar();
+  });
+
+  if (origen.tipo === "remoto") {
+    // Next.js navega client-side: did-navigate-in-page cubre esos cambios de
+    // ruta, did-navigate la carga inicial y cualquier navegación dura.
+    crm.webContents.on("did-navigate", (_e, url) => coordinador.reportarNavegacion(pathnameDe(url)));
+    crm.webContents.on("did-navigate-in-page", (_e, url, isMainFrame) => {
+      if (isMainFrame) coordinador.reportarNavegacion(pathnameDe(url));
+    });
+  } else {
+    // Spike: página estática sin router, no hay una ruta de chat real.
+    // Se la trata como si ya estuviera en la sección (ver README).
+    coordinador.reportarNavegacion("/inbox/spike");
+  }
+
+  registrarCanalesCrm(crm.webContents, origen, ventana, coordinador);
   log("arranque", { crm: origen.tipo === "spike" ? "spike" : origen.origin, ua: MODO_UA });
-  void wa.cargar(URL_WHATSAPP);
 });
 
 app.on("window-all-closed", () => app.quit());
 
 // ---------------------------------------------------------------------------
-// SPIKE_AUTOCHECK=1: mide la carga de WhatsApp Web sin intervención humana y
-// sale. Usa perfiles propios (persist:whatsapp-spike-<modo>) que se borran al
-// empezar, así nunca hay sesión iniciada y nunca toca persist:whatsapp.
+// SPIKE_AUTOCHECK=1: prueba sin sesión ni intervención humana el contrato de
+// mostrar/ocultar WhatsApp contra la sección del CRM, y sale. Usa perfiles
+// propios (persist:whatsapp-spike-<modo>) que se borran al empezar, así nunca
+// hay sesión iniciada y nunca toca persist:whatsapp.
 // ---------------------------------------------------------------------------
 
 const esperar = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
-
-/** Metadatos de una URL sin valores de query (la de /send lleva teléfono y texto). */
-function sinValores(url: string): string {
-  try {
-    const u = new URL(url);
-    const claves = [...u.searchParams.keys()];
-    return `${u.origin}${u.pathname}${claves.length > 0 ? `?[${claves.join(",")}]` : ""}`;
-  } catch {
-    return "(url inválida)";
-  }
-}
-
-/** Sin <title>, Chromium usa la URL como título: también hay que sacarle la query. */
-function tituloSinValores(titulo: string): string {
-  const corte = titulo.indexOf("?");
-  return corte === -1 ? titulo : `${titulo.slice(0, corte)}?[omitido]`;
-}
 
 function borrarParticionSpike(nombre: string): boolean {
   if (!/^whatsapp-spike-(electron|chrome)$/.test(nombre)) {
@@ -111,6 +197,10 @@ function borrarParticionSpike(nombre: string): boolean {
   }
   fs.rmSync(destino, { recursive: true, force: true });
   return !fs.existsSync(destino);
+}
+
+function mismoEstado(a: EstadoCoordinador, b: EstadoCoordinador): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 async function correrAutocheck(): Promise<void> {
@@ -133,119 +223,161 @@ async function correrAutocheck(): Promise<void> {
     particion: `persist:${nombreParticion}`,
     perfilNuevo,
   };
-  const navegaciones: unknown[] = [];
-  const redirecciones: unknown[] = [];
-  const principales: unknown[] = [];
-  const cabecerasEnviadas: unknown[] = [];
-  const bloqueadas: string[] = [];
-  const hostsSubrecursos = new Map<string, number>();
+  const chequeos: Record<string, unknown> = {};
+  let cargasIniciadas = 0;
 
+  // Preferencias propias del autocheck: nunca el vista-whatsapp.json real.
+  const archivoPrefsAutocheck = path.join(salida, "prefs-autocheck", "vista-whatsapp.json");
+  fs.rmSync(path.dirname(archivoPrefsAutocheck), { recursive: true, force: true });
   const origen = resolverOrigenCrm("spike");
-  const wa = crearVistaWhatsapp({
+  const crm = crearVistaCrm({ origen, particion: "persist:crm-spike", devTools: false });
+  const ventana = crearVentana(crm);
+  const coordinador = new CoordinadorWhatsapp({
+    ventana,
+    crmWebContents: crm.webContents,
     particion: `persist:${nombreParticion}`,
     modoUa: MODO_UA,
-    bitacora: { navegacionBloqueada: (host) => bloqueadas.push(host) },
+    archivoPreferencias: archivoPrefsAutocheck,
+    alCambiarVista: (estado) => avisarCambioVista(crm.webContents, estado),
+    bitacora: {
+      cargaIniciada: () => {
+        cargasIniciadas += 1;
+      },
+    },
   });
-  informe.ua = wa.ua;
+  ventana.on("resize", () => coordinador.recalcular());
+  ventana.on("closed", () => {
+    crm.webContents.close();
+    coordinador.cerrar();
+  });
+  registrarCanalesCrm(crm.webContents, origen, ventana, coordinador);
 
-  // Solo metadatos de red: status, host, nombres de cabecera de UA. Nunca cuerpos.
-  const filtroPrincipal = { urls: ["<all_urls>"], types: ["mainFrame" as const] };
-  wa.sesion.webRequest.onSendHeaders(filtroPrincipal, (d) => {
-    const h = Object.fromEntries(
-      Object.entries(d.requestHeaders).filter(([k]) => /^(user-agent|sec-ch-ua.*)$/i.test(k)),
-    );
-    cabecerasEnviadas.push({ url: sinValores(d.url), cabeceras: h });
-  });
-  wa.sesion.webRequest.onBeforeRedirect(filtroPrincipal, (d) => {
-    redirecciones.push({
-      desde: sinValores(d.url),
-      hacia: sinValores(d.redirectURL),
-      status: d.statusCode,
-    });
-  });
-  wa.sesion.webRequest.onCompleted((d) => {
-    if (d.resourceType === "mainFrame") {
-      principales.push({ url: sinValores(d.url), status: d.statusCode, desdeCache: d.fromCache });
-    } else {
-      const host = hostDe(d.url);
-      hostsSubrecursos.set(host, (hostsSubrecursos.get(host) ?? 0) + 1);
-    }
-  });
-  wa.vista.webContents.on("did-navigate", (_e, url, codigo, texto) => {
-    navegaciones.push({ url: sinValores(url), http: codigo, estado: texto });
-  });
-
-  const crm = crearVistaCrm({ origen, particion: "persist:crm-spike", devTools: false });
   const crmListo = new Promise<void>((r) => crm.webContents.once("did-finish-load", () => r()));
-  registrarAbrirChat(crm.webContents, origen, wa);
-  const ventana = crearVentana(crm, wa.vista);
 
-  const capturar = async (
-    nombre: string,
-  ): Promise<{ png: string | null; erroresCaptura: string[] }> => {
-    const erroresCaptura: string[] = [];
-    // Perfil recién borrado = sin sesión = pantalla de login/QR, no hay chats.
-    if (!perfilNuevo) return { png: null, erroresCaptura: ["perfil_no_nuevo"] };
-    // capturePage falló de a ratos con UnknownVizError tras navegar a /send;
-    // se reintenta y se registra cada fallo en vez de cortar el autocheck.
-    for (let intento = 1; intento <= 3; intento++) {
-      try {
-        const imagen = await wa.vista.webContents.capturePage();
-        const archivo = path.join(salida, nombre);
-        fs.writeFileSync(archivo, imagen.toPNG());
-        return { png: archivo, erroresCaptura };
-      } catch (err) {
-        erroresCaptura.push(
-          `intento${intento}:${err instanceof Error ? err.message : String(err)}`,
-        );
-        await esperar(1_500);
-      }
-    }
-    return { png: null, erroresCaptura };
-  };
+  function invocarPuente<T>(expresion: string): Promise<T> {
+    return crm.webContents.executeJavaScript(expresion) as Promise<T>;
+  }
 
   try {
-    const inicial = await wa.cargar(URL_WHATSAPP);
-    await esperar(10_000);
-    informe.cargaInicial = {
-      ...inicial,
-      urlFinal: sinValores(wa.vista.webContents.getURL()),
-      titulo: tituloSinValores(wa.vista.webContents.getTitle()),
-      ...(await capturar(`whatsapp-${MODO_UA}-inicio.png`)),
+    await crmListo;
+
+    // (a) En la sección pero sin área reportada todavía: la vista se crea
+    // (la navegación a /inbox/<leadId> la crea sola) pero no es visible.
+    coordinador.reportarNavegacion("/inbox/lead-a");
+    await esperar(300);
+    const estadoA = coordinador.estado();
+    chequeos.a_sin_area_no_visible = { pasa: estadoA.creada && !estadoA.visible, estado: estadoA };
+
+    // (b) Con área reportada por el puente real (no llamando al coordinador
+    // directo) y en la sección: visible, con bounds = área × zoom.
+    const areaEnviada = { x: 10, y: 20, width: 300, height: 400 };
+    await invocarPuente(`window.crmEscritorio.reportarAreaWhatsApp(${JSON.stringify(areaEnviada)})`);
+    await esperar(300);
+    const zoom = crm.webContents.getZoomFactor();
+    const boundsEsperado = {
+      x: Math.round(areaEnviada.x * zoom),
+      y: Math.round(areaEnviada.y * zoom),
+      width: Math.round(areaEnviada.width * zoom),
+      height: Math.round(areaEnviada.height * zoom),
+    };
+    const estadoB = coordinador.estado();
+    chequeos.b_con_area_y_seccion_visible = {
+      pasa: estadoB.visible && JSON.stringify(estadoB.bounds) === JSON.stringify(boundsEsperado),
+      estado: estadoB,
+      boundsEsperado,
+    };
+    const webContentsIdOriginal = estadoB.webContentsId;
+
+    // (c0) Navegar entre leads dentro de /inbox/…: no se destruye ni se oculta;
+    // /inbox sin chat sí oculta (sin recrear).
+    coordinador.reportarNavegacion("/inbox/lead-b");
+    await esperar(200);
+    const estadoC0 = coordinador.estado();
+    coordinador.reportarNavegacion("/inbox");
+    await esperar(200);
+    const estadoC0b = coordinador.estado();
+    chequeos.c0_entre_leads_no_destruye = {
+      pasa:
+        estadoC0.visible &&
+        estadoC0.webContentsId === webContentsIdOriginal &&
+        !estadoC0b.visible &&
+        estadoC0b.webContentsId === webContentsIdOriginal,
+      estado: estadoC0,
+      estadoInboxSinChat: estadoC0b,
+    };
+    coordinador.reportarNavegacion("/inbox/lead-a");
+    await esperar(200);
+
+    // (c) Salir de la sección: se oculta, mismo webContents.id (no se recreó).
+    coordinador.reportarNavegacion("/leads");
+    await esperar(300);
+    const estadoC = coordinador.estado();
+    chequeos.c_salir_de_seccion_oculta_sin_recrear = {
+      pasa: !estadoC.visible && estadoC.webContentsId === webContentsIdOriginal,
+      estado: estadoC,
     };
 
-    await crmListo;
-    const js = (tel: string, txt: string): string =>
-      `window.crmEscritorio.abrirChat(${JSON.stringify(tel)}, ${JSON.stringify(txt)})`;
+    // (e) Rect inválido: se rechaza y el estado no cambia. Se vuelve a la
+    // sección primero para que un rect válido hubiese tenido efecto visible.
+    coordinador.reportarNavegacion("/inbox/lead-a");
+    await esperar(300);
+    const estadoAntesInvalido = coordinador.estado();
+    await invocarPuente(
+      "window.crmEscritorio.reportarAreaWhatsApp({ x: -1, y: 0, width: 10, height: 10 })",
+    );
+    await esperar(300);
+    const estadoDespuesInvalido = coordinador.estado();
+    chequeos.e_rect_invalido_rechazado = {
+      pasa: mismoEstado(estadoAntesInvalido, estadoDespuesInvalido),
+      estadoAntes: estadoAntesInvalido,
+      estadoDespues: estadoDespuesInvalido,
+    };
 
-    // Camino inválido primero: el main tiene que rechazarlo sin navegar.
-    informe.abrirChatInvalido = await crm.webContents.executeJavaScript(js("123", "x"));
+    // (d) mostrarWhatsApp({recargar:true}) recarga de verdad (se cuenta vía
+    // la bitácora de `cargar()`, no solo el `ok:true` de la respuesta).
+    const cargasAntes = cargasIniciadas;
+    const resultadoMostrar = await invocarPuente<{ ok: boolean }>(
+      "window.crmEscritorio.mostrarWhatsApp({ recargar: true })",
+    );
+    await esperar(300);
+    chequeos.d_mostrar_recargar_recarga = {
+      pasa: resultadoMostrar.ok === true && cargasIniciadas === cargasAntes + 1,
+      resultadoMostrar,
+      cargasAntes,
+      cargasDespues: cargasIniciadas,
+    };
 
-    const t0 = performance.now();
-    const resultado = (await crm.webContents.executeJavaScript(
-      js("15550000000", "prueba spike"),
-    )) as ResultadoCarga;
-    const idaYVuelta = Math.round(performance.now() - t0);
-    await esperar(10_000);
-    informe.abrirChat = {
-      ...resultado,
-      msIdaYVueltaIpc: idaYVuelta,
-      urlFinal: sinValores(wa.vista.webContents.getURL()),
-      titulo: tituloSinValores(wa.vista.webContents.getTitle()),
-      ...(await capturar(`whatsapp-${MODO_UA}-send.png`)),
+    // Calibración por ancho: matemática pura y archivo de preferencias.
+    Object.assign(chequeos, chequeosCalibracion(path.join(salida, "prefs-calibracion")));
+
+    // Recorte izquierdo: bounds, completo, validación, persistencia y evidencia real.
+    Object.assign(
+      chequeos,
+      await chequeosRecorte({
+        ventana,
+        crm: crm.webContents,
+        coordinador,
+        invocarPuente,
+        salida,
+        archivoPreferencias: archivoPrefsAutocheck,
+        particion: `persist:${nombreParticion}`,
+        modoUa: MODO_UA,
+      }),
+    );
+
+    // Regresión del spike original: abrirChat sigue funcionando (rechaza lo
+    // inválido, navega con lo válido) y ahora devuelve `mostrada`.
+    chequeos.abrirChat = {
+      invalido: await invocarPuente('window.crmEscritorio.abrirChat("123", "x")'),
+      resultado: await invocarPuente(
+        'window.crmEscritorio.abrirChat("15550000000", "prueba spike")',
+      ),
     };
   } catch (err) {
     informe.error = err instanceof Error ? err.message : String(err);
   }
 
-  Object.assign(informe, {
-    navegaciones,
-    redirecciones,
-    principales,
-    cabecerasEnviadas,
-    navegacionesBloqueadas: bloqueadas,
-    hostsSubrecursos: Object.fromEntries(hostsSubrecursos),
-  });
+  informe.chequeos = chequeos;
   const archivo = path.join(salida, `autocheck-${MODO_UA}.json`);
   fs.writeFileSync(archivo, JSON.stringify(informe, null, 2));
   log("autocheck terminado", { archivo, error: informe.error ?? null });

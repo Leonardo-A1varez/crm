@@ -65,6 +65,7 @@ export function crearVistaWhatsapp(opciones: OpcionesVistaWhatsapp): VistaWhatsa
   endurecerContenido(wc, politicaWhatsapp, opciones.bitacora);
 
   async function cargar(url: string): Promise<ResultadoCarga> {
+    opciones.bitacora?.cargaIniciada?.();
     const inicio = performance.now();
     let timer: NodeJS.Timeout | undefined;
     const timeout = new Promise<ResultadoCarga>((resolve) => {
