@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { CentroConversacion } from "@/components/inbox/CentroConversacion";
 import { ChatThread } from "@/components/inbox/ChatThread";
 import { ConversationHeader } from "@/components/inbox/ConversationHeader";
 import { HandoffToggle } from "@/components/inbox/HandoffToggle";
@@ -8,6 +9,8 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
 import { NotFoundError } from "@/lib/errors";
 import { estadoVentana } from "@/lib/ventana";
+import { chatWhatsAppDeLead } from "@/lib/whatsapp/chat";
+import { getAuthenticatedUser } from "@/server/auth/supabase-ssr";
 import { getAgenteConfigServiceForRequest } from "@/server/bootstrap/agente-bootstrap";
 import { getInboxServiceForRequest } from "@/server/bootstrap/inbox-bootstrap";
 import { agregarDatoLeadAction } from "../_actions/agregar-dato-lead.action";
@@ -62,53 +65,67 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
   const ultimoEntrante = [...view.messages].reverse().find((m) => m.direction === "in") ?? null;
   const ventana = estadoVentana(ultimoEntrante?.created_at ?? null, new Date());
 
+  // Solo el número (E.164) y la elección recordada del selector viajan al
+  // cliente; nada de esto va a la URL. Si el chat no se abre en WhatsApp Web
+  // (otro canal, sin teléfono válido) `telefono` es null y el centro es el hilo.
+  const chat = chatWhatsAppDeLead(view.lead, view.canalActivo);
+  const telefono = "telefono" in chat ? chat.telefono : null;
+  const usuarioId = (await getAuthenticatedUser())?.id ?? null;
+
   return (
     // Tres columnas hermanas, no un header que cruza las dos: el header de la
     // conversación pertenece al panel de conversación y el Twin arranca con el
     // suyo, al mismo alto.
     <div className="flex flex-1 overflow-hidden">
-      <div className="bg-surface-chat flex min-w-[520px] flex-1 flex-col overflow-hidden">
-        <ConversationHeader
-          lead={view.lead}
-          session={view.session}
-          canalActivo={view.canalActivo}
-          actions={
-            view.session ? (
-              <HandoffToggle
-                leadId={view.lead.id}
-                sessionId={view.session.id}
-                iaPausada={view.session.ia_pausada}
-                onToggle={toggleHandoffAction}
-                handoffStatus={view.handoffStatus}
-              />
-            ) : null
-          }
-        />
-        {view.session ? (
+      <CentroConversacion
+        leadId={view.lead.id}
+        usuarioId={usuarioId}
+        telefono={telefono}
+        hilo={
           <>
-            <div className="flex-1 overflow-hidden">
-              <ChatThread
-                messages={view.messages}
-                onAuditoria={auditoriaTurnoAction}
-                interceptados={view.interceptados}
-              />
-            </div>
-            <MessageInput
-              leadId={view.lead.id}
-              sessionId={view.session.id}
-              canal={view.canalActivo}
-              ventana={ventana}
-              ultimoEntranteIso={ultimoEntrante?.created_at.toISOString() ?? null}
-              onSend={sendMessageAction}
+            <ConversationHeader
+              lead={view.lead}
+              session={view.session}
+              canalActivo={view.canalActivo}
+              actions={
+                view.session ? (
+                  <HandoffToggle
+                    leadId={view.lead.id}
+                    sessionId={view.session.id}
+                    iaPausada={view.session.ia_pausada}
+                    onToggle={toggleHandoffAction}
+                    handoffStatus={view.handoffStatus}
+                  />
+                ) : null
+              }
             />
+            {view.session ? (
+              <>
+                <div className="flex-1 overflow-hidden">
+                  <ChatThread
+                    messages={view.messages}
+                    onAuditoria={auditoriaTurnoAction}
+                    interceptados={view.interceptados}
+                  />
+                </div>
+                <MessageInput
+                  leadId={view.lead.id}
+                  sessionId={view.session.id}
+                  canal={view.canalActivo}
+                  ventana={ventana}
+                  ultimoEntranteIso={ultimoEntrante?.created_at.toISOString() ?? null}
+                  onSend={sendMessageAction}
+                />
+              </>
+            ) : (
+              <EmptyState
+                title="Sin sesión activa"
+                description="La sesión de este lead fue cerrada. El historial se purga a los 29 días del cierre."
+              />
+            )}
           </>
-        ) : (
-          <EmptyState
-            title="Sin sesión activa"
-            description="La sesión de este lead fue cerrada. El historial se purga a los 29 días del cierre."
-          />
-        )}
-      </div>
+        }
+      />
       <aside
         aria-label="Lead Twin"
         className="border-line-layout bg-surface-panel w-[322px] shrink-0 overflow-y-auto border-l"
