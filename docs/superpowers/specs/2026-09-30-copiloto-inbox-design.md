@@ -6,20 +6,22 @@
 
 Desde 2026-10-01 Meta cobra cada mensaje de servicio enviado por la Cloud API: 1.000 gratis por mes por número y, después, US$0,0113 por mensaje para Ecuador. _Las cifras son las que dio el dueño citando la hoja oficial de Meta; no se re-verificaron en esta sesión y hay que contrastarlas contra esa hoja antes de usarlas en un cálculo de negocio._ Lo que una persona envía desde WhatsApp Web no pasa por la API y no se cobra.
 
-Objetivo: en horario laboral, la IA redacta y la persona envía desde WhatsApp Web (costo de API ≈ 0). Fuera de horario, la IA sigue contestando por la API (ver §3.3: lo que el código hace hoy fuera de horario **no** coincide con esa frase).
+Objetivo: cuando hay personas del equipo trabajando, la IA redacta y la persona envía desde WhatsApp Web (costo de API ≈ 0). Cuando no hay equipo pero el agente puede actuar, la IA contesta sola por la API. Hoy el código no distingue "hay equipo" de "el agente puede actuar": existe un solo horario, el del agente (§3.3). Por eso esta spec agrega un segundo horario, el del equipo (decisión 7, §2).
 
 Pendiente externo: la coexistencia de Meta (los mensajes enviados desde la app llegan como ecos `smb_message_echoes`) espera la verificación de la empresa en Meta. Sin ella, el CRM no se entera de lo que la persona mandó por WhatsApp Web (§3.4).
 
 ## 2. Decisiones del dueño (aprobadas)
 
-| #   | Pregunta                                  | Decisión                                                                                                                                                                                                                                                                      |
-| --- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | ¿Cómo se elige el modo?                   | Por defecto según el horario de `agente_config` (en horario: copiloto; fuera: automático), con override **por conversación** de 3 estados: "Según horario" (default; muestra el modo efectivo, p. ej. "Según horario · ahora Copiloto"), "Copiloto" fijo y "Automático" fijo. |
-| 2   | ¿Cuándo se genera el borrador?            | Al llegar el mensaje del cliente, en el mismo pipeline, no al abrir el chat. Si el cliente escribe de nuevo antes de usarlo, se regenera y reemplaza al anterior. Botón "Regenerar".                                                                                          |
-| 3   | ¿Qué ve la IA de lo que la persona mandó? | Sin coexistencia, al tocar Insertar / Copiar / Abrir en WhatsApp Web el CRM guarda ese texto en el hilo como saliente "enviado por WhatsApp Web, sin confirmar". Cuando existan los ecos, se reemplaza por el real (fuera de alcance ahora).                                  |
-| 4   | ¿Dónde vive en la UI?                     | Interruptor de modo en el encabezado; tarjeta del borrador con tres ubicaciones según contexto; marca "Borrador listo" en la lista; Ctrl+Enter (§5).                                                                                                                          |
-| 5   | ¿Qué pasa cuando algo falla?              | Nada se envía solo. Tarjeta de error con Reintentar (§6).                                                                                                                                                                                                                     |
-| 6   | Fuera de alcance                          | Confirmación por ecos de coexistencia; borradores con media, botones o plantillas (solo texto); métricas del copiloto; varios números por vendedor (diseño aparte).                                                                                                           |
+| #   | Pregunta                                         | Decisión                                                                                                                                                                                                                                                                    |
+| --- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | ¿Cómo se elige el modo?                          | Por defecto según horarios (§3.2), con override **por conversación** de 3 estados: "Según horario" (default; muestra el modo efectivo, p. ej. "Según horario · ahora Copiloto"), "Copiloto" fijo y "Automático" fijo.                                                       |
+| 2   | ¿Cuándo se genera el borrador?                   | Al llegar el mensaje del cliente, en el mismo pipeline, no al abrir el chat. Si el cliente escribe de nuevo antes de usarlo, se regenera y reemplaza al anterior. Botón "Regenerar".                                                                                        |
+| 3   | ¿Qué ve la IA de lo que la persona mandó?        | Sin coexistencia, al tocar Insertar / Copiar / Abrir en WhatsApp Web el CRM guarda ese texto en el hilo como saliente "enviado por WhatsApp Web, sin confirmar". Cuando existan los ecos, se reemplaza por el real (fuera de alcance ahora).                                |
+| 4   | ¿Dónde vive en la UI?                            | Interruptor de modo en el encabezado; tarjeta del borrador con tres ubicaciones según contexto; marca "Borrador listo" en la lista; Ctrl+Enter (§5).                                                                                                                        |
+| 5   | ¿Qué pasa cuando algo falla?                     | Nada se envía solo. Tarjeta de error con Reintentar (§6).                                                                                                                                                                                                                   |
+| 6   | Fuera de alcance                                 | Confirmación por ecos de coexistencia; borradores con media, botones o plantillas (solo texto); métricas del copiloto; varios números por vendedor (diseño aparte).                                                                                                         |
+| 7   | O1: ¿qué es "horario" para el copiloto?          | Un **horario del equipo** nuevo: campo nuevo en `agente_config` (mismo formato que `horario`, misma `horario_timezone`), editable en `/agente` junto al horario del agente. El del equipo dice cuándo hay personas; el del agente sigue diciendo cuándo la IA puede actuar. |
+| 8   | O2: "Copiloto" fijo fuera del horario del agente | Gana: se redacta el borrador y **no** se manda la plantilla. "Automático" fijo sigue al horario del agente (agente cerrado: plantilla o nada, como hoy).                                                                                                                    |
 
 ## 3. Comportamiento
 
@@ -38,30 +40,52 @@ Nada de lo anterior cambia: BAJA, flujos interceptores, pausa / `ia_pausada`, es
 
 ### 3.2 Decisión de modo
 
-Función pura `decidirModo({ override, abierto })`, evaluada en un step propio (`decidir-modo`, junto a `decidir-horario`) por la misma razón que el horario: Inngest re-ejecuta el handler en cada paso y una lectura viva cambiaría a mitad del turno.
+Dos horarios, ambos en `horario_timezone`:
 
-| Override de la conversación | `abierto` (horario) | Modo efectivo |
-| --------------------------- | ------------------- | ------------- |
-| Según horario (`null`)      | sí                  | Copiloto      |
-| Según horario (`null`)      | no                  | Automático    |
-| Copiloto fijo               | (cualquiera)        | Copiloto      |
-| Automático fijo             | (cualquiera)        | Automático    |
+- **Horario del agente** (`agente_config.horario`, existe hoy): cuándo la IA puede actuar. No cambia.
+- **Horario del equipo** (`agente_config.horario_equipo`, nuevo): cuándo hay personas para enviar desde WhatsApp Web.
+
+Función pura `decidirModo({ override, equipoAbierto, agenteAbierto })`, evaluada en un step propio (`decidir-modo`, junto a `decidir-horario`) por la misma razón que el horario: Inngest re-ejecuta el handler en cada paso y una lectura viva cambiaría a mitad del turno. Devuelve uno de tres resultados:
+
+- **Copiloto**: se redacta el borrador; no se manda el mensaje ni la plantilla.
+- **Automático**: la IA envía por la API (todo como hoy).
+- **Fuera de horario**: comportamiento actual con el agente cerrado: `plantilla_fuera_horario` si hay, y si no, nada; sin LLM.
+
+Tabla de decisión final (las 12 combinaciones):
+
+| Override               | Equipo  | Agente  | Resultado        | Nota                                                                           |
+| ---------------------- | ------- | ------- | ---------------- | ------------------------------------------------------------------------------ |
+| Según horario (`null`) | abierto | abierto | Copiloto         | Caso típico de día.                                                            |
+| Según horario (`null`) | abierto | cerrado | Copiloto         | Hay personas; el agente cerrado no impide redactar (el borrador no sale solo). |
+| Según horario (`null`) | cerrado | abierto | Automático       | Caso típico de noche: la IA contesta por la API.                               |
+| Según horario (`null`) | cerrado | cerrado | Fuera de horario | Plantilla o nada, como hoy.                                                    |
+| Copiloto fijo          | abierto | abierto | Copiloto         | O2: el override fijo manda.                                                    |
+| Copiloto fijo          | abierto | cerrado | Copiloto         | O2: borrador sin plantilla.                                                    |
+| Copiloto fijo          | cerrado | abierto | Copiloto         |                                                                                |
+| Copiloto fijo          | cerrado | cerrado | Copiloto         | O2: borrador sin plantilla.                                                    |
+| Automático fijo        | abierto | abierto | Automático       | Igual que hoy.                                                                 |
+| Automático fijo        | abierto | cerrado | Fuera de horario | Sigue al agente: plantilla o nada.                                             |
+| Automático fijo        | cerrado | abierto | Automático       |                                                                                |
+| Automático fijo        | cerrado | cerrado | Fuera de horario |                                                                                |
+
+Regla en una frase: "Copiloto" fijo es siempre Copiloto; "Automático" fijo es Automático si el agente está abierto y Fuera de horario si no; "Según horario" es Copiloto si el equipo está abierto, si no Automático si el agente está abierto, y si no Fuera de horario.
 
 El modo se decide **al llegar cada mensaje**; un cambio de horario o de override no toca borradores ya generados.
 
-### 3.3 Hallazgo: el "horario" de hoy es el horario de atención del agente, y fuera de él la IA NO contesta
+**Cambio en el pipeline:** la rama fuera de horario (:672) deja de depender solo de `!abierto` y pasa a ejecutarse cuando el resultado es **Fuera de horario**. Con resultado Copiloto y agente cerrado, el turno sigue por `classify` / `respond` como en horario. El interceptor de flujos (:621) sigue consultándose solo con el agente abierto, como hoy ("fuera de horario nunca hay turno interceptado"); en Copiloto con agente cerrado los flujos no interceptan.
 
-Esto contradice la premisa del objetivo ("fuera de horario la IA sigue respondiendo sola"). Hechos leídos en el código:
+**Horario del equipo no configurado (default seguro):** `horario_equipo` sin un solo rango (los 7 días vacíos) significa "nunca hay equipo", así que "Según horario" nunca da Copiloto y el comportamiento es el de hoy (Automático con el agente abierto). Se eligió por seguridad: desplegar la migración no cambia nada hasta que el dueño configure el horario del equipo, y el copiloto solo se enciende a propósito. El default contrario (equipo 24/7) activaría el copiloto en toda conversación al desplegar y dejaría de salir respuestas por la API sin que nadie lo pidiera.
+
+**Zona horaria inválida:** `estaAbierto` devuelve `true` ante una zona inválida (`src/lib/agente/horario.ts:84`, decisión de no callar al cliente). Para el agente eso sigue igual. Para el equipo sería el lado inseguro (declararía equipo presente y dejaría mensajes esperando un borrador que nadie envía), así que `equipoAbierto = esTimezoneValida(tz) && tieneAlgunRango(horario_equipo) && estaAbierto(...)`: zona inválida o sin rangos cuenta como equipo cerrado.
+
+**Recomendación operativa:** poner el horario del agente en 24/7 (es la semilla actual), para que de noche, con el equipo cerrado, la IA conteste por la API. Si el agente se cierra de noche, esas conversaciones reciben la plantilla en lugar de una respuesta.
+
+### 3.3 Hallazgo: hoy existe un solo horario, el del agente, y fuera de él la IA NO contesta
+
+Contexto de la decisión O1. Hechos leídos en el código:
 
 - `estaAbierto(config.horario, config.horario_timezone, …)` decide en `on-message-received.ts:607`. Si `!abierto` (:672), el pipeline **no invoca ningún LLM**: manda `plantilla_fuera_horario` si está configurada y, si no, no responde nada. El comentario del propio código lo dice ("Fuera de horario: no se invoca ningún LLM").
-- Es decir: hoy el horario define cuándo el agente atiende, y fuera de él solo sale una plantilla fija.
-
-Consecuencias para esta spec:
-
-- **Dentro de horario**, "Según horario" → Copiloto: encaja, el agente pasa de enviar a redactar.
-- **Fuera de horario**, "Según horario" → Automático: se interpreta como "comportamiento actual", o sea la plantilla fija (con su costo de API) y ninguna respuesta del LLM. Si el dueño quiere que fuera de horario la IA conteste de verdad por la API, eso es un cambio **aparte** de comportamiento (hoy no existe) y necesita su decisión. **Pregunta abierta O1.**
-- **Copiloto fijo fuera de horario**: el código actual corta antes de `respond`, así que no habría borrador. Esta spec propone que el override fijo **gane** sobre la rama fuera de horario: se genera el borrador y no se manda la plantilla (la persona eligió atender a mano). Es una interpretación mía de la decisión 1, no algo que el dueño dijo literalmente. **Pregunta abierta O2.**
-- **Automático fijo dentro de horario**: igual que hoy (la IA envía por la API, con costo).
+- Es decir: no hay forma de expresar "hay personas" distinto de "la IA puede actuar". De ahí sale el segundo horario de §3.2.
 
 ### 3.4 Contexto de la IA sin coexistencia
 
@@ -81,6 +105,19 @@ Limitación asumida: el CRM registra "la persona lo envió" cuando toca el botó
 ## 4. Modelo de datos (propuesta a validar con `supabase` antes de la migración)
 
 > Nada de esto se aplicó. Antes de escribir la migración hay que inspeccionar el esquema real de crm-dev por el CLI o con `mcp__plugin_supabase_supabase__execute_sql` pasando el `project_id` de crm-dev (lección 15: el MCP `mcp__supabase__*` de esta máquina apunta a otro proyecto) y revisar con `supabase:supabase-postgres-best-practices`.
+
+### 4.0 Horario del equipo: columna nueva en `agente_config`
+
+```sql
+alter table public.agente_config
+  add column horario_equipo jsonb not null
+    default '{"lun":[],"mar":[],"mie":[],"jue":[],"vie":[],"sab":[],"dom":[]}'::jsonb;
+```
+
+- **Mismo formato que `horario`** (`Horario` de `src/types/agente.ts`: los 7 días con una lista de rangos `HH:MM`) y **misma `horario_timezone`**: no hay una segunda zona. El default lleva los 7 días con lista vacía y no `'{}'` porque `HorarioSchema` (`src/lib/validation/agente.schema.ts`) exige las 7 claves; un `{}` fallaría al leer la fila.
+- **Coherente con el versionado:** `agente_config` es append-only, una fila por versión. La migración solo agrega una columna con default: ninguna fila existente se reescribe ni se toca su historia, y toda versión previa (incluida la activa) lee "sin equipo", que es el default seguro de §3.2.
+- **Sitios que hay que tocar** (todos son la misma lista de campos de la config; se enumeran para que el plan no olvide ninguno): el tipo `AgenteConfigValores`, `CONFIG_DE_FABRICA` en `src/lib/agente/defaults.ts` (la migración de la semilla dice que deben coincidir), el repo (`agente-config.supabase.repo.ts`) y su espejo InMemory, `config-provider.ts` (el `leer-config` del pipeline solo copia los campos que lee: hay que agregar `horario_equipo`), el schema Zod y el servicio (`agente-config.service.ts`), donde `horario` está **excluido** de la lista de campos escalares porque se compara por valor, día a día y rango a rango; `horario_equipo` recibe el mismo trato. La auditoría guarda nombres de campos y nunca valores, así que solo suma el nombre.
+- **Rollback:** el rollback crea una versión nueva copiando los campos de la versión elegida. Volver a una versión anterior a esta migración copia "sin equipo" y apaga el copiloto hasta reconfigurar. Es coherente con "la versión es la config completa" y se documenta en la UI del rollback; la alternativa (excluir `horario_equipo` del rollback) rompería esa regla y no se adopta.
 
 ### 4.1 Preferencia de modo: columna en `conversaciones`
 
@@ -148,6 +185,8 @@ Además:
 - **Lista del Inbox:** marca "Borrador listo" en las conversaciones con un borrador `listo` sin usar.
 - **Teclado:** Ctrl+Enter ejecuta la acción principal de la tarjeta; el foco va al texto del borrador.
 
+**`/agente`, pestaña Límites (`TabLimites.tsx`):** el editor del horario del equipo va **junto al del agente**, con su propio subtítulo: "Cuándo hay personas para enviar desde WhatsApp Web. En este horario la IA redacta y vos enviás." Reutiliza `EditorHorario` (`src/app/(panel)/agente/_components/EditorHorario.tsx`). Hoy ese componente recibe `horario` y `timezone` juntos y edita ambos; como la zona es **una sola** para los dos horarios, el plan debe generalizarlo (por ejemplo, zona de solo lectura o editada una vez para ambos) en lugar de duplicarlo. El editor del equipo debe decir explícitamente que vacío significa "sin equipo: la IA responde sola", y la pestaña muestra la recomendación operativa de §3.2 (horario del agente 24/7).
+
 Restricción del puente de escritorio: `abrirChat(telefono, texto)` acepta texto de hasta 4096 caracteres (`LARGO_MAXIMO_TEXTO`, `desktop/src/main/seguridad.ts:114`) y el teléfono se normaliza a 8–15 dígitos (`normalizarTelefono`, mismo archivo). Hoy `CentroConversacion.tsx:74` lo llama con texto vacío (`abrirChat(numero, "")`) solo para abrir el chat; el copiloto lo reutiliza con texto sin tocar el contrato (`src/types/crm-escritorio.d.ts`, `desktop/src/preload/crm.ts:57`). El borrador debe truncarse o rechazarse en la tarjeta si supera 4096 (hoy el límite del composer también es 4096 según el mensaje de `send-message.action.ts`).
 
 ## 6. Errores y casos borde
@@ -164,20 +203,21 @@ Restricción del puente de escritorio: `abrirChat(telefono, texto)` acepta texto
 
 Leídos el 2026-09-30 contra crm-dev, salvo donde se aclara.
 
-- **R1. Zona horaria equivocada.** La `agente_config` activa de crm-dev tiene `horario_timezone = America/Argentina/Buenos_Aires` y el negocio está en Ecuador (`America/Guayaquil`). El modo "Según horario" depende del horario: hay que corregirlo **antes** de usar el copiloto, o el modo cambiará a la hora equivocada. _Dato de crm-dev reportado por el orquestador; el default del código en `src/lib/agente/defaults.ts:53` también es `America/Argentina/Buenos_Aires`, verificado en esta sesión._ Revisar también ese default: toda instalación nueva nace con esa zona.
+- **R1. Zona horaria equivocada.** La `agente_config` activa de crm-dev tiene `horario_timezone = America/Argentina/Buenos_Aires` y el negocio está en Ecuador (`America/Guayaquil`). El modo "Según horario" depende del horario: hay que corregirlo **antes** de usar el copiloto, o el modo cambiará a la hora equivocada. _Dato de crm-dev reportado por el orquestador; el default del código en `src/lib/agente/defaults.ts:53` también es `America/Argentina/Buenos_Aires`, verificado en esta sesión._ Revisar también ese default: toda instalación nueva nace con esa zona. Con el horario del equipo la zona pesa más: define a qué hora empieza y termina el copiloto.
 - **R2. `escalar_umbral_intents = 2`.** Hace que la IA escale casi siempre (ocurrió en la prueba real del 2026-09-30), y un escalado significa `source: "handoff"`, o sea **sin borrador**. El copiloto se vería roto sin estarlo. Recomendado 5. _Valor activo reportado por el orquestador; el default del código es 2 (`defaults.ts:45`)._
 - **R3. `max_salientes_automaticos_24h = 3`.** Cuenta salientes `ia` y `sistema` (`messages.supabase.repo.ts:297`). Interacción con el copiloto: los borradores no cuentan porque no son mensajes; el saliente "sin confirmar" (§3.4) y "Al composer" son `humano` y tampoco cuentan. Definido: el copiloto no consume ni exige cambiar ese tope. Sigue aplicando a workflows y difusión como hoy.
 - **R4. Regenerar fuera del pipeline.** `respond` hoy solo corre dentro de `on-message-received`. "Regenerar" y "Reintentar" necesitan volver a invocar la generación desde una Server Action o un evento Inngest propio, reconstruyendo `conversationTurn` y `classification` del último entrante. Esa forma de invocarlo no existe; es un requisito de diseño del plan, no algo resuelto acá.
-- **R5. Premisa del horario (§3.3).** O1 y O2 requieren respuesta del dueño antes del plan.
+- **R5. Dos horarios distintos.** El horario del agente y el del equipo pueden contradecirse (equipo abierto con agente cerrado, por ejemplo). §3.2 fija el resultado de las 12 combinaciones; la UI de `/agente` tiene que dejar claro cuál es cuál. Si el agente se cierra de noche, esas conversaciones reciben la plantilla y no una respuesta de la IA.
 - **R6. Doble proceso de redacción.** El pipeline puede reintentar pasos. La escritura del borrador tiene que ser idempotente (clave por `mensaje_origen_id`), igual que `turn_classifications` (UNIQUE por mensaje).
 
 ## 8. Plan de pruebas
 
-- **Decisión de modo** (unit, puro): horario abierto y cerrado, los tres valores del override, y el caso de cambio de horario entre mensajes.
-- **Pipeline** (unit sobre `on-message-received`, dobles en memoria): en copiloto `sendOutbound` no se llama y se crea un borrador; en automático el comportamiento es idéntico al actual (los tests existentes no cambian); no hay borrador cuando `respond` devuelve `handoff` ni con descuento excedido ni con BAJA ni interceptado.
+- **Decisión de modo** (unit, puro): la matriz completa de §3.2, **3 overrides x equipo abierto/cerrado x agente abierto/cerrado = 12 casos**, uno por fila de la tabla. Además: horario del equipo vacío nunca da Copiloto con "Según horario"; zona horaria inválida cuenta como equipo cerrado pero el agente sigue "abierto" (comportamiento actual de `estaAbierto`); cambio de horario o de override entre dos mensajes.
+- **Pipeline** (unit sobre `on-message-received`, dobles en memoria): en copiloto `sendOutbound` no se llama y se crea un borrador; con resultado Copiloto y agente cerrado no se manda la plantilla y sí se redacta el borrador; con resultado Fuera de horario sale la plantilla o nada, como hoy; en automático el comportamiento es idéntico al actual (los tests existentes no cambian); no hay borrador cuando `respond` devuelve `handoff` ni con descuento excedido ni con BAJA ni interceptado.
 - **Repositorio de borradores:** reemplazo (el más viejo no pisa al nuevo), "usado" una sola vez, idempotencia por `mensaje_origen_id`, contrato reusable `runBorradoresIaContract(makeRepo)` (InMemory ↔ Supabase).
 - **Contrato contra Postgres real:** `npm run test:integration:local` (stack local, lección 10), incluyendo el índice único parcial y las policies RLS admin y vendedor (con la matriz que ya usa la suite RLS).
-- **UI:** la tarjeta en los 3 contextos (escritorio WhatsApp Web, escritorio Hilo del CRM, navegador), sus estados (redactando, listo, usado, error) y el teclado (Ctrl+Enter, foco).
+- **`agente_config`:** la columna `horario_equipo` round-trip por repo InMemory y Supabase (contrato existente), default de las filas previas, comparación por valor en el servicio de config y rollback que la copia.
+- **UI:** el editor del horario del equipo en `/agente` (guardar, vacío = sin equipo); la tarjeta en los 3 contextos (escritorio WhatsApp Web, escritorio Hilo del CRM, navegador), sus estados (redactando, listo, usado, error) y el teclado (Ctrl+Enter, foco).
 - **E2E en el stack local** con un mensaje simulado (`docs/runbooks/como-correr-el-crm.md` §4.1): se crea el borrador y el mock de la Graph API **no** recibe ningún envío. Es la prueba que vale (lección 14): dispararlo de verdad, con `SELECT` a la base y el log del mock.
 - **Con la app de escritorio real:** Insertar precarga el texto en WhatsApp Web. Esto solo se puede comprobar a mano con la app corriendo; no hay forma de automatizarlo en el stack local.
 
@@ -187,13 +227,12 @@ Leídos el 2026-09-30 contra crm-dev, salvo donde se aclara.
 - Borradores con media, botones, listas o plantillas: solo texto.
 - Métricas del copiloto (borradores usados / editados / descartados, ahorro de API).
 - Varios números de WhatsApp por vendedor (diseño aparte).
-- Cambiar qué hace la IA fuera de horario (O1).
+- Cambiar la plantilla o la semántica del horario del agente: sigue siendo "cuándo la IA puede actuar".
 
 ## 10. Preguntas abiertas para el dueño
 
-- **O1.** Fuera de horario hoy la IA no contesta: solo sale la plantilla fija. ¿Se quiere que fuera de horario la IA conteste de verdad por la API (cambio nuevo, con costo de Meta y de LLM), o alcanza con mantener la plantilla?
-- **O2.** "Copiloto fijo" fuera de horario: esta spec propone que genere borrador y no mande la plantilla. ¿Confirmás?
+Ninguna. O1 y O2 quedaron resueltas el 2026-09-30 y están en §2 (decisiones 7 y 8) y §3.2.
 
 ## 11. Auto-revisión
 
-Hecha el 2026-09-30 al cerrar la spec: sin marcadores pendientes en el texto salvo las preguntas O1 y O2, que son abiertas a propósito; sin contradicciones entre §3.2, §3.3 y §4.3 (el override fijo gana sobre el horario solo para el modo, y la rama fuera de horario sigue existiendo para el modo automático); alcance acotado a una sola pantalla (Inbox) más una migración y un paso nuevo del pipeline. Los números de línea son de la rama `feat/app-escritorio` al 2026-09-30 y se reproducen con `grep -n` sobre los archivos citados.
+Hecha el 2026-09-30 al incorporar O1 y O2: sin marcadores pendientes ni preguntas abiertas; la tabla de §3.2 cubre las 12 combinaciones y coincide con la regla en una frase, con §2 (decisiones 7 y 8), con el pipeline (rama fuera de horario solo con resultado Fuera de horario) y con la matriz de pruebas de §8; el default del equipo (vacío) es el mismo en §3.2 y en el SQL de §4.0 (7 días con lista vacía). Alcance acotado a la pantalla Inbox más la pestaña Límites de `/agente` (un editor), dos migraciones (columna en `agente_config`, tabla y columna del copiloto) y un paso nuevo del pipeline. Los números de línea son de la rama `feat/app-escritorio` al 2026-09-30 y se reproducen con `grep -n` sobre los archivos citados.
