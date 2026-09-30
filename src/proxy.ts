@@ -1,14 +1,16 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/server/auth/middleware-session";
+import { esRutaPublica } from "@/server/auth/public-routes";
 
 // Next 16: middleware se llama proxy. Gate de sesión del panel; webhooks
-// quedan fuera del matcher (HMAC propio) igual que assets estáticos.
+// quedan fuera del matcher (HMAC propio) igual que assets estáticos. Las
+// páginas legales (`RUTAS_PUBLICAS`) se sirven sin sesión.
 export async function proxy(request: NextRequest) {
   const { response, user } = await updateSession(request);
   const { pathname } = request.nextUrl;
 
   const isLogin = pathname === "/login";
-  if (!user && !isLogin) {
+  if (!user && !isLogin && !esRutaPublica(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.search = "";
