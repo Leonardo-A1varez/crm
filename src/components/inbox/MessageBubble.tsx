@@ -241,7 +241,8 @@ export function MessageBubble({
             </span>
           ) : null}
           <MonoMeta className="text-[9.5px]">{hora}</MonoMeta>
-          {message.metadata.origen === "whatsapp_web_sin_confirmar" ? (
+          {message.direction === "out" &&
+          message.metadata.origen === "whatsapp_web_sin_confirmar" ? (
             <MonoMeta className="text-[9.5px] italic">
               Enviado por WhatsApp Web, sin confirmar
             </MonoMeta>

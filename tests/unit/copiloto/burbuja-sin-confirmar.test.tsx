@@ -35,6 +35,11 @@ describe("MessageBubble - enviado por WhatsApp Web, sin confirmar", () => {
     expect(screen.getByText("Hola, sí tenemos ese filtro.")).toBeTruthy();
   });
 
+  it("un entrante nunca muestra la marca, aunque su metadata la traiga", () => {
+    render(<MessageBubble message={saliente({ direction: "in", sender: "lead" })} />);
+    expect(screen.queryByText(/sin confirmar/)).toBeNull();
+  });
+
   it("un saliente humano normal sigue mostrando su acuse", () => {
     render(
       <MessageBubble

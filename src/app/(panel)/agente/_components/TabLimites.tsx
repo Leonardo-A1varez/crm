@@ -220,6 +220,7 @@ export function TabLimites({
           <EditorHorario
             horario={valores.horario}
             timezone={valores.horario_timezone}
+            contexto="del agente"
             onChange={onChange}
             disabled={disabled}
           />
@@ -236,6 +237,7 @@ export function TabLimites({
             horario={valores.horario_equipo}
             timezone={valores.horario_timezone}
             mostrarZona={false}
+            contexto="del equipo"
             onChange={(patch) => {
               if (patch.horario) onChange({ horario_equipo: patch.horario });
             }}

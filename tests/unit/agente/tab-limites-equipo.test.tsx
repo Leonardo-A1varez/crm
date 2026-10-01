@@ -45,7 +45,7 @@ describe("TabLimites — horario del equipo", () => {
     );
     fireEvent.change(desde!, { target: { value: "09:00" } });
     fireEvent.change(hasta!, { target: { value: "18:00" } });
-    fireEvent.click(within(equipo).getAllByRole("button", { name: "Agregar" })[0]!);
+    fireEvent.click(within(equipo).getAllByRole("button", { name: /^Agregar rango/ })[0]!);
 
     expect(onChange).toHaveBeenCalledTimes(1);
     const patch = onChange.mock.calls[0]![0] as Record<string, unknown>;
@@ -53,6 +53,36 @@ describe("TabLimites — horario del equipo", () => {
     expect((patch.horario_equipo as { lun: unknown }).lun).toEqual([
       { desde: "09:00", hasta: "18:00" },
     ]);
+  });
+
+  it("los controles de los dos editores se distinguen por nombre accesible", () => {
+    const conRango = (dia: "lun") => ({
+      ...CONFIG_DE_FABRICA.horario,
+      [dia]: [{ desde: "09:00", hasta: "18:00" }],
+    });
+    render(
+      <TabLimites
+        valores={{
+          ...CONFIG_DE_FABRICA,
+          horario: conRango("lun"),
+          horario_equipo: conRango("lun"),
+        }}
+        onChange={vi.fn()}
+      />,
+    );
+
+    // Cada nombre existe una sola vez en toda la pantalla: un lector de pantalla
+    // no tiene que adivinar a qué horario pertenece el control.
+    for (const nombre of [
+      "Quitar rango 09:00 a 18:00 de Lunes del agente",
+      "Quitar rango 09:00 a 18:00 de Lunes del equipo",
+      "Agregar rango Lunes del agente",
+      "Agregar rango Lunes del equipo",
+    ]) {
+      expect(screen.getAllByRole("button", { name: nombre })).toHaveLength(1);
+    }
+    expect(screen.getAllByLabelText("Desde, Lunes del equipo")).toHaveLength(1);
+    expect(screen.getAllByLabelText("Hasta, Lunes del agente")).toHaveLength(1);
   });
 
   it("recomienda dejar el agente 24/7 y explica qué pasa si se cierra de noche", () => {

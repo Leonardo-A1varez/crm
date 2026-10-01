@@ -362,19 +362,18 @@ function Cuerpo({
     void marcar("abrir_web");
   };
 
-  /** Ctrl+Enter = la acción principal; sin ninguna, la más segura que exista. */
+  /**
+   * Ctrl+Enter = la acción principal; sin ninguna, Copiar. Nunca "Al composer":
+   * envía por la API (pago e irreversible) y un atajo de teclado no puede
+   * disparar eso.
+   */
   const accionDeTeclado = () => {
     if (acciones.principal === "insertar") return void insertar();
     if (acciones.principal === "abrir_web") return enlaceRef.current?.click();
-    if (acciones.alComposer && !envioDudoso) return void alComposer();
     return void copiar();
   };
   const nombreAccionDeTeclado =
-    acciones.principal !== null
-      ? ETIQUETA_PRINCIPAL[acciones.principal]
-      : acciones.alComposer && !envioDudoso
-        ? "Al composer"
-        : "Copiar";
+    acciones.principal !== null ? ETIQUETA_PRINCIPAL[acciones.principal] : "Copiar";
 
   const idAyuda = `${borrador.id}-ayuda`;
   const largo = texto.trim().length;

@@ -227,6 +227,24 @@ describe("TarjetaBorrador — navegador", () => {
     expect(onEnviar).toHaveBeenCalledTimes(1);
   });
 
+  it("sin acción principal Ctrl+Enter copia y nunca envía por la API (el envío es pago e irreversible)", async () => {
+    const escribir = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: escribir },
+      configurable: true,
+    });
+    const { onEnviar, onUsar } = montar(contexto({ telefono: null }));
+
+    expect(screen.getByText(/Ctrl\+Enter · Copiar/)).toBeTruthy();
+    fireEvent.keyDown(areaTexto(), { key: "Enter", ctrlKey: true });
+
+    await waitFor(() => expect(escribir).toHaveBeenCalledWith(TEXTO));
+    await waitFor(() =>
+      expect(onUsar).toHaveBeenCalledWith(expect.objectContaining({ via: "copiar" })),
+    );
+    expect(onEnviar).not.toHaveBeenCalled();
+  });
+
   it("un error explícito de la action (ok: false) sí deja reintentar", async () => {
     const { onEnviar } = montar(contexto({ telefono: null }));
     onEnviar.mockResolvedValue({ ok: false, error: "Ventana cerrada" });
