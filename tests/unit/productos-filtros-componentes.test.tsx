@@ -225,6 +225,28 @@ describe("CuerpoPrecio", () => {
     expect((screen.getByLabelText("Mínimo") as HTMLInputElement).value).toBe("7");
   });
 
+  it("acepta coma decimal y punto de miles y escribe el número que lee el backend", () => {
+    conProvider(<CuerpoPrecio cerrar={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Mínimo"), { target: { value: "1500,50" } });
+    fireEvent.change(screen.getByLabelText("Máximo"), { target: { value: "2.000,25" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
+    expect(ultimaUrl()).toBe("/productos?precioMin=1500.5&precioMax=2000.25");
+  });
+
+  it("un precio de la URL con decimales se muestra con coma", () => {
+    conProvider(<CuerpoPrecio cerrar={() => {}} />, { search: "precioMin=1500.5" });
+    expect((screen.getByLabelText("Mínimo") as HTMLInputElement).value).toBe("1500,5");
+  });
+
+  it("un texto que no es número se frena en el campo", () => {
+    conProvider(<CuerpoPrecio cerrar={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Mínimo"), { target: { value: "mil" } });
+    expect(screen.getByRole("alert").textContent).toMatch(/número/);
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
+    expect(nav.replace).not.toHaveBeenCalled();
+  });
+
   it("Limpiar filtro saca solo el precio", () => {
     conProvider(<CuerpoPrecio cerrar={() => {}} />, { search: "precioMin=7&estado=activo" });
     fireEvent.click(screen.getByRole("button", { name: "Limpiar filtro" }));
@@ -247,6 +269,13 @@ describe("CuerpoStock", () => {
     expect((screen.getByLabelText("Mínimo") as HTMLInputElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
     expect(ultimaUrl()).toBe("/productos?conStock=0");
+  });
+
+  it("el stock admite punto de miles: 1.500 es 1500", () => {
+    conProvider(<CuerpoStock cerrar={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Mínimo"), { target: { value: "1.500" } });
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
+    expect(ultimaUrl()).toBe("/productos?stockMin=1500");
   });
 
   it("el stock no admite decimales", () => {

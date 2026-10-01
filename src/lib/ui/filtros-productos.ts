@@ -1,3 +1,4 @@
+import { normalizarValor } from "@/lib/catalogo/normalizar-valor";
 import {
   LISTA_MAX,
   POR_PAGINA_DEFAULT,
@@ -370,8 +371,66 @@ export function resumirFiltros(f: FiltrosUrl): ResumenFiltro[] {
 // ---------------------------------------------------------------------------
 
 /**
+ * Lee un número escrito como se escribe en español: coma decimal ("1500,50") y
+ * punto de miles ("1.500,50"). También acepta el punto decimal de siempre
+ * ("1500.50"). Devuelve `null` si no es un número, o si es negativo.
+ *
+ * Un punto solo es ambiguo: "1.500" puede ser mil quinientos o uno con cinco.
+ * Se lee como miles cuando tiene la forma de miles (uno a tres dígitos que no
+ * empiezan en 0 y grupos de tres: "1.500", "12.345.678") porque es como la propia
+ * pantalla escribe los números ("1.500 productos"); "0.500", "2.5" o "1500.50" son
+ * decimales.
+ */
+export function parsearNumero(texto: string): number | null {
+  const t = normalizarValor(texto);
+  const MILES = /^[1-9]\d{0,2}(\.\d{3})+$/;
+  let canonico: string;
+  if (t.includes(",")) {
+    const partes = t.split(",");
+    const [entera, decimal] = partes;
+    if (partes.length !== 2 || entera === undefined || decimal === undefined) return null;
+    if (!/^\d+$/.test(decimal)) return null;
+    if (/^\d+$/.test(entera)) canonico = `${entera}.${decimal}`;
+    else if (MILES.test(entera)) canonico = `${entera.replaceAll(".", "")}.${decimal}`;
+    else return null;
+  } else if (/^\d+$/.test(t)) {
+    canonico = t;
+  } else if (MILES.test(t)) {
+    canonico = t.replaceAll(".", "");
+  } else if (/^\d+\.\d+$/.test(t)) {
+    canonico = t;
+  } else {
+    return null;
+  }
+  const n = Number(canonico);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * El número tal como lo lee el backend: punto decimal y sin miles. Vacío es "" (sin
+ * límite) y lo que no es un número es `null`.
+ */
+export function numeroCanonico(texto: string): string | null {
+  if (normalizarValor(texto) === "") return "";
+  const n = parsearNumero(texto);
+  return n === null ? null : String(n);
+}
+
+/**
+ * Lo que va en el campo cuando el número viene de la URL: coma decimal y sin miles,
+ * para que `parsearNumero` lo lea igual. Un valor que no es un número se deja tal
+ * cual: el campo lo marca como error en vez de corregirlo en silencio.
+ */
+export function numeroEditable(valorDeUrl: string): string {
+  if (valorDeUrl === "") return "";
+  const n = Number(valorDeUrl);
+  return Number.isFinite(n) ? String(n).replace(".", ",") : valorDeUrl;
+}
+
+/**
  * Error de un par mínimo/máximo, o `null` si está bien. Lo que el service
  * rechazaría con `ValidationError` se frena acá, en el campo, antes de navegar.
+ * Los números se leen con `parsearNumero`.
  */
 export function errorDeRango(
   min: string,
@@ -383,14 +442,15 @@ export function errorDeRango(
     ["máximo", max],
   ];
   for (const [lado, v] of partes) {
-    if (v.trim() === "") continue;
-    const n = Number(v);
-    if (!Number.isFinite(n) || n < 0)
-      return `El ${lado} de ${opciones.nombre} tiene que ser un número desde 0.`;
+    if (normalizarValor(v) === "") continue;
+    const n = parsearNumero(v);
+    if (n === null) return `El ${lado} de ${opciones.nombre} tiene que ser un número desde 0.`;
     if (opciones.entero && !Number.isInteger(n))
       return `El ${lado} de ${opciones.nombre} tiene que ser un número entero.`;
   }
-  if (min.trim() !== "" && max.trim() !== "" && Number(min) > Number(max)) {
+  const a = parsearNumero(min);
+  const b = parsearNumero(max);
+  if (a !== null && b !== null && a > b) {
     return `El mínimo de ${opciones.nombre} no puede ser mayor que el máximo.`;
   }
   return null;

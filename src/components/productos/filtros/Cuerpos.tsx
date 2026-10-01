@@ -1,7 +1,13 @@
 "use client";
 
 import { useId, useState } from "react";
-import { avisoDeLista, errorDeRango, valoresDeLista } from "@/lib/ui/filtros-productos";
+import {
+  avisoDeLista,
+  errorDeRango,
+  numeroCanonico,
+  numeroEditable,
+  valoresDeLista,
+} from "@/lib/ui/filtros-productos";
 import { TEXTO_MAX } from "@/lib/validation/productos-filtros.schema";
 import { PanelFiltro, Segmentado } from "./FiltroColumna";
 import { useFiltrosProductos } from "./FiltrosProductosProvider";
@@ -220,9 +226,9 @@ function CampoRango({
   const idMin = useId();
   const idMax = useId();
   const propios = {
-    type: "number",
-    min: 0,
-    step: entero ? 1 : "any",
+    // Texto y no `number`: el campo numérico del navegador no deja escribir la coma
+    // decimal ni el punto de miles, que es como se escribe un precio en español.
+    type: "text",
     inputMode: entero ? ("numeric" as const) : ("decimal" as const),
     disabled: deshabilitado,
     "aria-invalid": error !== null,
@@ -259,8 +265,8 @@ function CampoRango({
 
 export function CuerpoPrecio({ cerrar }: CuerpoProps) {
   const { filtros, aplicar, limpiar } = useFiltrosProductos();
-  const [min, setMin] = useState(filtros.precioMin);
-  const [max, setMax] = useState(filtros.precioMax);
+  const [min, setMin] = useState(numeroEditable(filtros.precioMin));
+  const [max, setMax] = useState(numeroEditable(filtros.precioMax));
   const idError = useId();
   const error = errorDeRango(min, max, { entero: false, nombre: "precio" });
 
@@ -271,7 +277,10 @@ export function CuerpoPrecio({ cerrar }: CuerpoProps) {
       aviso={error}
       avisoEnCampo={idError}
       onAplicar={() => {
-        aplicar(["precio"], { precioMin: min.trim(), precioMax: max.trim() });
+        aplicar(["precio"], {
+          precioMin: numeroCanonico(min) ?? "",
+          precioMax: numeroCanonico(max) ?? "",
+        });
         cerrar();
       }}
       onLimpiar={() => {
@@ -304,8 +313,8 @@ function conStockAOpcion(v: ConStockUrl): "todos" | "con" | "sin" {
 
 export function CuerpoStock({ cerrar }: CuerpoProps) {
   const { filtros, aplicar, limpiar } = useFiltrosProductos();
-  const [min, setMin] = useState(filtros.stockMin);
-  const [max, setMax] = useState(filtros.stockMax);
+  const [min, setMin] = useState(numeroEditable(filtros.stockMin));
+  const [max, setMax] = useState(numeroEditable(filtros.stockMax));
   const [existencia, setExistencia] = useState(conStockAOpcion(filtros.conStock));
   const idError = useId();
   // "Sin stock" ya fija el stock en 0: un rango encima es contradictorio.
@@ -320,8 +329,8 @@ export function CuerpoStock({ cerrar }: CuerpoProps) {
       avisoEnCampo={idError}
       onAplicar={() => {
         aplicar(["stock"], {
-          stockMin: rangoAplica ? min.trim() : undefined,
-          stockMax: rangoAplica ? max.trim() : undefined,
+          stockMin: rangoAplica ? (numeroCanonico(min) ?? "") : undefined,
+          stockMax: rangoAplica ? (numeroCanonico(max) ?? "") : undefined,
           conStock: existencia === "con" ? "1" : existencia === "sin" ? "0" : undefined,
         });
         cerrar();

@@ -14,6 +14,9 @@ import {
   limpiarGrupos,
   limpiarTodo,
   mensajesDeFiltrosInvalidos,
+  numeroCanonico,
+  numeroEditable,
+  parsearNumero,
   rangoDePagina,
   resumirFiltros,
   valoresDeLista,
@@ -357,5 +360,61 @@ describe("q: buscador general en la URL", () => {
     const r = resumirFiltros(leerFiltros(new URLSearchParams("estado=activo&q=bomba+de+agua")));
     expect(r[0]).toEqual({ grupo: "busqueda", texto: "Búsqueda: “bomba de agua”" });
     expect(r.map((x) => x.grupo)).toEqual(["busqueda", "estado"]);
+  });
+});
+
+describe("números escritos a la manera de es: coma decimal y punto de miles", () => {
+  test.each([
+    ["1500", 1500],
+    ["1500,50", 1500.5],
+    ["1500.50", 1500.5],
+    ["1.500,50", 1500.5],
+    ["1.500", 1500],
+    ["12.345.678", 12345678],
+    ["0,5", 0.5],
+    ["0.500", 0.5],
+    ["2.5", 2.5],
+    ["1,", null],
+    ["  7,25  ", 7.25],
+    ["", null],
+  ])("parsearNumero(%j) = %j", (texto, esperado) => {
+    expect(parsearNumero(texto)).toBe(esperado);
+  });
+
+  test.each(["abc", "-1", "1,5,2", "1.5,2", "1..500", "1.50.0", "1e3", "Infinity", ",5", "."])(
+    "parsearNumero(%j) no es un número válido",
+    (texto) => {
+      expect(parsearNumero(texto)).toBeNull();
+    },
+  );
+
+  test("numeroCanonico lo deja como lo lee el backend: punto decimal, sin miles", () => {
+    expect(numeroCanonico("1.500,50")).toBe("1500.5");
+    expect(numeroCanonico("1500,50")).toBe("1500.5");
+    expect(numeroCanonico("1.500")).toBe("1500");
+    expect(numeroCanonico("  ")).toBe("");
+    expect(numeroCanonico("abc")).toBeNull();
+  });
+
+  test("numeroEditable muestra lo que viene de la URL con coma decimal y sin miles", () => {
+    expect(numeroEditable("1500.5")).toBe("1500,5");
+    expect(numeroEditable("1500")).toBe("1500");
+    expect(numeroEditable("")).toBe("");
+    // Un valor de URL que el backend rechazaría se muestra tal cual, no se corrige en silencio.
+    expect(numeroEditable("abc")).toBe("abc");
+  });
+
+  test("numeroEditable y numeroCanonico son inversos", () => {
+    for (const v of ["0", "0.5", "1500.5", "1234567.89"]) {
+      expect(numeroCanonico(numeroEditable(v))).toBe(v);
+    }
+  });
+
+  test("errorDeRango entiende la coma y el punto de miles", () => {
+    const o = { entero: false, nombre: "precio" };
+    expect(errorDeRango("1500,50", "2.000,25", o)).toBeNull();
+    expect(errorDeRango("2.000,25", "1500,50", o)).toMatch(/no puede ser mayor/);
+    expect(errorDeRango("1,5", "", { entero: true, nombre: "stock" })).toMatch(/entero/);
+    expect(errorDeRango("1.500", "", { entero: true, nombre: "stock" })).toBeNull();
   });
 });
