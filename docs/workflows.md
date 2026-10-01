@@ -1,6 +1,6 @@
 # Workflows Inngest
 
-> Fuente de verdad: `src/inngest/functions/index.ts` y `src/inngest/events.ts`. Estado verificado el 2026-08-13: **12 funciones registradas** y **12 tipos de evento**.
+> Fuente de verdad: `src/inngest/functions/index.ts` y `src/inngest/events.ts`. Verificado el 2026-09-30 contra el código: **19 funciones registradas** (`makeCrmInngestFunctions`, fijado por `tests/unit/inngest-functions-factory.test.ts`) y **24 tipos de evento** (`grep -c "= eventType(" src/inngest/events.ts`). Esta página detalla las 13 primeras (las anteriores a workflows y difusión); las demás —`workflow-disparar`, `workflow-segmento`, `workflow-programados`, `workflow-inactividad` y `drenar-difusiones`— se describen en `docs/prd-workflows.md` y `docs/prd-workflows-difusion.md`, y `on-operational-received` en `docs/meta-webhook-payloads.md`.
 
 ## Patrón de implementación
 
@@ -23,6 +23,9 @@ Los errores de dominio no reintentables se convierten en `NonRetriableError`. Lo
 - Acción: deduplica el entrante, resuelve lead/conversación/sesión, persiste el mensaje, cancela recordatorios vivos, **descarta el borrador vigente de la conversación** (`invalidar-borrador-previo`), aplica horario y guardas, **decide el modo** (`decidir-modo`: Copiloto, Automático o Fuera de horario, según `agente_config.horario` + `horario_equipo` y `conversaciones.modo_respuesta_override`), clasifica intent, ejecuta regla o LLM y, según el modo, **envía la respuesta por la API (Automático) o la guarda como borrador en `borradores_ia` (Copiloto)**; luego publica eventos posteriores.
 - Efectos derivados: `lead/created`, `lead-session/turn.completed` y `lead-session/auto-handoff.evaluate`.
 - Idempotencia saliente: `out:<meta_message_id_entrante>`; `sendOutbound` reserva la fila antes de llamar a Meta.
+- **Excepción al "en Copiloto no sale nada por la API":** el borrador reemplaza solo la respuesta del agente. Siguen saliendo por la API la confirmación de BAJA, el aviso de escalado (`plantilla_escalado`, vía el handoff del agente: palabras que escalan, cotización sobre el tope y auto-handoff por intents desconocidos) y el de la guarda de descuento (`pausar-por-descuento` con `notifyCustomer`). Son mensajes del sistema, no una respuesta redactada.
+- Resiliencia del copiloto: si `invalidar-borrador-previo` falla (por ejemplo, el código desplegado antes que la migración `20260930120000_copiloto.sql`), el turno NO se cae cuando el modo decidido no es Copiloto: se registra `borrador.invalidar_previo_fallo` (sin PII) y sigue. Con Copiloto, `decidir-modo` repite la invalidación y el turno falla en voz alta. Una config memoizada sin `horario_equipo` (corrida en vuelo durante un deploy) se lee como "sin equipo".
+- En Copiloto, si `iniciar-borrador` devuelve `obsoleto` (llegó otro entrante) o un `existente` que ya no está `redactando`, el turno termina sin llamar al agente (log `borrador-omitido`): no se paga el LLM para tirar la respuesta.
 
 ### 2. `on-status-received`
 
@@ -106,8 +109,8 @@ Los errores de dominio no reintentables se convierten en `NonRetriableError`. Lo
 - Concurrencia: `limit: 1` por `event.data.conversacionId`; el RPC `iniciar_borrador_ia` (lock a la conversación) cubre la carrera contra `on-message-received`.
 - Acción: valida que el borrador siga vigente (`listo` o `error`) y que su sesión siga activa, arranca uno nuevo con `forzar` (descarta el anterior), reusa la clasificación auditada del turno (o vuelve a clasificar), lee los tramos de "Delegar al agente" vivos, arma el turno con `buildConversationTurn` y llama a `aiAgent.respond` con `soloRedactar` (sin efectos: una escalada no pausa la sesión ni avisa al cliente). `handoff` → borrador en `error` con `ia_no_disponible`; descuento excedido → `error` con `descuento_excedido`; fallo del modelo → `error` con `llm_error` / `tope_diario` y la función falla.
 - Ids de step: `copiloto-borrador-<día>-<borradorId>-<paso>`.
-- No envía nada por Meta.
-- Nota: esta página lista 12 funciones y `makeCrmInngestFunctions` registra más (workflows, difusión, operativos); las no listadas quedan sin documentar aquí, no se reescribieron.
+- No envía nada por Meta: ni siquiera el aviso de escalado ni el de descuento, que el pipeline sí manda (ver la excepción en el punto 1). Regenerar no tiene efectos; esos casos quedan como borrador en `error`.
+- Nota: las funciones de workflows y difusión no se detallan en esta página (ver la nota del encabezado).
 
 ## Catálogo de eventos
 
@@ -130,12 +133,13 @@ Los errores de dominio no reintentables se convierten en `NonRetriableError`. Lo
 
 ## Dependencias de composición
 
-`makeCrmInngestFunctions` recibe exactamente estas doce dependencias agrupadas:
+`makeCrmInngestFunctions` recibe estas diecinueve dependencias agrupadas, una por función (el número lo fija `tests/unit/inngest-functions-factory.test.ts`; la fuente es `CrmInngestDeps` en `src/inngest/functions/index.ts`):
 
 ```ts
 export interface CrmInngestDeps {
   onMessageReceived: OnMessageReceivedDeps;
   onStatusReceived: OnStatusReceivedDeps;
+  onOperationalReceived: OnOperationalReceivedDeps;
   updateLeadTwin: UpdateLeadTwinDeps;
   detectIntentsBatch: DetectIntentsBatchDeps;
   autoHandoff: AutoHandoffDeps;
@@ -146,6 +150,12 @@ export interface CrmInngestDeps {
   detectMergeCandidatesPerLead: DetectMergeCandidatesPerLeadDeps;
   detectMergeCandidatesGlobal: DetectMergeCandidatesGlobalDeps;
   dispatchOutboxEvents: DispatchOutboxEventsDeps;
+  workflowDisparar: DispararWorkflowDeps;
+  workflowSegmento: WorkflowSegmentoDeps;
+  workflowProgramados: WorkflowProgramadosDeps;
+  workflowInactividad: WorkflowInactividadDeps;
+  drenarDifusiones: DrenarDifusionesDeps;
+  copilotoBorrador: CopilotoBorradorDeps;
 }
 ```
 

@@ -27,6 +27,21 @@ Escrito el 2026-09-26. Todo lo que dice "verificado" tiene al lado el comando o 
 2. **Variables en Vercel** (sección 3), antes de que entre el código.
 3. **Recién ahí, el código.** Al revés, el código nuevo corre contra columnas y RPC que no existen.
 
+### Copiloto del Inbox: la migración va ANTES del código
+
+`supabase/migrations/20260930120000_copiloto.sql` (tabla `borradores_ia`, RPC `iniciar_borrador_ia`, `conversaciones.modo_respuesta_override`, `agente_config.horario_equipo`) está aplicada **solo en el stack local**, no en crm-dev. Con el código desplegado y la migración sin aplicar:
+
+- `invalidar-borrador-previo` falla en cada entrante. Con el código actual solo se avisa (`borrador.invalidar_previo_fallo`) y el turno sigue si el modo no es Copiloto, pero la lista del Inbox pierde la marca de borrador y **guardar en `/agente` falla** (la columna `horario_equipo` no existe). No es un estado para dejar a propósito.
+- **Si un push a `master` despliega solo (Vercel), la migración se aplica antes del push**, no después.
+
+Pasos (lección 16 de `AGENTS.md`): (1) frenar a cualquier agente que pueda estar escribiendo migraciones; (2) `supabase db push --dry-run` y comparar la lista con `ls supabase/migrations/*.sql`; (3) recién ahí `npm run db:push`; (4) `supabase migration list` con local = remoto; (5) después el push del código.
+
+**Requisitos operativos antes de encender el copiloto en crm-dev** (hoy no se cumplen y no están automatizados):
+
+- [ ] Corregir `horario_timezone` a `America/Guayaquil` en la config activa del agente (el horario del equipo se evalúa en esa zona; con una zona inválida el equipo cuenta como cerrado y el modo cae a Automático).
+- [ ] Subir `escalar_umbral_intents` a 5 (el de fábrica es 2; requisito de la revisión final de rama del copiloto).
+- [ ] Cargar el `horario_equipo` real desde `/agente` → Límites. Vacío = sin equipo = el comportamiento de siempre (Automático).
+
 ---
 
 ## 2. Qué falta del diseño
