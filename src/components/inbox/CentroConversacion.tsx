@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ContextoCopiloto,
+  type AlmacenEstadoTarjeta,
   type ContextoCopilotoValor,
+  type EstadoTarjeta,
   type ResultadoInsertar,
 } from "@/components/inbox/copiloto/ContextoCopiloto";
 import { AreaWhatsApp } from "@/components/whatsapp/AreaWhatsApp";
@@ -79,16 +81,26 @@ export function CentroConversacion({
   // refresco de 5 s del layout re-renderiza con las mismas props), no algo que
   // la pantalla dibuje.
   const abierto = useRef<string | null>(null);
+  // Contador de pedidos al puente: cada `abrirChat` toma el siguiente número y solo
+  // el último puede tocar la pantalla. Un pedido pisado por otro (p. ej. Insertar
+  // navega encima de la apertura inicial) termina con un error transitorio
+  // (`carga_fallida:ERR_ABORTED`) que no es real y no debe mostrarse.
+  const generacion = useRef(0);
 
   const abrir = useCallback((id: string, numero: string) => {
     const puente = window.crmEscritorio;
     if (!puente) return;
+    const mia = ++generacion.current;
     puente
       .abrirChat(numero, "")
-      .then((r) =>
-        setResultado({ leadId: id, error: r?.ok === false ? motivoLegible(r.motivo) : null }),
-      )
-      .catch(() => setResultado({ leadId: id, error: "No se pudo abrir la conversación." }));
+      .then((r) => {
+        if (mia !== generacion.current) return;
+        setResultado({ leadId: id, error: r?.ok === false ? motivoLegible(r.motivo) : null });
+      })
+      .catch(() => {
+        if (mia !== generacion.current) return;
+        setResultado({ leadId: id, error: "No se pudo abrir la conversación." });
+      });
   }, []);
 
   // Se abre al mostrar WhatsApp Web, no al entrar al lead: con "Hilo del CRM"
@@ -116,7 +128,15 @@ export function CentroConversacion({
       }
       const yaEstabaEnWhatsApp = modo === "whatsapp";
       abierto.current = leadId;
+      const mia = ++generacion.current;
       const r = await puente.abrirChat(telefono, texto).catch(() => null);
+      if (mia !== generacion.current) {
+        // Otro pedido al puente lo pisó: el texto pudo no quedar precargado.
+        return {
+          ok: false,
+          error: "Se abrió otra conversación antes de insertar el texto. Probá de nuevo.",
+        };
+      }
       if (r === null || r.ok === false) {
         // No quedó abierto: sin la guarda, entrar a "WhatsApp Web" a mano lo abre.
         if (!yaEstabaEnWhatsApp) abierto.current = null;
@@ -139,9 +159,21 @@ export function CentroConversacion({
           ? "escritorio-whatsapp"
           : "escritorio-hilo"
         : "navegador";
+  // El estado de las tarjetas por borrador vive acá y no en la tarjeta: ella se
+  // desmonta al cambiar de vista (Insertar desde "Hilo del CRM" cambia a "WhatsApp
+  // Web" antes de registrar el uso) y no puede perder lo editado ni el "ya usado".
+  const [estadosTarjeta, setEstadosTarjeta] = useState<Readonly<Record<string, EstadoTarjeta>>>({});
+  const actualizarTarjeta = useCallback<AlmacenEstadoTarjeta["actualizar"]>((id, cambio) => {
+    setEstadosTarjeta((m) => ({ ...m, [id]: cambio(m[id] ?? {}) }));
+  }, []);
   const valorContexto = useMemo<ContextoCopilotoValor>(
-    () => ({ ubicacion, telefono, insertarEnWhatsApp }),
-    [ubicacion, telefono, insertarEnWhatsApp],
+    () => ({
+      ubicacion,
+      telefono,
+      insertarEnWhatsApp,
+      almacenTarjeta: { estados: estadosTarjeta, actualizar: actualizarTarjeta },
+    }),
+    [ubicacion, telefono, insertarEnWhatsApp, estadosTarjeta, actualizarTarjeta],
   );
 
   const apertura = resultado !== null && resultado.leadId === leadId ? resultado : null;

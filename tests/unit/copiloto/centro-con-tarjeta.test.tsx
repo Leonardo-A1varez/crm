@@ -174,6 +174,131 @@ describe("CentroConversacion con la tarjeta del copiloto", () => {
     expect(abrirChat).toHaveBeenLastCalledWith(TEL, "");
   });
 
+  it("Insertar desde el hilo: en WhatsApp Web siguen el texto editado, 'Insertando…' y luego 'Ya usado' (el estado de la tarjeta sobrevive al cambio de vista)", async () => {
+    window.localStorage.setItem(CLAVE_U1, "hilo");
+    const crm = conEscritorio();
+    const { onUsar } = montar();
+    let resolverUso: (r: { ok: true }) => void = () => {};
+    onUsar.mockReturnValue(new Promise((r) => (resolverUso = r)));
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Texto del borrador" }), {
+      target: { value: "Versión editada en el hilo" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Insertar en WhatsApp" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "WhatsApp Web" }).getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
+    // La tarjeta se remontó en la otra ubicación y conserva lo editado.
+    const area = screen.getByRole("textbox", { name: "Texto del borrador" }) as HTMLTextAreaElement;
+    expect(area.value).toBe("Versión editada en el hilo");
+    // El uso todavía se está registrando: no se puede volver a insertar (pisaría lo precargado).
+    const ocupado = screen.getByRole("button", { name: /Insertando/ }) as HTMLButtonElement;
+    expect(ocupado.disabled).toBe(true);
+    fireEvent.keyDown(area, { key: "Enter", ctrlKey: true });
+    expect(crm.abrirChat).toHaveBeenCalledTimes(1);
+
+    await act(async () => resolverUso({ ok: true }));
+
+    await screen.findByText("Ya usado · insertado en WhatsApp");
+    expect(screen.queryByRole("button", { name: /Insertar en WhatsApp/ })).toBeNull();
+    expect(crm.abrirChat).toHaveBeenCalledTimes(1);
+    expect(crm.abrirChat).toHaveBeenCalledWith(TEL, "Versión editada en el hilo");
+  });
+
+  it("la edición y el 'Redactando…' en curso sobreviven a cambiar de vista", async () => {
+    window.localStorage.setItem(CLAVE_U1, "hilo");
+    conEscritorio();
+    montar();
+    fireEvent.change(screen.getByRole("textbox", { name: "Texto del borrador" }), {
+      target: { value: "A medio escribir" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "WhatsApp Web" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "WhatsApp Web" }).getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
+    expect(
+      (screen.getByRole("textbox", { name: "Texto del borrador" }) as HTMLTextAreaElement).value,
+    ).toBe("A medio escribir");
+
+    fireEvent.click(screen.getByRole("button", { name: /Regenerar/ }));
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("status").some((e) => e.textContent?.includes("Redactando…")),
+      ).toBe(true),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Hilo del CRM" }));
+    await screen.findByText("hilo del CRM");
+    expect(screen.getAllByRole("status").some((e) => e.textContent?.includes("Redactando…"))).toBe(
+      true,
+    );
+  });
+
+  it("el resultado de una apertura pisada por Insertar (ERR_ABORTED) no muestra un error falso", async () => {
+    let rechazarApertura: (r: { ok: false; motivo: string }) => void = () => {};
+    const abrirChat = vi
+      .fn()
+      .mockReturnValueOnce(new Promise((r) => (rechazarApertura = r)))
+      .mockResolvedValue({ ok: true, ms: 5, mostrada: true });
+    conEscritorio({ abrirChat });
+    montar();
+    await waitFor(() => expect(abrirChat).toHaveBeenCalledWith(TEL, ""));
+
+    fireEvent.click(screen.getByRole("button", { name: "Insertar en WhatsApp" }));
+    await waitFor(() => expect(abrirChat).toHaveBeenCalledWith(TEL, TEXTO));
+    await act(async () => rechazarApertura({ ok: false, motivo: "carga_fallida:ERR_ABORTED" }));
+
+    expect(screen.queryByText(/No se pudo cargar WhatsApp Web/)).toBeNull();
+    expect(screen.queryByText(/Abriendo la conversación/)).toBeNull();
+  });
+
+  it("si otra apertura pisa a Insertar, su resultado se descarta: no marca usado ni cambia de vista", async () => {
+    let resolverInsertar: (r: { ok: true; ms: number; mostrada: boolean }) => void = () => {};
+    const abrirChat = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, ms: 5, mostrada: true })
+      .mockReturnValueOnce(new Promise((r) => (resolverInsertar = r)))
+      .mockResolvedValue({ ok: true, ms: 5, mostrada: true });
+    conEscritorio({ abrirChat });
+    const onUsar = vi.fn().mockResolvedValue({ ok: true });
+    const tarjeta = (
+      <TarjetaBorrador
+        leadId="lead-a"
+        sessionId="s-1"
+        canal="wa"
+        borrador={borrador}
+        onUsar={onUsar}
+        onRegenerar={vi.fn().mockResolvedValue({ ok: true })}
+        onEnviar={vi.fn().mockResolvedValue({ ok: true })}
+      />
+    );
+    const centro = (leadId: string) => (
+      <CentroConversacion
+        leadId={leadId}
+        usuarioId="usuario-1"
+        telefono={TEL}
+        tarjeta={tarjeta}
+        hilo={<p>hilo del CRM</p>}
+      />
+    );
+    const { rerender } = render(centro("lead-a"));
+    await waitFor(() => expect(abrirChat).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Insertar en WhatsApp" }));
+    await waitFor(() => expect(abrirChat).toHaveBeenCalledTimes(2));
+    rerender(centro("lead-b"));
+    await waitFor(() => expect(abrirChat).toHaveBeenCalledTimes(3));
+    await act(async () => resolverInsertar({ ok: true, ms: 5, mostrada: true }));
+
+    expect(onUsar).not.toHaveBeenCalled();
+    expect((await screen.findByRole("alert")).textContent).toContain("Probá de nuevo");
+  });
+
   it("en el navegador (sin app de escritorio) la acción principal es el enlace a WhatsApp Web", async () => {
     montar();
     await act(async () => {});

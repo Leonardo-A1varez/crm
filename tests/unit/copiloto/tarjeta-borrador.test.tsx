@@ -203,15 +203,40 @@ describe("TarjetaBorrador — navegador", () => {
     expect(onUsar).not.toHaveBeenCalled();
   });
 
-  it("si la action revienta en vez de devolver un error, no se cae nada: avisa y no marca usado", async () => {
+  it("si el envío por la API rechaza (puede que el servidor ya lo haya mandado) no se re-habilita Al composer: avisa que revise el hilo", async () => {
     const { onUsar, onEnviar } = montar(contexto({ telefono: null }));
     onEnviar.mockRejectedValue(new Error("red caída"));
 
     fireEvent.click(screen.getByRole("button", { name: /Al composer/ }));
 
-    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    const alerta = await screen.findByRole("alert");
+    expect(alerta.textContent).toContain("puede que ya se haya enviado");
+    expect(alerta.textContent).toContain("Revisá el hilo");
     expect(onUsar).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: /Al composer/ })).toBeTruthy();
+
+    // Cuando termina la operación (enCurso se limpia) Copiar vuelve; Al composer no.
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: /Copiar/ }) as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+    const boton = screen.getByRole("button", { name: /Al composer/ }) as HTMLButtonElement;
+    expect(boton.disabled).toBe(true);
+    fireEvent.click(boton);
+    fireEvent.keyDown(areaTexto(), { key: "Enter", ctrlKey: true });
+    expect(onEnviar).toHaveBeenCalledTimes(1);
+  });
+
+  it("un error explícito de la action (ok: false) sí deja reintentar", async () => {
+    const { onEnviar } = montar(contexto({ telefono: null }));
+    onEnviar.mockResolvedValue({ ok: false, error: "Ventana cerrada" });
+
+    fireEvent.click(screen.getByRole("button", { name: /Al composer/ }));
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith("Ventana cerrada"));
+    expect(
+      (screen.getByRole("button", { name: /Al composer/ }) as HTMLButtonElement).disabled,
+    ).toBe(false);
   });
 });
 

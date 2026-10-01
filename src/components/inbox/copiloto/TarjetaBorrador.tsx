@@ -11,7 +11,12 @@ import {
   SendIcon,
   Warning,
 } from "@/components/icons";
-import { useContextoCopiloto } from "@/components/inbox/copiloto/ContextoCopiloto";
+import {
+  useContextoCopiloto,
+  useEstadoTarjeta,
+  type CambioEstadoTarjeta,
+  type EstadoTarjeta,
+} from "@/components/inbox/copiloto/ContextoCopiloto";
 import { Textarea } from "@/components/ui/textarea";
 import { ETIQUETA_PRINCIPAL, accionesDeTarjeta } from "@/lib/copiloto/acciones";
 import { etiquetaUso, mensajeDeErrorBorrador } from "@/lib/copiloto/etiquetas";
@@ -35,6 +40,9 @@ const ESPERA_REGENERAR_MS = 45_000;
 
 const AVISO_SIN_BORRADOR_NUEVO =
   "No se pudo regenerar el borrador. Probá de nuevo o redactá a mano.";
+
+const AVISO_ENVIO_DUDOSO =
+  "No se recibió la respuesta del envío: puede que ya se haya enviado. Revisá el hilo antes de volver a intentar.";
 
 const BASE_BOTON =
   "focus-visible:ring-ring/50 inline-flex h-8 items-center gap-1.5 rounded-[9px] px-3 text-[11.5px] font-semibold whitespace-nowrap transition-[background-color,color,opacity,transform] duration-150 ease-out focus-visible:ring-3 focus-visible:outline-none disabled:opacity-45 motion-safe:enabled:active:scale-[0.97]";
@@ -82,33 +90,35 @@ function TarjetaWhatsApp({
   onRegenerar,
   onEnviar,
 }: Props) {
-  const [edicion, setEdicion] = useState<{ id: UUID; texto: string } | null>(null);
-  const texto = edicion?.id === borrador.id ? edicion.texto : (borrador.contenido ?? "");
+  const [estado, actualizar] = useEstadoTarjeta(borrador.id);
+  const texto = estado.texto ?? borrador.contenido ?? "";
 
   // Regenerar es asíncrono (la función Inngest arranca el borrador nuevo unos
   // segundos después): hasta que llegue uno con otro id se muestra "Redactando…".
-  const [pedido, setPedido] = useState<{ de: UUID; vencido: boolean } | null>(null);
-  const regenerando = pedido !== null && pedido.de === borrador.id && !pedido.vencido;
-  const sinBorradorNuevo = pedido !== null && pedido.de === borrador.id && pedido.vencido;
+  const inicioRegeneracion = estado.regeneracion?.inicio;
+  const regenerando = estado.regeneracion !== undefined && !estado.regeneracion.vencido;
+  const sinBorradorNuevo = estado.regeneracion?.vencido === true;
 
   useEffect(() => {
-    if (!regenerando) return;
-    const id = borrador.id;
+    if (inicioRegeneracion === undefined || !regenerando) return;
+    const restante = Math.max(0, ESPERA_REGENERAR_MS - (Date.now() - inicioRegeneracion));
     const t = setTimeout(
-      () => setPedido((p) => (p !== null && p.de === id ? { ...p, vencido: true } : p)),
-      ESPERA_REGENERAR_MS,
+      () =>
+        actualizar((p) =>
+          p.regeneracion ? { regeneracion: { ...p.regeneracion, vencido: true } } : {},
+        ),
+      restante,
     );
     return () => clearTimeout(t);
-  }, [regenerando, borrador.id]);
+  }, [inicioRegeneracion, regenerando, actualizar]);
 
   const pedirRegenerar = () => {
-    const id = borrador.id;
-    setPedido({ de: id, vencido: false });
+    actualizar({ regeneracion: { inicio: Date.now(), vencido: false } });
     const fallo = (mensaje: string) => {
-      setPedido((p) => (p !== null && p.de === id ? null : p));
+      actualizar({ regeneracion: undefined });
       toast.error(mensaje);
     };
-    onRegenerar({ leadId, borradorId: id }).then(
+    onRegenerar({ leadId, borradorId: borrador.id }).then(
       (r) => {
         if (!r.ok) fallo(r.error);
       },
@@ -116,12 +126,10 @@ function TarjetaWhatsApp({
     );
   };
 
-  // Marca local de "ya usado": el refresco que trae el estado real tarda hasta 5 s
-  // y en ese lapso un segundo clic en "Al composer" reenviaría el mensaje.
-  const [usadoLocal, setUsadoLocal] = useState<{ id: UUID; via: ViaUsoBorrador } | null>(null);
-  const usadoAhora = usadoLocal !== null && usadoLocal.id === borrador.id ? usadoLocal.via : null;
-  const usado = borrador.estado === "usado" || usadoAhora !== null;
-  const via = borrador.usadoVia ?? usadoAhora;
+  // Marca de "ya usado": el refresco que trae el estado real tarda hasta 5 s y en
+  // ese lapso un segundo clic reenviaría el mensaje o recargaría el chat.
+  const usado = borrador.estado === "usado" || estado.usadoVia !== undefined;
+  const via = borrador.usadoVia ?? estado.usadoVia ?? null;
 
   const redactando = borrador.estado === "redactando" || (regenerando && !usado);
 
@@ -169,13 +177,13 @@ function TarjetaWhatsApp({
           canal={canal}
           borrador={borrador}
           texto={texto}
-          onTexto={(t) => setEdicion({ id: borrador.id, texto: t })}
+          estado={estado}
+          actualizar={actualizar}
           usado={usado}
           via={via}
           sinBorradorNuevo={sinBorradorNuevo}
           onUsar={onUsar}
           onEnviar={onEnviar}
-          onUsado={(v) => setUsadoLocal({ id: borrador.id, via: v })}
           onRegenerar={pedirRegenerar}
         />
       )}
@@ -225,13 +233,13 @@ interface PropsCuerpo {
   canal: Canal;
   borrador: BorradorVista;
   texto: string;
-  onTexto: (texto: string) => void;
+  estado: EstadoTarjeta;
+  actualizar: (cambio: CambioEstadoTarjeta) => void;
   usado: boolean;
   via: ViaUsoBorrador | null;
   sinBorradorNuevo: boolean;
   onUsar: (input: UsarBorradorInput) => Promise<ActionResult>;
   onEnviar: (input: SendMessageInput) => Promise<ActionResult>;
-  onUsado: (via: ViaUsoBorrador) => void;
   onRegenerar: () => void;
 }
 
@@ -241,17 +249,19 @@ function Cuerpo({
   canal,
   borrador,
   texto,
-  onTexto,
+  estado,
+  actualizar,
   usado,
   via,
   sinBorradorNuevo,
   onUsar,
   onEnviar,
-  onUsado,
   onRegenerar,
 }: PropsCuerpo) {
   const { ubicacion, telefono, insertarEnWhatsApp } = useContextoCopiloto();
-  const [enCurso, setEnCurso] = useState<"insertar" | "copiar" | "al_composer" | null>(null);
+  const enCurso = estado.enCurso;
+  const envioDudoso = estado.envioDudoso === true;
+  // Aviso local: es de esta instancia, no algo que deba viajar entre vistas.
   const [error, setError] = useState<string | null>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const enlaceRef = useRef<HTMLAnchorElement>(null);
@@ -266,7 +276,8 @@ function Cuerpo({
   const telefonoAbrible = telefono !== null && urlWhatsAppWeb(telefono, "") !== null;
   const acciones = accionesDeTarjeta(ubicacion, telefonoAbrible);
   const valido = textoEnviable(texto);
-  const enviable = valido.ok && enCurso === null && !usado;
+  const enviable = valido.ok && enCurso === undefined && !usado;
+  const alComposerHabilitado = enviable && !envioDudoso;
   const textoFinal = valido.ok ? valido.texto : "";
   const url =
     acciones.principal === "abrir_web" && telefono !== null && valido.ok
@@ -281,7 +292,7 @@ function Cuerpo({
         toast.error(u.error);
         return false;
       }
-      onUsado(v);
+      actualizar({ usadoVia: v });
       return true;
     } catch {
       toast.error("No se pudo registrar el uso del borrador.");
@@ -294,14 +305,14 @@ function Cuerpo({
     tarea: () => Promise<void>,
   ) => {
     if (!enviable) return;
-    setEnCurso(cual);
+    actualizar({ enCurso: cual });
     setError(null);
     try {
       await tarea();
     } catch {
       toast.error("Algo salió mal. Reintentá.");
     } finally {
-      setEnCurso(null);
+      actualizar({ enCurso: undefined });
     }
   };
 
@@ -328,13 +339,22 @@ function Cuerpo({
 
   const alComposer = () =>
     correr("al_composer", async () => {
-      const e = await onEnviar({ leadId, sessionId, canal, body: textoFinal });
+      if (envioDudoso) return;
+      let e: ActionResult;
+      try {
+        e = await onEnviar({ leadId, sessionId, canal, body: textoFinal });
+      } catch {
+        // Si la respuesta se perdió, el servidor pudo haber mandado el mensaje: un
+        // reintento automático saldría dos veces. Queda bloqueado para este borrador.
+        actualizar({ envioDudoso: true });
+        return;
+      }
       if (!e.ok) {
         toast.error(e.error);
         return;
       }
       // Ya salió por la API: se bloquea el reenvío aunque falle el registro del uso.
-      onUsado("al_composer");
+      actualizar({ usadoVia: "al_composer" });
       await marcar("al_composer");
     });
 
@@ -346,13 +366,13 @@ function Cuerpo({
   const accionDeTeclado = () => {
     if (acciones.principal === "insertar") return void insertar();
     if (acciones.principal === "abrir_web") return enlaceRef.current?.click();
-    if (acciones.alComposer) return void alComposer();
+    if (acciones.alComposer && !envioDudoso) return void alComposer();
     return void copiar();
   };
   const nombreAccionDeTeclado =
     acciones.principal !== null
       ? ETIQUETA_PRINCIPAL[acciones.principal]
-      : acciones.alComposer
+      : acciones.alComposer && !envioDudoso
         ? "Al composer"
         : "Copiar";
 
@@ -366,7 +386,7 @@ function Cuerpo({
       <Textarea
         ref={areaRef}
         value={texto}
-        onChange={(e) => onTexto(e.target.value)}
+        onChange={(e) => actualizar({ texto: e.target.value })}
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
             e.preventDefault();
@@ -374,7 +394,7 @@ function Cuerpo({
           }
         }}
         // `readOnly` y no `disabled` mientras se envía: el campo no pierde el foco.
-        readOnly={usado || enCurso !== null}
+        readOnly={usado || enCurso !== undefined}
         aria-label="Texto del borrador"
         aria-invalid={pasado ? true : undefined}
         aria-describedby={idAyuda}
@@ -395,6 +415,11 @@ function Cuerpo({
       {error ? (
         <p role="alert" className="text-danger text-[11.5px] text-pretty">
           {error}
+        </p>
+      ) : null}
+      {envioDudoso ? (
+        <p role="alert" className="text-danger text-[11.5px] text-pretty">
+          {AVISO_ENVIO_DUDOSO}
         </p>
       ) : null}
       {sinBorradorNuevo ? (
@@ -444,7 +469,7 @@ function Cuerpo({
             <button
               type="button"
               onClick={() => void alComposer()}
-              disabled={!enviable}
+              disabled={!alComposerHabilitado}
               aria-busy={enCurso === "al_composer"}
               className={BOTON_SECUNDARIO}
             >
@@ -463,7 +488,7 @@ function Cuerpo({
           <button
             type="button"
             onClick={onRegenerar}
-            disabled={enCurso !== null}
+            disabled={enCurso !== undefined}
             className={BOTON_SECUNDARIO}
           >
             <Refresh size={13} aria-hidden />
