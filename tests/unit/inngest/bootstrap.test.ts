@@ -82,6 +82,17 @@ describe("makeInngestDeps — shape", () => {
       "DefaultIntentClassifierService",
     );
     expect(deps.onMessageReceived.aiAgent.constructor.name).toBe("DefaultAiAgentService");
+    // Sin `borradores` el modo Copiloto falla en runtime; el tipo es opcional y
+    // compila igual, así que se fija acá.
+    expect(deps.onMessageReceived.borradores?.constructor.name).toBe(
+      "SupabaseBorradoresIaRepository",
+    );
+    expect(deps.copilotoBorrador.borradores.constructor.name).toBe(
+      "SupabaseBorradoresIaRepository",
+    );
+    expect(deps.copilotoBorrador.delegaciones?.constructor.name).toBe(
+      "SupabaseWorkflowRunsRepository",
+    );
     expect(typeof deps.onMessageReceived.emit).toBe("function");
     expect(deps.onMessageReceived.logger).toBeDefined();
   });

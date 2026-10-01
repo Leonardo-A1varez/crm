@@ -38,7 +38,8 @@ async function makeCtx(
   const rules = new InMemoryRulesRepository();
   const turnClassifications = new InMemoryTurnClassificationsRepository();
   const intentLLM = new FakeIntentClassifierLLM();
-  const agentLLM = new FakeAgentLLM();
+  // El escalado (palabras, cotización) lo lee el agente de `configAgente()`.
+  const agentLLM = new FakeAgentLLM().conConfig(config);
   const borradores = new InMemoryBorradoresIaRepository(async (conversacionId) => {
     const entrantes = (await messages.listByConversacion(conversacionId, { limit: 200 })).filter(
       (m) => m.direction === "in",
@@ -420,6 +421,81 @@ describe("copilotoBorradorHandler (Regenerar / Reintentar)", () => {
       error_codigo: "ia_no_disponible",
     });
     expect(ctx.agentLLM.calls).toHaveLength(0);
+  });
+
+  test("una cotización sobre el tope escalaría: error escalado y la sesión no se toca", async () => {
+    const ctx = await makeCtx({ escalar_cotizacion_desde: 500_000 });
+    await ctx.sessions.update(ctx.sesion.id, { precio_cotizado: 750_000 });
+    const viejo = await ctx.borradorEn("listo");
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+
+    const r = await copilotoBorradorHandler(
+      { borradorId: viejo, conversacionId: ctx.conv.id },
+      ctx.deps,
+    );
+
+    expect(r).toEqual({ estado: "error", motivo: "escalado" });
+    expect(await ctx.borradores.findActualByConversacion(ctx.conv.id)).toMatchObject({
+      estado: "error",
+      error_codigo: "escalado",
+    });
+    // Sin `soloRedactar` el agente pausaría la sesión (y en producción avisaría al cliente).
+    expect(await ctx.sessions.findById(ctx.sesion.id)).toMatchObject({
+      ia_pausada: false,
+      current_stage: "nuevo",
+    });
+    expect(ctx.agentLLM.calls).toHaveLength(0);
+  });
+
+  test("una regla de tipo handoff: error escalado y la sesión no se toca", async () => {
+    const ctx = await makeCtx();
+    const intent = await ctx.intents.create({
+      nombre: "reclamo",
+      descripcion: "reclamos",
+      ejemplos: [],
+      auto_detectado: false,
+      activo: true,
+    });
+    await ctx.rules.create({
+      intent_id: intent.id,
+      condiciones_extra: null,
+      respuesta_tipo: "handoff",
+      respuesta_contenido: "Pasando a humano",
+      prioridad: 0,
+      activa: true,
+    });
+    const viejo = await ctx.borradorEn("listo");
+    ctx.intentLLM.enqueue({ intent_nombre: "reclamo", confidence: 0.9 });
+
+    const r = await copilotoBorradorHandler(
+      { borradorId: viejo, conversacionId: ctx.conv.id },
+      ctx.deps,
+    );
+
+    expect(r).toEqual({ estado: "error", motivo: "escalado" });
+    expect((await ctx.borradores.findActualByConversacion(ctx.conv.id))?.error_codigo).toBe(
+      "escalado",
+    );
+    expect((await ctx.sessions.findById(ctx.sesion.id))?.ia_pausada).toBe(false);
+  });
+
+  test("si el borrador deja de estar redactando durante respond, se omite como obsoleto y no queda listo", async () => {
+    const ctx = await makeCtx();
+    const viejo = await ctx.borradorEn("listo");
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueue(async () => {
+      // Llega otro mensaje y el pipeline descarta lo vigente mientras se redacta.
+      await ctx.borradores.descartarVigentes(ctx.conv.id);
+      return { text: "Texto que ya nadie necesita.", toolCalls: [] };
+    });
+
+    const r = await copilotoBorradorHandler(
+      { borradorId: viejo, conversacionId: ctx.conv.id },
+      ctx.deps,
+    );
+
+    expect(r).toEqual({ estado: "omitido", motivo: "obsoleto" });
+    expect(await ctx.borradores.findActualByConversacion(ctx.conv.id)).toBeNull();
   });
 
   test("un descuento por encima del tope queda en error descuento_excedido", async () => {

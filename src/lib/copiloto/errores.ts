@@ -9,7 +9,8 @@ export type CodigoErrorBorrador =
   | "llm_error"
   | "tope_diario"
   | "descuento_excedido"
-  | "ia_no_disponible";
+  | "ia_no_disponible"
+  | "escalado";
 
 /**
  * Qué código de error le toca a un fallo de `respond`. El error de un step de

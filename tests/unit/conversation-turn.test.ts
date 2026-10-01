@@ -44,6 +44,18 @@ describe("buildRespondInput", () => {
     expect(input.instruccionesTramo).toEqual(["Pedí la patente", "Sé breve"]);
   });
 
+  test("soloRedactar viaja solo cuando se pide", () => {
+    const base = {
+      leadSessionId: "s-1",
+      conversationTurn: [],
+      classification: CLASIFICACION,
+      mensajeOrigenId: "m-1",
+      tramos: [],
+    };
+    expect(buildRespondInput({ ...base, soloRedactar: true }).soloRedactar).toBe(true);
+    expect("soloRedactar" in buildRespondInput(base)).toBe(false);
+  });
+
   test("tramos sin instrucciones no agregan la clave", () => {
     const input = buildRespondInput({
       leadSessionId: "s-1",

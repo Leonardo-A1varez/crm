@@ -10,11 +10,13 @@ export interface RespuestaDelAgente {
   source: "rule" | "llm" | "handoff";
   respuesta_contenido: string;
   regla_id?: string;
+  /** El turno escalaría (`soloRedactar`): no es "IA no disponible", es una escalada. */
+  escalada?: true;
 }
 
 export type ResultadoRegenerado =
   | { tipo: "listo"; contenido: string; origen: OrigenBorrador; reglaId: string | null }
-  | { tipo: "error"; codigo: "ia_no_disponible" | "descuento_excedido" };
+  | { tipo: "error"; codigo: "ia_no_disponible" | "descuento_excedido" | "escalado" };
 
 /**
  * Qué hace "Regenerar" / "Reintentar" con lo que devolvió `respond`.
@@ -29,6 +31,9 @@ export function resolverResultadoRegenerado(
   respuesta: RespuestaDelAgente,
   descuentoMaxPct: number,
 ): ResultadoRegenerado {
+  if (respuesta.source === "handoff" && respuesta.escalada) {
+    return { tipo: "error", codigo: "escalado" };
+  }
   if (respuesta.source === "handoff") return { tipo: "error", codigo: "ia_no_disponible" };
   if (excedeDescuento(respuesta.respuesta_contenido, descuentoMaxPct) !== null) {
     return { tipo: "error", codigo: "descuento_excedido" };

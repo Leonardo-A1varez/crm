@@ -159,26 +159,41 @@ export async function copilotoBorradorHandler(
           classification: clasificacion,
           mensajeOrigenId: previo.mensajeOrigenId,
           tramos,
+          // Regenerar no tiene efectos: una escalada no pausa la sesión ni le
+          // avisa al cliente, queda como error del borrador.
+          soloRedactar: true,
         }),
       ),
     );
 
     const resultado = resolverResultadoRegenerado(respuesta, config.descuento_max_pct);
     if (resultado.tipo === "error") {
-      await step.run(idPaso("marcar-error"), () =>
-        deps.borradores.marcarError(borradorId, resultado.codigo),
+      const marcado = await step.run(
+        idPaso("marcar-error"),
+        async () => (await deps.borradores.marcarError(borradorId, resultado.codigo)) !== null,
       );
+      if (!marcado) {
+        logger.info("copiloto-omitido", { motivo: "obsoleto" });
+        return { estado: "omitido", motivo: "obsoleto" };
+      }
       logger.info("copiloto-borrador-error", { codigo: resultado.codigo });
       return { estado: "error", motivo: resultado.codigo };
     }
 
-    await step.run(idPaso("guardar"), () =>
-      deps.borradores.completar(borradorId, {
+    const guardado = await step.run(idPaso("guardar"), async () => {
+      const b = await deps.borradores.completar(borradorId, {
         contenido: resultado.contenido,
         origen: resultado.origen,
         reglaId: resultado.reglaId,
-      }),
-    );
+      });
+      return b !== null;
+    });
+    // `null`: el borrador ya no estaba `redactando` (llegó otro mensaje y lo
+    // descartó mientras se redactaba). No hay nada que ofrecer.
+    if (!guardado) {
+      logger.info("copiloto-omitido", { motivo: "obsoleto" });
+      return { estado: "omitido", motivo: "obsoleto" };
+    }
     logger.info("copiloto-borrador-listo", { origen: resultado.origen });
     return { estado: "listo" };
   } catch (error) {

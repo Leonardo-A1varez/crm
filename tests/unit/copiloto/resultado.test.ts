@@ -26,6 +26,15 @@ describe("resolverResultadoRegenerado", () => {
     ).toEqual({ tipo: "error", codigo: "ia_no_disponible" });
   });
 
+  test("handoff por escalada (soloRedactar): error escalado, distinto de ia_no_disponible", () => {
+    expect(
+      resolverResultadoRegenerado(
+        { source: "handoff", respuesta_contenido: "Palabra sensible", escalada: true },
+        0,
+      ),
+    ).toEqual({ tipo: "error", codigo: "escalado" });
+  });
+
   test("un descuento por encima del tope es error descuento_excedido", () => {
     expect(
       resolverResultadoRegenerado(

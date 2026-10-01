@@ -40,6 +40,8 @@ export function buildRespondInput(turno: {
   classification: IntentClassification;
   mensajeOrigenId: UUID;
   tramos: ReadonlyArray<{ instrucciones: string | null }>;
+  /** Ver `AgentTurnInput.soloRedactar`: lo pide "Regenerar", nunca el pipeline. */
+  soloRedactar?: boolean;
 }): AgentTurnInput {
   const instruccionesTramo = turno.tramos.flatMap((t) =>
     t.instrucciones !== null ? [t.instrucciones] : [],
@@ -50,5 +52,6 @@ export function buildRespondInput(turno: {
     classification: turno.classification,
     mensajeOrigenId: turno.mensajeOrigenId,
     ...(instruccionesTramo.length > 0 ? { instruccionesTramo } : {}),
+    ...(turno.soloRedactar ? { soloRedactar: true } : {}),
   };
 }

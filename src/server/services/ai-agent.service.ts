@@ -42,6 +42,15 @@ export interface AgentTurnInput {
    * ("Delegar al agente"): va al prompt mientras dure el tramo.
    */
   instruccionesTramo?: string[];
+  /**
+   * Solo redactar, sin efectos: si el turno escalaría (palabra sensible,
+   * cotización sobre el tope, regla `handoff`) devuelve el resultado de handoff
+   * con `escalada: true` SIN pausar la sesión, sin tocarla y sin avisarle al
+   * cliente. Lo usa "Regenerar" del copiloto, donde una persona pidió un
+   * borrador y nada debe salir ni cambiar de estado. Sin la opción el turno
+   * escala como siempre.
+   */
+  soloRedactar?: boolean;
 }
 
 export interface ToolCallRecord {
@@ -58,6 +67,8 @@ export interface AgentTurnResult {
   /** Intent que disparo la regla. Va junto con `regla_id` para poder auditar. */
   intent_id?: UUID;
   tool_calls?: ToolCallRecord[];
+  /** Con `soloRedactar`: el turno escalaría y no se aplicó ningún efecto. */
+  escalada?: true;
 }
 
 export interface AgentTools {
@@ -145,6 +156,14 @@ export class DefaultAiAgentService implements AiAgentService {
     // cotización sobre el tope tienen que ganarle a cualquier respuesta
     // automática, incluida una regla IF/THEN que "cubra" el intent.
     const escalado = await this.evaluarEscalado(session, input);
+    if (escalado && input.soloRedactar) {
+      return {
+        source: "handoff",
+        respuesta_tipo: "handoff",
+        respuesta_contenido: escalado.motivo,
+        escalada: true,
+      };
+    }
     if (escalado) {
       // Mismo par de campos que la guarda de descuento del pipeline: pausada
       // para que el próximo mensaje tampoco lo conteste la IA, y en
@@ -176,6 +195,17 @@ export class DefaultAiAgentService implements AiAgentService {
       intent_nombre: input.classification.intent_nombre,
       context: { current_stage: session.current_stage, urgencia: session.urgencia },
     });
+
+    if (ruleMatch && ruleMatch.respuesta_tipo === "handoff" && input.soloRedactar) {
+      return {
+        source: "handoff",
+        respuesta_tipo: "handoff",
+        respuesta_contenido: ruleMatch.respuesta_contenido,
+        regla_id: ruleMatch.regla_id,
+        intent_id: ruleMatch.intent_id,
+        escalada: true,
+      };
+    }
 
     if (ruleMatch) {
       if (ruleMatch.respuesta_tipo === "handoff" && this.handoff) {
