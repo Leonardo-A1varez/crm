@@ -4,14 +4,18 @@ import { ChatThread } from "@/components/inbox/ChatThread";
 import { ConversationHeader } from "@/components/inbox/ConversationHeader";
 import { HandoffToggle } from "@/components/inbox/HandoffToggle";
 import { MessageInput } from "@/components/inbox/MessageInput";
+import { InterruptorModo } from "@/components/inbox/copiloto/InterruptorModo";
+import { TarjetaBorrador } from "@/components/inbox/copiloto/TarjetaBorrador";
 import { TwinPanel } from "@/components/lead-twin/TwinPanel";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
+import { TELEFONO_ABRIBLE } from "@/lib/copiloto/whatsapp-web";
 import { NotFoundError } from "@/lib/errors";
 import { estadoVentana } from "@/lib/ventana";
 import { chatWhatsAppDeLead } from "@/lib/whatsapp/chat";
 import { getAuthenticatedUser } from "@/server/auth/supabase-ssr";
 import { getAgenteConfigServiceForRequest } from "@/server/bootstrap/agente-bootstrap";
+import { getCopilotoServiceForRequest } from "@/server/bootstrap/copiloto-bootstrap";
 import { getInboxServiceForRequest } from "@/server/bootstrap/inbox-bootstrap";
 import { agregarDatoLeadAction } from "../_actions/agregar-dato-lead.action";
 import { asignarEtiquetaAction } from "../_actions/asignar-etiqueta.action";
@@ -19,15 +23,18 @@ import { auditoriaTurnoAction } from "../_actions/auditoria-turno.action";
 import { borrarDatoLeadAction } from "../_actions/borrar-dato-lead.action";
 import { cancelarRecordatorioAction } from "../_actions/cancelar-recordatorio.action";
 import { closeSessionAction } from "../_actions/close-session.action";
+import { cambiarModoRespuestaAction } from "../_actions/cambiar-modo-respuesta.action";
 import { crearEtiquetaAction } from "../_actions/crear-etiqueta.action";
 import { editarCampoTwinAction } from "../_actions/editar-campo-twin.action";
 import { moverEtapaAction } from "../_actions/mover-etapa.action";
 import { programarRecordatorioAction } from "../_actions/programar-recordatorio.action";
 import { quitarEtiquetaAction } from "../_actions/quitar-etiqueta.action";
+import { regenerarBorradorAction } from "../_actions/regenerar-borrador.action";
 import { renombrarLeadAction } from "../_actions/renombrar-lead.action";
 import { reprogramarRecordatorioAction } from "../_actions/reprogramar-recordatorio.action";
 import { sendMessageAction } from "../_actions/send-message.action";
 import { toggleHandoffAction } from "../_actions/toggle-handoff.action";
+import { usarBorradorAction } from "../_actions/usar-borrador.action";
 import {
   agregarVehiculoAction,
   editarIdentidadVehiculoAction,
@@ -69,8 +76,38 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
   // cliente; nada de esto va a la URL. Si el chat no se abre en WhatsApp Web
   // (otro canal, sin teléfono válido) `telefono` es null y el centro es el hilo.
   const chat = chatWhatsAppDeLead(view.lead, view.canalActivo);
-  const telefono = "telefono" in chat ? chat.telefono : null;
+  // Además de normalizado, el número tiene que ser abrible por la app de escritorio
+  // (8 a 15 dígitos): uno de 7 pasa la normalización pero `abrirChat` lo rechaza.
+  const telefono =
+    "telefono" in chat && TELEFONO_ABRIBLE.test(chat.telefono) ? chat.telefono : null;
   const usuarioId = (await getAuthenticatedUser())?.id ?? null;
+
+  // El copiloto es de WhatsApp: solo ahí hay interruptor y tarjeta. Sin sesión
+  // activa no hay hilo ni conversación a la que atender.
+  const estadoCopiloto =
+    view.session && view.conversacionId && view.canalActivo === "wa"
+      ? await (
+          await getCopilotoServiceForRequest()
+        ).estado({
+          conversacionId: view.conversacionId,
+          ultimoEntranteId: ultimoEntrante?.id ?? null,
+        })
+      : null;
+
+  // La misma tarjeta se monta en dos lugares según el modo del centro (entre la
+  // barra y la vista de WhatsApp, o sobre el composer) y solo hay una a la vez.
+  const tarjeta =
+    view.session && estadoCopiloto?.borrador ? (
+      <TarjetaBorrador
+        leadId={view.lead.id}
+        sessionId={view.session.id}
+        canal={view.canalActivo}
+        borrador={estadoCopiloto.borrador}
+        onUsar={usarBorradorAction}
+        onRegenerar={regenerarBorradorAction}
+        onEnviar={sendMessageAction}
+      />
+    ) : null;
 
   return (
     // Tres columnas hermanas, no un header que cruza las dos: el header de la
@@ -81,6 +118,7 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
         leadId={view.lead.id}
         usuarioId={usuarioId}
         telefono={telefono}
+        tarjeta={tarjeta}
         hilo={
           <>
             <ConversationHeader
@@ -89,13 +127,24 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
               canalActivo={view.canalActivo}
               actions={
                 view.session ? (
-                  <HandoffToggle
-                    leadId={view.lead.id}
-                    sessionId={view.session.id}
-                    iaPausada={view.session.ia_pausada}
-                    onToggle={toggleHandoffAction}
-                    handoffStatus={view.handoffStatus}
-                  />
+                  <div className="flex min-w-0 items-center gap-2">
+                    {estadoCopiloto ? (
+                      <InterruptorModo
+                        leadId={view.lead.id}
+                        conversacionId={estadoCopiloto.conversacionId}
+                        override={estadoCopiloto.override}
+                        modoEfectivo={estadoCopiloto.modoEfectivo}
+                        onCambiar={cambiarModoRespuestaAction}
+                      />
+                    ) : null}
+                    <HandoffToggle
+                      leadId={view.lead.id}
+                      sessionId={view.session.id}
+                      iaPausada={view.session.ia_pausada}
+                      onToggle={toggleHandoffAction}
+                      handoffStatus={view.handoffStatus}
+                    />
+                  </div>
                 ) : null
               }
             />
@@ -108,6 +157,7 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
                     interceptados={view.interceptados}
                   />
                 </div>
+                {tarjeta}
                 <MessageInput
                   leadId={view.lead.id}
                   sessionId={view.session.id}

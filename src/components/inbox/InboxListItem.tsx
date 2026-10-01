@@ -255,7 +255,8 @@ function FilaCompleta({
           </div>
         ) : null}
 
-        <div className="mt-1.5 flex items-center gap-1.5">
+        {/* Con etapa, IA pausada, borrador listo y urgencia alta a la vez no entran en una línea: envuelven. */}
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
           <StageBadge stage={item.currentStage} />
           {item.iaPausada ? (
             <span className="text-danger bg-danger/13 inline-flex shrink-0 items-center gap-1 rounded-md px-[7px] py-[2.5px] text-[10px] font-semibold">

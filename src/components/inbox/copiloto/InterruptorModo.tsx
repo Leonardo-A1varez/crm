@@ -41,7 +41,8 @@ export function InterruptorModo({
   }));
 
   const actual = override ?? "segun_horario";
-  // El disparador corta con elipsis a 240 px; el title deja leer el texto entero.
+  // El disparador crece hasta 300 px (el texto más largo, "Según horario · ahora
+  // Fuera de horario", entra entero); más allá corta y el title deja leerlo.
   const titulo = etiquetaOpcionModo(actual, modoEfectivo);
 
   return (
@@ -52,7 +53,7 @@ export function InterruptorModo({
         value={actual}
         disabled={pendiente}
         size="sm"
-        className="border-line-card bg-surface-elevated text-ink-secondary h-[30px] max-w-[240px] rounded-[9px] px-2.5 text-[11.5px] font-semibold"
+        className="border-line-card bg-surface-elevated text-ink-secondary h-[30px] max-w-[300px] rounded-[9px] px-2.5 text-[11.5px] font-semibold"
         onValueChange={(modo) => {
           startTransition(async () => {
             try {

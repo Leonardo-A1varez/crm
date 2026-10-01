@@ -15,6 +15,11 @@ import type { Lead, LeadSession } from "@/types/entities";
  * Twin tiene los 322px y el scroll para mostrarla entera. `actions` = slot para
  * HandoffToggle (client comp montado desde el RSC page). El cierre vive solo
  * en el rail del Twin: dos puertas para la misma transición confundían el flujo.
+ *
+ * El header envuelve: con el interruptor de modo del copiloto las acciones son tan
+ * anchas que en la columna mínima el nombre quedaba en unos pocos caracteres. El
+ * bloque del nombre tiene un piso y, si no entran los dos, las acciones bajan
+ * enteras a una segunda línea, alineadas a la derecha (medidas: task-13-report).
  */
 export function ConversationHeader({
   lead,
@@ -38,7 +43,7 @@ export function ConversationHeader({
   const canales: Canal[] = canalesDelLead(lead);
 
   return (
-    <header className="border-line-layout bg-surface-chat/86 flex items-center gap-3 border-b px-5 py-[13px] backdrop-blur-[8px]">
+    <header className="border-line-layout bg-surface-chat/86 flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-5 py-[13px] backdrop-blur-[8px]">
       <div className="relative shrink-0">
         <InitialsAvatar nombre={lead.nombre} size={36} />
         <ChannelDot
@@ -48,7 +53,7 @@ export function ConversationHeader({
           className="absolute right-[-2px] bottom-[-2px]"
         />
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-[190px] flex-1">
         <div className="flex min-w-0 items-center gap-2">
           <h1
             className={`truncate text-[14.5px] font-[650] tracking-[-0.015em] ${
@@ -74,7 +79,7 @@ export function ConversationHeader({
           ))}
         </div>
       </div>
-      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+      {actions ? <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div> : null}
     </header>
   );
 }

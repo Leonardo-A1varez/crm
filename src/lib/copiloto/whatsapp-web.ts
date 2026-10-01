@@ -5,7 +5,7 @@ import { LARGO_MAXIMO_BORRADOR } from "@/lib/copiloto/limites";
  * escritorio (8 a 15 dígitos, `desktop/src/main/seguridad.ts`) y sin 0 inicial
  * (ningún código de país empieza con 0).
  */
-const TELEFONO_ABRIBLE = /^[1-9][0-9]{7,14}$/;
+export const TELEFONO_ABRIBLE = /^[1-9][0-9]{7,14}$/;
 
 /**
  * La URL que abre el chat en WhatsApp Web con el texto precargado (§5).
