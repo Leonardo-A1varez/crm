@@ -67,12 +67,12 @@
 --   marca          = descripcion recortada, o '(sin marca)'
 -- El recorte es `btrim(x, E' \t\r\n\u00a0')`: espacio, tab, CR, LF y NBSP. En TypeScript es
 -- `normalizarValor`; NO es `String.trim()`, que quita más. Los literales son los de
--- `columnas-productos.ts`. Hoy 2.740 filas tienen la marca nula.
+-- `columnas-productos.ts`.
 
 -- La columna generada de abajo reescribe `productos` y el índice se construye
 -- bloqueando las escrituras. Si otra transacción tiene la tabla tomada, mejor
 -- abortar a los 5 s que dejar una cola de lock exclusivo detrás de ella.
-set lock_timeout = '5s';
+set local lock_timeout = '5s';
 
 -- =========================================================================
 -- 0. Columnas generadas e índices
@@ -362,7 +362,7 @@ begin
       when 'categoria' then
         format('nullif(btrim(p.categoria, %2$L), %3$L) %1$s nulls last', v_dir, v_bordes, '')
       when 'descripcion' then
-        format('p.nombre %1$s', v_dir)
+        format('nullif(btrim(p.nombre, %2$L), %3$L) %1$s nulls last', v_dir, v_bordes, '')
       when 'marca' then
         format('nullif(btrim(p.descripcion, %2$L), %3$L) %1$s nulls last', v_dir, v_bordes, '')
       when 'precio' then format('p.precio %1$s', v_dir)
@@ -553,7 +553,7 @@ begin
   )
   select r.valor, r.cantidad, r.distintos
   from rango as r
-  where r.pos <= greatest(coalesce(p_limite, 500), 0)
+  where r.pos <= greatest(least(coalesce(p_limite, 500), 3000), 0)
     or r.valor in (select v from sel)
   order by
     r.cantidad desc,

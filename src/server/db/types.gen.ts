@@ -2523,7 +2523,6 @@ export type Database = {
           nodo_id: string
         }[]
       }
-      recortar_valor: { Args: { t: string }; Returns: string }
       relanzar_workflow_run: {
         Args: { p_run_id: string }
         Returns: {

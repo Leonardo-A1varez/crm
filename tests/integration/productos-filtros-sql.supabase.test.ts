@@ -230,4 +230,15 @@ describe("productos_filtrados / listar / facetas: frontera SQL", () => {
     const r = await listar({ categorias: ["(sin categoría)"] });
     expect(r.items.map((p) => p.codigo_interno).sort()).toEqual(["E-1", "E-2"]);
   });
+
+  test("el orden por descripción manda los nombres en blanco al final, en las dos direcciones", async () => {
+    const { error } = await client
+      .from("productos")
+      .insert([{ codigo_interno: "B-1", nombre: " 	 ", precio: 1 }]);
+    expect(error).toBeNull();
+    const asc = await listar({}, [{ campo: "descripcion", dir: "asc" }]);
+    expect(asc.items.at(-1)?.codigo_interno).toBe("B-1");
+    const desc = await listar({}, [{ campo: "descripcion", dir: "desc" }]);
+    expect(desc.items.at(-1)?.codigo_interno).toBe("B-1");
+  });
 });
