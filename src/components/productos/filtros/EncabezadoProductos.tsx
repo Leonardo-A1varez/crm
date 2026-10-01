@@ -53,9 +53,9 @@ export function EncabezadoProductos({ isAdmin }: { isAdmin: boolean }) {
       <tr aria-rowindex={1} className="text-left">
         {COLUMNAS_TABLA.map((c) => {
           const orden = ordenDeColumna(filtros.orden, c.id);
-          // `aria-sort` en TODA columna que ordena, no solo en el primer nivel: el lector de
-          // pantalla tiene que oír por qué columnas está ordenada la tabla.
-          const ordenada = orden.nivel !== null && orden.dir !== null;
+          // `aria-sort` solo en el primer nivel: es el que manda. Los niveles 2 y 3 los dice
+          // el `aria-label` del botón.
+          const ordenada = orden.nivel === 1 && orden.dir !== null;
           return (
             <th
               key={c.id}

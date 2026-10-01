@@ -313,6 +313,17 @@ describe("CatalogoProductos: la tabla", () => {
     expect(encabezado("Precio")).toBeTruthy();
   });
 
+  it("si falla un lote con filas ya dibujadas, aria-rowcount sigue definido", async () => {
+    montar(null, {
+      lote: async (_c, n) => {
+        if (n === 1) return { filas: filas(1000), total: 2300, lote: 1, desde: 0 };
+        throw new Error("corte");
+      },
+    });
+    await screen.findByRole("alert");
+    expect(document.querySelector("table")?.getAttribute("aria-rowcount")).toBe("2301");
+  });
+
   it("una falla se avisa en el pie y 'Reintentar' vuelve a pedir", async () => {
     const { ErrorLectura } = await import("@/components/productos/cliente-productos");
     let romper = true;
@@ -365,7 +376,7 @@ describe("encabezados: indicadores de filtro y de orden", () => {
     expect(document.querySelector("thead")?.textContent).not.toMatch(/[↑↓]/);
   });
 
-  it("con un nivel, flecha sin número; con dos o más, el número de nivel; aria-sort en cada columna que ordena", async () => {
+  it("con un nivel, flecha sin número; con dos o más, el número de nivel; aria-sort solo en la del primer nivel", async () => {
     montar(null, { search: "orden=precio&dir=desc" });
     await waitFor(() => expect(filasDelDom()).toHaveLength(5));
     expect(encabezado("Precio").textContent).toContain("↓");
@@ -379,7 +390,7 @@ describe("encabezados: indicadores de filtro y de orden", () => {
     const sorts = [...document.querySelectorAll("thead th")].map((t) =>
       t.getAttribute("aria-sort"),
     );
-    expect(sorts.filter(Boolean)).toEqual(["ascending", "descending", "ascending"]);
+    expect(sorts.filter(Boolean)).toEqual(["ascending"]);
   });
 });
 

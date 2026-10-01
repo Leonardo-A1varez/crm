@@ -11,6 +11,7 @@ import { EncabezadoProductos } from "./filtros/EncabezadoProductos";
 import { LimpiarFiltrosBoton } from "./filtros/FiltrosActivos";
 import { useFiltrosProductos } from "./filtros/FiltrosProductosProvider";
 import { ProductoRowActions } from "./ProductoRowActions";
+import type { EstadoCarga } from "./use-carga-productos";
 import type {
   SetProductoActivoInput,
   UpdateProductoInput,
@@ -140,6 +141,15 @@ const FilaProducto = memo(function FilaProducto({
     </tr>
   );
 });
+
+/** `aria-rowcount`: el total + el encabezado; -1 (desconocido) si falló y hay filas dibujadas. */
+function cuentaDeFilas(estado: EstadoCarga): number | undefined {
+  if (estado.tipo === "lista") return estado.total + 1;
+  if (estado.tipo === "error" && estado.filas.length > 0) {
+    return estado.total !== null ? estado.total + 1 : -1;
+  }
+  return undefined;
+}
 
 function Esqueleto({ columnas }: { columnas: number }) {
   return (
@@ -309,7 +319,7 @@ export function CatalogoProductos({
           />
         ) : (
           <table
-            aria-rowcount={estado.tipo === "lista" ? estado.total + 1 : undefined}
+            aria-rowcount={cuentaDeFilas(estado)}
             style={{ minWidth: anchoMinimoDeTabla(isAdmin) }}
             className="w-full table-fixed border-separate border-spacing-0 text-[12.5px]"
           >
