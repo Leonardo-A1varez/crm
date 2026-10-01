@@ -20,7 +20,7 @@ Los errores de dominio no reintentables se convierten en `NonRetriableError`. Lo
 - Archivo: `on-message-received.ts`.
 - Trigger: `meta/message.received`.
 - Concurrencia: `limit: 1` por `event.data.parsed.meta_user_id`.
-- Acción: deduplica el entrante, resuelve lead/conversación/sesión, persiste el mensaje, cancela recordatorios vivos, aplica horario y guardas, clasifica intent, ejecuta regla o LLM, envía la respuesta y publica eventos posteriores.
+- Acción: deduplica el entrante, resuelve lead/conversación/sesión, persiste el mensaje, cancela recordatorios vivos, **descarta el borrador vigente de la conversación** (`invalidar-borrador-previo`), aplica horario y guardas, **decide el modo** (`decidir-modo`: Copiloto, Automático o Fuera de horario, según `agente_config.horario` + `horario_equipo` y `conversaciones.modo_respuesta_override`), clasifica intent, ejecuta regla o LLM y, según el modo, **envía la respuesta por la API (Automático) o la guarda como borrador en `borradores_ia` (Copiloto)**; luego publica eventos posteriores.
 - Efectos derivados: `lead/created`, `lead-session/turn.completed` y `lead-session/auto-handoff.evaluate`.
 - Idempotencia saliente: `out:<meta_message_id_entrante>`; `sendOutbound` reserva la fila antes de llamar a Meta.
 
@@ -99,6 +99,16 @@ Los errores de dominio no reintentables se convierten en `NonRetriableError`. Lo
 - Acción: toma hasta 50 filas pendientes del outbox, emite cada evento y marca éxito o fallo por fila.
 - Semántica: entrega al menos una vez; el consumidor debe conservar su propia idempotencia.
 
+### 13. `copiloto-borrador`
+
+- Archivo: `copiloto-borrador.ts`.
+- Trigger: `copiloto/borrador.solicitado` (lo emite `src/server/bootstrap/copiloto-bootstrap.ts` al tocar "Regenerar" o "Reintentar" en la tarjeta del Inbox).
+- Concurrencia: `limit: 1` por `event.data.conversacionId`; el RPC `iniciar_borrador_ia` (lock a la conversación) cubre la carrera contra `on-message-received`.
+- Acción: valida que el borrador siga vigente (`listo` o `error`) y que su sesión siga activa, arranca uno nuevo con `forzar` (descarta el anterior), reusa la clasificación auditada del turno (o vuelve a clasificar), lee los tramos de "Delegar al agente" vivos, arma el turno con `buildConversationTurn` y llama a `aiAgent.respond` con `soloRedactar` (sin efectos: una escalada no pausa la sesión ni avisa al cliente). `handoff` → borrador en `error` con `ia_no_disponible`; descuento excedido → `error` con `descuento_excedido`; fallo del modelo → `error` con `llm_error` / `tope_diario` y la función falla.
+- Ids de step: `copiloto-borrador-<día>-<borradorId>-<paso>`.
+- No envía nada por Meta.
+- Nota: esta página lista 12 funciones y `makeCrmInngestFunctions` registra más (workflows, difusión, operativos); las no listadas quedan sin documentar aquí, no se reescribieron.
+
 ## Catálogo de eventos
 
 | Evento                                        | Productor principal     | Consumidor                 |
@@ -116,6 +126,7 @@ Los errores de dominio no reintentables se convierten en `NonRetriableError`. Lo
 | `lead/created`                                | pipeline entrante       | detector por lead          |
 | `merge-candidates/detect.requested`           | manual/ops              | detector global            |
 | `outbox/dispatch.requested`                   | manual/ops              | dispatcher del outbox      |
+| `copiloto/borrador.solicitado`                | Server Action del Inbox | `copiloto-borrador`        |
 
 ## Dependencias de composición
 

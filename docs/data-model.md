@@ -53,6 +53,9 @@
 | 41    | `20260814180000_lead_identificadores.sql`                    | Tabla `lead_identificadores` (telefono/email/ruc/placa/vin), varios por lead + backfill sin los teléfonos de relleno de IG/FB           |
 | 42    | `20260814190000_merge_acumula_identificadores.sql`           | El merge acumula identificadores en vez de descartarlos (`payload_version` 3) y el revert los saca por id                               |
 | 43    | `20260814210000_leads_que_comparten_identificador.sql`       | RPC del detector: qué leads comparten un identificador y de qué tipo                                                                    |
+| 89    | `20260930120000_copiloto.sql`                                | `horario_equipo`, `modo_respuesta_override`, `borradores_ia` + RPC `iniciar_borrador_ia`, RLS                                           |
+
+> Esta tabla lista hasta la 43; las migraciones 44–88 existen en `supabase/migrations/` y no están descritas aquí (no se reescribieron). La fila 89 es la real: `ls supabase/migrations/*.sql | wc -l` → 89.
 
 ## Identidad de un lead: columnas vs. `lead_identificadores`
 
@@ -212,6 +215,7 @@ estado_entrega_enum     = enviado, entregado, leido, fallido
 
 - `id uuid PK`, `lead_id uuid FK`, `canal canal_enum`, `canal_thread_id text`, `ultima_actividad_at timestamptz`
 - **Constraint:** UNIQUE `(canal, canal_thread_id)`. Persiste siempre (no purge).
+- `modo_respuesta_override text` nullable CHECK (`'copiloto'`,`'automatico'`) — null = "Según horario". Lo cambia el interruptor del encabezado del Inbox.
 
 #### `mensajes`
 
@@ -307,6 +311,7 @@ estado_entrega_enum     = enviado, entregado, leido, fallido
 - Configuración append-only y versionada del modelo, prompt, tono, horario, límites y escalado.
 - Solo una versión activa; rollback crea una versión nueva y conserva el historial.
 - SELECT para authenticated; INSERT/UPDATE solo admin.
+- `horario_equipo jsonb NOT NULL` (7 días `lun`..`dom`, CHECK `agente_config_horario_equipo_dias`; default sin rangos = "nunca hay equipo"): cuándo hay personas para enviar desde WhatsApp Web. Misma zona que `horario_timezone`.
 
 #### `turn_classifications`
 
@@ -330,14 +335,22 @@ estado_entrega_enum     = enviado, entregado, leido, fallido
 - No almacena texto del cliente ni la palabra sensible que provocó el handoff.
 - `transition_handoff` cambia sesión, registra evento y encola la notificación dentro de una transacción.
 
+#### `borradores_ia`
+
+- Respuesta que la IA redactó en modo Copiloto: `conversacion_id`, `lead_session_id`, `mensaje_origen_id` (CASCADE los tres), `estado` (`redactando | listo | usado | error | descartado`), `contenido` (texto; nunca se loguea), `origen` (`ia | regla`), `regla_id`, `error_codigo` (código corto, nunca texto del proveedor), `usado_at/usado_via/usado_por` (`usado_via`: `insertar | copiar | abrir_web | al_composer`).
+- UNIQUE parcial `borradores_ia_vigente_uq (conversacion_id) WHERE estado IN ('redactando','listo','error')`: un vigente por conversación.
+- RPC `iniciar_borrador_ia` (solo service_role): lock a la conversación, `obsoleto` si el entrante ya no es el último, idempotente por `mensaje_origen_id` (`existente`), `forzar` para Regenerar/Reintentar.
+- RLS: SELECT admin/vendedor; sin INSERT (lo escribe el pipeline); el panel solo puede pasar `listo → usado` (policy + grant por columna).
+
 ## RPC de dominio
 
-| RPC                                  | Seguridad                                        | Contrato                                               |
-| ------------------------------------ | ------------------------------------------------ | ------------------------------------------------------ |
-| `server_now()`                       | invoker; anon/authenticated                      | Hora del servidor para writes monotónicos              |
-| `inbox_recent_messages(uuid[], int)` | invoker; authenticated/service_role              | Cola reciente acotada por sesión                       |
-| `transition_handoff(...)`            | invoker; authenticated/service_role              | Pausa/reanudación auditable e idempotente              |
-| `approve_lead_merge(uuid, uuid)`     | invoker; authenticated/service_role + gate admin | Merge, audit, reasignación y delete en una transacción |
+| RPC                                              | Seguridad                                        | Contrato                                                     |
+| ------------------------------------------------ | ------------------------------------------------ | ------------------------------------------------------------ |
+| `server_now()`                                   | invoker; anon/authenticated                      | Hora del servidor para writes monotónicos                    |
+| `inbox_recent_messages(uuid[], int)`             | invoker; authenticated/service_role              | Cola reciente acotada por sesión                             |
+| `transition_handoff(...)`                        | invoker; authenticated/service_role              | Pausa/reanudación auditable e idempotente                    |
+| `approve_lead_merge(uuid, uuid)`                 | invoker; authenticated/service_role + gate admin | Merge, audit, reasignación y delete en una transacción       |
+| `iniciar_borrador_ia(uuid, uuid, uuid, boolean)` | invoker; solo service_role                       | Arranca el borrador del Copiloto bajo lock a la conversación |
 
 ## Storage buckets
 
@@ -387,6 +400,7 @@ merge_candidates ──┬── src_lead_id
 | llm_usage             | R     | R                   |
 | session_recordatorios | RW    | RW                  |
 | handoff_events        | RW    | RW                  |
+| borradores_ia         | R     | R (marca "usado")   |
 
 Storage policies: comprobantes_pago RW vendedor + admin. productos RW admin solo. mensajes_media R todos + INSERT system.
 
