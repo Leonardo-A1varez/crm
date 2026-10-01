@@ -6,6 +6,7 @@ import { sembrarCadena } from "./fixtures";
 import { cleanupTestDb, makeTestSupabaseClient, type TestClient } from "./setup";
 
 type Authed = SupabaseClient<Database>;
+type BorradorUpdate = Database["public"]["Tables"]["borradores_ia"]["Update"];
 
 const PASSWORD = "copiloto-rls-test-2026!secret";
 const EMAILS = {
@@ -205,6 +206,190 @@ describe("RLS — borradores_ia", () => {
       p_forzar: false,
     });
     expect(error?.code).toBe("42501");
+  });
+});
+
+describe("RLS — borradores_ia: el GRANT por columna, aislado del WITH CHECK", () => {
+  // Cada caso lleva `estado: 'usado'` (y las columnas del uso), o sea que la
+  // policy `borradores_ia_update_uso` lo dejaría pasar: lo único que lo frena es
+  // que la columna extra no está en el `grant update (...)`. Si alguien amplía
+  // el grant, estos tests fallan; el de `contenido` solo, sin `estado`, no.
+  const NO_CONCEDIDAS: Record<string, unknown> = {
+    contenido: "manipulado",
+    origen: "regla",
+    regla_id: null,
+    error_codigo: "llm_error",
+    mensaje_origen_id: "00000000-0000-0000-0000-000000000001",
+    conversacion_id: "00000000-0000-0000-0000-000000000002",
+    lead_session_id: "00000000-0000-0000-0000-000000000003",
+    created_at: "2020-01-01T00:00:00Z",
+  };
+
+  for (const [rol, quien] of [
+    ["vendedor", () => vendedor],
+    ["admin", () => admin],
+  ] as const) {
+    for (const [columna, valor] of Object.entries(NO_CONCEDIDAS)) {
+      test(`${rol}: 'usado' + ${columna} lo frena el GRANT (42501) y la fila queda intacta`, async () => {
+        const { borradorId } = await borradorListo();
+
+        const { error } = await quien()
+          .from("borradores_ia")
+          .update({
+            estado: "usado",
+            usado_via: "copiar",
+            usado_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            [columna]: valor,
+          } as BorradorUpdate)
+          .eq("id", borradorId)
+          .eq("estado", "listo");
+        expect(error?.code).toBe("42501");
+
+        const { data } = await service
+          .from("borradores_ia")
+          .select("estado, contenido, origen, usado_via")
+          .eq("id", borradorId)
+          .single();
+        expect(data).toEqual({
+          estado: "listo",
+          contenido: "Texto del borrador",
+          origen: "ia",
+          usado_via: null,
+        });
+      });
+    }
+  }
+});
+
+describe("RLS — borradores_ia: matriz de escrituras por rol", () => {
+  test("admin marca usado por la rama is_admin() y un segundo intento afecta 0 filas", async () => {
+    const { borradorId } = await borradorListo();
+
+    const { data, error } = await admin
+      .from("borradores_ia")
+      .update({
+        estado: "usado",
+        usado_via: "insertar",
+        usado_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", borradorId)
+      .eq("estado", "listo")
+      .select("id");
+    expect(error).toBeNull();
+    expect(data).toHaveLength(1);
+
+    const { data: otra, error: e2 } = await admin
+      .from("borradores_ia")
+      .update({ estado: "usado", usado_via: "copiar", usado_at: new Date().toISOString() })
+      .eq("id", borradorId)
+      .select("id");
+    expect(e2).toBeNull();
+    expect(otra).toHaveLength(0);
+  });
+
+  test("el repo con el cliente del admin: marcarUsado funciona una sola vez", async () => {
+    const { borradorId } = await borradorListo();
+    const repo = new SupabaseBorradoresIaRepository(admin);
+
+    expect(await repo.marcarUsado(borradorId, { via: "abrir_web", usuarioId: null })).toBe(
+      "marcado",
+    );
+    expect(await repo.marcarUsado(borradorId, { via: "copiar", usuarioId: null })).toBe("ya_usado");
+  });
+
+  test("el admin no puede pasar a otro estado que 'usado' (WITH CHECK, 42501)", async () => {
+    const { borradorId } = await borradorListo();
+    const { error } = await admin
+      .from("borradores_ia")
+      .update({ estado: "descartado", updated_at: new Date().toISOString() })
+      .eq("id", borradorId);
+    expect(error?.code).toBe("42501");
+  });
+
+  for (const [rol, quien] of [
+    ["admin", () => admin],
+    ["vendedor", () => vendedor],
+    ["sin rol", () => sinRol],
+    ["anon", () => anon],
+  ] as const) {
+    test(`${rol}: INSERT, DELETE y TRUNCATE-por-DELETE denegados (42501) y el RPC cerrado`, async () => {
+      const { borradorId, conversacionId, sesionId, mensajeId } = await borradorListo();
+      const cliente = quien();
+
+      const ins = await cliente.from("borradores_ia").insert({
+        conversacion_id: conversacionId,
+        lead_session_id: sesionId,
+        mensaje_origen_id: mensajeId,
+        estado: "descartado",
+      });
+      expect(ins.error?.code).toBe("42501");
+
+      const del = await cliente.from("borradores_ia").delete().eq("id", borradorId);
+      expect(del.error?.code).toBe("42501");
+
+      const rpc = await cliente.rpc("iniciar_borrador_ia", {
+        p_conversacion_id: conversacionId,
+        p_lead_session_id: sesionId,
+        p_mensaje_origen_id: mensajeId,
+        p_forzar: true,
+      });
+      expect(rpc.error?.code).toBe("42501");
+
+      // Ni el insert ni el RPC con forzar dejaron rastro: sigue el borrador original.
+      const { data } = await service
+        .from("borradores_ia")
+        .select("id, estado")
+        .eq("conversacion_id", conversacionId);
+      expect(data).toEqual([{ id: borradorId, estado: "listo" }]);
+    });
+  }
+
+  test("sin rol: UPDATE a 'usado' afecta 0 filas (la policy exige admin o vendedor)", async () => {
+    const { borradorId } = await borradorListo();
+
+    const { data, error } = await sinRol
+      .from("borradores_ia")
+      .update({
+        estado: "usado",
+        usado_via: "copiar",
+        usado_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", borradorId)
+      .select("id");
+    expect(error).toBeNull();
+    expect(data ?? []).toHaveLength(0);
+
+    const { data: fila } = await service
+      .from("borradores_ia")
+      .select("estado")
+      .eq("id", borradorId)
+      .single();
+    expect(fila?.estado).toBe("listo");
+  });
+
+  test("anon: UPDATE denegado por permiso de tabla (42501) y la fila queda intacta", async () => {
+    const { borradorId } = await borradorListo();
+
+    const { error } = await anon
+      .from("borradores_ia")
+      .update({
+        estado: "usado",
+        usado_via: "copiar",
+        usado_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", borradorId);
+    expect(error?.code).toBe("42501");
+
+    const { data: fila } = await service
+      .from("borradores_ia")
+      .select("estado")
+      .eq("id", borradorId)
+      .single();
+    expect(fila?.estado).toBe("listo");
   });
 });
 
