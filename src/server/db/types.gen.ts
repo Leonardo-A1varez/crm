@@ -1393,6 +1393,7 @@ export type Database = {
           codigo_fabrica: string | null
           codigo_fabrica_plegado: string | null
           codigo_interno: string
+          codigo_interno_orden: number | null
           codigo_interno_plegado: string | null
           compatibilidad: Json
           created_at: string
@@ -1414,6 +1415,7 @@ export type Database = {
           codigo_fabrica?: string | null
           codigo_fabrica_plegado?: string | null
           codigo_interno: string
+          codigo_interno_orden?: number | null
           codigo_interno_plegado?: string | null
           compatibilidad?: Json
           created_at?: string
@@ -1435,6 +1437,7 @@ export type Database = {
           codigo_fabrica?: string | null
           codigo_fabrica_plegado?: string | null
           codigo_interno?: string
+          codigo_interno_orden?: number | null
           codigo_interno_plegado?: string | null
           compatibilidad?: Json
           created_at?: string
@@ -2425,14 +2428,19 @@ export type Database = {
           reason_code: string
         }[]
       }
+      jsonb_lista: { Args: { p_clave: string; p_filtros: Json }; Returns: string[] }
       plegar_codigo: { Args: { t: string }; Returns: string }
       plegar_codigos: { Args: { ts: string[] }; Returns: string[] }
       plegar_texto: { Args: { t: string }; Returns: string }
-      productos_facetas: {
-        Args: { p_columna?: string; p_filtros: Json; p_limite?: number }
+      productos_faceta: {
+        Args: {
+          p_busqueda?: string
+          p_columna: string
+          p_filtros: Json
+          p_limite?: number
+        }
         Returns: {
           cantidad: number
-          columna: string
           distintos: number
           valor: string
         }[]
@@ -2440,15 +2448,22 @@ export type Database = {
       productos_filtrados: {
         Args: { p_excluir?: string; p_filtros: Json }
         Returns: {
-          categoria: string
-          codigo_interno: string
           id: string
-          marca: string
-          nombre: string
+          v_categoria: string
+          v_codigo: string
+          v_codigo_fabrica: string
+          v_descripcion: string
+          v_marca: string
+          v_otros_codigos: string
         }[]
       }
       productos_listar: {
-        Args: { p_filtros: Json; p_pagina?: number; p_por_pagina?: number }
+        Args: {
+          p_cantidad?: number
+          p_desde?: number
+          p_filtros: Json
+          p_orden?: Json
+        }
         Returns: Json
       }
       programar_difusion: {
@@ -2508,6 +2523,7 @@ export type Database = {
           nodo_id: string
         }[]
       }
+      recortar_valor: { Args: { t: string }; Returns: string }
       relanzar_workflow_run: {
         Args: { p_run_id: string }
         Returns: {

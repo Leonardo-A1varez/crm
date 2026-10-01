@@ -1,14 +1,9 @@
 import type { Producto, UUID } from "@/types/entities";
 import type {
-  OpcionesFacetasEntrada,
+  OpcionesFacetaEntrada,
   ProductosFiltrosEntrada,
 } from "@/lib/validation/productos-filtros.schema";
-import type {
-  ImportPreview,
-  ImportResult,
-  ProductosFacetas,
-  ProductosPagina,
-} from "@/types/productos";
+import type { Faceta, ImportPreview, ImportResult, LoteProductos } from "@/types/productos";
 
 export interface CreateProductoServiceInput {
   codigo_interno: string;
@@ -24,30 +19,30 @@ export type UpdateProductoServiceInput = Omit<CreateProductoServiceInput, "codig
 
 export interface CatalogService {
   /**
-   * Una página del catálogo filtrado (estilo Excel) con el total REAL del
-   * filtro. Acepta tal cual los `searchParams` de la URL (strings) o valores ya
-   * tipados; valida con Zod antes de tocar nada y tira `ValidationError` si algo
-   * no cumple (rangos invertidos, `porPagina` > 100, listas de más de 300…).
-   * Orden `nombre`, `codigo_interno`. Reemplaza al tope de 1.000 de `listProductos`.
+   * Un lote de la carga completa del catálogo: `LOTE_TAMANO` (1.000) filas del
+   * conjunto filtrado y ordenado, con el total REAL del filtro. La pantalla pide el
+   * lote 1 y después los demás, y los junta: no hay paginación.
+   *
+   * `filtros` son los `searchParams` de la URL tal cual (strings) o valores ya
+   * tipados; se valida con Zod antes de tocar nada y tira `ValidationError` si algo
+   * no cumple (rangos invertidos, listas de más de 300…). El orden son los niveles
+   * `orden`/`dir` (hasta tres) y siempre cierra con el código, que es único.
    */
-  buscarProductos(filtros: ProductosFiltrosEntrada): Promise<ProductosPagina>;
+  loteProductos(filtros: ProductosFiltrosEntrada, lote?: unknown): Promise<LoteProductos>;
 
   /**
-   * Valores distintos de categoría y de marca con su cantidad, para las listas
-   * del filtro. Cada lista se calcula con todos los filtros activos menos los de
-   * su propia columna (incluir y excluir); `pagina` y `porPagina` no cuentan.
-   * Mismo input y mismo `ValidationError` que `buscarProductos`.
+   * Los valores distintos de UNA columna con su cantidad, para su lista de filtro.
+   * Se calcula con todos los filtros activos menos los de su propia columna; el orden
+   * no cuenta. Mismo input y mismo `ValidationError` que `loteProductos`.
    *
-   * `opciones` es estado del popover, no va en la URL: `limite` (1 a 3000, por
-   * defecto 500) y `qCategoria` / `qMarca`, búsqueda dentro de cada lista
-   * (plegada, "contiene", hasta 100 caracteres) que se aplica ANTES del límite.
-   * `columna` (`'categoria'` | `'marca'`) calcula solo esa lista y deja la otra vacía:
-   * el desplegable de un filtro muestra una, y así no se cuenta la otra en cada tecla.
+   * `opciones` es estado del panel, no va en la URL: `columna`, `q` (búsqueda dentro
+   * de la lista, hasta 100 caracteres, antes del límite; exacta en el código) y
+   * `limite` (1 a 3000, por defecto 500).
    */
-  facetasProductos(
+  facetaProductos(
     filtros: ProductosFiltrosEntrada,
-    opciones?: OpcionesFacetasEntrada,
-  ): Promise<ProductosFacetas>;
+    opciones: OpcionesFacetaEntrada,
+  ): Promise<Faceta>;
 
   /** Alta manual. Defaults no-form: activo=true, compatibilidad=[], imagen_url=null. */
   createProducto(input: CreateProductoServiceInput): Promise<Producto>;

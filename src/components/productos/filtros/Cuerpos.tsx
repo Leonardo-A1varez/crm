@@ -1,208 +1,52 @@
 "use client";
 
 import { useId, useState } from "react";
-import { normalizarValor } from "@/lib/catalogo/normalizar-valor";
+import { type ColumnaLista } from "@/lib/catalogo/columnas-productos";
 import {
-  avisoDeLista,
   errorDeRango,
   numeroCanonico,
   numeroEditable,
-  valoresDeLista,
+  type ConStockUrl,
+  type EstadoUrl,
 } from "@/lib/ui/filtros-productos";
-import { TEXTO_MAX } from "@/lib/validation/productos-filtros.schema";
-import { PanelFiltro, Segmentado } from "./FiltroColumna";
+import { Segmentado } from "./Segmentado";
 import { useFiltrosProductos } from "./FiltrosProductosProvider";
 import { ListaFiltro } from "./ListaFiltro";
 import { useListaFiltro } from "./use-lista-filtro";
-import type { ConStockUrl, EstadoUrl, GrupoFiltro, ModoTextoUrl } from "@/lib/ui/filtros-productos";
-import type { ReactNode } from "react";
+import type { KeyboardEvent } from "react";
 
 const INPUT =
   "text-ink-body border-line-input bg-surface-input placeholder:text-ink-faint focus-visible:ring-brand/60 aria-invalid:border-danger w-full rounded-[7px] border px-2.5 py-[6px] text-[12px] outline-none focus-visible:ring-2";
-
-const MODOS: readonly { valor: ModoTextoUrl; texto: string }[] = [
-  { valor: "contiene", texto: "Contiene" },
-  { valor: "empieza", texto: "Empieza con" },
-];
-
-/** Texto libre con el modo "contiene" / "empieza con". */
-function CampoTexto({
-  etiqueta,
-  placeholder,
-  texto,
-  onTexto,
-  modo,
-  onModo,
-  autoFocus,
-}: {
-  etiqueta: string;
-  placeholder: string;
-  texto: string;
-  onTexto: (v: string) => void;
-  modo: ModoTextoUrl;
-  onModo: (m: ModoTextoUrl) => void;
-  autoFocus?: boolean;
-}) {
-  const id = useId();
-  return (
-    <div className="flex flex-col gap-2">
-      <label htmlFor={id} className="sr-only">
-        {etiqueta}
-      </label>
-      <input
-        id={id}
-        type="text"
-        value={texto}
-        maxLength={TEXTO_MAX}
-        autoComplete="off"
-        autoFocus={autoFocus}
-        placeholder={placeholder}
-        onChange={(e) => onTexto(e.target.value)}
-        className={INPUT}
-      />
-      <Segmentado
-        leyenda={`Cómo coincide el texto de ${etiqueta}`}
-        opciones={MODOS}
-        valor={modo}
-        onCambiar={onModo}
-      />
-    </div>
-  );
-}
-
-function Seccion({ titulo, children }: { titulo: string; children: ReactNode }) {
-  return (
-    <section className="flex min-h-0 flex-col gap-2">
-      <h3 className="text-ink-faint text-[11px] font-[600]">{titulo}</h3>
-      {children}
-    </section>
-  );
-}
 
 interface CuerpoProps {
   cerrar: () => void;
 }
 
-// ---------------------------------------------------------------------------
-// Código
-// ---------------------------------------------------------------------------
-
-export function CuerpoCodigo({ cerrar }: CuerpoProps) {
-  const { filtros, aplicar, limpiar } = useFiltrosProductos();
-  const [texto, setTexto] = useState(filtros.codigo);
-  const [modo, setModo] = useState(filtros.codigoModo);
-
+function QuitarFiltro({ onClick }: { onClick: () => void }) {
   return (
-    <PanelFiltro
-      titulo="Filtrar por código"
-      hayFiltro={filtros.codigo !== ""}
-      aviso={null}
-      onAplicar={() => {
-        const t = normalizarValor(texto);
-        aplicar(["codigo"], {
-          codigo: t,
-          codigoModo: t !== "" && modo === "empieza" ? modo : undefined,
-        });
-        cerrar();
-      }}
-      onLimpiar={() => {
-        limpiar(["codigo"]);
-        cerrar();
-      }}
+    <button
+      type="button"
+      onClick={onClick}
+      className="text-ink-secondary hover:bg-surface-hover focus-visible:ring-brand/60 -mx-1 flex min-h-[26px] items-center gap-2 rounded-[6px] px-1 text-left text-[12px] font-[550] outline-none focus-visible:ring-2"
     >
-      <CampoTexto
-        etiqueta="Código"
-        placeholder="Parte del código"
-        texto={texto}
-        onTexto={setTexto}
-        modo={modo}
-        onModo={setModo}
-        autoFocus
-      />
-    </PanelFiltro>
+      <span aria-hidden className="w-[18px] text-center font-mono text-[14px] leading-none">
+        ×
+      </span>
+      Quitar filtro
+    </button>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Descripción (texto) + Marca (lista)
+// Lista de valores (código, cód. fábrica, otros códigos, categoría, descripción, marca)
 // ---------------------------------------------------------------------------
 
-export function CuerpoDescripcion({ cerrar }: CuerpoProps) {
-  const { filtros, aplicar, limpiar } = useFiltrosProductos();
-  const [texto, setTexto] = useState(filtros.descripcion);
-  const [modo, setModo] = useState(filtros.descripcionModo);
-  const marcas = useListaFiltro(
-    "marca",
-    filtros.marcas,
-    filtros.sinMarcas,
-    normalizarValor(texto) !== "",
-  );
-  const valoresMarca = valoresDeLista(marcas.resolucion, "marcas", "sinMarcas");
-  const grupos: GrupoFiltro[] = ["descripcion", "marca"];
-
+export function CuerpoLista({ columna }: { columna: ColumnaLista }) {
+  const lista = useListaFiltro(columna);
   return (
-    <PanelFiltro
-      titulo="Filtrar por descripción y marca"
-      hayFiltro={filtros.descripcion !== "" || filtros.marcas.length + filtros.sinMarcas.length > 0}
-      aviso={avisoDeLista(marcas.resolucion, "marca")}
-      onAplicar={() => {
-        const t = normalizarValor(texto);
-        aplicar(grupos, {
-          descripcion: t,
-          descripcionModo: t !== "" && modo === "empieza" ? modo : undefined,
-          ...(valoresMarca ?? {}),
-        });
-        cerrar();
-      }}
-      onLimpiar={() => {
-        limpiar(grupos);
-        cerrar();
-      }}
-    >
-      <Seccion titulo="Descripción">
-        <CampoTexto
-          etiqueta="Descripción"
-          placeholder="Parte de la descripción"
-          texto={texto}
-          onTexto={setTexto}
-          modo={modo}
-          onModo={setModo}
-          autoFocus
-        />
-      </Seccion>
-      <div className="border-line-layout border-t" />
-      <Seccion titulo="Marca">
-        <ListaFiltro lista={marcas} nombre="Marca" plural="marcas" />
-      </Seccion>
-    </PanelFiltro>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Categoría (lista)
-// ---------------------------------------------------------------------------
-
-export function CuerpoCategoria({ cerrar }: CuerpoProps) {
-  const { filtros, aplicar, limpiar } = useFiltrosProductos();
-  const categorias = useListaFiltro("categoria", filtros.categorias, filtros.sinCategorias);
-  const valores = valoresDeLista(categorias.resolucion, "categorias", "sinCategorias");
-
-  return (
-    <PanelFiltro
-      titulo="Filtrar por categoría"
-      hayFiltro={filtros.categorias.length + filtros.sinCategorias.length > 0}
-      aviso={avisoDeLista(categorias.resolucion, "categoría")}
-      onAplicar={() => {
-        aplicar(["categoria"], valores ?? {});
-        cerrar();
-      }}
-      onLimpiar={() => {
-        limpiar(["categoria"]);
-        cerrar();
-      }}
-    >
-      <ListaFiltro lista={categorias} nombre="Categoría" plural="categorías" />
-    </PanelFiltro>
+    <div className="flex min-h-0 flex-col gap-2 p-2">
+      <ListaFiltro lista={lista} columna={columna} />
+    </div>
   );
 }
 
@@ -215,6 +59,7 @@ function CampoRango({
   max,
   onMin,
   onMax,
+  onConfirmar,
   entero,
   error,
   idError,
@@ -224,6 +69,8 @@ function CampoRango({
   max: string;
   onMin: (v: string) => void;
   onMax: (v: string) => void;
+  /** Enter o salir del campo: es cuando el rango se aplica. */
+  onConfirmar: () => void;
   entero: boolean;
   error: string | null;
   idError: string;
@@ -239,7 +86,15 @@ function CampoRango({
     disabled: deshabilitado,
     "aria-invalid": error !== null,
     "aria-describedby": error !== null ? idError : undefined,
+    autoComplete: "off",
     placeholder: "Sin límite",
+    onBlur: onConfirmar,
+    onKeyDown: (e: KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        onConfirmar();
+      }
+    },
     className: `${INPUT} font-mono tabular-nums disabled:opacity-45`,
   };
   return (
@@ -265,45 +120,51 @@ function CampoRango({
       >
         {error}
       </p>
+      <p className="text-ink-faint text-[11px] leading-snug">
+        Se aplica al apretar Enter o al salir del campo.
+      </p>
     </div>
   );
 }
 
-export function CuerpoPrecio({ cerrar }: CuerpoProps) {
+export function CuerpoPrecio(_props: CuerpoProps) {
   const { filtros, aplicar, limpiar } = useFiltrosProductos();
   const [min, setMin] = useState(numeroEditable(filtros.precioMin));
   const [max, setMax] = useState(numeroEditable(filtros.precioMax));
   const idError = useId();
   const error = errorDeRango(min, max, { entero: false, nombre: "precio" });
+  const hayFiltro = filtros.precioMin !== "" || filtros.precioMax !== "";
+
+  function confirmar() {
+    if (error !== null) return;
+    const a = numeroCanonico(min) ?? "";
+    const b = numeroCanonico(max) ?? "";
+    if (a === filtros.precioMin && b === filtros.precioMax) return;
+    aplicar(["precio"], { precioMin: a, precioMax: b });
+  }
 
   return (
-    <PanelFiltro
-      titulo="Filtrar por precio"
-      hayFiltro={filtros.precioMin !== "" || filtros.precioMax !== ""}
-      aviso={error}
-      avisoEnCampo={idError}
-      onAplicar={() => {
-        aplicar(["precio"], {
-          precioMin: numeroCanonico(min) ?? "",
-          precioMax: numeroCanonico(max) ?? "",
-        });
-        cerrar();
-      }}
-      onLimpiar={() => {
-        limpiar(["precio"]);
-        cerrar();
-      }}
-    >
+    <div className="flex flex-col gap-2 p-2">
+      {hayFiltro ? (
+        <QuitarFiltro
+          onClick={() => {
+            setMin("");
+            setMax("");
+            limpiar(["precio"]);
+          }}
+        />
+      ) : null}
       <CampoRango
         min={min}
         max={max}
         onMin={setMin}
         onMax={setMax}
+        onConfirmar={confirmar}
         entero={false}
         error={error}
         idError={idError}
       />
-    </PanelFiltro>
+    </div>
   );
 }
 
@@ -313,11 +174,13 @@ const CON_STOCK: readonly { valor: "todos" | "con" | "sin"; texto: string }[] = 
   { valor: "sin", texto: "Sin stock" },
 ];
 
-function conStockAOpcion(v: ConStockUrl): "todos" | "con" | "sin" {
+type OpcionStock = "todos" | "con" | "sin";
+
+function conStockAOpcion(v: ConStockUrl): OpcionStock {
   return v === "1" ? "con" : v === "0" ? "sin" : "todos";
 }
 
-export function CuerpoStock({ cerrar }: CuerpoProps) {
+export function CuerpoStock(_props: CuerpoProps) {
   const { filtros, aplicar, limpiar } = useFiltrosProductos();
   const [min, setMin] = useState(numeroEditable(filtros.stockMin));
   const [max, setMax] = useState(numeroEditable(filtros.stockMax));
@@ -326,43 +189,63 @@ export function CuerpoStock({ cerrar }: CuerpoProps) {
   // "Sin stock" ya fija el stock en 0: un rango encima es contradictorio.
   const rangoAplica = existencia !== "sin";
   const error = rangoAplica ? errorDeRango(min, max, { entero: true, nombre: "stock" }) : null;
+  const hayFiltro = filtros.stockMin !== "" || filtros.stockMax !== "" || filtros.conStock !== null;
+
+  /** Escribe en la URL lo que dice el borrador; con un rango inválido no toca nada. */
+  function escribir(opcion: OpcionStock) {
+    const rango = opcion !== "sin";
+    if (rango && errorDeRango(min, max, { entero: true, nombre: "stock" }) !== null) return;
+    aplicar(["stock"], {
+      stockMin: rango ? (numeroCanonico(min) ?? "") : undefined,
+      stockMax: rango ? (numeroCanonico(max) ?? "") : undefined,
+      conStock: opcion === "con" ? "1" : opcion === "sin" ? "0" : undefined,
+    });
+  }
+
+  function confirmar() {
+    if (error !== null) return;
+    if (
+      (numeroCanonico(min) ?? "") === filtros.stockMin &&
+      (numeroCanonico(max) ?? "") === filtros.stockMax
+    ) {
+      return;
+    }
+    escribir(existencia);
+  }
 
   return (
-    <PanelFiltro
-      titulo="Filtrar por stock"
-      hayFiltro={filtros.stockMin !== "" || filtros.stockMax !== "" || filtros.conStock !== null}
-      aviso={error}
-      avisoEnCampo={idError}
-      onAplicar={() => {
-        aplicar(["stock"], {
-          stockMin: rangoAplica ? (numeroCanonico(min) ?? "") : undefined,
-          stockMax: rangoAplica ? (numeroCanonico(max) ?? "") : undefined,
-          conStock: existencia === "con" ? "1" : existencia === "sin" ? "0" : undefined,
-        });
-        cerrar();
-      }}
-      onLimpiar={() => {
-        limpiar(["stock"]);
-        cerrar();
-      }}
-    >
+    <div className="flex flex-col gap-2 p-2">
+      {hayFiltro ? (
+        <QuitarFiltro
+          onClick={() => {
+            setMin("");
+            setMax("");
+            setExistencia("todos");
+            limpiar(["stock"]);
+          }}
+        />
+      ) : null}
       <Segmentado
         leyenda="Existencia"
         opciones={CON_STOCK}
         valor={existencia}
-        onCambiar={setExistencia}
+        onCambiar={(v) => {
+          setExistencia(v);
+          escribir(v);
+        }}
       />
       <CampoRango
         min={min}
         max={max}
         onMin={setMin}
         onMax={setMax}
+        onConfirmar={confirmar}
         entero
         error={error}
         idError={idError}
         deshabilitado={!rangoAplica}
       />
-    </PanelFiltro>
+    </div>
   );
 }
 
@@ -379,29 +262,21 @@ const ESTADOS: readonly { valor: OpcionEstado; texto: string }[] = [
 ];
 
 export function CuerpoEstado({ cerrar }: CuerpoProps) {
-  const { filtros, aplicar, limpiar } = useFiltrosProductos();
+  const { filtros, aplicar } = useFiltrosProductos();
   const [estado, setEstado] = useState<OpcionEstado>(filtros.estado ?? "todos");
 
   return (
-    <PanelFiltro
-      titulo="Filtrar por estado"
-      hayFiltro={filtros.estado !== null}
-      aviso={null}
-      onAplicar={() => {
-        aplicar(["estado"], { estado: estado === "todos" ? undefined : estado });
-        cerrar();
-      }}
-      onLimpiar={() => {
-        limpiar(["estado"]);
-        cerrar();
-      }}
-    >
+    <div className="flex flex-col gap-2 p-2">
       <Segmentado
         leyenda="Estado del producto"
         opciones={ESTADOS}
         valor={estado}
-        onCambiar={setEstado}
+        onCambiar={(v) => {
+          setEstado(v);
+          aplicar(["estado"], { estado: v === "todos" ? undefined : v });
+          cerrar();
+        }}
       />
-    </PanelFiltro>
+    </div>
   );
 }

@@ -1,89 +1,92 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { createContext, useCallback, useContext, useMemo, useTransition } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import {
   aplicarGrupos,
+  consultaCanonica,
   hrefCon,
   leerFiltros,
   limpiarGrupos,
   limpiarTodo as limpiarTodoParams,
 } from "@/lib/ui/filtros-productos";
+import { cargadoresDeRed } from "../cliente-productos";
+import { useCargaProductos } from "../use-carga-productos";
+import type { CargadoresProductos } from "../cliente-productos";
+import type { Carga } from "../use-carga-productos";
 import type { FiltrosUrl, GrupoFiltro, ValoresGrupo } from "@/lib/ui/filtros-productos";
-import type {
-  FacetasActionInput,
-  FacetasActionResult,
-} from "@/lib/validation/productos-facetas-action.schema";
 import type { ReactNode } from "react";
 
 interface Contexto {
   filtros: FiltrosUrl;
   /** La URL tal cual está hoy, sin el `?`. */
   query: string;
-  /** Hay una navegación de filtro en curso: la tabla se atenúa hasta que llega. */
-  pendiente: boolean;
-  /** La Server Action que trae las listas de filtro; la inyecta la página. */
-  cargarFacetas: (input: FacetasActionInput) => Promise<FacetasActionResult>;
+  /** La URL reducida a lo que define las filas (filtros y orden), en forma canónica. */
+  consulta: string;
+  carga: Carga;
+  /** De dónde salen los lotes y las listas de valores; se inyecta en los tests. */
+  cargadores: CargadoresProductos;
+  /** Escribe una URL nueva sin recargar la página. */
+  navegar: (params: URLSearchParams) => void;
   aplicar: (grupos: readonly GrupoFiltro[], valores: ValoresGrupo) => void;
   limpiar: (grupos: readonly GrupoFiltro[]) => void;
   limpiarTodo: () => void;
+  /** Vuelve a leer el catálogo sin esqueleto: se llama al guardar un producto. */
+  recargar: () => void;
 }
 
 const FiltrosContext = createContext<Contexto | null>(null);
 
 /**
- * Estado compartido de los filtros de `/productos`: los desplegables de los
- * encabezados y los chips escriben la misma URL por acá.
+ * Estado compartido de `/productos`: la URL, los filtros que salen de ella y la carga
+ * completa del catálogo que esos filtros definen.
  *
- * `router.replace` y no `push`: cambiar cinco filtros seguidos no son cinco
- * pasos atrás. La navegación va en una transición para que la tabla vieja siga
- * a la vista (atenuada, `aria-busy`) hasta que llega la nueva, en vez de
- * desaparecer detrás del esqueleto de carga.
+ * Los encabezados, los chips y el buscador escriben la misma URL por acá, con la API
+ * nativa `history.replaceState`, que Next integra con `useSearchParams`: la URL cambia
+ * al instante y la carga arranca ya, sin pasar por un viaje al servidor que no tiene
+ * nada que decidir (la página no lee los filtros: los lee el navegador y los manda a
+ * `/api/productos/*`). `replaceState` y no `pushState`: cambiar cinco filtros seguidos
+ * no son cinco pasos atrás.
  */
 export function FiltrosProductosProvider({
-  cargarFacetas,
+  cargadores = cargadoresDeRed,
   children,
 }: {
-  cargarFacetas: Contexto["cargarFacetas"];
+  cargadores?: CargadoresProductos;
   children: ReactNode;
 }) {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [pendiente, iniciar] = useTransition();
   const query = searchParams.toString();
+  const [version, setVersion] = useState(0);
+  const consulta = useMemo(() => consultaCanonica(new URLSearchParams(query)), [query]);
+  const carga = useCargaProductos(consulta, version, cargadores.lote);
 
   const navegar = useCallback(
     (params: URLSearchParams) => {
-      iniciar(() => router.replace(hrefCon(pathname, params), { scroll: false }));
+      window.history.replaceState(null, "", hrefCon(pathname, params));
     },
-    [pathname, router],
+    [pathname],
   );
+  const recargar = useCallback(() => setVersion((v) => v + 1), []);
 
   const valor = useMemo<Contexto>(
     () => ({
       filtros: leerFiltros(new URLSearchParams(query)),
       query,
-      pendiente,
-      cargarFacetas,
+      consulta,
+      carga,
+      cargadores,
+      navegar,
       aplicar: (grupos, valores) => navegar(aplicarGrupos(query, grupos, valores)),
       limpiar: (grupos) => navegar(limpiarGrupos(query, grupos)),
       limpiarTodo: () => navegar(limpiarTodoParams(query)),
+      recargar,
     }),
-    [query, pendiente, cargarFacetas, navegar],
+    [query, consulta, carga, cargadores, navegar, recargar],
   );
 
-  return (
-    <FiltrosContext.Provider value={valor}>
-      <div
-        aria-busy={pendiente}
-        className="group/filtros flex min-h-0 flex-1 flex-col"
-        data-pendiente={pendiente ? "" : undefined}
-      >
-        {children}
-      </div>
-    </FiltrosContext.Provider>
-  );
+  return <FiltrosContext.Provider value={valor}>{children}</FiltrosContext.Provider>;
 }
 
 export function useFiltrosProductos(): Contexto {
@@ -93,3 +96,13 @@ export function useFiltrosProductos(): Contexto {
   }
   return ctx;
 }
+
+/**
+ * Para quien guarda un producto: vuelve a leer el catálogo. Fuera del proveedor no
+ * hace nada (el formulario de alta no depende de que haya una tabla a la vista).
+ */
+export function useRecargarProductos(): () => void {
+  return useContext(FiltrosContext)?.recargar ?? noHacerNada;
+}
+
+function noHacerNada() {}

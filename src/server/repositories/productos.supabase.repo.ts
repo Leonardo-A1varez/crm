@@ -5,7 +5,16 @@ import {
   PermissionDeniedError,
   ValidationError,
 } from "@/lib/errors";
-import type { OpcionesFacetas, ProductosFiltros } from "@/lib/validation/productos-filtros.schema";
+import {
+  campoOrdenSql,
+  COLUMNAS_LISTA,
+  DEFINICIONES_LISTA,
+} from "@/lib/catalogo/columnas-productos";
+import {
+  LOTE_TAMANO,
+  type OpcionesFaceta,
+  type ProductosFiltros,
+} from "@/lib/validation/productos-filtros.schema";
 import type { AppClient } from "@/server/db/client";
 import { FILAS_POR_PAGINA } from "@/server/db/paginar";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
@@ -14,7 +23,7 @@ import { serverNowIso } from "@/server/db/server-time";
 import type { Database, Json } from "@/server/db/types.gen";
 import { isUuid } from "@/server/db/uuid";
 import type { CompatibilidadEntry, Producto, UUID } from "@/types/entities";
-import type { Faceta, ProductosFacetas, ProductosPagina } from "@/types/productos";
+import type { Faceta, LoteProductos, ProductoFila } from "@/types/productos";
 import type {
   ProductoBulkUpsertItem,
   ProductoInsert,
@@ -192,15 +201,17 @@ export class SupabaseProductsRepository implements ProductsRepository {
   }
 
   /**
-   * Delega en `public.productos_listar`: filtro, orden, página y total se
-   * resuelven en Postgres y a Next solo llegan `porPagina` filas. No pasa por
-   * `.list()`, que o corta en 1.000 (lección 12) o trae todo el catálogo.
+   * Delega en `public.productos_listar`: filtro, orden, recorte y total se resuelven
+   * en Postgres y a Next solo llegan `LOTE_TAMANO` filas. No pasa por `.list()`, que o
+   * corta en 1.000 (lección 12) o trae todo el catálogo.
    */
-  async listarFiltrado(filtros: ProductosFiltros): Promise<ProductosPagina> {
+  async listarLote(filtros: ProductosFiltros, lote: number): Promise<LoteProductos> {
+    const desde = (lote - 1) * LOTE_TAMANO;
     const { data, error } = await this.db.rpc("productos_listar", {
       p_filtros: filtrosAJson(filtros),
-      p_pagina: filtros.pagina,
-      p_por_pagina: filtros.porPagina,
+      p_orden: ordenAJson(filtros),
+      p_desde: desde,
+      p_cantidad: LOTE_TAMANO,
     });
     if (error) throw mapPostgrestError(error, { resource: "producto" });
 
@@ -214,38 +225,34 @@ export class SupabaseProductsRepository implements ProductsRepository {
       throw new InfraError("productos_listar devolvió un resultado con forma inesperada", "db");
     }
     return {
-      items: (sobre.items as ProductoRow[]).map(mapRow),
+      filas: (sobre.items as FilaRow[]).map(mapFila),
       total: sobre.total,
-      pagina: filtros.pagina,
-      porPagina: filtros.porPagina,
+      lote,
+      desde,
     };
   }
 
   /**
-   * Delega en `public.productos_facetas`: el conteo, la búsqueda dentro de la
-   * lista y el recorte los hace Postgres.
+   * Delega en `public.productos_faceta`: el conteo, la búsqueda dentro de la lista y
+   * el recorte los hace Postgres.
    */
-  async facetas(filtros: ProductosFiltros, opciones: OpcionesFacetas): Promise<ProductosFacetas> {
-    const json = filtrosAJson(filtros) as Record<string, Json>;
-    if (opciones.qCategoria !== undefined) json["q_categoria"] = opciones.qCategoria;
-    if (opciones.qMarca !== undefined) json["q_marca"] = opciones.qMarca;
-    const { data, error } = await this.db.rpc("productos_facetas", {
-      p_filtros: json,
+  async faceta(filtros: ProductosFiltros, opciones: OpcionesFaceta): Promise<Faceta> {
+    const { data, error } = await this.db.rpc("productos_faceta", {
+      p_filtros: filtrosAJson(filtros),
+      p_columna: DEFINICIONES_LISTA[opciones.columna].sql,
       p_limite: opciones.limite,
-      // Sin columna van las dos: `undefined` hace que PostgREST use el default.
-      p_columna: opciones.columna,
+      // Sin búsqueda `undefined` hace que PostgREST use el default.
+      p_busqueda: opciones.q,
     });
     if (error) throw mapPostgrestError(error, { resource: "producto" });
 
-    const categorias: Faceta = { valores: [], distintos: 0 };
-    const marcas: Faceta = { valores: [], distintos: 0 };
+    const faceta: Faceta = { valores: [], distintos: 0 };
     // bigint llega como número en el JSON de PostgREST.
     for (const fila of data ?? []) {
-      const faceta = fila.columna === "categoria" ? categorias : marcas;
       faceta.valores.push({ valor: fila.valor, cantidad: Number(fila.cantidad) });
       faceta.distintos = Number(fila.distintos);
     }
-    return { categorias, marcas };
+    return faceta;
   }
 
   async bulkUpsert(items: ProductoBulkUpsertItem[]): Promise<Producto[]> {
@@ -332,23 +339,16 @@ function toDbInsert(input: ProductoInsert): ProductoDbInsert {
 /**
  * Filtros validados → el jsonb que leen `productos_filtrados` y sus hermanas.
  * Las claves ausentes significan "sin filtro", por eso solo se agregan las que
- * tienen valor.
+ * tienen valor. El orden y la paginación no viajan acá: los pide `listarLote`.
  */
 function filtrosAJson(f: ProductosFiltros): Json {
   const j: Record<string, Json> = {};
   if (f.q !== undefined) j["q"] = f.q;
-  if (f.codigo !== undefined) {
-    j["codigo"] = f.codigo;
-    j["codigo_modo"] = f.codigoModo;
+  for (const columna of COLUMNAS_LISTA) {
+    const d = DEFINICIONES_LISTA[columna];
+    if (f[d.incluir].length > 0) j[d.jsonIncluir] = f[d.incluir];
+    if (f[d.excluir].length > 0) j[d.jsonExcluir] = f[d.excluir];
   }
-  if (f.descripcion !== undefined) {
-    j["descripcion"] = f.descripcion;
-    j["descripcion_modo"] = f.descripcionModo;
-  }
-  if (f.categorias.length > 0) j["categorias"] = f.categorias;
-  if (f.sinCategorias.length > 0) j["sin_categorias"] = f.sinCategorias;
-  if (f.marcas.length > 0) j["marcas"] = f.marcas;
-  if (f.sinMarcas.length > 0) j["sin_marcas"] = f.sinMarcas;
   if (f.precioMin !== undefined) j["precio_min"] = f.precioMin;
   if (f.precioMax !== undefined) j["precio_max"] = f.precioMax;
   if (f.stockMin !== undefined) j["stock_min"] = f.stockMin;
@@ -356,6 +356,30 @@ function filtrosAJson(f: ProductosFiltros): Json {
   if (f.conStock !== null) j["con_stock"] = f.conStock;
   if (f.estado !== null) j["estado"] = f.estado;
   return j;
+}
+
+/** Los niveles de orden como los lee `productos_listar`: nombres de columna de SQL. */
+function ordenAJson(f: ProductosFiltros): Json {
+  return f.orden.map((n) => ({ campo: campoOrdenSql(n.campo), dir: n.dir }));
+}
+
+/** Una fila de `productos_listar`: ya viene recortada a las columnas que muestra la tabla. */
+type FilaRow = ProductoFila;
+
+function mapFila(row: FilaRow): ProductoFila {
+  return {
+    id: row.id,
+    codigo_interno: row.codigo_interno,
+    codigo_fabrica: row.codigo_fabrica,
+    otros_codigos: [...(row.otros_codigos ?? [])],
+    sku_proveedor: row.sku_proveedor,
+    nombre: row.nombre,
+    descripcion: row.descripcion,
+    categoria: row.categoria,
+    precio: row.precio,
+    stock: row.stock,
+    activo: row.activo,
+  };
 }
 
 interface ProductoRow {

@@ -1,25 +1,26 @@
 import { describe, expect, test } from "vitest";
+import { COLUMNAS_LISTA, DEFINICIONES_LISTA } from "@/lib/catalogo/columnas-productos";
 import { ValidationError } from "@/lib/errors";
 import {
   aplicarGrupos,
   aUrlSearchParams,
   avisoDeLista,
-  conPagina,
+  consultaCanonica,
   errorDeRango,
-  filtrosParaFacetas,
   gruposActivos,
   hayFiltros,
   hrefCon,
   leerFiltros,
+  leerOrden,
   limpiarGrupos,
   limpiarTodo,
   mensajesDeFiltrosInvalidos,
   numeroCanonico,
   numeroEditable,
   parsearNumero,
-  rangoDePagina,
   resumirFiltros,
   valoresDeLista,
+  valorLegible,
 } from "@/lib/ui/filtros-productos";
 import {
   LISTA_MAX,
@@ -31,67 +32,86 @@ import {
 /** Nombres y valores de estos tests son inventados para ilustrar la URL. */
 
 describe("leerFiltros", () => {
-  test("una URL vacía no tiene filtros y cae a la página 1 con 50 por página", () => {
+  test("una URL vacía no tiene filtros ni orden elegido", () => {
     const f = leerFiltros(new URLSearchParams());
     expect(hayFiltros(f)).toBe(false);
-    expect(f.pagina).toBe(1);
-    expect(f.porPagina).toBe(50);
-    expect(f.codigoModo).toBe("contiene");
+    expect(f.orden).toEqual([]);
     expect(f.conStock).toBeNull();
     expect(f.estado).toBeNull();
+    for (const c of COLUMNAS_LISTA) expect(f.listas[c]).toEqual({ incluir: [], excluir: [] });
   });
 
   test("lee las claves repetidas como lista y respeta incluir y excluir por separado", () => {
     const f = leerFiltros(
       new URLSearchParams(
-        "marcas=Alfa&marcas=Beta&sinCategorias=Uno&codigo=ab&codigoModo=empieza&conStock=1&estado=inactivo&pagina=3",
+        "marcas=Alfa&marcas=Beta&sinCategorias=Uno&codigos=10&sinOtrosCodigos=ZZ&conStock=1&estado=inactivo&descripciones=Bomba",
       ),
     );
-    expect(f.marcas).toEqual(["Alfa", "Beta"]);
-    expect(f.sinMarcas).toEqual([]);
-    expect(f.sinCategorias).toEqual(["Uno"]);
-    expect(f.codigo).toBe("ab");
-    expect(f.codigoModo).toBe("empieza");
+    expect(f.listas.marca).toEqual({ incluir: ["Alfa", "Beta"], excluir: [] });
+    expect(f.listas.categoria).toEqual({ incluir: [], excluir: ["Uno"] });
+    expect(f.listas.codigo.incluir).toEqual(["10"]);
+    expect(f.listas.otrosCodigos.excluir).toEqual(["ZZ"]);
+    expect(f.listas.descripcion.incluir).toEqual(["Bomba"]);
     expect(f.conStock).toBe("1");
     expect(f.estado).toBe("inactivo");
-    expect(f.pagina).toBe(3);
   });
 
   test("acepta el formato de searchParams de Next (string o string[])", () => {
     const f = leerFiltros({ marcas: ["A", "B"], precioMin: "10", estado: "activo" });
-    expect(f.marcas).toEqual(["A", "B"]);
+    expect(f.listas.marca.incluir).toEqual(["A", "B"]);
     expect(f.precioMin).toBe("10");
     expect(f.estado).toBe("activo");
   });
 
-  test("un valor que no entiende cae al neutro y nunca tira", () => {
-    const f = leerFiltros(
-      new URLSearchParams("conStock=quizas&estado=otro&codigoModo=raro&pagina=abc&porPagina=9999"),
-    );
+  test("un valor que no entiende cae al neutro y nunca tira; la paginación de antes no existe", () => {
+    const f = leerFiltros(new URLSearchParams("conStock=quizas&estado=otro&pagina=3&porPagina=9"));
     expect(f.conStock).toBeNull();
     expect(f.estado).toBeNull();
-    expect(f.codigoModo).toBe("contiene");
-    expect(f.pagina).toBe(1);
-    expect(f.porPagina).toBe(100);
+    expect(Object.keys(f)).not.toContain("pagina");
   });
 
-  test("un filtro puesto se detecta por grupo", () => {
-    const f = leerFiltros(new URLSearchParams("sinMarcas=X&stockMax=5&descripcion=bomba"));
-    expect(gruposActivos(f)).toEqual(["descripcion", "marca", "stock"]);
+  test("un filtro puesto se detecta por grupo, en el orden de las columnas", () => {
+    const f = leerFiltros(new URLSearchParams("sinMarcas=X&stockMax=5&descripciones=bomba&q=hola"));
+    expect(gruposActivos(f)).toEqual(["busqueda", "descripcion", "marca", "stock"]);
+  });
+
+  test("el orden de la URL se valida contra los campos y se corta en tres", () => {
+    const f = leerFiltros(
+      new URLSearchParams(
+        "orden=marca&dir=desc&orden=xxx&dir=asc&orden=precio&orden=stock&orden=estado",
+      ),
+    );
+    expect(f.orden).toEqual([
+      { campo: "marca", dir: "desc" },
+      { campo: "precio", dir: "asc" },
+      { campo: "stock", dir: "asc" },
+    ]);
+    expect(leerOrden({ orden: "codigo", dir: "desc" })).toEqual([{ campo: "codigo", dir: "desc" }]);
+  });
+
+  test("recorta los espacios con el mismo conjunto que SQL (no con trim())", () => {
+    const f = leerFiltros(new URLSearchParams({ q: "\t bomba \r\n" }));
+    expect(f.q).toBe("bomba");
   });
 });
 
 describe("aplicarGrupos y limpiarGrupos", () => {
-  test("cambiar un filtro vuelve a la página 1 y conserva porPagina y los demás filtros", () => {
-    const p = aplicarGrupos("pagina=4&porPagina=20&estado=activo", ["precio"], {
+  test("cambiar un filtro conserva el orden y los demás filtros", () => {
+    const p = aplicarGrupos("estado=activo&orden=precio&dir=desc", ["precio"], {
       precioMin: "10",
       precioMax: "50",
     });
-    expect(p.get("pagina")).toBeNull();
-    expect(p.get("porPagina")).toBe("20");
     expect(p.get("estado")).toBe("activo");
+    expect(p.getAll("orden")).toEqual(["precio"]);
+    expect(p.getAll("dir")).toEqual(["desc"]);
     expect(p.get("precioMin")).toBe("10");
     expect(p.get("precioMax")).toBe("50");
+  });
+
+  test("saca los parámetros de la paginación que hayan quedado en un link viejo", () => {
+    const p = aplicarGrupos("pagina=4&porPagina=20&estado=activo", ["precio"], { precioMin: "1" });
+    expect(p.get("pagina")).toBeNull();
+    expect(p.get("porPagina")).toBeNull();
   });
 
   test("reemplaza las claves del grupo: pasar de incluir a excluir no deja las dos", () => {
@@ -107,259 +127,161 @@ describe("aplicarGrupos y limpiarGrupos", () => {
   });
 
   test("un valor vacío o undefined deja la clave fuera de la URL", () => {
-    const p = aplicarGrupos("codigo=x&codigoModo=empieza", ["codigo"], {
-      codigo: "",
-      codigoModo: undefined,
-    });
+    const p = aplicarGrupos("q=x", ["busqueda"], { q: "" });
     expect(p.toString()).toBe("");
   });
 
-  test("limpiarGrupos saca solo ese grupo, con su modo", () => {
-    const p = limpiarGrupos("codigo=x&codigoModo=empieza&estado=activo&pagina=2", ["codigo"]);
+  test.each(COLUMNAS_LISTA)("limpiarGrupos saca las dos claves de %s", (columna) => {
+    const d = DEFINICIONES_LISTA[columna];
+    const p = limpiarGrupos(`${d.incluir}=a&${d.excluir}=b&estado=activo`, [columna]);
     expect(p.toString()).toBe("estado=activo");
   });
 
-  test("limpiarTodo saca todos los filtros y la página, no porPagina", () => {
+  test("limpiarTodo saca los filtros pero deja el orden", () => {
     const p = limpiarTodo(
-      "codigo=x&sinCategorias=A&precioMin=1&conStock=0&estado=activo&pagina=5&porPagina=25",
+      "q=x&marcas=A&codigos=1&precioMin=3&stockMin=1&conStock=1&estado=activo&orden=marca&dir=asc",
     );
-    expect(p.toString()).toBe("porPagina=25");
-  });
-});
-
-describe("conPagina, hrefCon y aUrlSearchParams", () => {
-  test("la página 1 se escribe sin parámetro", () => {
-    expect(conPagina("estado=activo&pagina=3", 1).toString()).toBe("estado=activo");
-    expect(conPagina("estado=activo", 4).toString()).toBe("estado=activo&pagina=4");
+    expect(p.toString()).toBe("orden=marca&dir=asc");
   });
 
-  test("hrefCon no deja un signo de pregunta suelto", () => {
+  test("hrefCon no deja un ? suelto", () => {
     expect(hrefCon("/productos", new URLSearchParams())).toBe("/productos");
     expect(hrefCon("/productos", new URLSearchParams("a=1"))).toBe("/productos?a=1");
   });
 
-  test("aUrlSearchParams repite la clave de un array y salta lo indefinido", () => {
-    const p = aUrlSearchParams({ marcas: ["A", "B"], estado: "activo", pagina: undefined });
-    expect(p.toString()).toBe("marcas=A&marcas=B&estado=activo");
-  });
-
-  test("filtrosParaFacetas deja afuera pagina y porPagina y agrupa las claves repetidas", () => {
-    const f = filtrosParaFacetas(
-      new URLSearchParams("sinMarcas=A&sinMarcas=B&precioMin=5&pagina=2&porPagina=10&otra=x"),
-    );
-    expect(f).toEqual({ sinMarcas: ["A", "B"], precioMin: "5" });
+  test("aUrlSearchParams repite la clave por cada valor de un array de Next", () => {
+    const p = aUrlSearchParams({ marcas: ["A", "B"], q: "x", nada: undefined });
+    expect(p.toString()).toBe("marcas=A&marcas=B&q=x");
   });
 });
 
-describe("resumirFiltros", () => {
-  const resumen = (q: string) => resumirFiltros(leerFiltros(new URLSearchParams(q)));
-
-  test("sin filtros no hay chips", () => {
-    expect(resumen("")).toEqual([]);
+describe("consultaCanonica: la URL reducida a lo que define las filas", () => {
+  test("dos URLs que significan lo mismo dan el mismo texto, sin importar el orden de las claves ni de los valores", () => {
+    const a = consultaCanonica("marcas=B&marcas=A&q=x&estado=activo");
+    const b = consultaCanonica("estado=activo&q=x&marcas=A&marcas=B");
+    expect(a).toBe(b);
   });
 
-  test("texto con su modo", () => {
-    expect(resumen("codigo=ab&codigoModo=empieza")).toEqual([
-      { grupo: "codigo", texto: "Código empieza con “ab”" },
-    ]);
-    expect(resumen("descripcion=bomba")).toEqual([
-      { grupo: "descripcion", texto: "Descripción contiene “bomba”" },
-    ]);
+  test("descarta lo que no es un filtro ni un orden: parámetros desconocidos, vacíos y duplicados", () => {
+    expect(consultaCanonica("zzz=1&pagina=3&marcas=A&marcas=A&marcas=&q=")).toBe("marcas=A");
   });
 
-  test("incluir lista hasta dos valores y después cuenta", () => {
-    expect(resumen("marcas=Kia")[0]?.texto).toBe("Marca: Kia");
-    expect(resumen("marcas=Kia&marcas=Audi")[0]?.texto).toBe("Marca: Kia, Audi");
-    expect(resumen("marcas=A&marcas=B&marcas=C")[0]?.texto).toBe("Marca: 3 valores");
-  });
-
-  test("excluir dice 'todas menos' y traduce los comodines", () => {
-    expect(resumen(`sinMarcas=${encodeURIComponent(SIN_MARCA)}`)[0]?.texto).toBe(
-      "Marca: todas menos sin marca",
+  test("los niveles de orden conservan su orden: el primero manda", () => {
+    expect(consultaCanonica("orden=marca&dir=desc&orden=precio&dir=asc")).toBe(
+      "orden=marca&dir=desc&orden=precio&dir=asc",
     );
-    expect(
-      resumen(`sinCategorias=${encodeURIComponent(SIN_CATEGORIA)}&sinCategorias=Frenos`)[0]?.texto,
-    ).toBe("Categoría: todas menos sin categoría, Frenos");
-    expect(resumen("sinCategorias=A&sinCategorias=B&sinCategorias=C")[0]?.texto).toBe(
-      "Categoría: todas menos 3 categorías",
+    expect(consultaCanonica("orden=precio&dir=asc&orden=marca&dir=desc")).not.toBe(
+      consultaCanonica("orden=marca&dir=desc&orden=precio&dir=asc"),
     );
   });
 
-  test("rangos: desde, hasta y entre", () => {
-    expect(resumen("precioMin=100")[0]?.texto).toBe("Precio: desde 100");
-    expect(resumen("precioMax=250")[0]?.texto).toBe("Precio: hasta 250");
-    expect(resumen("stockMin=1&stockMax=10")[0]?.texto).toBe("Stock: 1 a 10");
+  test("sinOrden deja los filtros solos: las listas de valores no dependen del orden", () => {
+    expect(consultaCanonica("marcas=A&orden=precio&dir=desc", { sinOrden: true })).toBe("marcas=A");
   });
 
-  test("stock suma con/sin stock al rango", () => {
-    expect(resumen("conStock=1&stockMin=5")[0]?.texto).toBe("Stock: con stock, desde 5");
-    expect(resumen("conStock=0")[0]?.texto).toBe("Stock: sin stock");
-  });
-
-  test("estado y el orden de las columnas", () => {
-    const r = resumen("estado=inactivo&codigo=x&sinMarcas=A&precioMin=1");
-    expect(r.map((x) => x.grupo)).toEqual(["codigo", "marca", "precio", "estado"]);
-    expect(r.at(-1)?.texto).toBe("Estado: Inactivo");
-  });
-});
-
-describe("errorDeRango", () => {
-  test("vacío o bien formado no tiene error", () => {
-    expect(errorDeRango("", "", { entero: false, nombre: "precio" })).toBeNull();
-    expect(errorDeRango("5", "", { entero: false, nombre: "precio" })).toBeNull();
-    expect(errorDeRango("1.5", "2.5", { entero: false, nombre: "precio" })).toBeNull();
-    expect(errorDeRango("5", "5", { entero: true, nombre: "stock" })).toBeNull();
-  });
-
-  test("mínimo mayor que máximo", () => {
-    expect(errorDeRango("10", "5", { entero: false, nombre: "precio" })).toBe(
-      "El mínimo de precio no puede ser mayor que el máximo.",
+  test("sinColumna quita los filtros de esa columna (los dos modos) y no los de las otras", () => {
+    const q = "marcas=A&sinCategorias=B&q=x";
+    expect(consultaCanonica(q, { sinOrden: true, sinColumna: "marca" })).toBe(
+      "q=x&sinCategorias=B",
     );
+    expect(consultaCanonica(q, { sinOrden: true, sinColumna: "categoria" })).toBe("q=x&marcas=A");
   });
 
-  test("negativos y no numéricos", () => {
-    expect(errorDeRango("-1", "", { entero: false, nombre: "precio" })).toMatch(/desde 0/);
-    expect(errorDeRango("", "abc", { entero: false, nombre: "precio" })).toMatch(/máximo/);
+  test("un orden inválido no entra en la consulta", () => {
+    expect(consultaCanonica("orden=nombre&dir=desc")).toBe("");
   });
 
-  test("el stock tiene que ser entero", () => {
-    expect(errorDeRango("1.5", "", { entero: true, nombre: "stock" })).toMatch(/entero/);
-  });
-});
-
-describe("rangoDePagina", () => {
-  test("primera, intermedia y última página", () => {
-    expect(rangoDePagina(1300, 1, 50)).toEqual({ totalPaginas: 26, desde: 1, hasta: 50 });
-    expect(rangoDePagina(1300, 26, 50)).toEqual({ totalPaginas: 26, desde: 1251, hasta: 1300 });
-    expect(rangoDePagina(67, 2, 50)).toEqual({ totalPaginas: 2, desde: 51, hasta: 67 });
-  });
-
-  test("sin resultados hay una página y rango en cero", () => {
-    expect(rangoDePagina(0, 1, 50)).toEqual({ totalPaginas: 1, desde: 0, hasta: 0 });
-  });
-
-  test("un total exacto no suma una página de más", () => {
-    expect(rangoDePagina(100, 2, 50)).toEqual({ totalPaginas: 2, desde: 51, hasta: 100 });
+  test("el mismo conjunto, escrito con un orden distinto, es otra consulta (otras filas en otro lugar)", () => {
+    expect(consultaCanonica("marcas=A")).not.toBe(
+      consultaCanonica("marcas=A&orden=precio&dir=asc"),
+    );
   });
 });
 
 describe("valoresDeLista y avisoDeLista", () => {
-  test("incluir y excluir eligen su clave; sin filtro limpia la columna", () => {
-    expect(valoresDeLista({ tipo: "incluir", valores: ["A"] }, "marcas", "sinMarcas")).toEqual({
-      marcas: ["A"],
+  test("cada resolución se traduce a las claves de su columna", () => {
+    expect(valoresDeLista({ tipo: "sin-filtro" }, "marca")).toEqual({});
+    expect(valoresDeLista({ tipo: "incluir", valores: ["A"] }, "marca")).toEqual({ marcas: ["A"] });
+    expect(valoresDeLista({ tipo: "excluir", valores: ["A"] }, "otrosCodigos")).toEqual({
+      sinOtrosCodigos: ["A"],
     });
-    expect(valoresDeLista({ tipo: "excluir", valores: ["B"] }, "marcas", "sinMarcas")).toEqual({
-      sinMarcas: ["B"],
+    expect(valoresDeLista({ tipo: "incluir", valores: ["1"] }, "codigo")).toEqual({
+      codigos: ["1"],
     });
-    expect(valoresDeLista({ tipo: "sin-filtro" }, "marcas", "sinMarcas")).toEqual({});
+    expect(valoresDeLista({ tipo: "ninguno" }, "marca")).toBeNull();
+    expect(valoresDeLista({ tipo: "demasiados", cantidad: 400 }, "marca")).toBeNull();
   });
 
-  test("nada marcado y demasiados no se pueden aplicar", () => {
-    expect(valoresDeLista({ tipo: "ninguno" }, "marcas", "sinMarcas")).toBeNull();
-    expect(valoresDeLista({ tipo: "demasiados", cantidad: 400 }, "marcas", "sinMarcas")).toBeNull();
-  });
-
-  test("el aviso explica por qué, y no hay aviso si se puede aplicar", () => {
-    expect(avisoDeLista({ tipo: "ninguno" }, "marca")).toMatch(/al menos un valor/);
-    expect(avisoDeLista({ tipo: "demasiados", cantidad: 400 }, "marca")).toContain(
+  test("el aviso nombra la columna y solo existe cuando no se puede aplicar", () => {
+    expect(avisoDeLista({ tipo: "ninguno" }, "codigoFabrica")).toBe(
+      "Marcá al menos un valor de códigos de fábrica.",
+    );
+    expect(avisoDeLista({ tipo: "demasiados", cantidad: 500 }, "marca")).toContain(
       String(LISTA_MAX),
     );
-    expect(avisoDeLista({ tipo: "incluir", valores: ["A"] }, "marca")).toBeNull();
     expect(avisoDeLista({ tipo: "sin-filtro" }, "marca")).toBeNull();
+    expect(avisoDeLista({ tipo: "incluir", valores: ["A"] }, "marca")).toBeNull();
   });
 });
 
-describe("mensajesDeFiltrosInvalidos con los errores reales del schema", () => {
-  function mensajes(raw: Record<string, unknown>): string[] {
-    try {
-      parseProductosFiltros(raw);
-    } catch (e) {
-      if (e instanceof ValidationError) return mensajesDeFiltrosInvalidos(e.issues);
-      throw e;
-    }
-    throw new Error("se esperaba un ValidationError");
-  }
-
-  test("rango de precio y de stock invertidos", () => {
-    const m = mensajes({ precioMin: "500", precioMax: "100", stockMin: "9", stockMax: "2" });
-    expect(m).toContain("El mínimo de precio no puede ser mayor que el máximo.");
-    expect(m).toContain("El mínimo de stock no puede ser mayor que el máximo.");
+describe("resumirFiltros: los chips", () => {
+  test("sin filtros no hay chips", () => {
+    expect(resumirFiltros(leerFiltros(new URLSearchParams()))).toEqual([]);
   });
 
-  test("incluir y excluir marcas a la vez", () => {
-    const m = mensajes({ marcas: "A", sinMarcas: "B" });
-    expect(m).toHaveLength(1);
-    expect(m[0]).toMatch(/^Marca: .*incluye y excluye/);
-  });
-
-  test("más de 300 valores", () => {
-    const m = mensajes({ sinCategorias: Array.from({ length: LISTA_MAX + 1 }, (_, i) => `c${i}`) });
-    expect(m).toEqual([expect.stringContaining(String(LISTA_MAX))]);
-    expect(m[0]).toMatch(/^Categoría:/);
-  });
-
-  test("texto demasiado largo y número inválido", () => {
-    expect(mensajes({ codigo: "x".repeat(101) })).toEqual([
-      expect.stringMatching(/^Código: .*100 caracteres/),
-    ]);
-    expect(mensajes({ precioMin: "abc" })).toEqual([expect.stringMatching(/^Precio:/)]);
-  });
-
-  test("una forma que no reconoce cae en un mensaje genérico", () => {
-    expect(mensajesDeFiltrosInvalidos(undefined)).toEqual([
-      "Hay filtros en la URL que no son válidos.",
-    ]);
-    expect(mensajesDeFiltrosInvalidos([{ path: ["raro"], message: "x" }])).toEqual([
-      "Hay filtros en la URL que no son válidos.",
-    ]);
-  });
-});
-
-describe("q: buscador general en la URL", () => {
-  test("leerFiltros lee q recortado y sin q queda vacío", () => {
-    expect(leerFiltros(new URLSearchParams("q=%20bomba%20")).q).toBe("bomba");
-    expect(leerFiltros(new URLSearchParams()).q).toBe("");
-    expect(leerFiltros({ q: ["a", "b"] }).q).toBe("a");
-  });
-
-  test("cuenta como filtro: hayFiltros y el grupo 'busqueda'", () => {
-    const f = leerFiltros(new URLSearchParams("q=bomba"));
-    expect(hayFiltros(f)).toBe(true);
-    expect(gruposActivos(f)).toEqual(["busqueda"]);
-    expect(hayFiltros(leerFiltros(new URLSearchParams("q=%20")))).toBe(false);
-  });
-
-  test("aplicarGrupos escribe q, vuelve a la página 1 y conserva los otros filtros", () => {
-    const p = aplicarGrupos("estado=activo&pagina=4&porPagina=20", ["busqueda"], { q: "bomba" });
-    expect(p.get("q")).toBe("bomba");
-    expect(p.get("pagina")).toBeNull();
-    expect(p.get("estado")).toBe("activo");
-    expect(p.get("porPagina")).toBe("20");
-  });
-
-  test("q vacío saca la clave, y reemplaza el q anterior en vez de sumarse", () => {
-    expect(aplicarGrupos("q=viejo&estado=activo", ["busqueda"], { q: "" }).toString()).toBe(
-      "estado=activo",
+  test("un chip por filtro puesto, en el orden de las columnas", () => {
+    const r = resumirFiltros(
+      leerFiltros(
+        new URLSearchParams(
+          "estado=activo&precioMin=10&marcas=Alfa&codigos=10&q=bomba&stockMin=3&conStock=1&descripciones=Radiador",
+        ),
+      ),
     );
-    expect(aplicarGrupos("q=viejo", ["busqueda"], { q: "nuevo" }).getAll("q")).toEqual(["nuevo"]);
+    expect(r.map((x) => x.grupo)).toEqual([
+      "busqueda",
+      "codigo",
+      "descripcion",
+      "marca",
+      "precio",
+      "stock",
+      "estado",
+    ]);
+    expect(r.map((x) => x.texto)).toEqual([
+      "Búsqueda: “bomba”",
+      "Código: 10",
+      "Descripción: Radiador",
+      "Marca: Alfa",
+      "Precio: desde 10",
+      "Stock: con stock, desde 3",
+      "Estado: Activo",
+    ]);
   });
 
-  test("limpiarTodo saca q, y limpiarGrupos de otro grupo no lo toca", () => {
-    expect(limpiarTodo("q=bomba&estado=activo&porPagina=25").toString()).toBe("porPagina=25");
-    expect(limpiarGrupos("q=bomba&estado=activo", ["estado"]).toString()).toBe("q=bomba");
+  test("excluir se dice 'todas menos' (o 'todos menos' en los códigos) y cuenta cuando son muchos", () => {
+    const r = (q: string) =>
+      resumirFiltros(leerFiltros(new URLSearchParams(q))).map((x) => x.texto);
+    expect(r("sinMarcas=A&sinMarcas=B")).toEqual(["Marca: todas menos A, B"]);
+    expect(r("sinMarcas=A&sinMarcas=B&sinMarcas=C")).toEqual(["Marca: todas menos 3 marcas"]);
+    expect(r("sinCodigosFabrica=X")).toEqual(["Cód. fábrica: todos menos X"]);
+    expect(r("sinCategorias=A&sinCategorias=B&sinCategorias=C")).toEqual([
+      "Categoría: todas menos 3 categorías",
+    ]);
   });
 
-  test("q viaja a las facetas junto con los demás filtros", () => {
-    expect(filtrosParaFacetas(new URLSearchParams("q=bomba&pagina=2&sinMarcas=A"))).toEqual({
-      q: "bomba",
-      sinMarcas: "A",
-    });
+  test("los valores vacíos se dicen en palabras, sin los paréntesis", () => {
+    expect(valorLegible(SIN_MARCA)).toBe("sin marca");
+    expect(valorLegible(SIN_CATEGORIA)).toBe("sin categoría");
+    expect(valorLegible("MOBIS")).toBe("MOBIS");
+    const r = resumirFiltros(leerFiltros(new URLSearchParams({ marcas: SIN_MARCA })));
+    expect(r[0]?.texto).toBe("Marca: sin marca");
   });
 
-  test("el chip dice 'Búsqueda' y va primero", () => {
-    const r = resumirFiltros(leerFiltros(new URLSearchParams("estado=activo&q=bomba+de+agua")));
-    expect(r[0]).toEqual({ grupo: "busqueda", texto: "Búsqueda: “bomba de agua”" });
-    expect(r.map((x) => x.grupo)).toEqual(["busqueda", "estado"]);
+  test("rangos: de a, desde, hasta", () => {
+    const r = (q: string) =>
+      resumirFiltros(leerFiltros(new URLSearchParams(q))).map((x) => x.texto);
+    expect(r("precioMin=1&precioMax=5")).toEqual(["Precio: 1 a 5"]);
+    expect(r("stockMax=9")).toEqual(["Stock: hasta 9"]);
+    expect(r("conStock=0")).toEqual(["Stock: sin stock"]);
   });
 });
 
@@ -416,5 +338,58 @@ describe("números escritos a la manera de es: coma decimal y punto de miles", (
     expect(errorDeRango("2.000,25", "1500,50", o)).toMatch(/no puede ser mayor/);
     expect(errorDeRango("1,5", "", { entero: true, nombre: "stock" })).toMatch(/entero/);
     expect(errorDeRango("1.500", "", { entero: true, nombre: "stock" })).toBeNull();
+    expect(errorDeRango("abc", "", o)).toMatch(/número/);
+    expect(errorDeRango("", "", o)).toBeNull();
+  });
+});
+
+describe("mensajesDeFiltrosInvalidos", () => {
+  function issuesDe(raw: unknown) {
+    try {
+      parseProductosFiltros(raw);
+    } catch (e) {
+      expect(e).toBeInstanceOf(ValidationError);
+      return (e as ValidationError).issues;
+    }
+    throw new Error("se esperaba un ValidationError");
+  }
+
+  test("un rango invertido se explica con el nombre de la columna", () => {
+    expect(mensajesDeFiltrosInvalidos(issuesDe({ precioMin: "9", precioMax: "1" }))).toEqual([
+      "El mínimo de precio no puede ser mayor que el máximo.",
+    ]);
+    expect(mensajesDeFiltrosInvalidos(issuesDe({ stockMin: "9", stockMax: "1" }))).toEqual([
+      "El mínimo de stock no puede ser mayor que el máximo.",
+    ]);
+  });
+
+  test("incluir y excluir juntos, en cualquiera de las seis columnas", () => {
+    for (const c of COLUMNAS_LISTA) {
+      const d = DEFINICIONES_LISTA[c];
+      const m = mensajesDeFiltrosInvalidos(issuesDe({ [d.incluir]: "A", [d.excluir]: "B" }));
+      expect(m[0]).toContain(d.etiqueta);
+      expect(m[0]).toContain("incluye y excluye");
+    }
+  });
+
+  test("demasiados valores en una lista", () => {
+    const larga = Array.from({ length: LISTA_MAX + 1 }, (_, i) => `v${i}`);
+    expect(mensajesDeFiltrosInvalidos(issuesDe({ otrosCodigos: larga }))[0]).toContain(
+      `más de ${LISTA_MAX}`,
+    );
+  });
+
+  test("el buscador y los números tienen su mensaje", () => {
+    expect(mensajesDeFiltrosInvalidos(issuesDe({ q: "a".repeat(101) }))[0]).toContain("100");
+    expect(mensajesDeFiltrosInvalidos(issuesDe({ precioMin: "-1" }))[0]).toContain("número");
+  });
+
+  test("una forma que no reconoce cae en un mensaje genérico", () => {
+    expect(mensajesDeFiltrosInvalidos(undefined)).toEqual([
+      "Hay filtros en la URL que no son válidos.",
+    ]);
+    expect(mensajesDeFiltrosInvalidos([{ path: ["zzz"] }, 5])).toEqual([
+      "Hay filtros en la URL que no son válidos.",
+    ]);
   });
 });

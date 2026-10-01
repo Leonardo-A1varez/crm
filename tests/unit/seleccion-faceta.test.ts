@@ -297,3 +297,41 @@ describe("resolverSeleccion con la lista recortada (universo desconocido)", () =
     expect(r.tipo).toBe("incluir");
   });
 });
+
+describe("presupuesto de caracteres de la URL", () => {
+  /** Valores de 60 caracteres: 200 de ellos son menos de LISTA_MAX y aun así no entran en la URL. */
+  const largos = (n: number) =>
+    Array.from({ length: n }, (_, i) => `descripcion-larga-${i}`.padEnd(60, "x"));
+
+  test("sin presupuesto solo cuenta la cantidad", () => {
+    const universo = largos(200);
+    const r = resolverSeleccion({ modo: "incluir", valores: new Set(universo) }, null);
+    expect(r.tipo).toBe("incluir");
+  });
+
+  test("con presupuesto, una lista que entra por cantidad pero no por tamaño es 'demasiados'", () => {
+    const universo = largos(200);
+    const r = resolverSeleccion({ modo: "incluir", valores: new Set(universo) }, null, {
+      presupuestoChars: 6000,
+    });
+    expect(r.tipo).toBe("demasiados");
+  });
+
+  test("con la lista completa elige la representación que sí entra", () => {
+    const universo = largos(100);
+    // Todo marcado menos 3: excluir son 3 valores, incluir serían 97.
+    const s = { modo: "excluir" as const, valores: new Set(universo.slice(0, 3)) };
+    const r = resolverSeleccion(s, universo, { presupuestoChars: 1000 });
+    expect(r).toEqual({ tipo: "excluir", valores: [...universo.slice(0, 3)].sort() });
+  });
+
+  test("cuenta el valor codificado: una tilde o un espacio pesan más que un carácter", () => {
+    const s = { modo: "incluir" as const, valores: new Set(["á b", "é c"]) };
+    expect(resolverSeleccion(s, null, { presupuestoChars: 30, sobrecargaPorValor: 10 }).tipo).toBe(
+      "demasiados",
+    );
+    expect(resolverSeleccion(s, null, { presupuestoChars: 200, sobrecargaPorValor: 10 }).tipo).toBe(
+      "incluir",
+    );
+  });
+});

@@ -1,5 +1,3 @@
-import type { Producto } from "@/types/entities";
-
 export interface CsvProductoRow {
   codigo_interno: string;
   nombre: string;
@@ -30,16 +28,38 @@ export type ImportConfirmActionResult =
   | { ok: false; error: string };
 
 // ---------------------------------------------------------------------------
-// Listado filtrado y paginado de /productos (filtros en `@/lib/validation/productos-filtros.schema`).
+// Catálogo de /productos: carga completa por lotes y listas de valores.
+// (Filtros y orden en `@/lib/validation/productos-filtros.schema`.)
 // ---------------------------------------------------------------------------
 
-/** Una página del catálogo filtrado. `total` es el del filtro entero, no el de la página. */
-export interface ProductosPagina {
-  items: Producto[];
+/**
+ * Una fila de la tabla: lo que se ve y lo que pide el formulario de edición. No
+ * lleva `compatibilidad`, `imagen_url` ni fechas: con 21.000 filas cada byte de más
+ * se paga 21.000 veces en la carga completa.
+ */
+export interface ProductoFila {
+  id: string;
+  codigo_interno: string;
+  codigo_fabrica: string | null;
+  otros_codigos: string[];
+  sku_proveedor: string | null;
+  nombre: string;
+  descripcion: string | null;
+  categoria: string | null;
+  precio: number;
+  stock: number;
+  activo: boolean;
+}
+
+/** Un lote de la carga completa: `LOTE_TAMANO` filas del conjunto filtrado y ordenado. */
+export interface LoteProductos {
+  filas: ProductoFila[];
+  /** Total del filtro entero, no del lote. */
   total: number;
-  /** La página pedida (1-based), aunque esté fuera de rango y `items` venga vacío. */
-  pagina: number;
-  porPagina: number;
+  /** El lote pedido (1-based), aunque esté fuera de rango y `filas` venga vacío. */
+  lote: number;
+  /** Posición (0-based) de la primera fila de este lote dentro del conjunto. */
+  desde: number;
 }
 
 export interface FacetaValor {
@@ -50,16 +70,11 @@ export interface FacetaValor {
 
 export interface Faceta {
   /**
-   * Cantidad desc, y a igual cantidad por valor en orden binario. Recortada al
-   * límite pedido, salvo los valores seleccionados, que siempre vienen.
+   * Cantidad desc, y a igual cantidad por valor (numérico en el código, binario en
+   * el resto). Recortada al límite pedido, salvo los valores seleccionados, que
+   * siempre vienen.
    */
   valores: FacetaValor[];
   /** Cuántos valores distintos hay en total: si supera `valores.length`, la lista está recortada. */
   distintos: number;
-}
-
-export interface ProductosFacetas {
-  categorias: Faceta;
-  /** El valor `SIN_MARCA` agrupa a los productos con `descripcion` nula o en blanco. */
-  marcas: Faceta;
 }

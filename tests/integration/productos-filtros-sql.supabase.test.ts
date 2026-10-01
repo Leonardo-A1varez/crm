@@ -26,14 +26,24 @@ afterAll(async () => {
   await cleanupTestDb(client);
 });
 
-async function listar(filtros: unknown) {
+async function listar(filtros: unknown, orden: unknown = []) {
   const { data, error } = await client.rpc("productos_listar", {
     p_filtros: filtros as never,
-    p_pagina: 1,
-    p_por_pagina: 50,
+    p_orden: orden as never,
+    p_desde: 0,
+    p_cantidad: 1000,
   });
   if (error) throw new Error(error.message);
   return data as unknown as { total: number; items: { codigo_interno: string }[] };
+}
+
+async function faceta(filtros: unknown, columna: string, busqueda?: string) {
+  return client.rpc("productos_faceta", {
+    p_filtros: filtros as never,
+    p_columna: columna,
+    p_limite: 100,
+    p_busqueda: busqueda,
+  });
 }
 
 describe("productos_filtrados / listar / facetas: frontera SQL", () => {
@@ -48,11 +58,10 @@ describe("productos_filtrados / listar / facetas: frontera SQL", () => {
   ])("una lista que no es array o un filtro nulo se ignora sin romper: %s", async (_n, filtros) => {
     const r = await listar(filtros);
     expect(r.total).toBe(2);
-    const { error } = await client.rpc("productos_facetas", {
-      p_filtros: filtros as never,
-      p_limite: 10,
-    });
-    expect(error).toBeNull();
+    for (const columna of ["codigo", "codigo_fabrica", "otros_codigos", "categoria", "marca"]) {
+      const { error } = await faceta(filtros, columna);
+      expect(error).toBeNull();
+    }
   });
 
   test("los cinco espacios de los bordes se quitan y los demás no: igual que normalizarValor", async () => {
@@ -69,13 +78,12 @@ describe("productos_filtrados / listar / facetas: frontera SQL", () => {
     const { error } = await client.from("productos").insert(filas);
     expect(error).toBeNull();
 
-    const { data, error: e2 } = await client.rpc("productos_facetas", {
-      p_filtros: {} as never,
-      p_limite: 100,
-    });
-    expect(e2).toBeNull();
-    const marcas = (data ?? []).filter((f) => f.columna === "marca").map((f) => f.valor);
-    const categorias = (data ?? []).filter((f) => f.columna === "categoria").map((f) => f.valor);
+    const rMarcas = await faceta({}, "marca");
+    const rCategorias = await faceta({}, "categoria");
+    expect(rMarcas.error).toBeNull();
+    expect(rCategorias.error).toBeNull();
+    const marcas = (rMarcas.data ?? []).map((f) => f.valor);
+    const categorias = (rCategorias.data ?? []).map((f) => f.valor);
 
     const esperadas = new Set(bordes.map((b) => normalizarValor(`${b}X${b}`)));
     expect(new Set(marcas.filter((m) => m.includes("X")))).toEqual(esperadas);
@@ -99,10 +107,7 @@ describe("productos_filtrados / listar / facetas: frontera SQL", () => {
   ])("q con un tipo raro o vacío no rompe la consulta: %s", async (_n, filtros) => {
     const r = await listar(filtros);
     expect(typeof r.total).toBe("number");
-    const { error } = await client.rpc("productos_facetas", {
-      p_filtros: filtros as never,
-      p_limite: 10,
-    });
+    const { error } = await faceta(filtros, "marca");
     expect(error).toBeNull();
   });
 
@@ -149,29 +154,71 @@ describe("productos_filtrados / listar / facetas: frontera SQL", () => {
     expect(claves).toContain("codigo_interno");
   });
 
-  test.each([
-    ["categoria", ["categoria"]],
-    ["marca", ["marca"]],
-    [null, ["categoria", "marca"]],
-    ["otra", ["categoria", "marca"]],
-  ])("productos_facetas con p_columna=%s devuelve solo %j", async (columna, esperadas) => {
-    const { data, error } = await client.rpc("productos_facetas", {
+  test("productos_faceta rechaza una columna que no está en la lista blanca", async () => {
+    for (const columna of ["precio", "stock", "x; drop table productos", ""]) {
+      const { error } = await faceta({}, columna);
+      expect(error, `columna ${columna}`).not.toBeNull();
+    }
+    const { error } = await client.rpc("productos_faceta", {
       p_filtros: {} as never,
-      p_limite: 10,
-      p_columna: columna as never,
+      p_columna: null as never,
     });
-    expect(error).toBeNull();
-    expect([...new Set((data ?? []).map((f) => f.columna))].sort()).toEqual(esperadas);
+    expect(error).not.toBeNull();
   });
 
-  test("las facetas heredan q: cuentan solo los productos que coinciden", async () => {
-    const { data, error } = await client.rpc("productos_facetas", {
-      p_filtros: { q: "uno" } as never,
-      p_limite: 10,
+  test("las listas de valores heredan q: cuentan solo los productos que coinciden", async () => {
+    const marcas = await faceta({ q: "uno" }, "marca");
+    const categorias = await faceta({ q: "uno" }, "categoria");
+    expect(marcas.error).toBeNull();
+    expect((marcas.data ?? []).map((f) => `${f.valor}:${f.cantidad}`)).toEqual(["MOBIS:1"]);
+    expect((categorias.data ?? []).map((f) => `${f.valor}:${f.cantidad}`)).toEqual(["FRENOS:1"]);
+  });
+
+  test("el orden solo acepta campos de la lista blanca: un campo raro o un nivel de más no inyecta nada", async () => {
+    const raro = await listar({}, [
+      { campo: "nombre; drop table productos; --", dir: "asc" },
+      { campo: "precio", dir: "desc; select 1" },
+    ]);
+    // El primero se ignora; el segundo vale con dirección ascendente (la única otra opción).
+    expect(raro.items.map((p) => p.codigo_interno)).toEqual(["S-1", "S-2"]);
+    const { count } = await client.from("productos").select("*", { count: "exact", head: true });
+    expect(count).toBe(2);
+    // Un p_orden que no es un array se ignora.
+    expect((await listar({}, { campo: "precio" })).total).toBe(2);
+    expect((await listar({}, null)).total).toBe(2);
+  });
+
+  test("p_cantidad se acota a 1..1000 y p_desde a 0", async () => {
+    const { data, error } = await client.rpc("productos_listar", {
+      p_filtros: {} as never,
+      p_orden: [] as never,
+      p_desde: -5,
+      p_cantidad: 0,
     });
     expect(error).toBeNull();
-    const filas = (data ?? []).map((f) => `${f.columna}:${f.valor}:${f.cantidad}`).sort();
-    expect(filas).toEqual(["categoria:FRENOS:1", "marca:MOBIS:1"]);
+    const r = data as unknown as { total: number; items: unknown[] };
+    expect(r.total).toBe(2);
+    expect(r.items).toHaveLength(1);
+  });
+
+  test("el orden numérico del código usa la columna generada", async () => {
+    const { error } = await client.from("productos").insert([
+      { codigo_interno: "10", nombre: "Diez", precio: 1 },
+      { codigo_interno: "9", nombre: "Nueve", precio: 1 },
+    ]);
+    expect(error).toBeNull();
+    const r = await listar({}, [{ campo: "codigo", dir: "asc" }]);
+    expect(r.items.map((p) => p.codigo_interno)).toEqual(["9", "10", "S-1", "S-2"]);
+    const { data } = await client
+      .from("productos")
+      .select("codigo_interno, codigo_interno_orden")
+      .in("codigo_interno", ["10", "S-1"]);
+    expect(
+      Object.fromEntries((data ?? []).map((f) => [f.codigo_interno, f.codigo_interno_orden])),
+    ).toEqual({
+      "10": 10,
+      "S-1": null,
+    });
   });
 
   test("categoría vacía o en blanco aparece como (sin categoría) y se puede filtrar", async () => {

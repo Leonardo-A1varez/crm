@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { PermissionDeniedError } from "@/lib/errors";
 import {
-  parseOpcionesFacetas,
+  parseOpcionesFaceta,
   parseProductosFiltros,
 } from "@/lib/validation/productos-filtros.schema";
 import type { Database } from "@/server/db/types.gen";
@@ -91,37 +91,37 @@ afterAll(async () => {
   await cleanupTestDb(service);
 }, 120_000);
 
-const opc = () => parseOpcionesFacetas({});
+const opc = () => parseOpcionesFaceta({ columna: "categoria" });
 
-describe("productos: filtros y facetas bajo RLS", () => {
+describe("productos: filtros, lotes y listas bajo RLS", () => {
   const filtros = parseProductosFiltros({ categorias: "RADIADOR" });
 
   test.each([
     ["admin", () => admin],
     ["vendedor", () => vendedor],
-  ])("%s ve el catálogo filtrado, paginado y las facetas", async (_rol, cliente) => {
+  ])("%s ve el catálogo filtrado, en lotes y la lista de valores", async (_rol, cliente) => {
     const repo = new SupabaseProductsRepository(cliente());
-    const pagina = await repo.listarFiltrado(filtros);
-    expect(pagina.total).toBe(2);
-    // Orden por nombre: "Radiador dos" va antes que "Radiador uno".
-    expect(pagina.items.map((p) => p.codigo_interno)).toEqual(["R-2", "R-1"]);
-    const facetas = await repo.facetas(filtros, opc());
-    expect(facetas.categorias.valores).toEqual([{ valor: "RADIADOR", cantidad: 2 }]);
+    const lote = await repo.listarLote(filtros, 1);
+    expect(lote.total).toBe(2);
+    // Orden por descripción: "Radiador dos" va antes que "Radiador uno".
+    expect(lote.filas.map((p) => p.codigo_interno)).toEqual(["R-2", "R-1"]);
+    const faceta = await repo.faceta(filtros, opc());
+    expect(faceta.valores).toEqual([{ valor: "RADIADOR", cantidad: 2 }]);
   });
 
   test("un usuario sin rol no ve filas: la RLS recorta igual que en una consulta directa", async () => {
     const repo = new SupabaseProductsRepository(sinRol);
-    const pagina = await repo.listarFiltrado(filtros);
-    expect(pagina.total).toBe(0);
-    expect(pagina.items).toEqual([]);
-    expect((await repo.facetas(filtros, opc())).categorias.valores).toEqual([
+    const lote = await repo.listarLote(filtros, 1);
+    expect(lote.total).toBe(0);
+    expect(lote.filas).toEqual([]);
+    expect((await repo.faceta(filtros, opc())).valores).toEqual([
       { valor: "RADIADOR", cantidad: 0 },
     ]);
   });
 
   test("anon no puede ejecutar las funciones", async () => {
     const repo = new SupabaseProductsRepository(anon);
-    await expect(repo.listarFiltrado(filtros)).rejects.toThrow(PermissionDeniedError);
-    await expect(repo.facetas(filtros, opc())).rejects.toThrow(PermissionDeniedError);
+    await expect(repo.listarLote(filtros, 1)).rejects.toThrow(PermissionDeniedError);
+    await expect(repo.faceta(filtros, opc())).rejects.toThrow(PermissionDeniedError);
   });
 });

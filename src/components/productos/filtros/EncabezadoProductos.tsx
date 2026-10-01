@@ -1,102 +1,90 @@
 "use client";
 
-import { TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { grupoActivo } from "@/lib/ui/filtros-productos";
+import { ordenDeColumna } from "@/lib/ui/orden-productos";
 import { cn } from "@/lib/utils";
-import {
-  CuerpoCategoria,
-  CuerpoCodigo,
-  CuerpoDescripcion,
-  CuerpoEstado,
-  CuerpoPrecio,
-  CuerpoStock,
-} from "./Cuerpos";
+import { ANCHO_ACCIONES, COLUMNAS_TABLA, type ColumnaTabla } from "../columnas";
+import { CuerpoEstado, CuerpoLista, CuerpoPrecio, CuerpoStock } from "./Cuerpos";
 import { FiltroColumna } from "./FiltroColumna";
 import { useFiltrosProductos } from "./FiltrosProductosProvider";
-import type { ReactNode } from "react";
+import { SeccionOrden } from "./SeccionOrden";
 
 /**
- * El encabezado queda fijo al hacer scroll: el botón de filtro tiene que estar
- * a mano con 50 filas debajo. El fondo es opaco y la línea de abajo es una
- * sombra interna, porque el `border-bottom` de una celda `sticky` se queda
- * atrás cuando el resto sigue de largo.
+ * El encabezado queda fijo al hacer scroll: el botón de la columna tiene que estar a
+ * mano con 21.000 filas debajo. El fondo es opaco y la línea de abajo es una sombra
+ * interna, porque el `border-bottom` de una celda `sticky` se queda atrás cuando el
+ * resto sigue de largo.
  */
 const TH =
-  "text-ink-faint bg-surface-panel sticky top-0 z-10 h-auto px-3 py-1.5 first:pl-5 last:pr-5 font-mono text-[9px] font-semibold tracking-[0.13em] uppercase shadow-[inset_0_-1px_0_var(--color-line-layout)]";
+  "text-ink-faint bg-surface-panel sticky top-0 z-10 h-auto p-0 font-mono text-[9px] font-semibold tracking-[0.13em] uppercase shadow-[inset_0_-1px_0_var(--color-line-layout)]";
 
-function Columna({
-  etiqueta,
-  derecha,
-  activo,
-  children,
-}: {
-  etiqueta: string;
-  derecha?: boolean;
-  activo?: boolean;
-  children?: ReactNode;
-}) {
+const ANCHO_PANEL_LISTA = 296;
+const ANCHO_PANEL_RANGO = 264;
+
+function ContenidoPanel({ columna, cerrar }: { columna: ColumnaTabla; cerrar: () => void }) {
+  const f = columna.filtro;
   return (
-    <TableHead scope="col" className={cn(TH, activo && "text-ink-secondary")}>
-      <div className={cn("flex items-center gap-1", derecha && "justify-end")}>
-        <span>{etiqueta}</span>
-        {children}
-      </div>
-    </TableHead>
+    <>
+      <SeccionOrden campo={columna.id} etiqueta={columna.etiqueta} cerrar={cerrar} />
+      <div className="border-line-layout border-t" />
+      {f.tipo === "lista" ? (
+        <CuerpoLista columna={f.columna} />
+      ) : f.tipo === "precio" ? (
+        <CuerpoPrecio cerrar={cerrar} />
+      ) : f.tipo === "stock" ? (
+        <CuerpoStock cerrar={cerrar} />
+      ) : (
+        <CuerpoEstado cerrar={cerrar} />
+      )}
+    </>
   );
 }
 
 /**
- * Fila de encabezados de `/productos` con el botón de filtro de cada columna.
- * Las columnas que se filtran leen de la URL si tienen algo puesto, así que el
- * indicador es el mismo que muestran los chips de arriba.
- *
- * Descripción filtra dos cosas —el texto y la marca— y las dos viven en el mismo
- * desplegable, porque la marca se ve debajo de la descripción en cada fila.
+ * La fila de encabezados de `/productos`. Cada encabezado es un botón que abre su panel
+ * de orden y filtro, y lleva a la vista si la columna está filtrada y por cuál nivel del
+ * orden manda. Los dos indicadores leen de la URL, así que dicen lo mismo que los chips.
  */
 export function EncabezadoProductos({ isAdmin }: { isAdmin: boolean }) {
   const { filtros } = useFiltrosProductos();
-  const activo = (g: Parameters<typeof grupoActivo>[1]) => grupoActivo(filtros, g);
-  const descripcionActiva = activo("descripcion") || activo("marca");
 
   return (
-    <TableHeader>
-      <TableRow className="border-line-layout hover:bg-transparent">
-        <Columna etiqueta="Código" activo={activo("codigo")}>
-          <FiltroColumna etiqueta="Código" activo={activo("codigo")}>
-            {(cerrar) => <CuerpoCodigo cerrar={cerrar} />}
-          </FiltroColumna>
-        </Columna>
-        <Columna etiqueta="Descripción" activo={descripcionActiva}>
-          <FiltroColumna etiqueta="Descripción" activo={descripcionActiva} ancho={320}>
-            {(cerrar) => <CuerpoDescripcion cerrar={cerrar} />}
-          </FiltroColumna>
-        </Columna>
-        <Columna etiqueta="Categoría" activo={activo("categoria")}>
-          <FiltroColumna etiqueta="Categoría" activo={activo("categoria")} ancho={304}>
-            {(cerrar) => <CuerpoCategoria cerrar={cerrar} />}
-          </FiltroColumna>
-        </Columna>
-        <Columna etiqueta="Precio" derecha activo={activo("precio")}>
-          <FiltroColumna etiqueta="Precio" activo={activo("precio")}>
-            {(cerrar) => <CuerpoPrecio cerrar={cerrar} />}
-          </FiltroColumna>
-        </Columna>
-        <Columna etiqueta="Stock" derecha activo={activo("stock")}>
-          <FiltroColumna etiqueta="Stock" activo={activo("stock")}>
-            {(cerrar) => <CuerpoStock cerrar={cerrar} />}
-          </FiltroColumna>
-        </Columna>
-        <Columna etiqueta="Estado" activo={activo("estado")}>
-          <FiltroColumna etiqueta="Estado" activo={activo("estado")}>
-            {(cerrar) => <CuerpoEstado cerrar={cerrar} />}
-          </FiltroColumna>
-        </Columna>
+    <thead>
+      <tr aria-rowindex={1} className="text-left">
+        {COLUMNAS_TABLA.map((c) => {
+          const orden = ordenDeColumna(filtros.orden, c.id);
+          // `aria-sort` en TODA columna que ordena, no solo en el primer nivel: el lector de
+          // pantalla tiene que oír por qué columnas está ordenada la tabla.
+          const ordenada = orden.nivel !== null && orden.dir !== null;
+          return (
+            <th
+              key={c.id}
+              scope="col"
+              aria-sort={ordenada ? (orden.dir === "asc" ? "ascending" : "descending") : undefined}
+              className={TH}
+            >
+              <FiltroColumna
+                etiqueta={c.etiqueta}
+                activo={grupoActivo(filtros, c.grupo)}
+                orden={orden}
+                derecha={c.derecha}
+                ancho={c.filtro.tipo === "lista" ? ANCHO_PANEL_LISTA : ANCHO_PANEL_RANGO}
+              >
+                {(cerrar) => <ContenidoPanel columna={c} cerrar={cerrar} />}
+              </FiltroColumna>
+            </th>
+          );
+        })}
         {isAdmin ? (
-          <TableHead scope="col" className={cn(TH, "w-44 text-right")}>
+          <th
+            scope="col"
+            className={cn(TH, "px-3.5 py-2 text-right")}
+            style={{ width: ANCHO_ACCIONES }}
+          >
             Acciones
-          </TableHead>
+          </th>
         ) : null}
-      </TableRow>
-    </TableHeader>
+      </tr>
+    </thead>
   );
 }

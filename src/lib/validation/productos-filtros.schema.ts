@@ -1,32 +1,35 @@
 import { z } from "zod";
+import {
+  COLUMNAS_LISTA,
+  DEFINICIONES_LISTA,
+  leerNiveles,
+  type ClaveLista,
+  type NivelOrden,
+} from "@/lib/catalogo/columnas-productos";
 import { normalizarValor } from "@/lib/catalogo/normalizar-valor";
 import { ValidationError } from "@/lib/errors";
 
-// Filtros y paginación de /productos. Los parámetros llegan de la URL como
-// strings (o string[] si la clave se repite) y también pueden llegar ya
-// tipados desde código: el schema acepta las dos formas. Regla §0.9.3: se
-// parsea en la primera línea del service, antes de armar nada para el SQL.
+// Filtros, orden y lotes de /productos. Los parámetros llegan de la URL como
+// strings (o string[] si la clave se repite) y también pueden llegar ya tipados
+// desde código: el schema acepta las dos formas. Regla §0.9.3: se parsea en la
+// primera línea del service, antes de armar nada para el SQL.
 
-export const POR_PAGINA_DEFAULT = 50;
-export const POR_PAGINA_MAX = 100;
-/** Página más alta aceptada: acota el `offset` que se le manda a Postgres. */
-export const PAGINA_MAX = 100_000;
+export {
+  SIN_CATEGORIA,
+  SIN_CODIGO_FABRICA,
+  SIN_DESCRIPCION,
+  SIN_MARCA,
+  SIN_OTROS_CODIGOS,
+} from "@/lib/catalogo/columnas-productos";
+
+/** Cuántas filas trae cada lote de la carga completa. */
+export const LOTE_TAMANO = 1000;
+/** Lote más alto aceptado: acota el `offset` que se le manda a Postgres (10 millones de filas). */
+export const LOTE_MAX = 10_000;
 export const TEXTO_MAX = 100;
 export const LISTA_MAX = 300;
 /** Largo máximo de un valor de lista; `descripcion` admite 1000 en el alta. */
 export const VALOR_LISTA_MAX = 1000;
-/**
- * Valor especial de `marcas` para los productos sin marca (`descripcion` nula
- * o en blanco). Un producto cuya marca real fuera literalmente este texto
- * quedaría mezclado con los sin marca; no existe hoy en el catálogo.
- */
-export const SIN_MARCA = "(sin marca)";
-/**
- * Lo mismo para la categoría: `categoria` nula, vacía o en blanco. Así toda
- * fila tiene un valor de faceta que se puede marcar, y el valor que la faceta
- * devuelve es exactamente el que el filtro compara.
- */
-export const SIN_CATEGORIA = "(sin categoría)";
 
 const PRECIO_MAX = 9_999_999_999.99;
 const STOCK_MAX = 2_147_483_647;
@@ -89,108 +92,122 @@ const lista = z.preprocess(
   z.array(z.string().max(VALOR_LISTA_MAX)).max(LISTA_MAX),
 );
 
-const modoTexto = z.preprocess(
-  (v) => vacioAUndefined(v),
-  z.enum(["contiene", "empieza"]).default("contiene"),
-);
-
 const estado = z.preprocess(
   (v) => vacioAUndefined(v) ?? null,
   z.enum(["activo", "inactivo"]).nullable(),
 );
 
-export const ProductosFiltrosSchema = z
-  .object({
-    /** Buscador general: código interno, de fábrica, alternos, descripción y marca. */
-    q: texto,
-    codigo: texto,
-    codigoModo: modoTexto,
-    descripcion: texto,
-    descripcionModo: modoTexto,
-    categorias: lista,
-    sinCategorias: lista,
-    marcas: lista,
-    sinMarcas: lista,
-    precioMin: numero(PRECIO_MAX, false),
-    precioMax: numero(PRECIO_MAX, false),
-    stockMin: numero(STOCK_MAX, true),
-    stockMax: numero(STOCK_MAX, true),
-    conStock: booleano,
-    estado,
-    pagina: entero(1, PAGINA_MAX, 1),
-    porPagina: entero(1, POR_PAGINA_MAX, POR_PAGINA_DEFAULT),
-  })
-  .superRefine((f, ctx) => {
-    // Incluir y excluir en la misma columna no tiene un significado único.
-    if (f.marcas.length > 0 && f.sinMarcas.length > 0) {
+/** Lo que llega de `orden` y `dir`: strings repetidos, o niveles ya armados desde código. */
+const ordenCrudo = z.unknown().optional();
+
+const ProductosFiltrosBase = z.object({
+  /** Buscador general: código interno, de fábrica, alternos, descripción y marca. */
+  q: texto,
+  codigos: lista,
+  sinCodigos: lista,
+  codigosFabrica: lista,
+  sinCodigosFabrica: lista,
+  otrosCodigos: lista,
+  sinOtrosCodigos: lista,
+  categorias: lista,
+  sinCategorias: lista,
+  descripciones: lista,
+  sinDescripciones: lista,
+  marcas: lista,
+  sinMarcas: lista,
+  precioMin: numero(PRECIO_MAX, false),
+  precioMax: numero(PRECIO_MAX, false),
+  stockMin: numero(STOCK_MAX, true),
+  stockMax: numero(STOCK_MAX, true),
+  conStock: booleano,
+  estado,
+  orden: ordenCrudo,
+  dir: ordenCrudo,
+});
+
+function comoLista(v: unknown): unknown[] {
+  if (v === undefined || v === null) return [];
+  return Array.isArray(v) ? v : [v];
+}
+
+/**
+ * `orden` puede ser `["marca", "precio"]` con `dir` en paralelo (la URL), o ya los
+ * niveles `[{ campo, dir }]` (código). Un nivel mal formado se descarta.
+ */
+function nivelesDeEntrada(orden: unknown, dir: unknown): NivelOrden[] {
+  const ordenes = comoLista(orden);
+  const dirs = comoLista(dir);
+  return leerNiveles(
+    ordenes.map((o) =>
+      typeof o === "object" && o !== null ? (o as { campo?: unknown }).campo : o,
+    ),
+    ordenes.map((o, i) =>
+      typeof o === "object" && o !== null ? (o as { dir?: unknown }).dir : dirs[i],
+    ),
+  );
+}
+
+export const ProductosFiltrosSchema = ProductosFiltrosBase.superRefine((f, ctx) => {
+  // Incluir y excluir en la misma columna no tiene un significado único.
+  for (const columna of COLUMNAS_LISTA) {
+    const d = DEFINICIONES_LISTA[columna];
+    if (f[d.incluir].length > 0 && f[d.excluir].length > 0) {
       ctx.addIssue({
         code: "custom",
-        path: ["marcas"],
-        message: "marcas y sinMarcas no se pueden usar juntas",
+        path: [d.incluir],
+        message: `${d.incluir} y ${d.excluir} no se pueden usar juntas`,
       });
     }
-    if (f.categorias.length > 0 && f.sinCategorias.length > 0) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["categorias"],
-        message: "categorias y sinCategorias no se pueden usar juntas",
-      });
-    }
-    if (f.precioMin !== undefined && f.precioMax !== undefined && f.precioMin > f.precioMax) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["precioMin"],
-        message: "precioMin no puede ser mayor que precioMax",
-      });
-    }
-    if (f.stockMin !== undefined && f.stockMax !== undefined && f.stockMin > f.stockMax) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["stockMin"],
-        message: "stockMin no puede ser mayor que stockMax",
-      });
-    }
-  });
+  }
+  if (f.precioMin !== undefined && f.precioMax !== undefined && f.precioMin > f.precioMax) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["precioMin"],
+      message: "precioMin no puede ser mayor que precioMax",
+    });
+  }
+  if (f.stockMin !== undefined && f.stockMax !== undefined && f.stockMin > f.stockMax) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["stockMin"],
+      message: "stockMin no puede ser mayor que stockMax",
+    });
+  }
+}).transform(({ orden, dir, ...resto }) => ({
+  ...resto,
+  /** Los niveles que alguien eligió; vacío es "el orden por defecto". Nunca más de tres. */
+  orden: nivelesDeEntrada(orden, dir),
+}));
 
 export type ProductosFiltros = z.output<typeof ProductosFiltrosSchema>;
-export type ModoTexto = ProductosFiltros["codigoModo"];
 export type EstadoProducto = NonNullable<ProductosFiltros["estado"]>;
 
 /**
  * Lo que acepta `parseProductosFiltros`: la forma de `searchParams` de Next
  * (string, string[] o ausente) o los mismos campos ya tipados.
  */
-export interface ProductosFiltrosEntrada {
+export type ProductosFiltrosEntrada = {
   /**
    * Buscador general, plegado y "contiene", sobre `codigo_interno`,
    * `codigo_fabrica`, `otros_codigos`, `nombre` y la marca. En blanco = sin filtro.
    */
   q?: string;
-  codigo?: string;
-  codigoModo?: string;
-  descripcion?: string;
-  descripcionModo?: string;
-  /** Incluir: solo estas. Excluyente con `sinCategorias`. */
-  categorias?: string | string[];
-  /** Excluir: todas menos estas. Excluyente con `categorias`. */
-  sinCategorias?: string | string[];
-  /** Incluir: solo estas. Excluyente con `sinMarcas`. */
-  marcas?: string | string[];
-  /** Excluir: todas menos estas. Excluyente con `marcas`. */
-  sinMarcas?: string | string[];
+  /** Incluir es "solo estos"; excluir, "todos menos estos". Excluyentes por columna. */
   precioMin?: string | number;
   precioMax?: string | number;
   stockMin?: string | number;
   stockMax?: string | number;
   conStock?: string | boolean | null;
   estado?: string | null;
-  pagina?: string | number;
-  porPagina?: string | number;
-}
+  /** `orden=campo` repetido con `dir` en paralelo, o niveles ya armados. */
+  orden?: string | string[] | readonly NivelOrden[];
+  dir?: string | string[];
+} & { [K in ClaveLista]?: string | string[] };
 
 /**
  * Valida y normaliza. Tira `ValidationError` con el campo y el motivo; las
- * claves que el schema no conoce se descartan.
+ * claves que el schema no conoce se descartan (también las de la paginación de
+ * antes: `pagina`, `porPagina`).
  */
 export function parseProductosFiltros(raw: unknown): ProductosFiltros {
   const r = ProductosFiltrosSchema.safeParse(raw ?? {});
@@ -202,45 +219,48 @@ export function parseProductosFiltros(raw: unknown): ProductosFiltros {
 }
 
 // ---------------------------------------------------------------------------
-// Opciones de las facetas: no viajan en la URL, son estado del popover.
+// Lote
 // ---------------------------------------------------------------------------
 
-export const LIMITE_FACETAS_DEFAULT = 500;
-export const LIMITE_FACETAS_MAX = 3000;
+const LoteSchema = entero(1, LOTE_MAX, 1);
 
-export const OpcionesFacetasSchema = z.object({
-  limite: z.number().int().min(1).max(LIMITE_FACETAS_MAX).default(LIMITE_FACETAS_DEFAULT),
-  /** Búsqueda dentro de la lista de categorías (plegada, "contiene"), antes del límite. */
-  qCategoria: texto,
-  /** Ídem para la lista de marcas. */
-  qMarca: texto,
-  /**
-   * Qué lista calcular. Sin ella se calculan las dos. El desplegable de un filtro
-   * muestra una sola, así que pedirla evita contar la otra en cada tecla.
-   */
-  columna: z.preprocess(
-    (v) => (v === "" || v === null ? undefined : v),
-    z.enum(["categoria", "marca"]).optional(),
-  ),
-});
-
-export type OpcionesFacetas = z.output<typeof OpcionesFacetasSchema>;
-
-/** Entrada de `facetasProductos`: todo opcional. */
-export interface OpcionesFacetasEntrada {
-  /** Tope de valores por lista: entero entre 1 y 3000. Por defecto 500. */
-  limite?: number;
-  qCategoria?: string;
-  qMarca?: string;
-  /** Solo esa lista; la otra vuelve vacía. Sin valor, las dos. */
-  columna?: "categoria" | "marca";
+/** El número de lote (1-based) de `?lote=`. Sin valor es el primero. */
+export function parseLote(raw: unknown): number {
+  const r = LoteSchema.safeParse(raw);
+  if (r.success) return r.data;
+  throw new ValidationError("lote de productos inválido", r.error.issues);
 }
 
-export function parseOpcionesFacetas(raw: unknown): OpcionesFacetas {
-  const r = OpcionesFacetasSchema.safeParse(raw ?? {});
+// ---------------------------------------------------------------------------
+// Opciones de una lista de valores: no viajan en la URL, son estado del panel.
+// ---------------------------------------------------------------------------
+
+export const LIMITE_FACETA_DEFAULT = 500;
+export const LIMITE_FACETA_MAX = 3000;
+
+export const OpcionesFacetaSchema = z.object({
+  /** Qué lista calcular. */
+  columna: z.enum(COLUMNAS_LISTA),
+  /** Búsqueda dentro de la lista, antes del límite. Exacta en los identificadores. */
+  q: texto,
+  limite: z.number().int().min(1).max(LIMITE_FACETA_MAX).default(LIMITE_FACETA_DEFAULT),
+});
+
+export type OpcionesFaceta = z.output<typeof OpcionesFacetaSchema>;
+
+/** Entrada de `facetaProductos`. */
+export interface OpcionesFacetaEntrada {
+  columna: string;
+  q?: string;
+  /** Tope de valores: entero entre 1 y 3000. Por defecto 500. */
+  limite?: number;
+}
+
+export function parseOpcionesFaceta(raw: unknown): OpcionesFaceta {
+  const r = OpcionesFacetaSchema.safeParse(raw ?? {});
   if (r.success) return r.data;
   const detalle = r.error.issues
     .map((i) => `${i.path.join(".") || "opciones"}: ${i.message}`)
     .join("; ");
-  throw new ValidationError(`opciones de facetas inválidas (${detalle})`, r.error.issues);
+  throw new ValidationError(`opciones de lista inválidas (${detalle})`, r.error.issues);
 }

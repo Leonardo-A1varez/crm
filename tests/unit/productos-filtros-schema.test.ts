@@ -1,76 +1,70 @@
 import { describe, expect, test } from "vitest";
+import {
+  CAMPOS_ORDEN,
+  COLUMNAS_LISTA,
+  DEFINICIONES_LISTA,
+  leerNiveles,
+} from "@/lib/catalogo/columnas-productos";
 import { ValidationError } from "@/lib/errors";
 import {
-  parseOpcionesFacetas,
+  LOTE_MAX,
+  LOTE_TAMANO,
+  parseLote,
+  parseOpcionesFaceta,
   parseProductosFiltros,
-  POR_PAGINA_MAX,
-  POR_PAGINA_DEFAULT,
   SIN_CATEGORIA,
   SIN_MARCA,
 } from "@/lib/validation/productos-filtros.schema";
 
 describe("parseProductosFiltros", () => {
-  test("sin parámetros devuelve los defaults: página 1, 50 por página, sin filtros", () => {
+  test("sin parámetros devuelve los defaults: sin filtros y sin orden elegido", () => {
     const f = parseProductosFiltros({});
     expect(f).toEqual({
-      codigoModo: "contiene",
-      descripcionModo: "contiene",
+      codigos: [],
+      sinCodigos: [],
+      codigosFabrica: [],
+      sinCodigosFabrica: [],
+      otrosCodigos: [],
+      sinOtrosCodigos: [],
       categorias: [],
       sinCategorias: [],
+      descripciones: [],
+      sinDescripciones: [],
       marcas: [],
       sinMarcas: [],
       conStock: null,
       estado: null,
-      pagina: 1,
-      porPagina: POR_PAGINA_DEFAULT,
+      orden: [],
     });
-    expect(POR_PAGINA_DEFAULT).toBe(50);
-    expect(POR_PAGINA_MAX).toBe(100);
+    expect(LOTE_TAMANO).toBe(1000);
   });
 
   test("acepta strings de URL y los convierte a número y booleano", () => {
     const f = parseProductosFiltros({
-      codigo: "  96817  ",
-      codigoModo: "empieza",
-      descripcion: "radiador",
       precioMin: "10.5",
       precioMax: "200",
       stockMin: "1",
       stockMax: "30",
       conStock: "1",
       estado: "activo",
-      pagina: "3",
-      porPagina: "100",
     });
-    expect(f.codigo).toBe("96817");
-    expect(f.codigoModo).toBe("empieza");
-    expect(f.descripcion).toBe("radiador");
     expect(f.precioMin).toBe(10.5);
     expect(f.precioMax).toBe(200);
     expect(f.stockMin).toBe(1);
     expect(f.stockMax).toBe(30);
     expect(f.conStock).toBe(true);
     expect(f.estado).toBe("activo");
-    expect(f.pagina).toBe(3);
-    expect(f.porPagina).toBe(100);
   });
 
   test("acepta también valores ya tipados (números y booleanos)", () => {
-    const f = parseProductosFiltros({ precioMin: 5, conStock: false, pagina: 2 });
+    const f = parseProductosFiltros({ precioMin: 5, conStock: false });
     expect(f.precioMin).toBe(5);
     expect(f.conStock).toBe(false);
-    expect(f.pagina).toBe(2);
   });
 
   test("texto vacío o en blanco equivale a no filtrar", () => {
-    const f = parseProductosFiltros({
-      codigo: "   ",
-      descripcion: "",
-      precioMin: "",
-      conStock: "",
-    });
-    expect(f.codigo).toBeUndefined();
-    expect(f.descripcion).toBeUndefined();
+    const f = parseProductosFiltros({ q: "   ", precioMin: "", conStock: "" });
+    expect(f.q).toBeUndefined();
     expect(f.precioMin).toBeUndefined();
     expect(f.conStock).toBeNull();
   });
@@ -91,14 +85,39 @@ describe("parseProductosFiltros", () => {
     expect(f.marcas).toEqual([SIN_MARCA, "MOBIS"]);
   });
 
-  test("ignora claves desconocidas en vez de pasarlas al SQL", () => {
-    const f = parseProductosFiltros({ zzz: "x", "1; drop table productos": "y" });
-    expect(f).not.toHaveProperty("zzz");
+  test("las seis columnas tienen su lista de incluir y de excluir", () => {
+    const entrada: Record<string, string> = {};
+    for (const c of COLUMNAS_LISTA) {
+      entrada[DEFINICIONES_LISTA[c].incluir] = `i-${c}`;
+    }
+    const f = parseProductosFiltros(entrada);
+    for (const c of COLUMNAS_LISTA) {
+      expect(f[DEFINICIONES_LISTA[c].incluir]).toEqual([`i-${c}`]);
+      expect(f[DEFINICIONES_LISTA[c].excluir]).toEqual([]);
+    }
+    const excluir: Record<string, string> = {};
+    for (const c of COLUMNAS_LISTA) excluir[DEFINICIONES_LISTA[c].excluir] = `x-${c}`;
+    const g = parseProductosFiltros(excluir);
+    for (const c of COLUMNAS_LISTA) expect(g[DEFINICIONES_LISTA[c].excluir]).toEqual([`x-${c}`]);
+  });
+
+  test("ignora claves desconocidas en vez de pasarlas al SQL, también la paginación de antes", () => {
+    const f = parseProductosFiltros({
+      zzz: "x",
+      "1; drop table productos": "y",
+      pagina: "3",
+      porPagina: "50",
+      codigo: "viejo",
+      descripcion: "viejo",
+    });
+    expect(Object.keys(f)).not.toContain("zzz");
     expect(Object.keys(f)).not.toContain("1; drop table productos");
+    expect(Object.keys(f)).not.toContain("pagina");
+    expect(Object.keys(f)).not.toContain("codigo");
+    expect(Object.keys(f)).not.toContain("descripcion");
   });
 
   test.each([
-    ["codigoModo inválido", { codigoModo: "termina" }],
     ["estado inválido", { estado: "todos" }],
     ["conStock inválido", { conStock: "quizas" }],
     ["precio negativo", { precioMin: "-1" }],
@@ -108,27 +127,20 @@ describe("parseProductosFiltros", () => {
     ["stock negativo", { stockMax: -3 }],
     ["rango de precio invertido", { precioMin: "10", precioMax: "5" }],
     ["rango de stock invertido", { stockMin: "10", stockMax: "5" }],
-    ["página cero", { pagina: "0" }],
-    ["página no entera", { pagina: "1.5" }],
-    ["página absurda", { pagina: "10000000" }],
-    ["porPagina sobre el máximo", { porPagina: "101" }],
-    ["porPagina cero", { porPagina: "0" }],
-    ["código de más de 100 caracteres", { codigo: "a".repeat(101) }],
-    ["descripción de más de 100 caracteres", { descripcion: "a".repeat(101) }],
     ["más de 300 categorías", { categorias: Array.from({ length: 301 }, (_, i) => `C${i}`) }],
     ["más de 300 marcas", { marcas: Array.from({ length: 301 }, (_, i) => `M${i}`) }],
+    ["más de 300 códigos", { codigos: Array.from({ length: 301 }, (_, i) => `${i}`) }],
+    ["más de 300 descripciones", { descripciones: Array.from({ length: 301 }, (_, i) => `D${i}`) }],
     ["categoría gigante", { categorias: ["x".repeat(1001)] }],
   ])("rechaza con ValidationError: %s", (_nombre, raw) => {
     expect(() => parseProductosFiltros(raw)).toThrow(ValidationError);
   });
 
-  test("el límite de 300 valores y 100 caracteres es inclusivo", () => {
+  test("el límite de 300 valores es inclusivo", () => {
     const f = parseProductosFiltros({
-      codigo: "a".repeat(100),
       categorias: Array.from({ length: 300 }, (_, i) => `C${i}`),
     });
     expect(f.categorias).toHaveLength(300);
-    expect(f.codigo).toHaveLength(100);
   });
 
   test("el mensaje del error nombra el campo inválido", () => {
@@ -162,18 +174,19 @@ describe("parseProductosFiltros", () => {
       ]);
     });
 
-    test.each([
-      ["marcas + sinMarcas", { marcas: "A", sinMarcas: "B" }, /marcas/],
-      ["categorias + sinCategorias", { categorias: "A", sinCategorias: "B" }, /categorias/],
-    ])("incluir y excluir en la misma columna es ValidationError: %s", (_n, raw, campo) => {
-      try {
-        parseProductosFiltros(raw);
-        expect.unreachable();
-      } catch (e) {
-        expect(e).toBeInstanceOf(ValidationError);
-        expect((e as ValidationError).message).toMatch(campo);
-      }
-    });
+    test.each(COLUMNAS_LISTA)(
+      "incluir y excluir en la misma columna es ValidationError: %s",
+      (columna) => {
+        const d = DEFINICIONES_LISTA[columna];
+        try {
+          parseProductosFiltros({ [d.incluir]: "A", [d.excluir]: "B" });
+          expect.unreachable();
+        } catch (e) {
+          expect(e).toBeInstanceOf(ValidationError);
+          expect((e as ValidationError).message).toMatch(d.incluir);
+        }
+      },
+    );
 
     test("incluir una columna y excluir la otra sí se puede", () => {
       const f = parseProductosFiltros({ marcas: "A", sinCategorias: "B" });
@@ -185,34 +198,29 @@ describe("parseProductosFiltros", () => {
       const ok = Array.from({ length: 300 }, (_, i) => `M${i}`);
       expect(parseProductosFiltros({ sinMarcas: ok }).sinMarcas).toHaveLength(300);
       expect(() => parseProductosFiltros({ sinMarcas: [...ok, "M300"] })).toThrow(ValidationError);
-      expect(() =>
-        parseProductosFiltros({ sinCategorias: Array.from({ length: 301 }, (_, i) => `C${i}`) }),
-      ).toThrow(ValidationError);
     });
   });
 
   describe("espacios: el mismo conjunto que usa SQL (espacio, tab, CR, LF, NBSP)", () => {
     test("quita los cinco en los bordes de textos y de valores de lista", () => {
       const f = parseProductosFiltros({
-        codigo: "\t  AB \r\n",
-        descripcion: " radiador ",
-        marcas: ["\tMOBIS "],
-        sinCategorias: [" FRENOS\n"],
+        q: "\t  AB \r\n",
+        marcas: ["\tMOBIS "],
+        sinCategorias: [" FRENOS\n"],
       });
-      expect(f.codigo).toBe("AB");
-      expect(f.descripcion).toBe("radiador");
+      expect(f.q).toBe("AB");
       expect(f.marcas).toEqual(["MOBIS"]);
       expect(f.sinCategorias).toEqual(["FRENOS"]);
     });
 
     test("no quita otros espacios Unicode que trim() de JS sí quitaría y btrim de SQL no", () => {
-      const f = parseProductosFiltros({ marcas: [" MOBIS"], codigo: "\f\v" });
-      expect(f.marcas).toEqual([" MOBIS"]);
-      expect(f.codigo).toBe("\f\v");
+      const f = parseProductosFiltros({ marcas: ["\u2003MOBIS"], q: "\f\v" });
+      expect(f.marcas).toEqual(["\u2003MOBIS"]);
+      expect(f.q).toBe("\f\v");
     });
 
     test("un valor que queda vacío tras normalizar se descarta", () => {
-      expect(parseProductosFiltros({ marcas: [" ", "\t"] }).marcas).toEqual([]);
+      expect(parseProductosFiltros({ marcas: [" ", "\t"] }).marcas).toEqual([]);
     });
   });
 
@@ -236,24 +244,130 @@ describe("parseProductosFiltros", () => {
       expect(() => parseProductosFiltros({ q: ["a", "b"] })).toThrow(ValidationError);
     });
 
-    test("convive con los demás filtros y con la paginación", () => {
-      const f = parseProductosFiltros({ q: "aveo", marcas: "MOBIS", pagina: "2" });
+    test("convive con los demás filtros", () => {
+      const f = parseProductosFiltros({ q: "aveo", marcas: "MOBIS" });
       expect(f.q).toBe("aveo");
       expect(f.marcas).toEqual(["MOBIS"]);
-      expect(f.pagina).toBe(2);
+    });
+  });
+
+  describe("orden: orden=campo&dir=asc|desc, repetidos", () => {
+    test("un nivel: sin dir es ascendente, solo desc invierte", () => {
+      expect(parseProductosFiltros({ orden: "marca" }).orden).toEqual([
+        { campo: "marca", dir: "asc" },
+      ]);
+      expect(parseProductosFiltros({ orden: "marca", dir: "desc" }).orden).toEqual([
+        { campo: "marca", dir: "desc" },
+      ]);
+      expect(parseProductosFiltros({ orden: "marca", dir: "DESC" }).orden).toEqual([
+        { campo: "marca", dir: "asc" },
+      ]);
+    });
+
+    test("hasta tres niveles: cada dir va con el orden de su posición", () => {
+      const f = parseProductosFiltros({
+        orden: ["categoria", "precio", "stock", "estado"],
+        dir: ["asc", "desc", "desc", "asc"],
+      });
+      expect(f.orden).toEqual([
+        { campo: "categoria", dir: "asc" },
+        { campo: "precio", dir: "desc" },
+        { campo: "stock", dir: "desc" },
+      ]);
+    });
+
+    test("un campo desconocido o repetido se descarta y el orden cae al por defecto (vacío)", () => {
+      expect(parseProductosFiltros({ orden: "nombre; drop table productos" }).orden).toEqual([]);
+      expect(
+        parseProductosFiltros({ orden: ["precio", "precio"], dir: ["desc", "asc"] }).orden,
+      ).toEqual([{ campo: "precio", dir: "desc" }]);
+    });
+
+    test("un nivel desconocido en el medio no corre los dir de los demás", () => {
+      const f = parseProductosFiltros({
+        orden: ["marca", "xxx", "precio"],
+        dir: ["asc", "desc", "desc"],
+      });
+      expect(f.orden).toEqual([
+        { campo: "marca", dir: "asc" },
+        { campo: "precio", dir: "desc" },
+      ]);
+    });
+
+    test("acepta los niveles ya armados desde código", () => {
+      const f = parseProductosFiltros({
+        orden: [
+          { campo: "precio", dir: "desc" },
+          { campo: "nada", dir: "asc" },
+          { campo: "codigo", dir: "asc" },
+        ],
+      });
+      expect(f.orden).toEqual([
+        { campo: "precio", dir: "desc" },
+        { campo: "codigo", dir: "asc" },
+      ]);
+    });
+
+    test("todos los campos de orden son los de la lista blanca", () => {
+      expect([...CAMPOS_ORDEN]).toEqual([
+        "codigo",
+        "codigoFabrica",
+        "otrosCodigos",
+        "categoria",
+        "descripcion",
+        "marca",
+        "precio",
+        "stock",
+        "estado",
+      ]);
+      expect(leerNiveles(["precio"], [])).toEqual([{ campo: "precio", dir: "asc" }]);
     });
   });
 });
 
-describe("parseOpcionesFacetas: columna", () => {
-  test("acepta categoria y marca, y sin columna calcula las dos", () => {
-    expect(parseOpcionesFacetas({ columna: "marca" }).columna).toBe("marca");
-    expect(parseOpcionesFacetas({ columna: "categoria" }).columna).toBe("categoria");
-    expect(parseOpcionesFacetas({}).columna).toBeUndefined();
-    expect(parseOpcionesFacetas({ columna: "" }).columna).toBeUndefined();
+describe("parseLote", () => {
+  test("sin valor es el primero; acepta strings de URL y números", () => {
+    expect(parseLote(undefined)).toBe(1);
+    expect(parseLote("")).toBe(1);
+    expect(parseLote("4")).toBe(4);
+    expect(parseLote(2)).toBe(2);
   });
 
-  test("rechaza una columna que no existe", () => {
-    expect(() => parseOpcionesFacetas({ columna: "precio" })).toThrow(ValidationError);
+  test.each(["0", "-1", "1.5", "abc", String(LOTE_MAX + 1)])("rechaza %s", (v) => {
+    expect(() => parseLote(v)).toThrow(ValidationError);
+  });
+
+  test("el tope es inclusivo", () => {
+    expect(parseLote(LOTE_MAX)).toBe(LOTE_MAX);
+  });
+});
+
+describe("parseOpcionesFaceta", () => {
+  test("acepta las seis columnas con lista", () => {
+    for (const c of COLUMNAS_LISTA) {
+      expect(parseOpcionesFaceta({ columna: c }).columna).toBe(c);
+    }
+  });
+
+  test("la columna es obligatoria y no puede ser una que no tenga lista", () => {
+    expect(() => parseOpcionesFaceta({})).toThrow(ValidationError);
+    expect(() => parseOpcionesFaceta({ columna: "precio" })).toThrow(ValidationError);
+    expect(() => parseOpcionesFaceta({ columna: "" })).toThrow(ValidationError);
+  });
+
+  test("q se normaliza y en blanco no viaja; el límite por defecto es 500", () => {
+    expect(parseOpcionesFaceta({ columna: "marca", q: "  mob " }).q).toBe("mob");
+    expect(parseOpcionesFaceta({ columna: "marca", q: "   " }).q).toBeUndefined();
+    expect(parseOpcionesFaceta({ columna: "marca" }).limite).toBe(500);
+  });
+
+  test.each([0, -1, 3001, 1.5])("límite %s inválido", (limite) => {
+    expect(() => parseOpcionesFaceta({ columna: "marca", limite })).toThrow(ValidationError);
+  });
+
+  test("q de más de 100 caracteres es ValidationError", () => {
+    expect(() => parseOpcionesFaceta({ columna: "marca", q: "a".repeat(101) })).toThrow(
+      ValidationError,
+    );
   });
 });

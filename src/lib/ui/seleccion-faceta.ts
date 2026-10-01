@@ -121,6 +121,9 @@ export function listaCompleta(faceta: Faceta, hayBusqueda: boolean): boolean {
 
 const binario = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
+/** Cuánto de la URL pueden ocupar los valores de una lista, en caracteres ya codificados. */
+export const PRESUPUESTO_URL_DEFAULT = 6000;
+
 export interface OpcionesResolucion {
   /**
    * Hay otros filtros activos (una búsqueda, el de otra columna…): la lista que se
@@ -128,6 +131,14 @@ export interface OpcionesResolucion {
    */
   otrosFiltros?: boolean;
   limite?: number;
+  /**
+   * Cuántos caracteres (codificados) caben en la URL para esta lista. 300 valores de
+   * una descripción larga pasan de los 16 KB que Node admite en los encabezados y el
+   * servidor contesta 431: el tope de cantidad solo no alcanza. Sin él, no se cuenta.
+   */
+  presupuestoChars?: number;
+  /** Lo que cuesta cada valor además de su texto: `&clave=`. */
+  sobrecargaPorValor?: number;
 }
 
 /**
@@ -148,8 +159,18 @@ export interface OpcionesResolucion {
 export function resolverSeleccion(
   s: Seleccion,
   universo: readonly string[] | null,
-  { otrosFiltros = false, limite = LISTA_MAX }: OpcionesResolucion = {},
+  {
+    otrosFiltros = false,
+    limite = LISTA_MAX,
+    presupuestoChars = Number.POSITIVE_INFINITY,
+    sobrecargaPorValor = 12,
+  }: OpcionesResolucion = {},
 ): Resolucion {
+  /** Entra en la URL: no más de `limite` valores y no más de `presupuestoChars` caracteres. */
+  const cabe = (valores: readonly string[]): boolean =>
+    valores.length <= limite &&
+    valores.reduce((suma, v) => suma + encodeURIComponent(v).length + sobrecargaPorValor, 0) <=
+      presupuestoChars;
   if (universo !== null) {
     const marcados = universo.filter((v) => estaMarcado(s, v));
     const desmarcados = universo.filter((v) => !estaMarcado(s, v));
@@ -165,18 +186,18 @@ export function resolverSeleccion(
         ? excluir
         : incluir;
     const otra = pedida === incluir ? excluir : incluir;
-    if (pedida.valores.length <= limite) return pedida;
-    if (otra.valores.length <= limite) return otra;
+    if (cabe(pedida.valores)) return pedida;
+    if (cabe(otra.valores)) return otra;
     return { tipo: "demasiados", cantidad: Math.min(marcados.length, desmarcados.length) };
   }
 
   const valores = [...s.valores].sort(binario);
   if (s.modo === "incluir") {
     if (valores.length === 0) return { tipo: "ninguno" };
-    if (valores.length > limite) return { tipo: "demasiados", cantidad: valores.length };
+    if (!cabe(valores)) return { tipo: "demasiados", cantidad: valores.length };
     return { tipo: "incluir", valores };
   }
   if (valores.length === 0) return { tipo: "sin-filtro" };
-  if (valores.length > limite) return { tipo: "demasiados", cantidad: valores.length };
+  if (!cabe(valores)) return { tipo: "demasiados", cantidad: valores.length };
   return { tipo: "excluir", valores };
 }

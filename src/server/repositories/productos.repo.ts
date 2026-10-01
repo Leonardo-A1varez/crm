@@ -1,15 +1,24 @@
+import {
+  COLUMNAS_LISTA,
+  DEFINICIONES_LISTA,
+  ORDEN_POR_DEFECTO,
+  valorDeColumna,
+  type CampoOrden,
+  type ColumnaLista,
+  type DireccionOrden,
+  type NivelOrden,
+} from "@/lib/catalogo/columnas-productos";
 import { normalizarValor } from "@/lib/catalogo/normalizar-valor";
 import { plegarTexto } from "@/lib/catalogo/plegar-texto";
 import { compatibleCon, puntaje } from "@/lib/catalogo/puntaje";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import {
-  SIN_CATEGORIA,
-  SIN_MARCA,
-  type OpcionesFacetas,
+  LOTE_TAMANO,
+  type OpcionesFaceta,
   type ProductosFiltros,
 } from "@/lib/validation/productos-filtros.schema";
 import type { Producto, UUID } from "@/types/entities";
-import type { Faceta, ProductosFacetas, ProductosPagina } from "@/types/productos";
+import type { Faceta, LoteProductos, ProductoFila } from "@/types/productos";
 import type { Insert, Update } from "./_types";
 
 // `codigo_fabrica` y `otros_codigos` van opcionales a propósito: en la DB son
@@ -87,25 +96,27 @@ export interface ProductsRepository {
    */
   search(input: ProductoSearchInput): Promise<ProductoSearchHit[]>;
   /**
-   * Una página del catálogo filtrado, con el total REAL del filtro.
+   * Un lote de la carga completa: las filas `[(lote-1)·LOTE_TAMANO, lote·LOTE_TAMANO)`
+   * del conjunto filtrado y ordenado, con el total REAL del filtro.
    *
-   * Recibe filtros ya validados (`parseProductosFiltros`). Orden `nombre`,
-   * `codigo_interno` (único, así que las páginas no se pisan). Una página fuera
-   * de rango devuelve `items: []` con el total correcto.
+   * Recibe filtros ya validados (`parseProductosFiltros`). El orden son los niveles
+   * elegidos (o el de por defecto) más un desempate por código —único—, así que es
+   * total y dos lotes nunca se pisan ni se saltean filas. Un lote fuera de rango
+   * devuelve `filas: []` con el total correcto.
    */
-  listarFiltrado(filtros: ProductosFiltros): Promise<ProductosPagina>;
+  listarLote(filtros: ProductosFiltros, lote: number): Promise<LoteProductos>;
   /**
-   * Facetas estilo Excel: valores distintos de categoría y de marca con su
-   * cantidad. Cada una se calcula con todos los filtros activos EXCEPTO los de
-   * su propia columna (incluir y excluir), y la paginación no cuenta.
+   * La lista de valores estilo Excel de UNA columna, con su cantidad. Se calcula con
+   * todos los filtros activos EXCEPTO los de su propia columna (incluir y excluir),
+   * así que cada lista muestra solo lo que dejan pasar los OTROS filtros.
    *
-   * `opciones.qCategoria` / `qMarca` buscan dentro de la lista (plegado,
-   * "contiene") ANTES del límite, así cualquier valor es encontrable aunque
-   * quede fuera del top. `limite` recorta cada lista; los valores seleccionados
-   * que coinciden con la búsqueda siempre entran, con cantidad 0 si no tienen
-   * filas. `distintos` cuenta solo valores con filas (cantidad > 0).
+   * `opciones.q` busca dentro de la lista (plegado, "contiene"; en el código, por
+   * igualdad) ANTES del límite, así cualquier valor es encontrable aunque quede fuera
+   * del top. `limite` recorta la lista; los valores seleccionados que coinciden con
+   * la búsqueda siempre entran, con cantidad 0 si no tienen filas. `distintos` cuenta
+   * solo valores con filas (cantidad > 0).
    */
-  facetas(filtros: ProductosFiltros, opciones: OpcionesFacetas): Promise<ProductosFacetas>;
+  faceta(filtros: ProductosFiltros, opciones: OpcionesFaceta): Promise<Faceta>;
   // Upsert masivo por codigo_interno (import CSV). Throws si hay codigo_interno
   // duplicado en el input. Preserva orden del input en el array de retorno.
   bulkUpsert(items: ProductoBulkUpsertItem[]): Promise<Producto[]>;
@@ -228,55 +239,28 @@ export class InMemoryProductsRepository implements ProductsRepository {
     return hits.slice(0, tope);
   }
 
-  async listarFiltrado(filtros: ProductosFiltros): Promise<ProductosPagina> {
+  async listarLote(filtros: ProductosFiltros, lote: number): Promise<LoteProductos> {
     const filas = [...this.store.values()]
       .filter((p) => cumpleFiltros(p, filtros, null))
-      .sort(
-        (a, b) =>
-          a.nombre.localeCompare(b.nombre) || a.codigo_interno.localeCompare(b.codigo_interno),
-      );
-    const desde = (filtros.pagina - 1) * filtros.porPagina;
+      .sort(comparadorDe(filtros.orden));
+    const desde = (lote - 1) * LOTE_TAMANO;
     return {
-      items: filas.slice(desde, desde + filtros.porPagina).map(cloneProducto),
+      filas: filas.slice(desde, desde + LOTE_TAMANO).map(aFila),
       total: filas.length,
-      pagina: filtros.pagina,
-      porPagina: filtros.porPagina,
+      lote,
+      desde,
     };
   }
 
-  async facetas(filtros: ProductosFiltros, opciones: OpcionesFacetas): Promise<ProductosFacetas> {
-    const filas = [...this.store.values()];
-    const contar = (excluir: "categoria" | "marca", valorDe: (p: Producto) => string | null) => {
-      const cuentas = new Map<string, number>();
-      for (const p of filas) {
-        if (!cumpleFiltros(p, filtros, excluir)) continue;
-        const v = valorDe(p);
-        if (v === null) continue;
-        cuentas.set(v, (cuentas.get(v) ?? 0) + 1);
-      }
-      return cuentas;
-    };
-    const vacia = (): Faceta => ({ valores: [], distintos: 0 });
-    return {
-      categorias:
-        opciones.columna === "marca"
-          ? vacia()
-          : armarFaceta(
-              contar("categoria", (p) => categoriaDe(p)),
-              [...filtros.categorias, ...filtros.sinCategorias],
-              opciones.limite,
-              opciones.qCategoria,
-            ),
-      marcas:
-        opciones.columna === "categoria"
-          ? vacia()
-          : armarFaceta(
-              contar("marca", (p) => marcaDe(p)),
-              [...filtros.marcas, ...filtros.sinMarcas],
-              opciones.limite,
-              opciones.qMarca,
-            ),
-    };
+  async faceta(filtros: ProductosFiltros, opciones: OpcionesFaceta): Promise<Faceta> {
+    const cuentas = new Map<string, number>();
+    for (const p of this.store.values()) {
+      if (!cumpleFiltros(p, filtros, opciones.columna)) continue;
+      const v = valorDeColumna(p, opciones.columna);
+      cuentas.set(v, (cuentas.get(v) ?? 0) + 1);
+    }
+    const d = DEFINICIONES_LISTA[opciones.columna];
+    return armarFaceta(cuentas, [...filtros[d.incluir], ...filtros[d.excluir]], opciones);
   }
 
   async bulkUpsert(items: ProductoBulkUpsertItem[]): Promise<Producto[]> {
@@ -311,26 +295,9 @@ export class InMemoryProductsRepository implements ProductsRepository {
   }
 }
 
-/**
- * La "marca" es `descripcion` sin los espacios de los bordes (los mismos que
- * `btrim` en SQL, ver `normalizarValor`); nula o en blanco es SIN_MARCA.
- */
-function marcaDe(p: Producto): string {
-  const m = normalizarValor(p.descripcion ?? "");
-  return m === "" ? SIN_MARCA : m;
-}
-
-/** Ídem para `categoria`: nula o en blanco es SIN_CATEGORIA. */
-function categoriaDe(p: Producto): string {
-  const c = normalizarValor(p.categoria ?? "");
-  return c === "" ? SIN_CATEGORIA : c;
-}
-
-/** Espejo de `plegar_texto(campo) like patrón` con los comodines de LIKE como texto literal. */
-function coincideTexto(campo: string, buscado: string, modo: "contiene" | "empieza"): boolean {
-  const c = plegarTexto(campo);
-  const b = plegarTexto(buscado);
-  return modo === "empieza" ? c.startsWith(b) : c.includes(b);
+/** Espejo de `plegar_texto(campo) like %buscado%`: sin mayúsculas ni tildes, subcadena. */
+function contieneTexto(campo: string, buscado: string): boolean {
+  return plegarTexto(campo).includes(plegarTexto(buscado));
 }
 
 /**
@@ -341,7 +308,6 @@ function coincideTexto(campo: string, buscado: string, modo: "contiene" | "empie
  * categoría no entra: se filtra con su propia columna.
  */
 function coincideBuscador(p: Producto, q: string): boolean {
-  const b = plegarTexto(q);
   const campos = [
     p.codigo_interno,
     p.codigo_fabrica ?? "",
@@ -349,34 +315,24 @@ function coincideBuscador(p: Producto, q: string): boolean {
     p.nombre,
     normalizarValor(p.descripcion ?? ""),
   ];
-  return campos.some((c) => plegarTexto(c).includes(b));
+  return campos.some((c) => contieneTexto(c, q));
 }
 
 /**
- * El predicado único del listado y de las facetas. `excluir` salta el filtro de
- * la columna cuya faceta se está calculando.
+ * El predicado único del listado y de las listas de valores. `excluir` salta los
+ * filtros de la columna cuya lista se está calculando.
  */
-function cumpleFiltros(
-  p: Producto,
-  f: ProductosFiltros,
-  excluir: "categoria" | "marca" | null,
-): boolean {
+function cumpleFiltros(p: Producto, f: ProductosFiltros, excluir: ColumnaLista | null): boolean {
   if (f.q !== undefined && !coincideBuscador(p, f.q)) return false;
-  if (f.codigo !== undefined && !coincideTexto(p.codigo_interno, f.codigo, f.codigoModo)) {
-    return false;
-  }
-  if (f.descripcion !== undefined && !coincideTexto(p.nombre, f.descripcion, f.descripcionModo)) {
-    return false;
-  }
-  if (excluir !== "categoria") {
-    const c = categoriaDe(p);
-    if (f.categorias.length > 0 && !f.categorias.includes(c)) return false;
-    if (f.sinCategorias.includes(c)) return false;
-  }
-  if (excluir !== "marca") {
-    const m = marcaDe(p);
-    if (f.marcas.length > 0 && !f.marcas.includes(m)) return false;
-    if (f.sinMarcas.includes(m)) return false;
+  for (const columna of COLUMNAS_LISTA) {
+    if (columna === excluir) continue;
+    const d = DEFINICIONES_LISTA[columna];
+    const incluir = f[d.incluir];
+    const quitar = f[d.excluir];
+    if (incluir.length === 0 && quitar.length === 0) continue;
+    const v = valorDeColumna(p, columna);
+    if (incluir.length > 0 && !incluir.includes(v)) return false;
+    if (quitar.includes(v)) return false;
   }
   if (f.precioMin !== undefined && p.precio < f.precioMin) return false;
   if (f.precioMax !== undefined && p.precio > f.precioMax) return false;
@@ -389,25 +345,148 @@ function cumpleFiltros(
   return true;
 }
 
+function aFila(p: Producto): ProductoFila {
+  return {
+    id: p.id,
+    codigo_interno: p.codigo_interno,
+    codigo_fabrica: p.codigo_fabrica,
+    otros_codigos: [...p.otros_codigos],
+    sku_proveedor: p.sku_proveedor,
+    nombre: p.nombre,
+    descripcion: p.descripcion,
+    categoria: p.categoria,
+    precio: p.precio,
+    stock: p.stock,
+    activo: p.activo,
+  };
+}
+
+// --- Orden -----------------------------------------------------------------
+
+const CODIGO_NUMERICO = /^[0-9]{1,18}$/;
+
+/** El código como número, si es todo dígitos: `1, 2, 10` y no `1, 10, 2`. Espejo de `codigo_interno_orden`. */
+function codigoNumerico(codigo: string): bigint | null {
+  return CODIGO_NUMERICO.test(codigo) ? BigInt(codigo) : null;
+}
+
+/** Texto recortado, o `null` si queda vacío (los vacíos van al final, como `nulls last`). */
+function textoONulo(v: string | null): string | null {
+  const t = normalizarValor(v ?? "");
+  return t === "" ? null : t;
+}
+
+type ClaveOrden = string | number | bigint | null;
+
+function claveDe(p: Producto, campo: CampoOrden): ClaveOrden {
+  switch (campo) {
+    case "codigo":
+      return codigoNumerico(p.codigo_interno);
+    case "codigoFabrica":
+      return textoONulo(p.codigo_fabrica);
+    case "otrosCodigos":
+      return textoONulo(p.otros_codigos.join(", "));
+    case "categoria":
+      return textoONulo(p.categoria);
+    case "descripcion":
+      return p.nombre;
+    case "marca":
+      return textoONulo(p.descripcion);
+    case "precio":
+      return p.precio;
+    case "stock":
+      return p.stock;
+    case "estado":
+      // Ascendente = activos primero (como Activo antes que Inactivo).
+      return p.activo ? 0 : 1;
+  }
+}
+
+/** Compara dos claves no nulas del mismo tipo. */
+function compararClaves(a: string | number | bigint, b: string | number | bigint): number {
+  if (typeof a === "string" && typeof b === "string") return a.localeCompare(b);
+  return a === b ? 0 : a < b ? -1 : 1;
+}
+
+/** `nulls last`: un vacío va siempre después de un valor, en las dos direcciones. */
+function compararConNulosAlFinal(a: ClaveOrden, b: ClaveOrden): number | null {
+  if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1;
+  return null;
+}
+
+/**
+ * Espejo del `order by` de `productos_listar`: los niveles elegidos (o el de por
+ * defecto), vacíos al final en las dos direcciones, y el código —único— de desempate.
+ */
+function comparadorDe(niveles: readonly NivelOrden[]) {
+  const efectivos = niveles.length > 0 ? niveles : ORDEN_POR_DEFECTO;
+  return (a: Producto, b: Producto): number => {
+    for (const { campo, dir } of efectivos) {
+      if (campo === "codigo") {
+        const c = compararCodigos(a.codigo_interno, b.codigo_interno, dir);
+        if (c !== 0) return c;
+        continue;
+      }
+      const ka = claveDe(a, campo);
+      const kb = claveDe(b, campo);
+      const nulo = compararConNulosAlFinal(ka, kb);
+      if (nulo !== null) {
+        if (nulo !== 0) return nulo;
+        continue;
+      }
+      const c = compararClaves(ka as string | number | bigint, kb as string | number | bigint);
+      if (c !== 0) return dir === "desc" ? -c : c;
+    }
+    return compararCodigos(a.codigo_interno, b.codigo_interno, "asc");
+  };
+}
+
+/**
+ * Espejo de `codigo_interno_orden {dir} nulls last, codigo_interno {dir}`: primero
+ * el número (los que no son todo dígitos, al final en las dos direcciones) y, a
+ * igual número, el texto en el mismo sentido.
+ */
+function compararCodigos(a: string, b: string, dir: DireccionOrden): number {
+  const signo = dir === "desc" ? -1 : 1;
+  const na = codigoNumerico(a);
+  const nb = codigoNumerico(b);
+  if (na !== nb) return na === null ? 1 : nb === null ? -1 : na < nb ? -signo : signo;
+  return signo * a.localeCompare(b);
+}
+
+// --- Listas de valores -------------------------------------------------------
+
 function armarFaceta(
   cuentas: Map<string, number>,
   seleccionados: string[],
-  limite: number,
-  q: string | undefined,
+  opciones: OpcionesFaceta,
 ): Faceta {
   // Un valor seleccionado sin filas bajo los demás filtros igual se muestra, en 0.
   for (const s of seleccionados) if (!cuentas.has(s)) cuentas.set(s, 0);
+  const d = DEFINICIONES_LISTA[opciones.columna];
   // La búsqueda dentro de la lista va ANTES del límite y recorta también a los seleccionados.
-  const buscado = q === undefined ? null : plegarTexto(q);
+  const buscado = opciones.q === undefined ? null : plegarTexto(opciones.q);
+  const coincide = (valor: string) =>
+    buscado === null ||
+    (d.identificador
+      ? valor.toLowerCase() === (opciones.q ?? "").toLowerCase()
+      : plegarTexto(valor).includes(buscado));
+  const numerico = (valor: string): bigint | null =>
+    d.identificador ? codigoNumerico(valor) : null;
   const todos = [...cuentas.entries()]
-    .filter(([valor]) => buscado === null || plegarTexto(valor).includes(buscado))
+    .filter(([valor]) => coincide(valor))
     .map(([valor, cantidad]) => ({ valor, cantidad }))
-    // Orden binario, no localeCompare: es el desempate de Postgres con `collate "C"`.
-    .sort(
-      (a, b) => b.cantidad - a.cantidad || (a.valor < b.valor ? -1 : a.valor > b.valor ? 1 : 0),
-    );
+    .sort((a, b) => {
+      if (b.cantidad !== a.cantidad) return b.cantidad - a.cantidad;
+      const na = numerico(a.valor);
+      const nb = numerico(b.valor);
+      if (na !== null && nb !== null && na !== nb) return na < nb ? -1 : 1;
+      if ((na === null) !== (nb === null)) return na === null ? 1 : -1;
+      // Orden binario, no localeCompare: es el desempate de Postgres con `collate "C"`.
+      return a.valor < b.valor ? -1 : a.valor > b.valor ? 1 : 0;
+    });
   const elegidos = new Set(seleccionados);
-  const valores = todos.filter((v, i) => i < limite || elegidos.has(v.valor));
+  const valores = todos.filter((v, i) => i < opciones.limite || elegidos.has(v.valor));
   // Los seleccionados con 0 filas se muestran pero no son valores "que existen".
   return { valores, distintos: todos.filter((v) => v.cantidad > 0).length };
 }

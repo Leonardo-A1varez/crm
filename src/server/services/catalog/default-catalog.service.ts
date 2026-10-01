@@ -1,17 +1,13 @@
 import {
-  parseOpcionesFacetas,
+  parseLote,
+  parseOpcionesFaceta,
   parseProductosFiltros,
-  type OpcionesFacetasEntrada,
+  type OpcionesFacetaEntrada,
   type ProductosFiltrosEntrada,
 } from "@/lib/validation/productos-filtros.schema";
 import type { ProductsRepository } from "@/server/repositories/productos.repo";
 import type { Producto, UUID } from "@/types/entities";
-import type {
-  ImportPreview,
-  ImportResult,
-  ProductosFacetas,
-  ProductosPagina,
-} from "@/types/productos";
+import type { Faceta, ImportPreview, ImportResult, LoteProductos } from "@/types/productos";
 import { parseProductosCsv } from "./csv-import";
 import type {
   CatalogService,
@@ -26,17 +22,18 @@ export interface DefaultCatalogServiceDeps {
 export class DefaultCatalogService implements CatalogService {
   constructor(private readonly deps: DefaultCatalogServiceDeps) {}
 
-  async buscarProductos(entrada: ProductosFiltrosEntrada): Promise<ProductosPagina> {
-    const filtros = parseProductosFiltros(entrada);
-    return this.deps.productos.listarFiltrado(filtros);
+  async loteProductos(filtros: ProductosFiltrosEntrada, lote?: unknown): Promise<LoteProductos> {
+    return this.deps.productos.listarLote(parseProductosFiltros(filtros), parseLote(lote));
   }
 
-  async facetasProductos(
-    entrada: ProductosFiltrosEntrada,
-    opciones: OpcionesFacetasEntrada = {},
-  ): Promise<ProductosFacetas> {
-    const filtros = parseProductosFiltros(entrada);
-    return this.deps.productos.facetas(filtros, parseOpcionesFacetas(opciones));
+  async facetaProductos(
+    filtros: ProductosFiltrosEntrada,
+    opciones: OpcionesFacetaEntrada,
+  ): Promise<Faceta> {
+    return this.deps.productos.faceta(
+      parseProductosFiltros(filtros),
+      parseOpcionesFaceta(opciones),
+    );
   }
 
   async createProducto(input: CreateProductoServiceInput): Promise<Producto> {
