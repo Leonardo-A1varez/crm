@@ -7,6 +7,7 @@ import {
   type OnMessageReceivedDeps,
 } from "@/inngest/functions/on-message-received";
 import type { ParsedMessage } from "@/lib/meta/parse-webhook";
+import type { LogContext, Logger } from "@/lib/observability/logger";
 import { InMemoryBorradoresIaRepository } from "@/server/repositories/borradores-ia.repo";
 import { InMemoryConversationsRepository } from "@/server/repositories/conversations.repo";
 import { InMemoryDifusionSupresionesRepository } from "@/server/repositories/difusion-supresiones.repo";
@@ -642,5 +643,190 @@ describe("on-message-received — un fallo entre iniciar y guardar el borrador n
       estado: "error",
       error_codigo: "llm_error",
     });
+  });
+});
+
+/** Un logger que guarda lo que se le escribe, para afirmar sobre los avisos. */
+class SpyLogger implements Logger {
+  constructor(
+    private readonly bindings: LogContext = {},
+    readonly entries: { level: string; msg: string; ctx: LogContext }[] = [],
+  ) {}
+  private push(level: string, msg: string, ctx?: LogContext) {
+    this.entries.push({ level, msg, ctx: { ...this.bindings, ...(ctx ?? {}) } });
+  }
+  debug(msg: string, ctx?: LogContext) {
+    this.push("debug", msg, ctx);
+  }
+  info(msg: string, ctx?: LogContext) {
+    this.push("info", msg, ctx);
+  }
+  warn(msg: string, ctx?: LogContext) {
+    this.push("warn", msg, ctx);
+  }
+  error(msg: string, ctx?: LogContext) {
+    this.push("error", msg, ctx);
+  }
+  child(bindings: LogContext): Logger {
+    return new SpyLogger({ ...this.bindings, ...bindings }, this.entries);
+  }
+}
+
+describe("on-message-received — código desplegado antes que la migración del copiloto", () => {
+  test("Automático: si invalidar el borrador previo falla, el turno responde igual y deja un aviso sin PII", async () => {
+    const ctx = makeCtx(); // equipo sin rangos: Automático
+    const logger = new SpyLogger();
+    ctx.deps.logger = logger;
+    vi.spyOn(ctx.borradores, "descartarVigentes").mockRejectedValue(
+      new InfraError('relation "borradores_ia" does not exist'),
+    );
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("Respuesta por la API.");
+
+    const r = await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+
+    expect(r.sent).toBe(true);
+    expect(ctx.metaClient.calls).toHaveLength(1);
+    const aviso = logger.entries.find((e) => e.level === "warn" && e.msg.includes("borrador"));
+    expect(aviso).toBeDefined();
+    const serializado = JSON.stringify(aviso);
+    expect(serializado).not.toContain(TEL);
+    expect(serializado).not.toContain("Busco filtro");
+    expect(serializado).not.toContain("does not exist");
+  });
+
+  test("Instagram con el repositorio roto: tampoco se cae el turno", async () => {
+    const ctx = makeCtx(EQUIPO);
+    vi.spyOn(ctx.borradores, "descartarVigentes").mockRejectedValue(new InfraError("sin tabla"));
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("Respuesta por Instagram.");
+
+    const r = await onMessageReceivedHandler(
+      { parsed: parsed({ canal: "ig", canal_thread_id: "IGSID", meta_user_id: "IGSID" }) },
+      ctx.deps,
+    );
+
+    expect(r.sent).toBe(true);
+  });
+
+  test("Copiloto: si invalidar el borrador previo falla, el turno falla en voz alta y no gasta ni manda nada", async () => {
+    const ctx = makeCtx(EQUIPO);
+    vi.spyOn(ctx.borradores, "descartarVigentes").mockRejectedValue(new InfraError("sin tabla"));
+    await ctx.intents.create({
+      nombre: "consulta_stock",
+      descripcion: "pregunta por disponibilidad",
+      ejemplos: [],
+      auto_detectado: false,
+      activo: true,
+    });
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("No debería salir.");
+
+    await expect(onMessageReceivedHandler({ parsed: parsed() }, ctx.deps)).rejects.toBeInstanceOf(
+      InfraError,
+    );
+
+    expect(ctx.metaClient.calls).toHaveLength(0);
+    expect(ctx.intentLLM.calls).toHaveLength(0);
+    expect(ctx.agentLLM.calls).toHaveLength(0);
+  });
+});
+
+describe("on-message-received — corrida en vuelo con una config memoizada sin horario_equipo", () => {
+  test("sin horario_equipo se asume equipo sin rangos: Automático, sin TypeError", async () => {
+    const ctx = makeCtx({ horario_equipo: undefined as unknown as Horario });
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("Respuesta por la API.");
+
+    const r = await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+
+    expect(r.sent).toBe(true);
+    expect(ctx.metaClient.calls).toHaveLength(1);
+  });
+});
+
+describe("on-message-received — no se paga el LLM cuando el borrador no va a usarse", () => {
+  test("iniciar devuelve obsoleto: no se llama al agente, no se manda nada y el tramo se avisa", async () => {
+    const ctx = makeCtx(EQUIPO);
+    const logger = new SpyLogger();
+    ctx.deps.logger = logger;
+    ctx.deps.delegaciones = {
+      delegacionesActivas: async () => [{ runId: "run-1", instrucciones: null }],
+    };
+    vi.spyOn(ctx.borradores, "iniciar").mockResolvedValue({ resultado: "obsoleto" });
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("No debería generarse.");
+
+    const r = await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+
+    expect(ctx.agentLLM.calls).toHaveLength(0);
+    expect(ctx.metaClient.calls).toHaveLength(0);
+    expect(r.sent).toBe(false);
+    expect(await ctx.borradores.findActualByConversacion(r.conversacionId)).toBeNull();
+    expect(logger.entries.some((e) => e.msg === "borrador-omitido")).toBe(true);
+    expect(logger.entries.some((e) => e.msg === "borrador-listo")).toBe(false);
+  });
+
+  test("iniciar devuelve existente ya usado: no se llama al agente", async () => {
+    const ctx = makeCtx(EQUIPO);
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("Primera pasada.");
+    const primero = await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+    const b = await ctx.borradores.findActualByConversacion(primero.conversacionId);
+    await ctx.borradores.marcarUsado(b!.id, { via: "copiar", usuarioId: null });
+
+    const logger = new SpyLogger();
+    ctx.deps.logger = logger;
+    vi.spyOn(ctx.borradores, "iniciar").mockResolvedValue({
+      resultado: "existente",
+      borradorId: b!.id,
+      estado: "usado",
+    });
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("No debería generarse.");
+
+    await onMessageReceivedHandler({ parsed: parsed({ meta_message_id: "wamid.IN-2" }) }, ctx.deps);
+
+    expect(ctx.agentLLM.calls).toHaveLength(1); // solo el de la primera pasada
+    expect(logger.entries.some((e) => e.msg === "borrador-listo")).toBe(false);
+    expect((await ctx.borradores.findById(b!.id))?.estado).toBe("usado");
+  });
+
+  test("iniciar devuelve existente todavía redactando: se retoma, el agente corre y el borrador se completa", async () => {
+    const ctx = makeCtx(EQUIPO);
+    const original = ctx.borradores.iniciar.bind(ctx.borradores);
+    // Un borrador que quedó redactando de una pasada que murió: el repo lo
+    // devuelve como `existente` en vez de `creado`.
+    let borradorId = "";
+    vi.spyOn(ctx.borradores, "iniciar").mockImplementation(async (input) => {
+      const r = await original({ ...input, forzar: true });
+      if (r.resultado !== "creado") return r;
+      borradorId = r.borradorId;
+      return { resultado: "existente", borradorId: r.borradorId, estado: "redactando" };
+    });
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("Retomado.");
+
+    await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+
+    expect(ctx.agentLLM.calls).toHaveLength(1);
+    expect(await ctx.borradores.findById(borradorId)).toMatchObject({
+      estado: "listo",
+      contenido: "Retomado.",
+    });
+  });
+
+  test("completar devuelve null (el borrador ya no estaba redactando): no se loguea borrador-listo", async () => {
+    const ctx = makeCtx(EQUIPO);
+    const logger = new SpyLogger();
+    ctx.deps.logger = logger;
+    vi.spyOn(ctx.borradores, "completar").mockResolvedValue(null);
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("Respuesta que llega tarde.");
+
+    await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+
+    expect(logger.entries.some((e) => e.msg === "borrador-listo")).toBe(false);
+    expect(logger.entries.some((e) => e.msg === "borrador-no-guardado")).toBe(true);
   });
 });

@@ -8,7 +8,7 @@ function horarioAbiertoSiempre(): Horario {
 }
 
 /** Sin ningún rango: "nunca hay equipo". Es el default seguro del copiloto. */
-function horarioSinRangos(): Horario {
+export function horarioSinRangos(): Horario {
   const horario = {} as Horario;
   for (const dia of DIAS_SEMANA) horario[dia] = [];
   return horario;

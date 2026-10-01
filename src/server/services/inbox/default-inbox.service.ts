@@ -5,6 +5,7 @@ import { calcularSinResponder } from "@/lib/sin-responder";
 import { pesoMotivo, triage } from "@/lib/triage";
 import { canalesDelLead } from "@/lib/ui/canal";
 import { nombreDeRegla } from "@/lib/ui/regla";
+import { NoopLogger, type Logger } from "@/lib/observability/logger";
 import { entranteDeClave } from "@/server/services/meta-api.service";
 import type { EntradaTriage } from "@/lib/triage";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
@@ -194,6 +195,8 @@ export interface DefaultInboxServiceDeps {
    * aparece, como antes del copiloto.
    */
   borradores?: Pick<BorradoresIaRepository, "listListosPorConversacionIds">;
+  /** Para avisar lo que se degrada sin romper la bandeja (la marca de borrador). */
+  logger?: Logger;
 }
 
 /** El recordatorio como lo consume la bandeja, o `null` si no hay ninguno vivo. */
@@ -238,6 +241,19 @@ export class DefaultInboxService implements InboxService {
     ]);
     return activeSessions.filter((s) => triage(entradaTriage(s, recordatorios)).motivo !== null)
       .length;
+  }
+
+  /** Las conversaciones con un borrador listo; vacío si no hay repo o la consulta falla. */
+  private async conversacionesConBorrador(convs: readonly { id: UUID }[]): Promise<UUID[]> {
+    if (!this.deps.borradores) return [];
+    try {
+      return await this.deps.borradores.listListosPorConversacionIds(convs.map((c) => c.id));
+    } catch (error) {
+      (this.deps.logger ?? new NoopLogger()).warn("inbox.borradores_no_disponibles", {
+        error_name: error instanceof Error ? error.name : "desconocido",
+      });
+      return [];
+    }
   }
 
   /**
@@ -298,11 +314,10 @@ export class DefaultInboxService implements InboxService {
     const vivoPorSesion = new Map(vivos.map((r) => [r.lead_session_id, r]));
     // Una consulta en lote para todas las conversaciones visibles (el repo
     // parte en tandas): sin N+1 y sin el corte de 1.000 filas de PostgREST.
-    const conBorrador = new Set<UUID>(
-      this.deps.borradores
-        ? await this.deps.borradores.listListosPorConversacionIds(convsFilas.map((c) => c.id))
-        : [],
-    );
+    // La marca es un adorno de la lista: si la consulta falla (por ejemplo, el
+    // código desplegado antes que la migración de `borradores_ia`), la bandeja
+    // sale sin la marca en vez de caerse entera.
+    const conBorrador = new Set<UUID>(await this.conversacionesConBorrador(convsFilas));
 
     const leadPorId = new Map<UUID, Lead>(leadsFilas.map((l) => [l.id, l]));
     const convsPorLead = agrupar(convsFilas, (c) => c.lead_id);
