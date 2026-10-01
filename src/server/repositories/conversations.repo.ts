@@ -3,7 +3,10 @@ import type { Canal } from "@/types/domain";
 import type { Conversacion, UUID } from "@/types/entities";
 import type { Insert, Update } from "./_types";
 
-export type ConversacionInsert = Insert<Conversacion, "id" | "ultima_actividad_at">;
+export type ConversacionInsert = Insert<
+  Conversacion,
+  "id" | "ultima_actividad_at" | "modo_respuesta_override"
+>;
 export type ConversacionUpdate = Update<Conversacion, "id" | "canal" | "canal_thread_id">;
 
 export interface ConversationsRepository {
@@ -46,6 +49,7 @@ export class InMemoryConversationsRepository implements ConversationsRepository 
       ...input,
       id: crypto.randomUUID(),
       ultima_actividad_at: new Date(),
+      modo_respuesta_override: null,
     };
     this.store.set(conv.id, conv);
     return { ...conv };

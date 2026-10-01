@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { SupabaseConversationsRepository } from "@/server/repositories/conversations.supabase.repo";
 import type { ConversationsContractFixtures } from "../repositories/conversations.contract";
 import { runConversationsContract } from "../repositories/conversations.contract";
@@ -31,6 +31,23 @@ describe("SupabaseConversationsRepository (integration)", () => {
     () => new SupabaseConversationsRepository(client),
     () => fixtures,
   );
+});
+
+describe("modo_respuesta_override (solo Postgres)", () => {
+  test("el CHECK de la base rechaza un modo fuera del dominio (23514)", async () => {
+    const { data, error } = await client
+      .from("conversaciones")
+      .insert({
+        lead_id: fixtures.leadIds.one,
+        canal: "wa",
+        canal_thread_id: "check-modo-1",
+        modo_respuesta_override: "otro" as never,
+      })
+      .select();
+
+    expect(data).toBeNull();
+    expect(error?.code).toBe("23514");
+  });
 });
 
 async function seedFixtures(c: TestClient): Promise<ConversationsContractFixtures> {
