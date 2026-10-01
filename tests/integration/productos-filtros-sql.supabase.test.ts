@@ -120,6 +120,35 @@ describe("productos_filtrados / listar / facetas: frontera SQL", () => {
     expect((await listar({ q: "bs\\1" })).items.map((p) => p.codigo_interno)).toEqual(["BS\\1"]);
   });
 
+  test.each([
+    ["otro texto", "otro"],
+    ["vacío", ""],
+    ["mayúscula", "ACTIVO"],
+    ["número", 1],
+  ])("estado que no es 'activo' ni 'inactivo' se ignora: %s", async (_n, estado) => {
+    expect((await listar({ estado })).total).toBe(2);
+  });
+
+  test("estado 'activo' e 'inactivo' siguen filtrando", async () => {
+    await client.from("productos").update({ activo: false }).eq("codigo_interno", "S-2");
+    expect((await listar({ estado: "activo" })).items.map((p) => p.codigo_interno)).toEqual([
+      "S-1",
+    ]);
+    expect((await listar({ estado: "inactivo" })).items.map((p) => p.codigo_interno)).toEqual([
+      "S-2",
+    ]);
+  });
+
+  test("el listado no manda al navegador las columnas de índice", async () => {
+    const r = await listar({});
+    const claves = Object.keys(r.items[0] ?? {});
+    expect(claves).not.toContain("busqueda");
+    expect(claves).not.toContain("busqueda_general");
+    expect(claves).not.toContain("codigo_fabrica_plegado");
+    expect(claves).not.toContain("codigo_interno_plegado");
+    expect(claves).toContain("codigo_interno");
+  });
+
   test("las facetas heredan q: cuentan solo los productos que coinciden", async () => {
     const { data, error } = await client.rpc("productos_facetas", {
       p_filtros: { q: "uno" } as never,

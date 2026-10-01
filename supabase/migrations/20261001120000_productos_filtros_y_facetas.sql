@@ -34,7 +34,7 @@
 --   marcas, sin_marcas          [texto]          incluir / excluir marcas
 --   precio_min, precio_max, stock_min, stock_max rangos inclusivos
 --   con_stock   boolean                          true: stock > 0 · false: stock = 0
---   estado      'activo'|'inactivo'
+--   estado      'activo'|'inactivo'                  otro valor = sin filtro
 -- Solo para `productos_facetas`:
 --   q_categoria, q_marca                         búsqueda dentro de cada lista
 --
@@ -60,6 +60,11 @@
 -- mismos que `SIN_MARCA` y `SIN_CATEGORIA`. Hoy 2.740 filas tienen la marca
 -- nula; la categoría nunca es nula en crm-dev, pero el sentinela evita que una
 -- fila con categoría vacía quede sin casilla que marcar.
+
+-- La columna generada de abajo reescribe `productos` y el índice se construye
+-- bloqueando las escrituras. Si otra transacción tiene la tabla tomada, mejor
+-- abortar a los 5 s que dejar una cola de lock exclusivo detrás de ella.
+set lock_timeout = '5s';
 
 -- =========================================================================
 -- 0. Índices
@@ -95,8 +100,11 @@ create index if not exists productos_nombre_texto_trgm_idx
 -- Los alternos se unen con espacio (`codigos_a_texto`), igual que en
 -- `productos.busqueda`. La marca es el texto real de `descripcion`.
 --
--- Una columna generada nueva reescribe la tabla (lock de tabla): con 21.009
--- filas son milisegundos, pero se aplica en ventana.
+-- Una columna generada nueva reescribe la tabla con lock exclusivo, y el índice
+-- bloquea las escrituras mientras se construye. Medido en local sobre una copia
+-- temporal con 21.000 filas inventadas: ~0,4 s la columna y ~0,35 s el índice
+-- (tres corridas: 381-412 ms y 350-385 ms). Va con `lock_timeout` y se aplica en
+-- ventana.
 alter table public.productos
   add column if not exists busqueda_general text
   generated always as (
@@ -227,6 +235,7 @@ begin
     )
     and (
       p_filtros ->> 'estado' is null
+      or p_filtros ->> 'estado' not in ('activo', 'inactivo')
       or p.activo = (p_filtros ->> 'estado' = 'activo')
     );
 end
@@ -244,7 +253,8 @@ comment on function public.productos_filtrados(jsonb, text) is
 --     `count(*) over ()` no puede dar porque no hay fila donde ponerlo;
 --   - las columnas salen de `to_jsonb(productos)`, así que una columna nueva no
 --     queda fuera en silencio por no estar en una lista a mano.
--- Se quitan `busqueda` y las dos columnas plegadas: son índices, no datos.
+-- Se quitan `busqueda`, `busqueda_general` y las dos columnas plegadas: son
+-- índices, no datos.
 --
 -- Orden `nombre, codigo_interno`: `codigo_interno` es UNIQUE, por lo que es un
 -- orden total y dos páginas nunca se pisan.
@@ -291,7 +301,8 @@ as $function$
     'items', coalesce(
       (
         select jsonb_agg(
-          to_jsonb(pagina) - 'busqueda' - 'codigo_fabrica_plegado' - 'codigo_interno_plegado'
+          to_jsonb(pagina) - 'busqueda' - 'busqueda_general' - 'codigo_fabrica_plegado'
+            - 'codigo_interno_plegado'
           order by pagina.nombre, pagina.codigo_interno
         )
         from pagina
