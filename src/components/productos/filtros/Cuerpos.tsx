@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import { normalizarValor } from "@/lib/catalogo/normalizar-valor";
 import {
   avisoDeLista,
   errorDeRango,
@@ -97,7 +98,7 @@ export function CuerpoCodigo({ cerrar }: CuerpoProps) {
       hayFiltro={filtros.codigo !== ""}
       aviso={null}
       onAplicar={() => {
-        const t = texto.trim();
+        const t = normalizarValor(texto);
         aplicar(["codigo"], {
           codigo: t,
           codigoModo: t !== "" && modo === "empieza" ? modo : undefined,
@@ -130,7 +131,12 @@ export function CuerpoDescripcion({ cerrar }: CuerpoProps) {
   const { filtros, aplicar, limpiar } = useFiltrosProductos();
   const [texto, setTexto] = useState(filtros.descripcion);
   const [modo, setModo] = useState(filtros.descripcionModo);
-  const marcas = useListaFiltro("marca", filtros.marcas, filtros.sinMarcas, texto.trim() !== "");
+  const marcas = useListaFiltro(
+    "marca",
+    filtros.marcas,
+    filtros.sinMarcas,
+    normalizarValor(texto) !== "",
+  );
   const valoresMarca = valoresDeLista(marcas.resolucion, "marcas", "sinMarcas");
   const grupos: GrupoFiltro[] = ["descripcion", "marca"];
 
@@ -140,7 +146,7 @@ export function CuerpoDescripcion({ cerrar }: CuerpoProps) {
       hayFiltro={filtros.descripcion !== "" || filtros.marcas.length + filtros.sinMarcas.length > 0}
       aviso={avisoDeLista(marcas.resolucion, "marca")}
       onAplicar={() => {
-        const t = texto.trim();
+        const t = normalizarValor(texto);
         aplicar(grupos, {
           descripcion: t,
           descripcionModo: t !== "" && modo === "empieza" ? modo : undefined,

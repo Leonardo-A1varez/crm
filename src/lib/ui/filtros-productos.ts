@@ -96,7 +96,7 @@ function todos(params: ParamsEntrada, clave: string): string[] {
 }
 
 function primero(params: ParamsEntrada, clave: string): string {
-  return (todos(params, clave)[0] ?? "").trim();
+  return normalizarValor(todos(params, clave)[0] ?? "");
 }
 
 function modo(v: string): ModoTextoUrl {

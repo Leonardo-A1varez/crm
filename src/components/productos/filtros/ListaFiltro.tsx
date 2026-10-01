@@ -3,6 +3,7 @@
 import { useId, useRef, useState } from "react";
 import { SearchIcon } from "@/components/icons";
 import { Casilla } from "@/components/shared/Casilla";
+import { normalizarValor } from "@/lib/catalogo/normalizar-valor";
 import {
   alternarMaestro,
   alternarValor,
@@ -45,7 +46,11 @@ export function ListaFiltro({
 
   const valores = faceta?.valores ?? [];
   const nombres = valores.map((v) => v.valor);
-  const hayBusqueda = q.trim() !== "" && !cargando;
+  // Con algo escrito en el buscador "Seleccionar todo" habla de los resultados, no de la
+  // columna entera, y eso vale también mientras la búsqueda todavía viaja: los valores
+  // que se ven son de la anterior y marcarlos o desmarcarlos a todos sería actuar sobre
+  // lo que nadie pidió.
+  const hayBusqueda = normalizarValor(q) !== "";
   const estado = estadoMaestro(seleccion, nombres, {
     global: !hayBusqueda,
     completo: lista.completa,
@@ -122,9 +127,11 @@ export function ListaFiltro({
               <Casilla
                 checked={estado === "todos"}
                 indeterminate={estado === "algunos"}
-                onChange={() =>
-                  lista.setSeleccion(alternarMaestro(seleccion, estado, nombres, !hayBusqueda))
-                }
+                disabled={cargando}
+                onChange={() => {
+                  if (cargando) return;
+                  lista.setSeleccion(alternarMaestro(seleccion, estado, nombres, !hayBusqueda));
+                }}
               />
               <span className="text-ink-primary">
                 {hayBusqueda ? "Seleccionar resultados" : "Seleccionar todo"}
@@ -173,7 +180,7 @@ export function ListaFiltro({
           <div role="status" aria-live="polite" className="text-ink-faint text-[11px] leading-snug">
             {valores.length === 0
               ? hayBusqueda
-                ? `Ninguna ${nombre.toLowerCase()} coincide con “${q.trim()}”.`
+                ? `Ninguna ${nombre.toLowerCase()} coincide con “${normalizarValor(q)}”.`
                 : `No hay ${plural} con los demás filtros puestos.`
               : recortada
                 ? `Mostrando ${cantidadFmt.format(conFilas)} de ${cantidadFmt.format(faceta.distintos)} ${plural}. Buscá para ver el resto.`

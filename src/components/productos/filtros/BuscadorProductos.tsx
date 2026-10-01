@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SearchIcon } from "@/components/icons";
+import { normalizarValor } from "@/lib/catalogo/normalizar-valor";
 import { useFiltrosProductos } from "./FiltrosProductosProvider";
 
 /** Espera a que se termine de escribir antes de mandar la búsqueda a la URL. */
@@ -38,7 +39,7 @@ export function BuscadorProductos() {
 
   const enviar = useCallback(
     (texto: string) => {
-      const q = texto.trim();
+      const q = normalizarValor(texto);
       if (q === enviado.current) return;
       enviado.current = q;
       aplicar(["busqueda"], { q });

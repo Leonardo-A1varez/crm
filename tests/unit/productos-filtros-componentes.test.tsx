@@ -484,6 +484,38 @@ describe("CuerpoCategoria (lista estilo Excel)", () => {
     expect(screen.queryByLabelText(/Frenos/)).toBeNull();
   });
 
+  it("mientras la búsqueda viaja, 'Seleccionar todo' no actúa sobre la columna entera", async () => {
+    // La segunda respuesta (la búsqueda) no llega hasta que el test la suelta.
+    let soltar: (r: FacetasActionResult) => void = () => {};
+    const cargar = vi
+      .fn<(i: FacetasActionInput) => Promise<FacetasActionResult>>()
+      .mockResolvedValueOnce({ ok: true, facetas: facetas() })
+      .mockImplementation(() => new Promise((resolver) => (soltar = resolver)));
+    await abrirCon(cargar);
+    fireEvent.change(screen.getByLabelText("Buscar en Categoría"), { target: { value: "mot" } });
+    // Todavía se ven las tres de la lista anterior, pero ya no es "la columna entera".
+    expect(screen.getByLabelText("Seleccionar resultados")).toBeTruthy();
+    const maestro = screen.getByLabelText("Seleccionar resultados") as HTMLInputElement;
+    expect(maestro.disabled).toBe(true);
+    fireEvent.click(maestro);
+    expect(screen.queryByText(/Marcá al menos/)).toBeNull();
+    expect((screen.getByLabelText(/Frenos/) as HTMLInputElement).checked).toBe(true);
+    // La búsqueda sale al servidor después de la espera del tecleo.
+    await waitFor(() => expect(cargar).toHaveBeenCalledTimes(2));
+    soltar({
+      ok: true,
+      facetas: facetas({
+        categorias: { valores: [{ valor: "Motor", cantidad: 8 }], distintos: 1 },
+      }),
+    });
+    await screen.findByText("Seleccionar resultados");
+    await waitFor(() =>
+      expect((screen.getByLabelText("Seleccionar resultados") as HTMLInputElement).disabled).toBe(
+        false,
+      ),
+    );
+  });
+
   async function abrirCon(cargar: (i: FacetasActionInput) => Promise<FacetasActionResult>) {
     conProvider(<CuerpoCategoria cerrar={() => {}} />, { cargar });
     await screen.findByLabelText(/Frenos/);

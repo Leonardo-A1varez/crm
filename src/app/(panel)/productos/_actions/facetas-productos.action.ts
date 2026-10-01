@@ -1,6 +1,6 @@
 "use server";
 
-import { ValidationError } from "@/lib/errors";
+import { PermissionDeniedError, ValidationError } from "@/lib/errors";
 import { mensajesDeFiltrosInvalidos } from "@/lib/ui/filtros-productos";
 import { FacetasActionSchema } from "@/lib/validation/productos-facetas-action.schema";
 import { getCatalogServiceForRequest } from "@/server/bootstrap/catalog-bootstrap";
@@ -26,6 +26,10 @@ export async function facetasProductosAction(raw: unknown): Promise<FacetasActio
   } catch (e) {
     if (e instanceof ValidationError) {
       return { ok: false, error: mensajesDeFiltrosInvalidos(e.issues).join(" ") };
+    }
+    // `toActionError` habla de modificar el catálogo; acá solo se lee.
+    if (e instanceof PermissionDeniedError) {
+      return { ok: false, error: "No tenés permiso para ver el catálogo." };
     }
     return toActionError(e, "facetas-productos");
   }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { normalizarValor } from "@/lib/catalogo/normalizar-valor";
 import { filtrosParaFacetas, gruposActivos } from "@/lib/ui/filtros-productos";
 import { listaCompleta, resolverSeleccion, seleccionDesdeUrl } from "@/lib/ui/seleccion-faceta";
 import { useFiltrosProductos } from "./FiltrosProductosProvider";
@@ -66,7 +67,7 @@ export function useListaFiltro(
   const [q, setQ] = useState("");
   const [resultado, setResultado] = useState<Resultado | null>(null);
   const [intento, setIntento] = useState(0);
-  const qPedida = useConEspera(q.trim(), ESPERA_BUSQUEDA_MS);
+  const qPedida = useConEspera(normalizarValor(q), ESPERA_BUSQUEDA_MS);
 
   useEffect(() => {
     let vigente = true;
@@ -118,7 +119,7 @@ export function useListaFiltro(
     setSeleccion,
     q,
     setQ,
-    cargando: resultado === null || resultado.q !== q.trim(),
+    cargando: resultado === null || resultado.q !== normalizarValor(q),
     faceta,
     error: resultado?.tipo === "error" ? resultado.mensaje : null,
     reintentar,

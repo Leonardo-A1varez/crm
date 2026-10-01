@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { ValidationError } from "@/lib/errors";
+import { PermissionDeniedError, ValidationError } from "@/lib/errors";
 import { FacetasActionSchema } from "@/lib/validation/productos-facetas-action.schema";
 import { LISTA_MAX, parseProductosFiltros } from "@/lib/validation/productos-filtros.schema";
 
@@ -107,6 +107,12 @@ describe("facetasProductosAction", () => {
     mocks.facetasProductos.mockRejectedValue(new ValidationError("x"));
     const r = await facetasProductosAction({ filtros: {} });
     expect(r).toEqual({ ok: false, error: "Hay filtros en la URL que no son válidos." });
+  });
+
+  test("sin permiso de lectura dice que no puede ver el catalogo, no que no puede modificarlo", async () => {
+    mocks.facetasProductos.mockRejectedValue(new PermissionDeniedError("RLS: sin sesion"));
+    const r = await facetasProductosAction({ filtros: {} });
+    expect(r).toEqual({ ok: false, error: "No tenés permiso para ver el catálogo." });
   });
 
   test("una falla de infraestructura no filtra el detalle al cliente", async () => {

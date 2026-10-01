@@ -10,10 +10,6 @@ import type {
   ProductosPagina,
 } from "@/types/productos";
 
-export interface CatalogListInput {
-  q?: string;
-}
-
 export interface CreateProductoServiceInput {
   codigo_interno: string;
   nombre: string;
@@ -27,13 +23,6 @@ export interface CreateProductoServiceInput {
 export type UpdateProductoServiceInput = Omit<CreateProductoServiceInput, "codigo_interno">;
 
 export interface CatalogService {
-  /**
-   * Catálogo completo (activos + inactivos) ordenado por nombre asc (orden lo
-   * garantiza el repo). `q` filtra por nombre o codigo_interno case-insensitive.
-   * Cap 1000 filas — pilot ~5K SKUs, la búsqueda acota; paginación diferida.
-   */
-  listProductos(input?: CatalogListInput): Promise<Producto[]>;
-
   /**
    * Una página del catálogo filtrado (estilo Excel) con el total REAL del
    * filtro. Acepta tal cual los `searchParams` de la URL (strings) o valores ya

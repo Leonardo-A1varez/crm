@@ -14,14 +14,10 @@ import type {
 } from "@/types/productos";
 import { parseProductosCsv } from "./csv-import";
 import type {
-  CatalogListInput,
   CatalogService,
   CreateProductoServiceInput,
   UpdateProductoServiceInput,
 } from "./catalog.service";
-
-// Cap defensivo de la lista (sin paginación v1; la búsqueda acota resultados).
-const LIST_LIMIT = 1000;
 
 export interface DefaultCatalogServiceDeps {
   productos: ProductsRepository;
@@ -29,12 +25,6 @@ export interface DefaultCatalogServiceDeps {
 
 export class DefaultCatalogService implements CatalogService {
   constructor(private readonly deps: DefaultCatalogServiceDeps) {}
-
-  async listProductos(input: CatalogListInput = {}): Promise<Producto[]> {
-    // Cap defensivo: patrones absurdamente largos.
-    const q = input.q?.trim().slice(0, 100);
-    return this.deps.productos.list({ q: q || undefined, limit: LIST_LIMIT });
-  }
 
   async buscarProductos(entrada: ProductosFiltrosEntrada): Promise<ProductosPagina> {
     const filtros = parseProductosFiltros(entrada);
