@@ -1388,6 +1388,7 @@ export type Database = {
         Row: {
           activo: boolean
           busqueda: string | null
+          busqueda_general: string | null
           categoria: string | null
           codigo_fabrica: string | null
           codigo_fabrica_plegado: string | null
@@ -1408,6 +1409,7 @@ export type Database = {
         Insert: {
           activo?: boolean
           busqueda?: string | null
+          busqueda_general?: string | null
           categoria?: string | null
           codigo_fabrica?: string | null
           codigo_fabrica_plegado?: string | null
@@ -1428,6 +1430,7 @@ export type Database = {
         Update: {
           activo?: boolean
           busqueda?: string | null
+          busqueda_general?: string | null
           categoria?: string | null
           codigo_fabrica?: string | null
           codigo_fabrica_plegado?: string | null

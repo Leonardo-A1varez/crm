@@ -91,8 +91,8 @@ describe("parseProductosFiltros", () => {
   });
 
   test("ignora claves desconocidas en vez de pasarlas al SQL", () => {
-    const f = parseProductosFiltros({ q: "x", "1; drop table productos": "y" });
-    expect(f).not.toHaveProperty("q");
+    const f = parseProductosFiltros({ zzz: "x", "1; drop table productos": "y" });
+    expect(f).not.toHaveProperty("zzz");
     expect(Object.keys(f)).not.toContain("1; drop table productos");
   });
 
@@ -212,6 +212,34 @@ describe("parseProductosFiltros", () => {
 
     test("un valor que queda vacío tras normalizar se descarta", () => {
       expect(parseProductosFiltros({ marcas: [" ", "\t"] }).marcas).toEqual([]);
+    });
+  });
+
+  describe("q: buscador general", () => {
+    test("se lee, se normaliza con los mismos espacios que SQL y se conserva tal cual", () => {
+      expect(parseProductosFiltros({ q: "\t  Bomba de agua \r\n" }).q).toBe("Bomba de agua");
+    });
+
+    test("vacío, en blanco o ausente es sin filtro", () => {
+      expect(parseProductosFiltros({}).q).toBeUndefined();
+      expect(parseProductosFiltros({ q: "" }).q).toBeUndefined();
+      expect(parseProductosFiltros({ q: "  \t " }).q).toBeUndefined();
+    });
+
+    test("acepta 100 caracteres y rechaza 101", () => {
+      expect(parseProductosFiltros({ q: "a".repeat(100) }).q).toHaveLength(100);
+      expect(() => parseProductosFiltros({ q: "a".repeat(101) })).toThrow(ValidationError);
+    });
+
+    test("un q repetido en la URL (array) no es un texto válido", () => {
+      expect(() => parseProductosFiltros({ q: ["a", "b"] })).toThrow(ValidationError);
+    });
+
+    test("convive con los demás filtros y con la paginación", () => {
+      const f = parseProductosFiltros({ q: "aveo", marcas: "MOBIS", pagina: "2" });
+      expect(f.q).toBe("aveo");
+      expect(f.marcas).toEqual(["MOBIS"]);
+      expect(f.pagina).toBe(2);
     });
   });
 });

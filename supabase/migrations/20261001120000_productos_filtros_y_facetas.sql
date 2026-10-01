@@ -25,6 +25,9 @@
 -- constantes, las guardas se pliegan, y el LIKE usa el índice.
 --
 -- Filtros (jsonb, claves ausentes = sin filtro):
+--   q                                            buscador general: "contiene" plegado en
+--                                                codigo_interno, codigo_fabrica,
+--                                                otros_codigos, nombre y la marca
 --   codigo, codigo_modo ('contiene'|'empieza')   sobre codigo_interno
 --   descripcion, descripcion_modo                sobre nombre
 --   categorias, sin_categorias  [texto]          incluir / excluir categorías
@@ -34,6 +37,12 @@
 --   estado      'activo'|'inactivo'
 -- Solo para `productos_facetas`:
 --   q_categoria, q_marca                         búsqueda dentro de cada lista
+--
+-- El buscador general `q` se combina con AND con todo lo demás y llega también a
+-- las facetas, que lo heredan por pasar por `productos_filtrados`. La marca
+-- buscable es el texto real de `descripcion`: el sentinela '(sin marca)' es un
+-- valor de lista, no un texto que alguien haya escrito, así que "sin marca" no
+-- trae los productos sin marca. La categoría no entra (tiene su columna).
 --
 -- Incluir y excluir son excluyentes por columna (lo valida el schema Zod); acá,
 -- si llegaran los dos, se aplican los dos. Una clave de lista que no sea un
@@ -66,6 +75,45 @@ create index if not exists productos_codigo_interno_texto_trgm_idx
 
 create index if not exists productos_nombre_texto_trgm_idx
   on public.productos using gin (public.plegar_texto(nombre) gin_trgm_ops);
+
+-- Buscador general (`q`). Una columna generada con los cinco campos que busca,
+-- plegados y separados por chr(31) (separador de unidad), y un GIN trigram encima.
+--
+-- Por qué una columna y no cinco condiciones. `productos.busqueda` ya junta casi
+-- los mismos campos, pero también la categoría, y `q` no la busca: usarla sola
+-- devolvería productos que solo coinciden en la categoría, y descartarlos con
+-- cinco `plegar_texto(...) like` por fila cuesta. Medido con 21.000 filas, en
+-- local: con ese recheck, `q` de 2 letras tardaba ~190 ms (listado) y ~370 ms
+-- (facetas); con esta columna lo resuelve una sola comparación. Con 3 o más
+-- letras el índice trigram trae solo los candidatos.
+--
+-- El separador impide que un `q` con espacios coincida a caballo entre dos
+-- campos ("q-003 filtro" no encuentra el código de un producto y el nombre de
+-- otro): cada campo se busca por separado, como en TypeScript. Un `q` que
+-- tuviera el propio chr(31) no coincidiría con nada, que es lo correcto.
+--
+-- Los alternos se unen con espacio (`codigos_a_texto`), igual que en
+-- `productos.busqueda`. La marca es el texto real de `descripcion`.
+--
+-- Una columna generada nueva reescribe la tabla (lock de tabla): con 21.009
+-- filas son milisegundos, pero se aplica en ventana.
+alter table public.productos
+  add column if not exists busqueda_general text
+  generated always as (
+    public.plegar_texto(
+      coalesce(codigo_interno, '') || chr(31) ||
+      coalesce(codigo_fabrica, '') || chr(31) ||
+      public.codigos_a_texto(otros_codigos) || chr(31) ||
+      coalesce(nombre, '') || chr(31) ||
+      coalesce(descripcion, '')
+    )
+  ) stored;
+
+comment on column public.productos.busqueda_general is
+  'codigo_interno, codigo_fabrica, otros_codigos, nombre y descripcion (la marca), plegados y separados por chr(31). Generada. La usa el buscador general q de /productos; la indexa productos_busqueda_general_trgm_idx.';
+
+create index if not exists productos_busqueda_general_trgm_idx
+  on public.productos using gin (busqueda_general gin_trgm_ops);
 
 -- =========================================================================
 -- 1. Texto literal para LIKE
@@ -116,6 +164,13 @@ declare
   v_sin_marcas text[] := case when jsonb_typeof(p_filtros -> 'sin_marcas') = 'array'
     then array(select jsonb_array_elements_text(p_filtros -> 'sin_marcas'))
     else '{}'::text[] end;
+  -- Patrón del buscador general, o null si no hay búsqueda.
+  v_q text := case
+    when nullif(btrim(p_filtros ->> 'q', E' \t\r\n '), '') is null then null
+    else '%' || public.escapar_like(
+      public.plegar_texto(btrim(p_filtros ->> 'q', E' \t\r\n '))
+    ) || '%'
+  end;
 begin
   return query
   select p.id, p.nombre, p.codigo_interno, n.cat, n.marca
@@ -127,6 +182,10 @@ begin
   ) as n
   where
     (
+      v_q is null
+      or p.busqueda_general like v_q
+    )
+    and (
       nullif(btrim(p_filtros ->> 'codigo', E' \t\r\n '), '') is null
       or public.plegar_texto(p.codigo_interno) like
         case when p_filtros ->> 'codigo_modo' = 'empieza' then '' else '%' end

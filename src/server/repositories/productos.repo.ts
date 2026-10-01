@@ -327,6 +327,25 @@ function coincideTexto(campo: string, buscado: string, modo: "contiene" | "empie
 }
 
 /**
+ * Espejo del buscador general `q` de `productos_filtrados`: "contiene" plegado en
+ * el código interno, el de fábrica, los alternos (unidos con espacio, como
+ * `codigos_a_texto`), el nombre y la marca. La marca es solo la `descripcion`
+ * real: la etiqueta SIN_MARCA es un valor de lista, no texto buscable. La
+ * categoría no entra: se filtra con su propia columna.
+ */
+function coincideBuscador(p: Producto, q: string): boolean {
+  const b = plegarTexto(q);
+  const campos = [
+    p.codigo_interno,
+    p.codigo_fabrica ?? "",
+    p.otros_codigos.join(" "),
+    p.nombre,
+    normalizarValor(p.descripcion ?? ""),
+  ];
+  return campos.some((c) => plegarTexto(c).includes(b));
+}
+
+/**
  * El predicado único del listado y de las facetas. `excluir` salta el filtro de
  * la columna cuya faceta se está calculando.
  */
@@ -335,6 +354,7 @@ function cumpleFiltros(
   f: ProductosFiltros,
   excluir: "categoria" | "marca" | null,
 ): boolean {
+  if (f.q !== undefined && !coincideBuscador(p, f.q)) return false;
   if (f.codigo !== undefined && !coincideTexto(p.codigo_interno, f.codigo, f.codigoModo)) {
     return false;
   }

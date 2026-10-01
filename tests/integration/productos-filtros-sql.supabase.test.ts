@@ -89,6 +89,47 @@ describe("productos_filtrados / listar / facetas: frontera SQL", () => {
     }
   });
 
+  test.each([
+    ["número", { q: 5 }],
+    ["array", { q: ["a"] }],
+    ["objeto", { q: { a: 1 } }],
+    ["null", { q: null }],
+    ["vacío", { q: "" }],
+    ["solo espacios", { q: " \t\n " }],
+  ])("q con un tipo raro o vacío no rompe la consulta: %s", async (_n, filtros) => {
+    const r = await listar(filtros);
+    expect(typeof r.total).toBe("number");
+    const { error } = await client.rpc("productos_facetas", {
+      p_filtros: filtros as never,
+      p_limite: 10,
+    });
+    expect(error).toBeNull();
+  });
+
+  test("q vacío o en blanco es sin filtro; q con texto filtra y la barra invertida es literal", async () => {
+    const { error } = await client.from("productos").insert([
+      { codigo_interno: "BS\\1", nombre: "Con barra", precio: 1, otros_codigos: [] },
+      { codigo_interno: "OTRO-9", nombre: "Sin barra", precio: 1, otros_codigos: ["ALT\\7"] },
+    ]);
+    expect(error).toBeNull();
+    expect((await listar({ q: "  " })).total).toBe(4);
+    expect((await listar({ q: "\\" })).items.map((p) => p.codigo_interno).sort()).toEqual([
+      "BS\\1",
+      "OTRO-9",
+    ]);
+    expect((await listar({ q: "bs\\1" })).items.map((p) => p.codigo_interno)).toEqual(["BS\\1"]);
+  });
+
+  test("las facetas heredan q: cuentan solo los productos que coinciden", async () => {
+    const { data, error } = await client.rpc("productos_facetas", {
+      p_filtros: { q: "uno" } as never,
+      p_limite: 10,
+    });
+    expect(error).toBeNull();
+    const filas = (data ?? []).map((f) => `${f.columna}:${f.valor}:${f.cantidad}`).sort();
+    expect(filas).toEqual(["categoria:FRENOS:1", "marca:MOBIS:1"]);
+  });
+
   test("categoría vacía o en blanco aparece como (sin categoría) y se puede filtrar", async () => {
     const { error } = await client.from("productos").insert([
       { codigo_interno: "E-1", nombre: "Vacía", categoria: "", precio: 1 },

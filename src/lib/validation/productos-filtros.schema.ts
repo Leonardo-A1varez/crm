@@ -101,6 +101,8 @@ const estado = z.preprocess(
 
 export const ProductosFiltrosSchema = z
   .object({
+    /** Buscador general: código interno, de fábrica, alternos, descripción y marca. */
+    q: texto,
     codigo: texto,
     codigoModo: modoTexto,
     descripcion: texto,
@@ -159,6 +161,11 @@ export type EstadoProducto = NonNullable<ProductosFiltros["estado"]>;
  * (string, string[] o ausente) o los mismos campos ya tipados.
  */
 export interface ProductosFiltrosEntrada {
+  /**
+   * Buscador general, plegado y "contiene", sobre `codigo_interno`,
+   * `codigo_fabrica`, `otros_codigos`, `nombre` y la marca. En blanco = sin filtro.
+   */
+  q?: string;
   codigo?: string;
   codigoModo?: string;
   descripcion?: string;

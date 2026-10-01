@@ -334,6 +334,7 @@ function toDbInsert(input: ProductoInsert): ProductoDbInsert {
  */
 function filtrosAJson(f: ProductosFiltros): Json {
   const j: Record<string, Json> = {};
+  if (f.q !== undefined) j["q"] = f.q;
   if (f.codigo !== undefined) {
     j["codigo"] = f.codigo;
     j["codigo_modo"] = f.codigoModo;

@@ -571,6 +571,165 @@ export function runProductosFiltrosContract(makeRepo: () => ProductsRepository) 
       });
     });
 
+    describe("q: buscador general", () => {
+      // Catálogo propio: los códigos de fábrica y alternos solo importan acá.
+      const BUSCABLE: Seed[] = [
+        {
+          codigo_interno: "Q-001",
+          nombre: "Bomba de agua Aveo",
+          categoria: "ENFRIAMIENTO",
+          descripcion: "MOBIS",
+          codigo_fabrica: "96817-4N000",
+          otros_codigos: ["ALT-555", "ZZ.99"],
+          precio: 40,
+          stock: 5,
+        },
+        {
+          codigo_interno: "Q-002",
+          nombre: "Radiador Corolla",
+          categoria: "ENFRIAMIENTO",
+          descripcion: "Nissan",
+          codigo_fabrica: "TOY-77",
+          precio: 300,
+          stock: 0,
+        },
+        {
+          codigo_interno: "Q-003",
+          nombre: "Filtro de aire",
+          categoria: "BOMBA",
+          descripcion: null,
+          precio: 10,
+          stock: 9,
+        },
+        {
+          codigo_interno: "Q-004",
+          nombre: "Tapón 100% hermético",
+          categoria: "MOTOR",
+          descripcion: "  ",
+          precio: 2,
+          stock: 1,
+          activo: false,
+        },
+        {
+          codigo_interno: "Q-005",
+          nombre: "Cañería_larga",
+          categoria: "MOTOR",
+          descripcion: "Ñuñoa Parts",
+          precio: 20,
+          stock: 3,
+        },
+      ];
+
+      beforeEach(async () => {
+        await sembrar(repo, BUSCABLE);
+      });
+
+      const codigos = (r: { items: { codigo_interno: string }[] }) =>
+        r.items.map((p) => p.codigo_interno).sort();
+      const buscar = async (entrada: ProductosFiltrosEntrada) =>
+        codigos(await repo.listarFiltrado(filtros(entrada)));
+
+      test("sin q, o en blanco, no filtra", async () => {
+        expect((await repo.listarFiltrado(filtros({ q: "   " }))).total).toBe(5);
+      });
+
+      test("busca en el código interno", async () => {
+        expect(await buscar({ q: "q-003" })).toEqual(["Q-003"]);
+      });
+
+      test("busca en el código de fábrica", async () => {
+        expect(await buscar({ q: "96817" })).toEqual(["Q-001"]);
+        expect(await buscar({ q: "toy-77" })).toEqual(["Q-002"]);
+      });
+
+      test("busca en los códigos alternos", async () => {
+        expect(await buscar({ q: "alt-55" })).toEqual(["Q-001"]);
+        expect(await buscar({ q: "zz.99" })).toEqual(["Q-001"]);
+      });
+
+      test("busca en la descripción (el campo nombre)", async () => {
+        expect(await buscar({ q: "radiador" })).toEqual(["Q-002"]);
+      });
+
+      test("busca en la marca, plegado y sin tildes", async () => {
+        expect(await buscar({ q: "mobis" })).toEqual(["Q-001"]);
+        expect(await buscar({ q: "NUNOA" })).toEqual(["Q-005"]);
+      });
+
+      test("no busca en la categoría: 'enfriamiento' no trae nada", async () => {
+        expect(await buscar({ q: "enfriamiento" })).toEqual([]);
+      });
+
+      test("'bomba' trae la bomba de agua por nombre, no el filtro de la categoría BOMBA", async () => {
+        expect(await buscar({ q: "bomba" })).toEqual(["Q-001"]);
+      });
+
+      test("un q con espacios no coincide a caballo entre dos campos", async () => {
+        // "q-003" es el código y "filtro de aire" el nombre del mismo producto.
+        expect(await buscar({ q: "q-003 filtro" })).toEqual([]);
+        expect(await buscar({ q: "filtro de aire" })).toEqual(["Q-003"]);
+        // Los alternos sí se buscan como una lista separada por espacios.
+        expect(await buscar({ q: "alt-555 zz.99" })).toEqual(["Q-001"]);
+      });
+
+      test("la marca sentinela no es buscable: 'sin marca' no trae los productos sin marca", async () => {
+        expect(await buscar({ q: "sin marca" })).toEqual([]);
+      });
+
+      test("es 'contiene': coincide en medio de un campo", async () => {
+        expect(await buscar({ q: "ave" })).toEqual(["Q-001"]);
+      });
+
+      test("% y _ son texto literal, no comodines", async () => {
+        expect(await buscar({ q: "100%" })).toEqual(["Q-004"]);
+        expect(await buscar({ q: "ñería_l" })).toEqual(["Q-005"]);
+        expect(await buscar({ q: "%" })).toEqual(["Q-004"]);
+        expect(await buscar({ q: "_" })).toEqual(["Q-005"]);
+      });
+
+      test("se combina con AND con los demás filtros", async () => {
+        expect(await buscar({ q: "bomba", categorias: ["ENFRIAMIENTO"] })).toEqual(["Q-001"]);
+        expect(await buscar({ q: "bomba", categorias: ["MOTOR"] })).toEqual([]);
+        expect(await buscar({ q: "a", conStock: false })).toEqual(["Q-002"]);
+        expect(await buscar({ q: "a", estado: "inactivo" })).toEqual(["Q-004"]);
+        expect(await buscar({ q: "o", estado: "activo", precioMax: 50 })).toEqual([
+          "Q-001",
+          "Q-003",
+          "Q-005",
+        ]);
+      });
+
+      test("el total y la paginación son los del resultado buscado", async () => {
+        const todos = await repo.listarFiltrado(filtros({ q: "a", porPagina: 100 }));
+        const r = await repo.listarFiltrado(filtros({ q: "a", pagina: 2, porPagina: 2 }));
+        expect(r.total).toBe(todos.total);
+        expect(r.items.map((p) => p.codigo_interno)).toEqual(
+          todos.items.slice(2, 4).map((p) => p.codigo_interno),
+        );
+      });
+
+      test("las facetas respetan q en las dos columnas", async () => {
+        const f = await repo.facetas(filtros({ q: "bomba" }), opc());
+        expect(f.categorias.valores).toEqual([{ valor: "ENFRIAMIENTO", cantidad: 1 }]);
+        expect(f.marcas.valores).toEqual([{ valor: "MOBIS", cantidad: 1 }]);
+      });
+
+      test("en la faceta, q se combina con los filtros de la otra columna", async () => {
+        // "o" aparece en los cinco productos (bomba, radiador, filtro, tapón, Ñuñoa).
+        const f = await repo.facetas(filtros({ q: "o", categorias: ["MOTOR"] }), opc());
+        // Marcas respeta categorías (MOTOR) y q.
+        expect(f.marcas.valores.map((v) => v.valor).sort()).toEqual(
+          [SIN_MARCA, "Ñuñoa Parts"].sort(),
+        );
+        // Categorías ignora las suyas pero aplica q.
+        expect(f.categorias.valores.map((v) => v.valor).sort()).toEqual([
+          "BOMBA",
+          "ENFRIAMIENTO",
+          "MOTOR",
+        ]);
+      });
+    });
+
     test("catálogo vacío: listado y facetas vacíos", async () => {
       const f = await repo.facetas(filtros(), opc());
       expect(f.categorias).toEqual({ valores: [], distintos: 0 });
