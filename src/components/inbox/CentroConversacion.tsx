@@ -53,6 +53,7 @@ export function CentroConversacion({
   telefono,
   hilo,
   tarjeta = null,
+  interruptor = null,
 }: {
   leadId: string;
   /** Solo para recordar la elección por usuario; `null` si no hay sesión. */
@@ -67,6 +68,13 @@ export function CentroConversacion({
    * de `hilo`, sobre el composer; es la misma tarjeta y solo hay una montada.
    */
   tarjeta?: React.ReactNode;
+  /**
+   * El interruptor de modo del copiloto para el modo WhatsApp Web: va en la barra,
+   * porque ahí el encabezado del chat (donde vive junto a "IA activa") no está
+   * montado. En "Hilo del CRM" no se usa: ya viene adentro de `hilo`. Es el mismo
+   * interruptor y solo hay uno montado a la vez.
+   */
+  interruptor?: React.ReactNode;
 }) {
   const escritorio = useEscritorio();
   const [modo, cambiarModo] = usePreferenciaVistaCentro(usuarioId);
@@ -194,6 +202,7 @@ export function CentroConversacion({
             onModo={cambiarModo}
             vista={vista}
             estado={estado}
+            interruptor={interruptor}
             onCambiar={(cambios) => void cambiar(cambios)}
             onRecargado={() => {
               if (!telefono) return;

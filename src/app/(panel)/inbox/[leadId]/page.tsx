@@ -15,8 +15,8 @@ import { estadoVentana } from "@/lib/ventana";
 import { chatWhatsAppDeLead } from "@/lib/whatsapp/chat";
 import { getAuthenticatedUser } from "@/server/auth/supabase-ssr";
 import { getAgenteConfigServiceForRequest } from "@/server/bootstrap/agente-bootstrap";
-import { getCopilotoServiceForRequest } from "@/server/bootstrap/copiloto-bootstrap";
 import { getInboxServiceForRequest } from "@/server/bootstrap/inbox-bootstrap";
+import { cargarEstadoCopiloto } from "../_lib/estado-copiloto";
 import { agregarDatoLeadAction } from "../_actions/agregar-dato-lead.action";
 import { asignarEtiquetaAction } from "../_actions/asignar-etiqueta.action";
 import { auditoriaTurnoAction } from "../_actions/auditoria-turno.action";
@@ -82,17 +82,9 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
     "telefono" in chat && TELEFONO_ABRIBLE.test(chat.telefono) ? chat.telefono : null;
   const usuarioId = (await getAuthenticatedUser())?.id ?? null;
 
-  // El copiloto es de WhatsApp: solo ahí hay interruptor y tarjeta. Sin sesión
-  // activa no hay hilo ni conversación a la que atender.
-  const estadoCopiloto =
-    view.session && view.conversacionId && view.canalActivo === "wa"
-      ? await (
-          await getCopilotoServiceForRequest()
-        ).estado({
-          conversacionId: view.conversacionId,
-          ultimoEntranteId: ultimoEntrante?.id ?? null,
-        })
-      : null;
+  // El copiloto es de WhatsApp: solo ahí hay interruptor y tarjeta. Si no se puede
+  // leer su estado se degrada a "sin copiloto" y la ficha del lead sigue andando.
+  const estadoCopiloto = await cargarEstadoCopiloto(view, ultimoEntrante?.id ?? null);
 
   // La misma tarjeta se monta en dos lugares según el modo del centro (entre la
   // barra y la vista de WhatsApp, o sobre el composer) y solo hay una a la vez.
@@ -109,6 +101,18 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
       />
     ) : null;
 
+  // El mismo interruptor se monta en dos lugares según el modo del centro (junto a
+  // "IA activa" en el hilo, o en la barra de WhatsApp Web) y solo hay uno a la vez.
+  const interruptor = estadoCopiloto ? (
+    <InterruptorModo
+      leadId={view.lead.id}
+      conversacionId={estadoCopiloto.conversacionId}
+      override={estadoCopiloto.override}
+      modoEfectivo={estadoCopiloto.modoEfectivo}
+      onCambiar={cambiarModoRespuestaAction}
+    />
+  ) : null;
+
   return (
     // Tres columnas hermanas, no un header que cruza las dos: el header de la
     // conversación pertenece al panel de conversación y el Twin arranca con el
@@ -119,6 +123,7 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
         usuarioId={usuarioId}
         telefono={telefono}
         tarjeta={tarjeta}
+        interruptor={interruptor}
         hilo={
           <>
             <ConversationHeader
@@ -128,15 +133,7 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
               actions={
                 view.session ? (
                   <div className="flex min-w-0 items-center gap-2">
-                    {estadoCopiloto ? (
-                      <InterruptorModo
-                        leadId={view.lead.id}
-                        conversacionId={estadoCopiloto.conversacionId}
-                        override={estadoCopiloto.override}
-                        modoEfectivo={estadoCopiloto.modoEfectivo}
-                        onCambiar={cambiarModoRespuestaAction}
-                      />
-                    ) : null}
+                    {interruptor}
                     <HandoffToggle
                       leadId={view.lead.id}
                       sessionId={view.session.id}

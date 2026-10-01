@@ -29,6 +29,7 @@ export function BarraVistaWhatsApp({
   onModo,
   vista,
   estado,
+  interruptor = null,
   onCambiar,
   onRecargado,
 }: {
@@ -38,6 +39,8 @@ export function BarraVistaWhatsApp({
   vista: VistaWhatsApp | null;
   /** Lo que está pasando con el chat (abriendo, falló) o un error de la vista. */
   estado: { texto: string; esError: boolean } | null;
+  /** Interruptor de modo del copiloto: solo se dibuja en el modo WhatsApp Web. */
+  interruptor?: React.ReactNode;
   onCambiar: (cambios: Partial<VistaWhatsApp>) => void;
   onRecargado: () => void;
 }) {
@@ -103,6 +106,7 @@ export function BarraVistaWhatsApp({
             >
               Ajustar recorte
             </Button>
+            {interruptor ? <div className="ml-auto flex min-w-0">{interruptor}</div> : null}
           </>
         ) : null}
       </div>
