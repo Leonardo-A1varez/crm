@@ -26,7 +26,7 @@ beforeEach(() => {
 describe("FacetasActionSchema", () => {
   test("acepta los filtros de la URL, con listas, y la búsqueda de cada lista", () => {
     const r = FacetasActionSchema.safeParse({
-      filtros: { sinMarcas: ["A", "B"], precioMin: "10", estado: "activo" },
+      filtros: { q: "bomba", sinMarcas: ["A", "B"], precioMin: "10", estado: "activo" },
       qMarca: "al",
     });
     expect(r.success).toBe(true);
@@ -37,6 +37,10 @@ describe("FacetasActionSchema", () => {
     expect(FacetasActionSchema.safeParse(undefined).success).toBe(false);
     const larga = Array.from({ length: LISTA_MAX + 1 }, (_, i) => `v${i}`);
     expect(FacetasActionSchema.safeParse({ filtros: { marcas: larga } }).success).toBe(false);
+  });
+
+  test("q es un texto de hasta 1000 caracteres, no una lista", () => {
+    expect(FacetasActionSchema.safeParse({ filtros: { q: ["a", "b"] } }).success).toBe(false);
   });
 
   test("un valor suelto de una clave que no es lista no puede ser un array", () => {

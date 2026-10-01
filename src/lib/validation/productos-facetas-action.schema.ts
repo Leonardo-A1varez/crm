@@ -15,6 +15,7 @@ const lista = z.union([escalar, z.array(escalar).max(LISTA_MAX)]);
 
 export const FacetasActionSchema = z.object({
   filtros: z.object({
+    q: escalar.optional(),
     codigo: escalar.optional(),
     codigoModo: escalar.optional(),
     descripcion: escalar.optional(),

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { Casilla } from "@/components/shared/Casilla";
 import { SIN_MARCA } from "@/lib/validation/productos-filtros.schema";
@@ -39,6 +39,8 @@ const {
 const { FiltrosActivos, LimpiarFiltrosBoton } =
   await import("@/components/productos/filtros/FiltrosActivos");
 const { EncabezadoProductos } = await import("@/components/productos/filtros/EncabezadoProductos");
+const { BuscadorProductos, ESPERA_BUSCADOR_MS } =
+  await import("@/components/productos/filtros/BuscadorProductos");
 const { FiltroColumna, PanelFiltro, Segmentado } =
   await import("@/components/productos/filtros/FiltroColumna");
 const { PaginacionProductos } = await import("@/components/productos/PaginacionProductos");
@@ -609,5 +611,113 @@ describe("PaginacionProductos", () => {
     cleanup();
     pie(0, 1);
     expect(screen.getByRole("status").textContent).toBe("Sin resultados");
+  });
+});
+
+describe("BuscadorProductos (buscador general)", () => {
+  const campo = () =>
+    screen.getByRole("searchbox", { name: "Buscar productos" }) as HTMLInputElement;
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("tiene un placeholder que dice dónde busca y arranca con el q de la URL", () => {
+    conProvider(<BuscadorProductos />, { search: "q=bomba&estado=activo" });
+    expect(campo().value).toBe("bomba");
+    expect(campo().placeholder).toBe("Buscar por código, descripción o marca…");
+    expect(campo().maxLength).toBe(100);
+  });
+
+  it("escribir no navega al instante: espera a que termine de escribir y navega una sola vez", () => {
+    vi.useFakeTimers();
+    conProvider(<BuscadorProductos />, { search: "estado=activo&pagina=3" });
+    fireEvent.change(campo(), { target: { value: "bo" } });
+    act(() => vi.advanceTimersByTime(ESPERA_BUSCADOR_MS - 50));
+    fireEvent.change(campo(), { target: { value: "bomba" } });
+    act(() => vi.advanceTimersByTime(ESPERA_BUSCADOR_MS - 50));
+    expect(nav.replace).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(60));
+    expect(nav.replace).toHaveBeenCalledTimes(1);
+    expect(ultimaUrl()).toBe("/productos?estado=activo&q=bomba");
+  });
+
+  it("Enter navega sin esperar", () => {
+    vi.useFakeTimers();
+    conProvider(<BuscadorProductos />);
+    fireEvent.change(campo(), { target: { value: "alt-555" } });
+    fireEvent.submit(screen.getByRole("search"));
+    expect(ultimaUrl()).toBe("/productos?q=alt-555");
+    act(() => vi.advanceTimersByTime(ESPERA_BUSCADOR_MS * 2));
+    expect(nav.replace).toHaveBeenCalledTimes(1);
+  });
+
+  it("recorta los espacios y no navega si queda igual que la URL", () => {
+    vi.useFakeTimers();
+    conProvider(<BuscadorProductos />, { search: "q=bomba" });
+    fireEvent.change(campo(), { target: { value: "  bomba  " } });
+    act(() => vi.advanceTimersByTime(ESPERA_BUSCADOR_MS * 2));
+    expect(nav.replace).not.toHaveBeenCalled();
+    fireEvent.change(campo(), { target: { value: "   " } });
+    act(() => vi.advanceTimersByTime(ESPERA_BUSCADOR_MS * 2));
+    expect(ultimaUrl()).toBe("/productos");
+  });
+
+  it("vaciar el campo saca q de la URL y conserva los demás filtros", () => {
+    vi.useFakeTimers();
+    conProvider(<BuscadorProductos />, { search: "q=bomba&sinMarcas=A" });
+    fireEvent.change(campo(), { target: { value: "" } });
+    act(() => vi.advanceTimersByTime(ESPERA_BUSCADOR_MS + 10));
+    expect(ultimaUrl()).toBe("/productos?sinMarcas=A");
+  });
+
+  it("si la URL cambia desde afuera (Limpiar todo, un chip, atrás) el campo la sigue", () => {
+    nav.search = "q=bomba";
+    const cargar = vi.fn(
+      async (): Promise<FacetasActionResult> => ({ ok: true, facetas: facetas() }),
+    );
+    const ui = () => (
+      <FiltrosProductosProvider cargarFacetas={cargar}>
+        <BuscadorProductos />
+      </FiltrosProductosProvider>
+    );
+    const { rerender } = render(ui());
+    expect(campo().value).toBe("bomba");
+    nav.search = "";
+    rerender(ui());
+    expect(campo().value).toBe("");
+    nav.search = "q=filtro";
+    rerender(ui());
+    expect(campo().value).toBe("filtro");
+  });
+
+  it("lo que se escribe mientras llega la respuesta no se pisa con la URL anterior", () => {
+    vi.useFakeTimers();
+    nav.search = "";
+    const cargar = vi.fn(
+      async (): Promise<FacetasActionResult> => ({ ok: true, facetas: facetas() }),
+    );
+    const ui = () => (
+      <FiltrosProductosProvider cargarFacetas={cargar}>
+        <BuscadorProductos />
+      </FiltrosProductosProvider>
+    );
+    const { rerender } = render(ui());
+    fireEvent.change(campo(), { target: { value: "bom" } });
+    act(() => vi.advanceTimersByTime(ESPERA_BUSCADOR_MS + 10)); // navega q=bom
+    fireEvent.change(campo(), { target: { value: "bomb" } }); // sigue escribiendo
+    nav.search = "q=bom"; // llega la URL de la navegación anterior
+    rerender(ui());
+    expect(campo().value).toBe("bomb");
+  });
+
+  it("el chip de Búsqueda sale en los filtros activos y 'Limpiar todo' lo saca", () => {
+    conProvider(<FiltrosActivos />, { search: "q=bomba&estado=activo" });
+    expect(screen.getByText("Búsqueda: “bomba”")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Quitar filtro: Búsqueda: “bomba”" }));
+    expect(ultimaUrl()).toBe("/productos?estado=activo");
+    nav.replace.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: "Limpiar todo" }));
+    expect(ultimaUrl()).toBe("/productos");
   });
 });

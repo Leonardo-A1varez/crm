@@ -26,6 +26,7 @@ export type ParamsEntrada = Record<string, string | string[] | undefined> | URLS
 
 /** Cada filtro que se puede poner o quitar por separado. */
 export type GrupoFiltro =
+  | "busqueda"
   | "codigo"
   | "descripcion"
   | "marca"
@@ -36,6 +37,7 @@ export type GrupoFiltro =
 
 /** Las claves de URL que escribe cada filtro. Se ponen y se sacan juntas. */
 export const CLAVES_GRUPO: Record<GrupoFiltro, readonly string[]> = {
+  busqueda: ["q"],
   codigo: ["codigo", "codigoModo"],
   descripcion: ["descripcion", "descripcionModo"],
   marca: ["marcas", "sinMarcas"],
@@ -46,6 +48,7 @@ export const CLAVES_GRUPO: Record<GrupoFiltro, readonly string[]> = {
 };
 
 export const GRUPOS: readonly GrupoFiltro[] = [
+  "busqueda",
   "codigo",
   "descripcion",
   "marca",
@@ -61,6 +64,8 @@ export type EstadoUrl = "activo" | "inactivo" | null;
 
 /** Lo que la URL dice hoy, sin validar: es lo que los controles muestran. */
 export interface FiltrosUrl {
+  /** Buscador general. */
+  q: string;
   codigo: string;
   codigoModo: ModoTextoUrl;
   descripcion: string;
@@ -110,6 +115,7 @@ export function leerFiltros(params: ParamsEntrada): FiltrosUrl {
   const conStock = primero(params, "conStock");
   const estado = primero(params, "estado");
   return {
+    q: primero(params, "q"),
     codigo: primero(params, "codigo"),
     codigoModo: modo(primero(params, "codigoModo")),
     descripcion: primero(params, "descripcion"),
@@ -147,6 +153,8 @@ export function aUrlSearchParams(entrada: ParamsEntrada): URLSearchParams {
 /** `true` si el filtro tiene algo puesto en la URL. */
 export function grupoActivo(f: FiltrosUrl, g: GrupoFiltro): boolean {
   switch (g) {
+    case "busqueda":
+      return f.q !== "";
     case "codigo":
       return f.codigo !== "";
     case "descripcion":
@@ -327,6 +335,7 @@ function textoRango(etiqueta: string, min: string, max: string, extra: string[] 
 /** Un renglón por filtro puesto, en el orden de las columnas. */
 export function resumirFiltros(f: FiltrosUrl): ResumenFiltro[] {
   const out: ResumenFiltro[] = [];
+  if (f.q !== "") out.push({ grupo: "busqueda", texto: `Búsqueda: “${f.q}”` });
   const modoTxt = (m: ModoTextoUrl) => (m === "empieza" ? "empieza con" : "contiene");
   if (f.codigo !== "")
     out.push({ grupo: "codigo", texto: `Código ${modoTxt(f.codigoModo)} “${f.codigo}”` });

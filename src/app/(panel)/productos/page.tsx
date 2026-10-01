@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Inventory2 } from "@/components/icons";
+import { BuscadorProductos } from "@/components/productos/filtros/BuscadorProductos";
 import { FiltrosActivos } from "@/components/productos/filtros/FiltrosActivos";
 import { FiltrosProductosProvider } from "@/components/productos/filtros/FiltrosProductosProvider";
 import { RegionTabla } from "@/components/productos/filtros/RegionTabla";
@@ -115,6 +116,7 @@ export default async function ProductosPage({
         />
       ) : (
         <FiltrosProductosProvider cargarFacetas={facetasProductosAction}>
+          <BuscadorProductos />
           <FiltrosActivos />
           <RegionTabla clave={query.toString()}>
             <ProductosTable

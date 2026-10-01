@@ -311,3 +311,51 @@ describe("mensajesDeFiltrosInvalidos con los errores reales del schema", () => {
     ]);
   });
 });
+
+describe("q: buscador general en la URL", () => {
+  test("leerFiltros lee q recortado y sin q queda vacío", () => {
+    expect(leerFiltros(new URLSearchParams("q=%20bomba%20")).q).toBe("bomba");
+    expect(leerFiltros(new URLSearchParams()).q).toBe("");
+    expect(leerFiltros({ q: ["a", "b"] }).q).toBe("a");
+  });
+
+  test("cuenta como filtro: hayFiltros y el grupo 'busqueda'", () => {
+    const f = leerFiltros(new URLSearchParams("q=bomba"));
+    expect(hayFiltros(f)).toBe(true);
+    expect(gruposActivos(f)).toEqual(["busqueda"]);
+    expect(hayFiltros(leerFiltros(new URLSearchParams("q=%20")))).toBe(false);
+  });
+
+  test("aplicarGrupos escribe q, vuelve a la página 1 y conserva los otros filtros", () => {
+    const p = aplicarGrupos("estado=activo&pagina=4&porPagina=20", ["busqueda"], { q: "bomba" });
+    expect(p.get("q")).toBe("bomba");
+    expect(p.get("pagina")).toBeNull();
+    expect(p.get("estado")).toBe("activo");
+    expect(p.get("porPagina")).toBe("20");
+  });
+
+  test("q vacío saca la clave, y reemplaza el q anterior en vez de sumarse", () => {
+    expect(aplicarGrupos("q=viejo&estado=activo", ["busqueda"], { q: "" }).toString()).toBe(
+      "estado=activo",
+    );
+    expect(aplicarGrupos("q=viejo", ["busqueda"], { q: "nuevo" }).getAll("q")).toEqual(["nuevo"]);
+  });
+
+  test("limpiarTodo saca q, y limpiarGrupos de otro grupo no lo toca", () => {
+    expect(limpiarTodo("q=bomba&estado=activo&porPagina=25").toString()).toBe("porPagina=25");
+    expect(limpiarGrupos("q=bomba&estado=activo", ["estado"]).toString()).toBe("q=bomba");
+  });
+
+  test("q viaja a las facetas junto con los demás filtros", () => {
+    expect(filtrosParaFacetas(new URLSearchParams("q=bomba&pagina=2&sinMarcas=A"))).toEqual({
+      q: "bomba",
+      sinMarcas: "A",
+    });
+  });
+
+  test("el chip dice 'Búsqueda' y va primero", () => {
+    const r = resumirFiltros(leerFiltros(new URLSearchParams("estado=activo&q=bomba+de+agua")));
+    expect(r[0]).toEqual({ grupo: "busqueda", texto: "Búsqueda: “bomba de agua”" });
+    expect(r.map((x) => x.grupo)).toEqual(["busqueda", "estado"]);
+  });
+});
