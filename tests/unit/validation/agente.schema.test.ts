@@ -229,6 +229,39 @@ describe("GuardarConfigSchema", () => {
     });
   });
 
+  describe("horario_equipo", () => {
+    test("acepta los 7 dias vacios: es el default seguro, sin equipo", () => {
+      expect(GuardarConfigSchema.safeParse(valores()).success).toBe(true);
+    });
+
+    test("exige las 7 claves", () => {
+      const incompleto = { ...CONFIG_DE_FABRICA.horario_equipo } as Record<string, unknown>;
+      delete incompleto.dom;
+      expect(
+        GuardarConfigSchema.safeParse(valores({ horario_equipo: incompleto } as never)).success,
+      ).toBe(false);
+    });
+
+    test("normaliza: fusiona solapados y descarta invertidos, como el horario del agente", () => {
+      const horario_equipo = {
+        ...CONFIG_DE_FABRICA.horario_equipo,
+        lun: [
+          { desde: "08:00", hasta: "12:00" },
+          { desde: "11:00", hasta: "14:00" },
+          { desde: "22:00", hasta: "02:00" },
+        ],
+      };
+      const r = GuardarConfigSchema.parse(valores({ horario_equipo }));
+      expect(r.horario_equipo.lun).toEqual([{ desde: "08:00", hasta: "14:00" }]);
+    });
+
+    test("rechaza la config sin horario_equipo", () => {
+      const sinCampo = { ...valores() } as Record<string, unknown>;
+      delete sinCampo.horario_equipo;
+      expect(GuardarConfigSchema.safeParse(sinCampo).success).toBe(false);
+    });
+  });
+
   describe("escalar_umbral_intents (1-5, §4.2)", () => {
     test("acepta los dos extremos del rango", () => {
       for (const escalar_umbral_intents of [1, 5]) {

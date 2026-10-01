@@ -33,6 +33,7 @@ interface Row {
   escalar_cotizacion_desde: number | string | null;
   horario: unknown;
   horario_timezone: string;
+  horario_equipo: unknown;
   plantilla_fuera_horario: string;
   plantilla_escalado: string;
   activa: boolean;
@@ -84,6 +85,7 @@ function aDominio(row: Row): AgenteConfig {
     escalar_cotizacion_desde: aNumeroOpcional(row.escalar_cotizacion_desde),
     horario: row.horario as Horario,
     horario_timezone: row.horario_timezone,
+    horario_equipo: row.horario_equipo as Horario,
     plantilla_fuera_horario: row.plantilla_fuera_horario,
     plantilla_escalado: row.plantilla_escalado,
     activa: row.activa,
@@ -135,7 +137,12 @@ export class SupabaseAgenteConfigRepository implements AgenteConfigRepository {
   async crear(input: AgenteConfigInsert): Promise<AgenteConfig> {
     const { data, error } = await this.db
       .from(TABLA)
-      .insert({ ...input, horario: input.horario as never, activa: false })
+      .insert({
+        ...input,
+        horario: input.horario as never,
+        horario_equipo: input.horario_equipo as never,
+        activa: false,
+      })
       .select("*")
       .single();
     if (error) throw mapPostgrestError(error);

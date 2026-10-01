@@ -53,6 +53,16 @@ describe("CachedAgentConfigProvider", () => {
     expect(config.tono).toBe("formal");
   });
 
+  test("entrega el horario del equipo", async () => {
+    const horario_equipo = {
+      ...CONFIG_DE_FABRICA.horario_equipo,
+      vie: [{ desde: "10:00", hasta: "16:00" }],
+    };
+    const repo = await repoConActiva({ horario_equipo });
+    const config = await new CachedAgentConfigProvider(repo, loggerFalso()).get();
+    expect(config.horario_equipo.vie).toEqual([{ desde: "10:00", hasta: "16:00" }]);
+  });
+
   test("no expone metadatos de version", async () => {
     const repo = await repoConActiva();
     const config = await new CachedAgentConfigProvider(repo, loggerFalso()).get();

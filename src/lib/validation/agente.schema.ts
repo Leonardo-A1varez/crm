@@ -115,6 +115,9 @@ export const GuardarConfigSchema = z.object({
   escalar_palabras: PalabrasEscaladoSchema,
   escalar_cotizacion_desde: z.number().min(COTIZACION_MIN).max(COTIZACION_MAX).nullable(),
   horario: HorarioSchema,
+  // Mismas reglas que el horario del agente: 7 claves obligatorias y rangos
+  // normalizados. Vacío es válido y significa "sin equipo".
+  horario_equipo: HorarioSchema,
   horario_timezone: HorarioTimezoneSchema,
   plantilla_fuera_horario: z.string().max(1000),
   plantilla_escalado: z.string().min(20).max(1000),

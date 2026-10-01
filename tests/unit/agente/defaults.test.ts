@@ -35,6 +35,12 @@ describe("CONFIG_DE_FABRICA", () => {
     }
   });
 
+  test("el horario del equipo de fabrica no tiene ningun rango: el copiloto no se enciende solo", () => {
+    for (const dia of DIAS_SEMANA) {
+      expect(CONFIG_DE_FABRICA.horario_equipo[dia]).toEqual([]);
+    }
+  });
+
   test("la timezone de fabrica es explicita, no heredada del server", () => {
     expect(CONFIG_DE_FABRICA.horario_timezone).toBe("America/Argentina/Buenos_Aires");
   });

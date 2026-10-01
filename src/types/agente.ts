@@ -58,6 +58,12 @@ export interface AgenteConfigValores {
   escalar_cotizacion_desde: number | null;
   horario: Horario;
   horario_timezone: string;
+  /**
+   * Cuándo hay personas del equipo para enviar desde WhatsApp Web (copiloto).
+   * Mismo formato y misma zona (`horario_timezone`) que `horario`. Sin un solo
+   * rango = "nunca hay equipo": el copiloto no se enciende solo.
+   */
+  horario_equipo: Horario;
   plantilla_fuera_horario: string;
   /** Aviso neutral que recibe el cliente al escalar automáticamente. */
   plantilla_escalado: string;

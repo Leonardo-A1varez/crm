@@ -163,6 +163,23 @@ describe("guardarYActivar", () => {
     expect(payload.campos_cambiados).toContain("horario");
   });
 
+  test("detecta cambios dentro del horario del equipo y audita solo el nombre del campo", async () => {
+    await sembrarActiva();
+    await service.guardarYActivar({
+      valores: valores({
+        horario_equipo: {
+          ...CONFIG_DE_FABRICA.horario_equipo,
+          lun: [{ desde: "09:00", hasta: "18:00" }],
+        },
+      }),
+      actorUserId: ACTOR,
+    });
+
+    const payload = audit.registros[0]?.payload as { campos_cambiados: string[] };
+    expect(payload.campos_cambiados).toEqual(["horario_equipo"]);
+    expect(JSON.stringify(payload)).not.toContain("09:00");
+  });
+
   test("sin cambios respecto de la activa, campos_cambiados va vacio", async () => {
     await sembrarActiva();
     await service.guardarYActivar({ valores: valores(), actorUserId: ACTOR });
@@ -203,6 +220,22 @@ describe("guardarYActivar", () => {
 });
 
 describe("rollback", () => {
+  test("el rollback copia el horario del equipo de la version restaurada", async () => {
+    const conEquipo = {
+      ...CONFIG_DE_FABRICA.horario_equipo,
+      mar: [{ desde: "08:00", hasta: "17:00" }],
+    };
+    const v1 = await service.guardarYActivar({
+      valores: valores({ horario_equipo: conEquipo }),
+      actorUserId: ACTOR,
+    });
+    await service.guardarYActivar({ valores: valores(), actorUserId: ACTOR });
+
+    const v3 = await service.rollback({ configId: v1.id, actorUserId: ACTOR });
+
+    expect(v3.horario_equipo.mar).toEqual([{ desde: "08:00", hasta: "17:00" }]);
+  });
+
   test("crea una version NUEVA, no revive la vieja", async () => {
     const v1 = await service.guardarYActivar({ valores: valores(), actorUserId: ACTOR });
     await service.guardarYActivar({ valores: valores({ tono: "formal" }), actorUserId: ACTOR });
