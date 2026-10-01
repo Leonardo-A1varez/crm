@@ -1,5 +1,7 @@
 import type { AutoHandoffDeps } from "@/inngest/functions/auto-handoff";
 import { makeAutoHandoffFn } from "@/inngest/functions/auto-handoff";
+import type { CopilotoBorradorDeps } from "@/inngest/functions/copiloto-borrador";
+import { makeCopilotoBorradorFn } from "@/inngest/functions/copiloto-borrador";
 import type { DetectIntentsBatchDeps } from "@/inngest/functions/detect-intents.batch";
 import { makeDetectIntentsBatchFn } from "@/inngest/functions/detect-intents.batch";
 import type {
@@ -58,6 +60,7 @@ export interface CrmInngestDeps {
   workflowProgramados: WorkflowProgramadosDeps;
   workflowInactividad: WorkflowInactividadDeps;
   drenarDifusiones: DrenarDifusionesDeps;
+  copilotoBorrador: CopilotoBorradorDeps;
 }
 
 export function makeCrmInngestFunctions(deps: CrmInngestDeps) {
@@ -80,5 +83,6 @@ export function makeCrmInngestFunctions(deps: CrmInngestDeps) {
     makeWorkflowProgramadosFn(deps.workflowProgramados),
     makeWorkflowInactividadFn(deps.workflowInactividad),
     makeDrenarDifusionesFn(deps.drenarDifusiones),
+    makeCopilotoBorradorFn(deps.copilotoBorrador),
   ];
 }

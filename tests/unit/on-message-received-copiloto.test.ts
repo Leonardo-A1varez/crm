@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
-import { BudgetExceededError, IllegalStateError } from "@/lib/errors";
+import { BudgetExceededError, IllegalStateError, InfraError } from "@/lib/errors";
 import {
   onMessageReceivedHandler,
   type EmittedEvent,
@@ -283,6 +283,15 @@ describe("on-message-received — modo Copiloto", () => {
 
   test("sin repositorio de borradores el turno falla en voz alta y no manda nada por la API", async () => {
     const ctx = makeCtx(EQUIPO, { sinBorradores: true });
+    // Con un intent activo el clasificador sí llamaría al LLM; sin ninguno no lo
+    // llama nunca y el `calls` en 0 de abajo no probaría nada.
+    await ctx.intents.create({
+      nombre: "consulta_stock",
+      descripcion: "pregunta por disponibilidad",
+      ejemplos: [],
+      auto_detectado: false,
+      activo: true,
+    });
     ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
     ctx.agentLLM.enqueueText("No debería salir.");
 
@@ -291,6 +300,9 @@ describe("on-message-received — modo Copiloto", () => {
     );
 
     expect(ctx.metaClient.calls).toHaveLength(0);
+    // La guarda corre en `decidir-modo`, antes de gastar nada: ni el clasificador
+    // ni el agente llegan a llamarse.
+    expect(ctx.intentLLM.calls).toHaveLength(0);
     expect(ctx.agentLLM.calls).toHaveLength(0);
   });
 
@@ -578,5 +590,57 @@ describe("on-message-received — si la IA falla, la tarjeta no queda en 'Redact
     expect((await ctx.borradores.findActualByConversacion(conv.id))?.error_codigo).toBe(
       "tope_diario",
     );
+  });
+});
+
+describe("on-message-received — un fallo entre iniciar y guardar el borrador no deja 'Redactando…'", () => {
+  test("auditar-clasificacion agota reintentos: el borrador queda en error", async () => {
+    const ctx = makeCtx(EQUIPO);
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("Borrador que no llega a guardarse.");
+    vi.spyOn(ctx.deps.turnClassifications, "create").mockRejectedValue(
+      new InfraError("la base no responde"),
+    );
+
+    await expect(onMessageReceivedHandler({ parsed: parsed() }, ctx.deps)).rejects.toBeInstanceOf(
+      InfraError,
+    );
+
+    const conv = await conversacionDe(ctx);
+    expect(await ctx.borradores.findActualByConversacion(conv.id)).toMatchObject({
+      estado: "error",
+      error_codigo: "llm_error",
+    });
+  });
+
+  test("pausar-por-descuento falla: el borrador queda en error", async () => {
+    const ctx = makeCtx({ ...EQUIPO, descuento_max_pct: 5 });
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("Te hago un 20% de descuento.");
+    vi.spyOn(ctx.sessions, "update").mockRejectedValue(new InfraError("la base no responde"));
+
+    await expect(onMessageReceivedHandler({ parsed: parsed() }, ctx.deps)).rejects.toBeInstanceOf(
+      InfraError,
+    );
+
+    const conv = await conversacionDe(ctx);
+    expect((await ctx.borradores.findActualByConversacion(conv.id))?.estado).toBe("error");
+  });
+
+  test("guardar-borrador falla: el borrador queda en error", async () => {
+    const ctx = makeCtx(EQUIPO);
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueueText("Borrador que no llega a guardarse.");
+    vi.spyOn(ctx.borradores, "completar").mockRejectedValue(new InfraError("la base no responde"));
+
+    await expect(onMessageReceivedHandler({ parsed: parsed() }, ctx.deps)).rejects.toBeInstanceOf(
+      InfraError,
+    );
+
+    const conv = await conversacionDe(ctx);
+    expect(await ctx.borradores.findActualByConversacion(conv.id)).toMatchObject({
+      estado: "error",
+      error_codigo: "llm_error",
+    });
   });
 });

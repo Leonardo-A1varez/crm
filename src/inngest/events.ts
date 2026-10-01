@@ -239,6 +239,26 @@ export const workflowInactividadRevisar = eventType("workflow/inactividad.revisa
   schema: staticSchema<Record<string, never>>(),
 });
 
+/**
+ * "Regenerar" / "Reintentar" del copiloto: pide volver a redactar el borrador
+ * `borradorId` de la conversación con el contexto actual. `respond` solo corría
+ * dentro de `on-message-received`; esta es la forma de invocarlo desde el panel
+ * sin ejecutar el LLM dentro de una Server Action.
+ *
+ * Lo emite `copiloto-bootstrap.ts` (la costura que sí puede importar Inngest) y
+ * lo consume `copiloto-borrador`.
+ *
+ * Idempotency key al emitir: `copiloto-regenerar:<borradorId>`. Tras regenerar el
+ * borrador es otro (otro id), así que una segunda regeneración sí emite.
+ */
+export const copilotoBorradorSolicitado = eventType("copiloto/borrador.solicitado", {
+  schema: staticSchema<{
+    borradorId: UUID;
+    conversacionId: UUID;
+    solicitadoPor: UUID | null;
+  }>(),
+});
+
 // Difusión: el contrato vive en `lib/difusion/eventos.ts` (lo emiten el panel
 // y `programar_difusion()` por el outbox); acá sólo se registra para el motor.
 export const difusionProgramada = eventType(EVENTO_DIFUSION_PROGRAMADA, {

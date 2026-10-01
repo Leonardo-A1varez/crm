@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { InMemoryRuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
+import { InMemoryBorradoresIaRepository } from "@/server/repositories/borradores-ia.repo";
 import { InMemoryTurnClassificationsRepository } from "@/server/repositories/turn-classifications.repo";
 import { InMemoryConversationsRepository } from "@/server/repositories/conversations.repo";
 import { InMemoryEventOutboxRepository } from "@/server/repositories/event-outbox.repo";
@@ -49,7 +50,7 @@ const motorDeMentira: MotorDifusionService = {
 };
 
 describe("makeCrmInngestFunctions", () => {
-  test("produce 17 InngestFunction con IDs esperados", () => {
+  test("produce 19 InngestFunction con IDs esperados", () => {
     const leads = new InMemoryLeadsRepository();
     const conversations = new InMemoryConversationsRepository();
     const sessions = new InMemoryLeadSessionRepository();
@@ -147,9 +148,19 @@ describe("makeCrmInngestFunctions", () => {
       workflowProgramados: { workflows, sessions, leads },
       workflowInactividad: { workflows, sessions, conversations, messages, leads },
       drenarDifusiones: { motor: motorDeMentira },
+      copilotoBorrador: {
+        borradores: new InMemoryBorradoresIaRepository(),
+        conversations,
+        sessions,
+        messages,
+        turnClassifications: new InMemoryTurnClassificationsRepository(),
+        intentClassifier,
+        aiAgent,
+        configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
+      },
     });
 
-    expect(fns).toHaveLength(18);
+    expect(fns).toHaveLength(19);
     const ids = fns.map((f) => f.id());
     expect(ids).toEqual(
       expect.arrayContaining([
@@ -171,6 +182,7 @@ describe("makeCrmInngestFunctions", () => {
         expect.stringContaining("workflow-programados"),
         expect.stringContaining("workflow-inactividad"),
         expect.stringContaining("drenar-difusiones"),
+        expect.stringContaining("copiloto-borrador"),
       ]),
     );
   });

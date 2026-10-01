@@ -44,6 +44,7 @@ import { SupabaseRuleExecutionsRepository } from "@/server/repositories/rule-exe
 import { SupabaseSessionRecordatoriosRepository } from "@/server/repositories/session-recordatorios.supabase.repo";
 import { SupabaseRulesRepository } from "@/server/repositories/rules.supabase.repo";
 import { SupabaseToolExecutionsRepository } from "@/server/repositories/tool-executions.supabase.repo";
+import { SupabaseBorradoresIaRepository } from "@/server/repositories/borradores-ia.supabase.repo";
 import { SupabaseTurnClassificationsRepository } from "@/server/repositories/turn-classifications.supabase.repo";
 import { SupabaseAgenteConfigRepository } from "@/server/repositories/agente-config.supabase.repo";
 import { SupabaseLlmUsageRepository } from "@/server/repositories/llm-usage.supabase.repo";
@@ -148,6 +149,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   const rules = new SupabaseRulesRepository(db);
   const ruleExecutions = new SupabaseRuleExecutionsRepository(db);
   const turnClassifications = new SupabaseTurnClassificationsRepository(db);
+  const borradores = new SupabaseBorradoresIaRepository(db);
   const productos = new SupabaseProductsRepository(db);
   const reactivationDispatches = new SupabaseReactivationDispatchesRepository(db);
   const mergeCandidates = new SupabaseMergeCandidatesRepository(db);
@@ -426,6 +428,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       configProvider: agenteConfigProvider,
       ruleExecutions,
       turnClassifications,
+      borradores,
       // Mismo motor que elige la respuesta enlatada: acá se le pide el otro
       // método, el que dice qué etiquetas corresponden al turno.
       ruleEngine,
@@ -591,6 +594,18 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     workflowProgramados: { workflows, sessions, leads, logger },
     workflowInactividad: { workflows, sessions, conversations, messages, leads, logger },
     drenarDifusiones: { motor: motorDifusion, logger },
+    copilotoBorrador: {
+      borradores,
+      conversations,
+      sessions,
+      messages,
+      turnClassifications,
+      intentClassifier,
+      aiAgent,
+      configProvider: agenteConfigProvider,
+      delegaciones: workflowRuns,
+      logger,
+    },
   };
 
   return { deps, llmBundle, logger };

@@ -18,6 +18,7 @@
 import { vi } from "vitest";
 import { AvisarEquipoService } from "@/server/services/workflows/avisar-equipo.service";
 import { InMemoryNotificacionesRepository } from "@/server/repositories/notificaciones.repo";
+import { InMemoryBorradoresIaRepository } from "@/server/repositories/borradores-ia.repo";
 import { InMemoryRuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
 import { InMemoryTurnClassificationsRepository } from "@/server/repositories/turn-classifications.repo";
 import { DefaultAiAgentService } from "@/server/services/ai-agent.service";
@@ -392,6 +393,17 @@ export function makeSmokeBundle(): SmokeBundle {
     workflowProgramados: { workflows, sessions, leads, logger },
     workflowInactividad: { workflows, sessions, conversations, messages, leads, logger },
     drenarDifusiones: { motor: motorDifusion, logger },
+    copilotoBorrador: {
+      borradores: new InMemoryBorradoresIaRepository(),
+      conversations,
+      sessions,
+      messages,
+      turnClassifications: new InMemoryTurnClassificationsRepository(),
+      intentClassifier,
+      aiAgent,
+      configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
+      logger,
+    },
   };
 
   return {
