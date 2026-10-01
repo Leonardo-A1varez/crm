@@ -516,6 +516,26 @@ describe("copilotoBorradorHandler (Regenerar / Reintentar)", () => {
     });
   });
 
+  test("si el borrador deja de estar redactando y el resultado era un error, marcarError devuelve null: se omite como obsoleto", async () => {
+    const ctx = await makeCtx({ descuento_max_pct: 5 });
+    const viejo = await ctx.borradorEn("listo");
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    ctx.agentLLM.enqueue(async () => {
+      // Llega otro mensaje y el pipeline descarta lo vigente mientras se redacta.
+      await ctx.borradores.descartarVigentes(ctx.conv.id);
+      return { text: "Te hago un 20% de descuento.", toolCalls: [] };
+    });
+
+    const r = await copilotoBorradorHandler(
+      { borradorId: viejo, conversacionId: ctx.conv.id },
+      ctx.deps,
+    );
+
+    // No es "error": el borrador ya no era de este pedido y no hay nada que marcar.
+    expect(r).toEqual({ estado: "omitido", motivo: "obsoleto" });
+    expect(await ctx.borradores.findActualByConversacion(ctx.conv.id)).toBeNull();
+  });
+
   test("cada step lleva el id explícito que arma quien llama, sin repetirse", async () => {
     const ctx = await makeCtx();
     const viejo = await ctx.borradorEn("listo");

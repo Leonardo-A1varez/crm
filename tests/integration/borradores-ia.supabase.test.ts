@@ -145,3 +145,50 @@ describe("garantías que solo existen contra Postgres", () => {
     expect([a, b].sort()).toEqual(["marcado", "ya_usado"]);
   });
 });
+
+describe("findActualByConversacion — desempate", () => {
+  test("con el mismo created_at gana el id más alto, sin importar el orden de inserción", async () => {
+    for (const insertarPrimero of ["bajo", "alto"] as const) {
+      const f = await nuevasFixtures();
+      const repo = new SupabaseBorradoresIaRepository(client);
+      const creado = "2026-09-30T15:00:00.000Z";
+      const comun = {
+        conversacion_id: f.conversacionId,
+        lead_session_id: f.leadSessionId,
+        mensaje_origen_id: f.primerEntranteId,
+        created_at: creado,
+      };
+      const bajo = {
+        ...comun,
+        id: "00000000-0000-4000-8000-000000000001",
+        estado: "usado" as const,
+        contenido: "usado",
+        origen: "ia" as const,
+        usado_via: "copiar" as const,
+        usado_at: creado,
+      };
+      const alto = {
+        ...comun,
+        id: "00000000-0000-4000-8000-000000000002",
+        estado: "listo" as const,
+        contenido: "listo",
+        origen: "ia" as const,
+        usado_via: null,
+        usado_at: null,
+      };
+      const insertarBajo = () => client.from("borradores_ia").insert(bajo);
+      const insertarAlto = () => client.from("borradores_ia").insert(alto);
+      const orden =
+        insertarPrimero === "bajo" ? [insertarBajo, insertarAlto] : [insertarAlto, insertarBajo];
+      for (const insertar of orden) {
+        const { error } = await insertar();
+        expect(error).toBeNull();
+      }
+
+      expect((await repo.findActualByConversacion(f.conversacionId))?.id).toBe(alto.id);
+
+      // Los ids son fijos: se limpian para que el segundo giro del bucle pueda reinsertarlos.
+      await client.from("borradores_ia").delete().in("id", [bajo.id, alto.id]);
+    }
+  });
+});

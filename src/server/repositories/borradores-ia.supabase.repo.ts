@@ -217,6 +217,9 @@ export class SupabaseBorradoresIaRepository implements BorradoresIaRepository {
       .eq("conversacion_id", conversacionId)
       .neq("estado", "descartado")
       .order("created_at", { ascending: false })
+      // Desempate: dos filas con el mismo `created_at` (misma transacción) darían
+      // un "actual" distinto según el plan de la consulta.
+      .order("id", { ascending: false })
       .limit(1)
       .maybeSingle();
     if (error) throw mapPostgrestError(error, { resource: "borrador_ia" });

@@ -158,7 +158,14 @@ export class InMemoryBorradoresIaRepository implements BorradoresIaRepository {
     private readonly referencias: ReferenciasInMemory = {},
   ) {}
 
+  /**
+   * Más nuevo primero: `created_at` y, a igual instante, el orden de inserción.
+   * La base desempata por `id` (ver `findActualByConversacion` del repo Supabase);
+   * acá los ids son aleatorios y el orden de inserción hace de reloj monótono,
+   * que es lo que `created_at` da con microsegundos distintos.
+   */
   private masNuevoPrimero = (a: BorradorIa, b: BorradorIa): number =>
+    b.created_at.getTime() - a.created_at.getTime() ||
     (this.orden.get(b.id) ?? 0) - (this.orden.get(a.id) ?? 0);
 
   async iniciar(input: IniciarBorradorInput): Promise<ResultadoIniciar> {
