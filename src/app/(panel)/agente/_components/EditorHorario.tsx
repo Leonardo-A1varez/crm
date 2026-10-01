@@ -60,11 +60,14 @@ export function EditorHorario({
   timezone,
   onChange,
   disabled,
+  mostrarZona = true,
 }: {
   horario: Horario;
   timezone: string;
   onChange: (patch: { horario?: Horario; horario_timezone?: string }) => void;
   disabled?: boolean;
+  /** La zona es una sola para los dos horarios; quien edita el segundo horario la oculta. */
+  mostrarZona?: boolean;
 }) {
   const [borrador, setBorrador] = useState<Record<DiaSemana, Borrador>>(borradorInicial);
   const [cruce, setCruce] = useState<Cruce | null>(null);
@@ -103,25 +106,27 @@ export function EditorHorario({
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <Eyebrow>Timezone</Eyebrow>
-        <input
-          type="text"
-          value={timezone}
-          onChange={(e) => onChange({ horario_timezone: e.target.value })}
-          disabled={disabled}
-          placeholder="America/Argentina/Buenos_Aires"
-          className={cn(
-            "bg-surface-input border-line-input text-ink-body mt-2 w-full rounded-[10px] border p-2 font-mono text-[11.5px]",
-            !tzValida && "border-danger",
-          )}
-        />
-        {!tzValida ? (
-          <p className="text-danger mt-1 text-[10.5px]">
-            No es una timezone IANA reconocida (ej: America/Sao_Paulo).
-          </p>
-        ) : null}
-      </div>
+      {mostrarZona ? (
+        <div>
+          <Eyebrow>Timezone</Eyebrow>
+          <input
+            type="text"
+            value={timezone}
+            onChange={(e) => onChange({ horario_timezone: e.target.value })}
+            disabled={disabled}
+            placeholder="America/Argentina/Buenos_Aires"
+            className={cn(
+              "bg-surface-input border-line-input text-ink-body mt-2 w-full rounded-[10px] border p-2 font-mono text-[11.5px]",
+              !tzValida && "border-danger",
+            )}
+          />
+          {!tzValida ? (
+            <p className="text-danger mt-1 text-[10.5px]">
+              No es una timezone IANA reconocida (ej: America/Sao_Paulo).
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <ul className="flex flex-col gap-2.5">
         {DIAS_SEMANA.map((dia) => (
