@@ -1,12 +1,20 @@
-import { ConflictError, NotFoundError, PermissionDeniedError, ValidationError } from "@/lib/errors";
+import {
+  ConflictError,
+  InfraError,
+  NotFoundError,
+  PermissionDeniedError,
+  ValidationError,
+} from "@/lib/errors";
+import type { ProductosFiltros } from "@/lib/validation/productos-filtros.schema";
 import type { AppClient } from "@/server/db/client";
 import { FILAS_POR_PAGINA } from "@/server/db/paginar";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { ilikeContains } from "@/server/db/postgrest-like";
 import { serverNowIso } from "@/server/db/server-time";
-import type { Database } from "@/server/db/types.gen";
+import type { Database, Json } from "@/server/db/types.gen";
 import { isUuid } from "@/server/db/uuid";
 import type { CompatibilidadEntry, Producto, UUID } from "@/types/entities";
+import type { Faceta, ProductosFacetas, ProductosPagina } from "@/types/productos";
 import type {
   ProductoBulkUpsertItem,
   ProductoInsert,
@@ -183,6 +191,55 @@ export class SupabaseProductsRepository implements ProductsRepository {
     }));
   }
 
+  /**
+   * Delega en `public.productos_listar`: filtro, orden, página y total se
+   * resuelven en Postgres y a Next solo llegan `porPagina` filas. No pasa por
+   * `.list()`, que o corta en 1.000 (lección 12) o trae todo el catálogo.
+   */
+  async listarFiltrado(filtros: ProductosFiltros): Promise<ProductosPagina> {
+    const { data, error } = await this.db.rpc("productos_listar", {
+      p_filtros: filtrosAJson(filtros),
+      p_pagina: filtros.pagina,
+      p_por_pagina: filtros.porPagina,
+    });
+    if (error) throw mapPostgrestError(error, { resource: "producto" });
+
+    const sobre = data as { total?: unknown; items?: unknown } | null;
+    if (
+      sobre === null ||
+      typeof sobre !== "object" ||
+      typeof sobre.total !== "number" ||
+      !Array.isArray(sobre.items)
+    ) {
+      throw new InfraError("productos_listar devolvió un resultado con forma inesperada", "db");
+    }
+    return {
+      items: (sobre.items as ProductoRow[]).map(mapRow),
+      total: sobre.total,
+      pagina: filtros.pagina,
+      porPagina: filtros.porPagina,
+    };
+  }
+
+  /** Delega en `public.productos_facetas`: el conteo y el recorte los hace Postgres. */
+  async facetas(filtros: ProductosFiltros, limite: number): Promise<ProductosFacetas> {
+    const { data, error } = await this.db.rpc("productos_facetas", {
+      p_filtros: filtrosAJson(filtros),
+      p_limite: limite,
+    });
+    if (error) throw mapPostgrestError(error, { resource: "producto" });
+
+    const categorias: Faceta = { valores: [], distintos: 0 };
+    const marcas: Faceta = { valores: [], distintos: 0 };
+    // bigint llega como número en el JSON de PostgREST.
+    for (const fila of data ?? []) {
+      const faceta = fila.columna === "categoria" ? categorias : marcas;
+      faceta.valores.push({ valor: fila.valor, cantidad: Number(fila.cantidad) });
+      faceta.distintos = Number(fila.distintos);
+    }
+    return { categorias, marcas };
+  }
+
   async bulkUpsert(items: ProductoBulkUpsertItem[]): Promise<Producto[]> {
     if (items.length === 0) return [];
 
@@ -262,6 +319,32 @@ function toDbInsert(input: ProductoInsert): ProductoDbInsert {
     imagen_url: input.imagen_url,
     activo: input.activo,
   };
+}
+
+/**
+ * Filtros validados → el jsonb que leen `productos_filtrados` y sus hermanas.
+ * Las claves ausentes significan "sin filtro", por eso solo se agregan las que
+ * tienen valor.
+ */
+function filtrosAJson(f: ProductosFiltros): Json {
+  const j: Record<string, Json> = {};
+  if (f.codigo !== undefined) {
+    j["codigo"] = f.codigo;
+    j["codigo_modo"] = f.codigoModo;
+  }
+  if (f.descripcion !== undefined) {
+    j["descripcion"] = f.descripcion;
+    j["descripcion_modo"] = f.descripcionModo;
+  }
+  if (f.categorias.length > 0) j["categorias"] = f.categorias;
+  if (f.marcas.length > 0) j["marcas"] = f.marcas;
+  if (f.precioMin !== undefined) j["precio_min"] = f.precioMin;
+  if (f.precioMax !== undefined) j["precio_max"] = f.precioMax;
+  if (f.stockMin !== undefined) j["stock_min"] = f.stockMin;
+  if (f.stockMax !== undefined) j["stock_max"] = f.stockMax;
+  if (f.conStock !== null) j["con_stock"] = f.conStock;
+  if (f.estado !== null) j["estado"] = f.estado;
+  return j;
 }
 
 interface ProductoRow {

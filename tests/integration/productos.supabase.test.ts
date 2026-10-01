@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe } from "vitest";
 import { SupabaseProductsRepository } from "@/server/repositories/productos.supabase.repo";
 import { runProductosContract } from "../repositories/productos.contract";
+import { runProductosFiltrosContract } from "../repositories/productos-filtros.contract";
 import { cleanupTestDb, makeTestSupabaseClient, type TestClient } from "./setup";
 
 let client: TestClient;
@@ -20,4 +21,5 @@ afterAll(async () => {
 
 describe("SupabaseProductsRepository (integration)", () => {
   runProductosContract(() => new SupabaseProductsRepository(client));
+  runProductosFiltrosContract(() => new SupabaseProductsRepository(client));
 });

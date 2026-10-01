@@ -2364,6 +2364,7 @@ export type Database = {
         }
       }
       difusion_uso_cupo_24h: { Args: { p_desde: string }; Returns: number }
+      escapar_like: { Args: { t: string }; Returns: string }
       inbox_recent_messages: {
         Args: { p_limit?: number; p_session_ids: string[] }
         Returns: {
@@ -2424,6 +2425,27 @@ export type Database = {
       plegar_codigo: { Args: { t: string }; Returns: string }
       plegar_codigos: { Args: { ts: string[] }; Returns: string[] }
       plegar_texto: { Args: { t: string }; Returns: string }
+      productos_facetas: {
+        Args: { p_filtros: Json; p_limite?: number }
+        Returns: {
+          cantidad: number
+          columna: string
+          distintos: number
+          valor: string
+        }[]
+      }
+      productos_filtrados: {
+        Args: { p_excluir?: string; p_filtros: Json }
+        Returns: {
+          categoria: string
+          id: string
+          marca: string
+        }[]
+      }
+      productos_listar: {
+        Args: { p_filtros: Json; p_pagina?: number; p_por_pagina?: number }
+        Returns: Json
+      }
       programar_difusion: {
         Args: {
           p_canary_tamano?: number

@@ -1,6 +1,9 @@
+import { plegarTexto } from "@/lib/catalogo/plegar-texto";
 import { compatibleCon, puntaje } from "@/lib/catalogo/puntaje";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
+import { SIN_MARCA, type ProductosFiltros } from "@/lib/validation/productos-filtros.schema";
 import type { Producto, UUID } from "@/types/entities";
+import type { Faceta, ProductosFacetas, ProductosPagina } from "@/types/productos";
 import type { Insert, Update } from "./_types";
 
 // `codigo_fabrica` y `otros_codigos` van opcionales a propósito: en la DB son
@@ -77,6 +80,21 @@ export interface ProductsRepository {
    * contesta "no tenemos" sin un solo error en ningún log. Ya pasó una vez.
    */
   search(input: ProductoSearchInput): Promise<ProductoSearchHit[]>;
+  /**
+   * Una página del catálogo filtrado, con el total REAL del filtro.
+   *
+   * Recibe filtros ya validados (`parseProductosFiltros`). Orden `nombre`,
+   * `codigo_interno` (único, así que las páginas no se pisan). Una página fuera
+   * de rango devuelve `items: []` con el total correcto.
+   */
+  listarFiltrado(filtros: ProductosFiltros): Promise<ProductosPagina>;
+  /**
+   * Facetas estilo Excel: valores distintos de categoría y de marca con su
+   * cantidad. Cada una se calcula con todos los filtros activos EXCEPTO el de
+   * su propia columna, y la paginación no cuenta. `limite` recorta cada lista
+   * (los valores seleccionados siempre entran); `distintos` informa el total.
+   */
+  facetas(filtros: ProductosFiltros, limite: number): Promise<ProductosFacetas>;
   // Upsert masivo por codigo_interno (import CSV). Throws si hay codigo_interno
   // duplicado en el input. Preserva orden del input en el array de retorno.
   bulkUpsert(items: ProductoBulkUpsertItem[]): Promise<Producto[]>;
@@ -199,6 +217,48 @@ export class InMemoryProductsRepository implements ProductsRepository {
     return hits.slice(0, tope);
   }
 
+  async listarFiltrado(filtros: ProductosFiltros): Promise<ProductosPagina> {
+    const filas = [...this.store.values()]
+      .filter((p) => cumpleFiltros(p, filtros, null))
+      .sort(
+        (a, b) =>
+          a.nombre.localeCompare(b.nombre) || a.codigo_interno.localeCompare(b.codigo_interno),
+      );
+    const desde = (filtros.pagina - 1) * filtros.porPagina;
+    return {
+      items: filas.slice(desde, desde + filtros.porPagina).map(cloneProducto),
+      total: filas.length,
+      pagina: filtros.pagina,
+      porPagina: filtros.porPagina,
+    };
+  }
+
+  async facetas(filtros: ProductosFiltros, limite: number): Promise<ProductosFacetas> {
+    const filas = [...this.store.values()];
+    const contar = (excluir: "categoria" | "marca", valorDe: (p: Producto) => string | null) => {
+      const cuentas = new Map<string, number>();
+      for (const p of filas) {
+        if (!cumpleFiltros(p, filtros, excluir)) continue;
+        const v = valorDe(p);
+        if (v === null) continue;
+        cuentas.set(v, (cuentas.get(v) ?? 0) + 1);
+      }
+      return cuentas;
+    };
+    return {
+      categorias: armarFaceta(
+        contar("categoria", (p) => p.categoria),
+        filtros.categorias,
+        limite,
+      ),
+      marcas: armarFaceta(
+        contar("marca", (p) => marcaDe(p)),
+        filtros.marcas,
+        limite,
+      ),
+    };
+  }
+
   async bulkUpsert(items: ProductoBulkUpsertItem[]): Promise<Producto[]> {
     if (items.length === 0) return [];
 
@@ -229,4 +289,69 @@ export class InMemoryProductsRepository implements ProductsRepository {
     }
     return result;
   }
+}
+
+/** La "marca" de un producto es su `descripcion` sin espacios; nula o en blanco es SIN_MARCA. */
+function marcaDe(p: Producto): string {
+  const m = p.descripcion?.trim() ?? "";
+  return m === "" ? SIN_MARCA : m;
+}
+
+/** Espejo de `plegar_texto(campo) like patrón` con los comodines de LIKE como texto literal. */
+function coincideTexto(campo: string, buscado: string, modo: "contiene" | "empieza"): boolean {
+  const c = plegarTexto(campo);
+  const b = plegarTexto(buscado);
+  return modo === "empieza" ? c.startsWith(b) : c.includes(b);
+}
+
+/**
+ * El predicado único del listado y de las facetas. `excluir` salta el filtro de
+ * la columna cuya faceta se está calculando.
+ */
+function cumpleFiltros(
+  p: Producto,
+  f: ProductosFiltros,
+  excluir: "categoria" | "marca" | null,
+): boolean {
+  if (f.codigo !== undefined && !coincideTexto(p.codigo_interno, f.codigo, f.codigoModo)) {
+    return false;
+  }
+  if (f.descripcion !== undefined && !coincideTexto(p.nombre, f.descripcion, f.descripcionModo)) {
+    return false;
+  }
+  if (
+    excluir !== "categoria" &&
+    f.categorias.length > 0 &&
+    (p.categoria === null || !f.categorias.includes(p.categoria))
+  ) {
+    return false;
+  }
+  if (excluir !== "marca" && f.marcas.length > 0 && !f.marcas.includes(marcaDe(p))) return false;
+  if (f.precioMin !== undefined && p.precio < f.precioMin) return false;
+  if (f.precioMax !== undefined && p.precio > f.precioMax) return false;
+  if (f.stockMin !== undefined && p.stock < f.stockMin) return false;
+  if (f.stockMax !== undefined && p.stock > f.stockMax) return false;
+  if (f.conStock === true && p.stock <= 0) return false;
+  if (f.conStock === false && p.stock > 0) return false;
+  if (f.estado === "activo" && !p.activo) return false;
+  if (f.estado === "inactivo" && p.activo) return false;
+  return true;
+}
+
+function armarFaceta(
+  cuentas: Map<string, number>,
+  seleccionados: string[],
+  limite: number,
+): Faceta {
+  // Un valor seleccionado sin filas bajo los demás filtros igual se muestra, en 0.
+  for (const s of seleccionados) if (!cuentas.has(s)) cuentas.set(s, 0);
+  const todos = [...cuentas.entries()]
+    .map(([valor, cantidad]) => ({ valor, cantidad }))
+    // Orden binario, no localeCompare: es el desempate de Postgres con `collate "C"`.
+    .sort(
+      (a, b) => b.cantidad - a.cantidad || (a.valor < b.valor ? -1 : a.valor > b.valor ? 1 : 0),
+    );
+  const elegidos = new Set(seleccionados);
+  const valores = todos.filter((v, i) => i < limite || elegidos.has(v.valor));
+  return { valores, distintos: todos.length };
 }
