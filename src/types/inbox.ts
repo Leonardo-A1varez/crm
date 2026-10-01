@@ -51,6 +51,12 @@ export interface InboxItem {
    * caso más urgente, y por eso el filtro de Seguimiento ordena ascendente.
    */
   recordatorio: { at: Date; nota: string } | null;
+  /**
+   * Hay un borrador del copiloto `listo` y sin usar en alguna conversacion del
+   * lead: la persona todavia tiene que enviarlo. Marca la fila con "Borrador
+   * listo"; no cambia el triage (la conversacion sigue donde estaba).
+   */
+  borradorListo: boolean;
 }
 
 /**

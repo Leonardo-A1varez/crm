@@ -26,6 +26,7 @@ function item(nombre: string, recordarEn: Date | null): InboxItem {
     urgencia: "media",
     motivo: null,
     recordatorio: recordarEn ? { at: recordarEn, nota: "" } : null,
+    borradorListo: false,
   };
 }
 

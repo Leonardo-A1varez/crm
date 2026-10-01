@@ -17,6 +17,7 @@ import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { ProductsRepository } from "@/server/repositories/productos.repo";
 import type { RuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
 import type { RulesRepository } from "@/server/repositories/rules.repo";
+import type { BorradoresIaRepository } from "@/server/repositories/borradores-ia.repo";
 import type { SessionRecordatoriosRepository } from "@/server/repositories/session-recordatorios.repo";
 import type { TagsRepository } from "@/server/repositories/tags.repo";
 import type { ToolExecutionsRepository } from "@/server/repositories/tool-executions.repo";
@@ -188,6 +189,11 @@ export interface DefaultInboxServiceDeps {
    */
   turnosInterceptados?: Pick<TurnosInterceptadosRepository, "listByMensajeIds">;
   nombreDeFlujo?: (workflowId: UUID) => Promise<string | null>;
+  /**
+   * Para marcar "Borrador listo" en la bandeja. Opcional: sin el la marca no
+   * aparece, como antes del copiloto.
+   */
+  borradores?: Pick<BorradoresIaRepository, "listListosPorConversacionIds">;
 }
 
 /** El recordatorio como lo consume la bandeja, o `null` si no hay ninguno vivo. */
@@ -290,6 +296,13 @@ export class DefaultInboxService implements InboxService {
       this.deps.recordatorios.listVivosBySessionIds(sessionIds),
     ]);
     const vivoPorSesion = new Map(vivos.map((r) => [r.lead_session_id, r]));
+    // Una consulta en lote para todas las conversaciones visibles (el repo
+    // parte en tandas): sin N+1 y sin el corte de 1.000 filas de PostgREST.
+    const conBorrador = new Set<UUID>(
+      this.deps.borradores
+        ? await this.deps.borradores.listListosPorConversacionIds(convsFilas.map((c) => c.id))
+        : [],
+    );
 
     const leadPorId = new Map<UUID, Lead>(leadsFilas.map((l) => [l.id, l]));
     const convsPorLead = agrupar(convsFilas, (c) => c.lead_id);
@@ -349,6 +362,7 @@ export class DefaultInboxService implements InboxService {
         urgencia: session.urgencia,
         motivo,
         recordatorio: recordatorioDe(vivoPorSesion.get(session.id)),
+        borradorListo: convs.some((c) => conBorrador.has(c.id)),
       });
     }
 

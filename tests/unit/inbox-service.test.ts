@@ -1,3 +1,4 @@
+import { InMemoryBorradoresIaRepository } from "@/server/repositories/borradores-ia.repo";
 import { InMemoryTurnosInterceptadosRepository } from "@/server/repositories/turnos-interceptados.repo";
 import { beforeEach, describe, expect, test } from "vitest";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
@@ -1185,5 +1186,82 @@ describe("DefaultInboxService.listEtiquetas", () => {
       ),
     );
     expect(await svc.listEtiquetas()).toEqual([]);
+  });
+});
+
+describe("DefaultInboxService.listActiveLeads - borrador del copiloto", () => {
+  function armar(conBorradores: boolean) {
+    const leads = new InMemoryLeadsRepository();
+    const sessions = new InMemoryLeadSessionRepository();
+    const convs = new InMemoryConversationsRepository();
+    const messages = new InMemoryMessagesRepository();
+    const borradores = new InMemoryBorradoresIaRepository();
+    const svc = new DefaultInboxService({
+      ...makeReadOnlyDeps(leads, sessions, convs, messages),
+      ...(conBorradores ? { borradores } : {}),
+    });
+    return { leads, sessions, convs, messages, borradores, svc };
+  }
+
+  test("borradorListo marca las conversaciones con un borrador listo sin usar", async () => {
+    const { leads, sessions, convs, messages, borradores, svc } = armar(true);
+    const conBorrador = await makeLead(leads, { nombre: "Con borrador" });
+    const sesionA = await makeSession(sessions, conBorrador.id);
+    const convA = await convs.create({
+      lead_id: conBorrador.id,
+      canal: "wa",
+      canal_thread_id: "wa-a",
+    });
+    const entrante = await messages.create(msgInsert(convA.id, sesionA.id));
+    const r = await borradores.iniciar({
+      conversacionId: convA.id,
+      leadSessionId: sesionA.id,
+      mensajeOrigenId: entrante.id,
+    });
+    if (r.resultado !== "creado") throw new Error("fixture");
+    await borradores.completar(r.borradorId, { contenido: "Hola", origen: "ia", reglaId: null });
+
+    const sinBorrador = await makeLead(leads, { nombre: "Sin borrador" });
+    const sesionB = await makeSession(sessions, sinBorrador.id);
+    const convB = await convs.create({
+      lead_id: sinBorrador.id,
+      canal: "wa",
+      canal_thread_id: "wa-b",
+    });
+    await messages.create(msgInsert(convB.id, sesionB.id));
+
+    const items = await svc.listActiveLeads();
+    expect(items.find((i) => i.leadId === conBorrador.id)?.borradorListo).toBe(true);
+    expect(items.find((i) => i.leadId === sinBorrador.id)?.borradorListo).toBe(false);
+  });
+
+  test("un borrador usado o todavia redactando no marca la fila", async () => {
+    const { leads, sessions, convs, messages, borradores, svc } = armar(true);
+    const lead = await makeLead(leads);
+    const sesion = await makeSession(sessions, lead.id);
+    const conv = await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: "wa-c" });
+    const entrante = await messages.create(msgInsert(conv.id, sesion.id));
+    const r = await borradores.iniciar({
+      conversacionId: conv.id,
+      leadSessionId: sesion.id,
+      mensajeOrigenId: entrante.id,
+    });
+    if (r.resultado !== "creado") throw new Error("fixture");
+
+    expect((await svc.listActiveLeads())[0]?.borradorListo).toBe(false);
+
+    await borradores.completar(r.borradorId, { contenido: "Hola", origen: "ia", reglaId: null });
+    await borradores.marcarUsado(r.borradorId, { via: "copiar", usuarioId: null });
+    expect((await svc.listActiveLeads())[0]?.borradorListo).toBe(false);
+  });
+
+  test("sin el repositorio de borradores inyectado, borradorListo es false", async () => {
+    const { leads, sessions, convs, messages, svc } = armar(false);
+    const lead = await makeLead(leads);
+    const sesion = await makeSession(sessions, lead.id);
+    const conv = await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: "wa-d" });
+    await messages.create(msgInsert(conv.id, sesion.id));
+
+    expect((await svc.listActiveLeads())[0]?.borradorListo).toBe(false);
   });
 });

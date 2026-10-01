@@ -133,6 +133,13 @@ export interface MensajeMetadata {
   rico?: MensajeRico;
   /** Entrantes que responden a un mensaje con botones o de lista. */
   respuesta_interactiva?: RespuestaInteractivaGuardada;
+  /**
+   * Saliente que la persona mando desde WhatsApp Web con un borrador del
+   * copiloto. El CRM lo anota al tocar Insertar / Copiar / Abrir, no cuando el
+   * mensaje realmente sale: por eso el hilo dice "sin confirmar".
+   */
+  origen?: "whatsapp_web_sin_confirmar";
+  borrador_id?: string;
   [k: string]: unknown;
 }
 
