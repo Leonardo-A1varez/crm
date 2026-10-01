@@ -78,5 +78,25 @@ describe("InterruptorModo", () => {
     const { disparador } = montar({}, { ok: false, error: "No se pudo completar la acción." });
     await elegir(disparador, "Copiloto");
     await waitFor(() => expect(toastError).toHaveBeenCalledWith("No se pudo completar la acción."));
+    expect(disparador.textContent).toContain("Según horario · ahora Copiloto");
+  });
+
+  it("si la promesa rechaza avisa con un toast genérico", async () => {
+    const onCambiar = vi.fn().mockRejectedValue(new Error("red"));
+    const { disparador } = montar({ onCambiar });
+    await elegir(disparador, "Automático");
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith("No se pudo cambiar el modo. Reintentá."),
+    );
+  });
+
+  it("mientras hay un cambio pendiente no deja disparar otro", async () => {
+    const onCambiar = vi.fn().mockReturnValue(new Promise(() => {}));
+    const { disparador } = montar({ onCambiar });
+    await elegir(disparador, "Automático");
+    await waitFor(() => expect(disparador.hasAttribute("data-disabled")).toBe(true));
+    fireEvent.mouseDown(disparador);
+    expect(screen.queryByRole("option", { name: "Copiloto" })).toBeNull();
+    expect(onCambiar).toHaveBeenCalledTimes(1);
   });
 });

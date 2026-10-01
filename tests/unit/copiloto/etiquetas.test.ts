@@ -34,6 +34,14 @@ describe("mensajeDeErrorBorrador", () => {
     expect(mensajeDeErrorBorrador("tope_diario")).toMatch(/tope de gasto diario/);
     expect(mensajeDeErrorBorrador("descuento_excedido")).toMatch(/descuento/);
     expect(mensajeDeErrorBorrador("ia_no_disponible")).toMatch(/pausada o escalada/);
+    expect(mensajeDeErrorBorrador("escalado")).toBe(
+      "La conversación está escalada a una persona: la IA no redacta.",
+    );
+  });
+
+  test("un nombre del prototipo no resuelve a una función", () => {
+    expect(mensajeDeErrorBorrador("constructor")).toBe("No se pudo redactar. Reintentá.");
+    expect(mensajeDeErrorBorrador("toString")).toBe("No se pudo redactar. Reintentá.");
   });
 
   test("un código desconocido o ausente no muestra el código crudo", () => {

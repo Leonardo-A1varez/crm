@@ -1,3 +1,4 @@
+import type { CodigoErrorBorrador } from "@/lib/copiloto/errores";
 import type { ModoDecidido, ModoOverride, ViaUsoBorrador } from "@/types/copiloto";
 
 /** Las tres opciones del interruptor: `segun_horario` es el `null` de la base. */
@@ -15,16 +16,22 @@ export function etiquetaOpcionModo(opcion: OpcionInterruptor, efectivo: ModoDeci
   return opcion === "copiloto" ? "Copiloto" : "Automático";
 }
 
-const ERRORES: Record<string, string> = {
+// Record exhaustivo: un código nuevo en `CodigoErrorBorrador` rompe el typecheck hasta que tenga frase.
+const ERRORES: Record<CodigoErrorBorrador, string> = {
   llm_error: "No se pudo redactar. Reintentá.",
   tope_diario: "Se alcanzó el tope de gasto diario de la IA. Redactá a mano o reintentá más tarde.",
   descuento_excedido: "La IA ofreció un descuento mayor al permitido. Redactá a mano.",
   ia_no_disponible: "La IA no redacta en esta conversación (pausada o escalada).",
+  escalado: "La conversación está escalada a una persona: la IA no redacta.",
 };
 
 /** El código corto de `borradores_ia.error_codigo` como frase. Nunca se muestra el código crudo. */
 export function mensajeDeErrorBorrador(codigo: string | null): string {
-  return (codigo !== null ? ERRORES[codigo] : undefined) ?? ERRORES["llm_error"]!;
+  // hasOwn: un código como "constructor" no debe resolver a una función del prototipo.
+  if (codigo !== null && Object.hasOwn(ERRORES, codigo)) {
+    return ERRORES[codigo as CodigoErrorBorrador];
+  }
+  return ERRORES.llm_error;
 }
 
 export function etiquetaUso(via: ViaUsoBorrador | null): string {

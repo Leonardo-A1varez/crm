@@ -55,8 +55,12 @@ export function InterruptorModo({
         className="border-line-card bg-surface-elevated text-ink-secondary h-[30px] max-w-[240px] rounded-[9px] px-2.5 text-[11.5px] font-semibold"
         onValueChange={(modo) => {
           startTransition(async () => {
-            const r = await onCambiar({ leadId, conversacionId, modo });
-            if (!r.ok) toast.error(r.error);
+            try {
+              const r = await onCambiar({ leadId, conversacionId, modo });
+              if (!r.ok) toast.error(r.error);
+            } catch {
+              toast.error("No se pudo cambiar el modo. Reintentá.");
+            }
           });
         }}
       />
