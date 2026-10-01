@@ -5,6 +5,7 @@ import { calcularSinResponder } from "@/lib/sin-responder";
 import { pesoMotivo, triage } from "@/lib/triage";
 import { canalesDelLead } from "@/lib/ui/canal";
 import { nombreDeRegla } from "@/lib/ui/regla";
+import { NoopLogger, type Logger } from "@/lib/observability/logger";
 import { entranteDeClave } from "@/server/services/meta-api.service";
 import type { EntradaTriage } from "@/lib/triage";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
@@ -17,6 +18,7 @@ import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { ProductsRepository } from "@/server/repositories/productos.repo";
 import type { RuleExecutionsRepository } from "@/server/repositories/rule-executions.repo";
 import type { RulesRepository } from "@/server/repositories/rules.repo";
+import type { BorradoresIaRepository } from "@/server/repositories/borradores-ia.repo";
 import type { SessionRecordatoriosRepository } from "@/server/repositories/session-recordatorios.repo";
 import type { TagsRepository } from "@/server/repositories/tags.repo";
 import type { ToolExecutionsRepository } from "@/server/repositories/tool-executions.repo";
@@ -188,6 +190,13 @@ export interface DefaultInboxServiceDeps {
    */
   turnosInterceptados?: Pick<TurnosInterceptadosRepository, "listByMensajeIds">;
   nombreDeFlujo?: (workflowId: UUID) => Promise<string | null>;
+  /**
+   * Para marcar "Borrador listo" en la bandeja. Opcional: sin el la marca no
+   * aparece, como antes del copiloto.
+   */
+  borradores?: Pick<BorradoresIaRepository, "listListosPorConversacionIds">;
+  /** Para avisar lo que se degrada sin romper la bandeja (la marca de borrador). */
+  logger?: Logger;
 }
 
 /** El recordatorio como lo consume la bandeja, o `null` si no hay ninguno vivo. */
@@ -232,6 +241,19 @@ export class DefaultInboxService implements InboxService {
     ]);
     return activeSessions.filter((s) => triage(entradaTriage(s, recordatorios)).motivo !== null)
       .length;
+  }
+
+  /** Las conversaciones con un borrador listo; vacío si no hay repo o la consulta falla. */
+  private async conversacionesConBorrador(convs: readonly { id: UUID }[]): Promise<UUID[]> {
+    if (!this.deps.borradores) return [];
+    try {
+      return await this.deps.borradores.listListosPorConversacionIds(convs.map((c) => c.id));
+    } catch (error) {
+      (this.deps.logger ?? new NoopLogger()).warn("inbox.borradores_no_disponibles", {
+        error_name: error instanceof Error ? error.name : "desconocido",
+      });
+      return [];
+    }
   }
 
   /**
@@ -290,6 +312,12 @@ export class DefaultInboxService implements InboxService {
       this.deps.recordatorios.listVivosBySessionIds(sessionIds),
     ]);
     const vivoPorSesion = new Map(vivos.map((r) => [r.lead_session_id, r]));
+    // Una consulta en lote para todas las conversaciones visibles (el repo
+    // parte en tandas): sin N+1 y sin el corte de 1.000 filas de PostgREST.
+    // La marca es un adorno de la lista: si la consulta falla (por ejemplo, el
+    // código desplegado antes que la migración de `borradores_ia`), la bandeja
+    // sale sin la marca en vez de caerse entera.
+    const conBorrador = new Set<UUID>(await this.conversacionesConBorrador(convsFilas));
 
     const leadPorId = new Map<UUID, Lead>(leadsFilas.map((l) => [l.id, l]));
     const convsPorLead = agrupar(convsFilas, (c) => c.lead_id);
@@ -349,6 +377,7 @@ export class DefaultInboxService implements InboxService {
         urgencia: session.urgencia,
         motivo,
         recordatorio: recordatorioDe(vivoPorSesion.get(session.id)),
+        borradorListo: convs.some((c) => conBorrador.has(c.id)),
       });
     }
 
@@ -432,6 +461,7 @@ export class DefaultInboxService implements InboxService {
       session,
       messages,
       canalActivo,
+      conversacionId: masReciente?.id ?? null,
       producto,
       // Solo lo que el chip necesita: `AssignedTag` arrastra `assigned_by` y
       // `source`, que son de la capa de repos y no cruzan a components.

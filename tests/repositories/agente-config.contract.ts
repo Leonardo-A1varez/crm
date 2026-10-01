@@ -24,6 +24,20 @@ export function runAgenteConfigContract(makeRepo: () => AgenteConfigRepository) 
   });
 
   describe("crear y leer", () => {
+    test("el horario del equipo sobrevive el round-trip y las filas nuevas nacen sin equipo", async () => {
+      const sinEquipo = await repo.crear(insert({ version: 1 }));
+      expect((await repo.findById(sinEquipo.id))?.horario_equipo.lun).toEqual([]);
+
+      const horario_equipo = {
+        ...CONFIG_DE_FABRICA.horario_equipo,
+        sab: [{ desde: "09:00", hasta: "13:00" }],
+      };
+      const conEquipo = await repo.crear(insert({ version: 2, horario_equipo }));
+      const leida = await repo.findById(conEquipo.id);
+      expect(leida?.horario_equipo.sab).toEqual([{ desde: "09:00", hasta: "13:00" }]);
+      expect(leida?.horario_equipo.lun).toEqual([]);
+    });
+
     test("crear devuelve la fila con id y created_at", async () => {
       const creada = await repo.crear(insert());
       expect(creada.id).toBeTruthy();

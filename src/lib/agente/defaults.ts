@@ -7,6 +7,13 @@ function horarioAbiertoSiempre(): Horario {
   return horario;
 }
 
+/** Sin ningún rango: "nunca hay equipo". Es el default seguro del copiloto. */
+export function horarioSinRangos(): Horario {
+  const horario = {} as Horario;
+  for (const dia of DIAS_SEMANA) horario[dia] = [];
+  return horario;
+}
+
 /**
  * Config de fábrica. Cumple dos roles a la vez, y por eso vive en un solo lugar:
  *
@@ -51,6 +58,11 @@ export const CONFIG_DE_FABRICA: AgenteConfigValores = {
   // Explícita a propósito: en Vercel el server es UTC, y heredarlo haría que el
   // agente cierre a la hora equivocada, en silencio, para todos.
   horario_timezone: "America/Argentina/Buenos_Aires",
+  // Espeja el default de la columna (migración `20260930120000`): los 7 días
+  // vacíos. Con equipo 24/7 por defecto el copiloto se encendería en toda
+  // conversación al desplegar y dejarían de salir respuestas por la API sin que
+  // nadie lo pidiera.
+  horario_equipo: horarioSinRangos(),
   plantilla_fuera_horario: "",
   plantilla_escalado:
     "Necesito que revisemos tu caso antes de continuar. Dejé la conversación marcada para revisión administrativa y no voy a confirmar precios ni condiciones hasta que sea revisada.",

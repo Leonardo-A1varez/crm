@@ -89,3 +89,7 @@ logs/
 
 # git worktrees (subagent-driven-development)
 .worktrees/
+
+# app de escritorio (Electron)
+/desktop/node_modules/
+/desktop/dist/

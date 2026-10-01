@@ -1,5 +1,7 @@
+import { InMemoryBorradoresIaRepository } from "@/server/repositories/borradores-ia.repo";
 import { InMemoryTurnosInterceptadosRepository } from "@/server/repositories/turnos-interceptados.repo";
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { InfraError } from "@/lib/errors";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import { InMemoryConversationsRepository } from "@/server/repositories/conversations.repo";
@@ -436,6 +438,21 @@ describe("DefaultInboxService.getConversation", () => {
     const view = await svc.getConversation(lead.id);
 
     expect(view.canalActivo).toBe("fb");
+  });
+
+  test("expone la conversación del canal activo para el copiloto, o null sin conversaciones", async () => {
+    const sinConversacion = await makeLead(leads);
+    await makeSession(sessions, sinConversacion.id);
+    expect((await svc.getConversation(sinConversacion.id)).conversacionId).toBeNull();
+
+    const lead = await makeLead(leads);
+    await makeSession(sessions, lead.id);
+    await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: "wa-1" });
+    await new Promise((r) => setTimeout(r, 5));
+    const convIg = await convs.create({ lead_id: lead.id, canal: "ig", canal_thread_id: "ig-1" });
+
+    // La más reciente por actividad: la misma que decide `canalActivo`.
+    expect((await svc.getConversation(lead.id)).conversacionId).toBe(convIg.id);
   });
 
   test("mensajes de otra sesión quedan excluidos", async () => {
@@ -1170,5 +1187,120 @@ describe("DefaultInboxService.listEtiquetas", () => {
       ),
     );
     expect(await svc.listEtiquetas()).toEqual([]);
+  });
+});
+
+describe("DefaultInboxService.listActiveLeads - borrador del copiloto", () => {
+  function armar(conBorradores: boolean) {
+    const leads = new InMemoryLeadsRepository();
+    const sessions = new InMemoryLeadSessionRepository();
+    const convs = new InMemoryConversationsRepository();
+    const messages = new InMemoryMessagesRepository();
+    const borradores = new InMemoryBorradoresIaRepository();
+    const svc = new DefaultInboxService({
+      ...makeReadOnlyDeps(leads, sessions, convs, messages),
+      ...(conBorradores ? { borradores } : {}),
+    });
+    return { leads, sessions, convs, messages, borradores, svc };
+  }
+
+  test("borradorListo marca las conversaciones con un borrador listo sin usar", async () => {
+    const { leads, sessions, convs, messages, borradores, svc } = armar(true);
+    const conBorrador = await makeLead(leads, { nombre: "Con borrador" });
+    const sesionA = await makeSession(sessions, conBorrador.id);
+    const convA = await convs.create({
+      lead_id: conBorrador.id,
+      canal: "wa",
+      canal_thread_id: "wa-a",
+    });
+    const entrante = await messages.create(msgInsert(convA.id, sesionA.id));
+    const r = await borradores.iniciar({
+      conversacionId: convA.id,
+      leadSessionId: sesionA.id,
+      mensajeOrigenId: entrante.id,
+    });
+    if (r.resultado !== "creado") throw new Error("fixture");
+    await borradores.completar(r.borradorId, { contenido: "Hola", origen: "ia", reglaId: null });
+
+    const sinBorrador = await makeLead(leads, { nombre: "Sin borrador" });
+    const sesionB = await makeSession(sessions, sinBorrador.id);
+    const convB = await convs.create({
+      lead_id: sinBorrador.id,
+      canal: "wa",
+      canal_thread_id: "wa-b",
+    });
+    await messages.create(msgInsert(convB.id, sesionB.id));
+
+    const items = await svc.listActiveLeads();
+    expect(items.find((i) => i.leadId === conBorrador.id)?.borradorListo).toBe(true);
+    expect(items.find((i) => i.leadId === sinBorrador.id)?.borradorListo).toBe(false);
+  });
+
+  test("un borrador usado o todavia redactando no marca la fila", async () => {
+    const { leads, sessions, convs, messages, borradores, svc } = armar(true);
+    const lead = await makeLead(leads);
+    const sesion = await makeSession(sessions, lead.id);
+    const conv = await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: "wa-c" });
+    const entrante = await messages.create(msgInsert(conv.id, sesion.id));
+    const r = await borradores.iniciar({
+      conversacionId: conv.id,
+      leadSessionId: sesion.id,
+      mensajeOrigenId: entrante.id,
+    });
+    if (r.resultado !== "creado") throw new Error("fixture");
+
+    expect((await svc.listActiveLeads())[0]?.borradorListo).toBe(false);
+
+    await borradores.completar(r.borradorId, { contenido: "Hola", origen: "ia", reglaId: null });
+    await borradores.marcarUsado(r.borradorId, { via: "copiar", usuarioId: null });
+    expect((await svc.listActiveLeads())[0]?.borradorListo).toBe(false);
+  });
+
+  test("sin el repositorio de borradores inyectado, borradorListo es false", async () => {
+    const { leads, sessions, convs, messages, svc } = armar(false);
+    const lead = await makeLead(leads);
+    const sesion = await makeSession(sessions, lead.id);
+    const conv = await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: "wa-d" });
+    await messages.create(msgInsert(conv.id, sesion.id));
+
+    expect((await svc.listActiveLeads())[0]?.borradorListo).toBe(false);
+  });
+});
+
+describe("DefaultInboxService.listActiveLeads - borradores no disponibles", () => {
+  test("si la consulta de borradores falla (migración pendiente), la lista sale sin marca y deja un aviso", async () => {
+    const leads = new InMemoryLeadsRepository();
+    const sessions = new InMemoryLeadSessionRepository();
+    const convs = new InMemoryConversationsRepository();
+    const messages = new InMemoryMessagesRepository();
+    const aviso = vi.fn();
+    const svc = new DefaultInboxService({
+      ...makeReadOnlyDeps(leads, sessions, convs, messages),
+      borradores: {
+        listListosPorConversacionIds: async () => {
+          throw new InfraError('relation "borradores_ia" does not exist');
+        },
+      },
+      logger: {
+        debug: vi.fn(),
+        info: vi.fn(),
+        warn: aviso,
+        error: vi.fn(),
+        child() {
+          return this;
+        },
+      },
+    });
+    const lead = await makeLead(leads, { nombre: "Ana" });
+    const sesion = await makeSession(sessions, lead.id);
+    const conv = await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: "wa-e" });
+    await messages.create(msgInsert(conv.id, sesion.id));
+
+    const items = await svc.listActiveLeads();
+
+    expect(items).toHaveLength(1);
+    expect(items[0]?.borradorListo).toBe(false);
+    expect(aviso).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(aviso.mock.calls)).not.toContain("does not exist");
   });
 });

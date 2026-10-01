@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { cache } from "react";
 import { env } from "@/lib/env";
 import type { AppClient } from "@/server/db/client";
 import type { Database } from "@/server/db/types.gen";
@@ -35,9 +36,15 @@ export async function createSupabaseServerClient(): Promise<AppClient> {
   );
 }
 
-/** getUser() valida el JWT contra el Auth server — único check válido para authz. */
-export async function getAuthenticatedUser(): Promise<User | null> {
+/**
+ * getUser() valida el JWT contra el Auth server — único check válido para authz.
+ *
+ * Memoizado por request (`cache` de React): el layout del panel y las páginas
+ * lo piden en el mismo render, y cada llamada sin memoizar es un viaje al Auth
+ * server. La memoria dura un request: nunca cruza de un usuario a otro.
+ */
+export const getAuthenticatedUser = cache(async (): Promise<User | null> => {
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase.auth.getUser();
   return data.user ?? null;
-}
+});

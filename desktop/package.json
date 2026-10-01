@@ -1,0 +1,17 @@
+{
+  "name": "crm-escritorio",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Spike: CRM + WhatsApp Web en una ventana de escritorio",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "npm run build && electron ."
+  },
+  "devDependencies": {
+    "@types/node": "26.6.3",
+    "electron": "44.4.5",
+    "typescript": "5.9.3"
+  }
+}

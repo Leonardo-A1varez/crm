@@ -17,3 +17,5 @@ src/server/db/types.gen.ts
 .superpowers
 # Andamiaje de agentes (worktrees, settings locales): no es fuente del proyecto.
 .claude
+# App de escritorio (Electron): proyecto aparte.
+desktop

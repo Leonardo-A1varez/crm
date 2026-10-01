@@ -19,6 +19,7 @@
     "test:integration:local": "node scripts/con-stack-local.mjs --perfil test --resembrar -- vitest run -c vitest.integration.config.ts",
     "db:push": "supabase db push --linked",
     "db:gen-types": "node scripts/gen-types.mjs",
+    "db:gen-types:local": "node scripts/gen-types.mjs --local",
     "db:advisors": "supabase db advisors",
     "db:reset": "supabase db reset --linked",
     "inngest:dev": "npx --yes inngest-cli@latest dev -u http://localhost:3001/api/webhooks/inngest",

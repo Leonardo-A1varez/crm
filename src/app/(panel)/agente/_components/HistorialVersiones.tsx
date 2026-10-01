@@ -22,7 +22,9 @@ export function HistorialVersiones({
     <section className="bg-surface-card border-line-card rounded-[15px] border p-[17px]">
       <Eyebrow>Historial de versiones</Eyebrow>
       <p className="text-ink-faint mt-1 mb-3 text-[10.5px]">
-        Restaurar crea una versión nueva con esos valores — nunca revive la fila vieja.
+        Restaurar crea una versión nueva con esos valores — nunca revive la fila vieja. Una versión
+        anterior al horario del equipo lo trae vacío: al restaurarla el copiloto queda apagado hasta
+        que lo vuelvas a configurar.
       </p>
       <ul className="flex flex-col gap-2">
         {versiones.map((v) => (

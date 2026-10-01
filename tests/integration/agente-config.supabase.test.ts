@@ -110,6 +110,11 @@ describe("garantias que solo existen contra Postgres", () => {
     await expect(repo.crear(insert({ ventana_contexto_mensajes: 999 }))).rejects.toThrow();
   });
 
+  test("el CHECK rechaza un horario del equipo sin los 7 dias", async () => {
+    await expect(repo.crear(insert({ horario_equipo: { lun: [] } as never }))).rejects.toThrow();
+    await expect(repo.crear(insert({ horario_equipo: {} as never }))).rejects.toThrow();
+  });
+
   test("los CHECK rechazan valores fuera del dominio", async () => {
     await expect(repo.crear(insert({ tono: "sarcastico" as never }))).rejects.toThrow();
     await expect(repo.crear(insert({ politica_tope: "ignorar" as never }))).rejects.toThrow();
@@ -196,6 +201,7 @@ describe("RLS", () => {
     const { error } = await vendedorClient.from(TABLA).insert({
       ...insert({ version: 999 }),
       horario: CONFIG_DE_FABRICA.horario as never,
+      horario_equipo: CONFIG_DE_FABRICA.horario_equipo as never,
     });
 
     expect(error).not.toBeNull();

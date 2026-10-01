@@ -38,6 +38,7 @@ function aValores(c: AgenteConfigValores): AgenteConfigValores {
     escalar_cotizacion_desde: c.escalar_cotizacion_desde,
     horario: c.horario,
     horario_timezone: c.horario_timezone,
+    horario_equipo: c.horario_equipo,
     plantilla_fuera_horario: c.plantilla_fuera_horario,
     plantilla_escalado: c.plantilla_escalado,
   };

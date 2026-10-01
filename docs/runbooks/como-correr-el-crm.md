@@ -185,6 +185,29 @@ Dos `POST /__mock/estado` a la vez (`delivered` y `read` del mismo wamid) ejerci
 
 Opciones del mock: `MOCK_META_RECHAZAR_A=<teléfonos>` hace que el envío a esos números responda 400 con código 131026, y `MOCK_META_AUTO_ESTADOS=1` manda «entregado» y «leído» solos después de cada envío.
 
+### Probar el copiloto
+
+El copiloto (modo Copiloto de la bandeja) se prueba contra el stack local con el mock de Meta: lo que se mira es que se cree un borrador y que el mock **no** reciba ningún envío.
+
+```bash
+D='docker exec -i supabase_db_crm psql -U postgres -d postgres -qtA -c'
+# 1. equipo abierto 24/7 (el default de fábrica es "sin equipo" = Automático). Aplica hasta 30 s
+#    después: el provider de config cachea (TTL_CONFIG_MS). Con el LLM en mock el intent sale null y
+#    el umbral de fábrica (2) escala a humano al segundo mensaje y manda un texto por la API aunque
+#    sea Copiloto: subir escalar_umbral_intents a 5 para que no ensucie la medición.
+$D "update public.agente_config set escalar_umbral_intents = 5, horario_equipo = '{\"lun\":[{\"desde\":\"00:00\",\"hasta\":\"23:59\"}],\"mar\":[{\"desde\":\"00:00\",\"hasta\":\"23:59\"}],\"mie\":[{\"desde\":\"00:00\",\"hasta\":\"23:59\"}],\"jue\":[{\"desde\":\"00:00\",\"hasta\":\"23:59\"}],\"vie\":[{\"desde\":\"00:00\",\"hasta\":\"23:59\"}],\"sab\":[{\"desde\":\"00:00\",\"hasta\":\"23:59\"}],\"dom\":[{\"desde\":\"00:00\",\"hasta\":\"23:59\"}]}'::jsonb where activa"
+# 2. entrante simulado con un teléfono nuevo
+curl -s -X POST http://127.0.0.1:55390/__mock/reset
+curl -s -X POST http://127.0.0.1:55390/__mock/entrante -H 'content-type: application/json'   -d '{"from":"12025550122","texto":"Busco filtro de aceite","nombre":"Copiloto Prueba"}'
+# 3. a los ~10 s: un borrador listo, sin leer su texto; y 0 envíos al mock
+$D "select b.estado, b.origen, length(b.contenido) > 0 from public.borradores_ia b join public.conversaciones c on c.id = b.conversacion_id where c.canal_thread_id = '12025550122'"
+curl -s http://127.0.0.1:55390/__mock/log | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log('envios a Meta:',JSON.parse(s).filter(e=>String(e.tipo).startsWith('graph.envio')).length))"
+```
+
+Esperado: `listo|ia|t` y `envios a Meta: 0`. Control: con `horario_equipo` sin rangos (cada día `[]`), esperar 30 s y repetir con otro teléfono: aparece una entrada `graph.envio.text` y ningún borrador. Para forzar el modo en una conversación sin tocar el horario: `update public.conversaciones set modo_respuesta_override = 'copiloto' where canal_thread_id = '…'`.
+
+Regenerar sin la pantalla: emitir el mismo evento que la Server Action, `curl -s -X POST http://127.0.0.1:8298/e/dev_key -H 'content-type: application/json' -d '{"name":"copiloto/borrador.solicitado","data":{"borradorId":"<id del listo>","conversacionId":"<conversacion_id>","solicitadoPor":null}}'`. Queda el viejo en `descartado`, uno nuevo en `listo` y el mock sin envíos; repetir con el mismo `borradorId` no hace nada (log `copiloto-omitido` / `borrador_no_vigente`). No contar `mensajes` con `direction = 'out'` en toda la base: el seed ya trae salientes.
+
 ### Integration tests
 
 ```bash

@@ -1,7 +1,9 @@
 import { inngest } from "@/inngest/client";
 import { recordatorioCancelado, recordatorioProgramado } from "@/inngest/events";
 import { env } from "@/lib/env";
+import { getLogger } from "@/lib/observability/get-logger";
 import { createSupabaseServerClient } from "@/server/auth/supabase-ssr";
+import { SupabaseBorradoresIaRepository } from "@/server/repositories/borradores-ia.supabase.repo";
 import { SupabaseConversationsRepository } from "@/server/repositories/conversations.supabase.repo";
 import { SupabaseHandoffEventsRepository } from "@/server/repositories/handoff-events.supabase.repo";
 import { SupabaseIntentsRepository } from "@/server/repositories/intents.supabase.repo";
@@ -130,6 +132,9 @@ export function makeInboxService(db: AppClient): InboxService {
     // Los entrantes que contestó un flujo en lugar del agente. Solo lectura:
     // los escribe el pipeline con service-role; vendedor y admin tienen SELECT.
     turnosInterceptados: new SupabaseTurnosInterceptadosRepository(db),
+    // Solo lectura desde el panel: marca "Borrador listo" en la lista.
+    borradores: new SupabaseBorradoresIaRepository(db),
+    logger: getLogger({ scope: "inbox" }),
     nombreDeFlujo: async (id) => (await workflows.findWorkflow(id))?.nombre ?? null,
   });
 }

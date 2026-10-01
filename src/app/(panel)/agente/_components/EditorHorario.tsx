@@ -60,12 +60,22 @@ export function EditorHorario({
   timezone,
   onChange,
   disabled,
+  mostrarZona = true,
+  contexto,
 }: {
   horario: Horario;
   timezone: string;
   onChange: (patch: { horario?: Horario; horario_timezone?: string }) => void;
   disabled?: boolean;
+  /** La zona es una sola para los dos horarios; quien edita el segundo horario la oculta. */
+  mostrarZona?: boolean;
+  /**
+   * De quién es este horario ("del agente", "del equipo"). La pantalla monta dos
+   * editores y sin esto sus botones y campos tienen el mismo nombre accesible.
+   */
+  contexto?: string;
 }) {
+  const sufijo = contexto ? ` ${contexto}` : "";
   const [borrador, setBorrador] = useState<Record<DiaSemana, Borrador>>(borradorInicial);
   const [cruce, setCruce] = useState<Cruce | null>(null);
 
@@ -103,25 +113,27 @@ export function EditorHorario({
 
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <Eyebrow>Timezone</Eyebrow>
-        <input
-          type="text"
-          value={timezone}
-          onChange={(e) => onChange({ horario_timezone: e.target.value })}
-          disabled={disabled}
-          placeholder="America/Argentina/Buenos_Aires"
-          className={cn(
-            "bg-surface-input border-line-input text-ink-body mt-2 w-full rounded-[10px] border p-2 font-mono text-[11.5px]",
-            !tzValida && "border-danger",
-          )}
-        />
-        {!tzValida ? (
-          <p className="text-danger mt-1 text-[10.5px]">
-            No es una timezone IANA reconocida (ej: America/Sao_Paulo).
-          </p>
-        ) : null}
-      </div>
+      {mostrarZona ? (
+        <div>
+          <Eyebrow>Timezone</Eyebrow>
+          <input
+            type="text"
+            value={timezone}
+            onChange={(e) => onChange({ horario_timezone: e.target.value })}
+            disabled={disabled}
+            placeholder="America/Argentina/Buenos_Aires"
+            className={cn(
+              "bg-surface-input border-line-input text-ink-body mt-2 w-full rounded-[10px] border p-2 font-mono text-[11.5px]",
+              !tzValida && "border-danger",
+            )}
+          />
+          {!tzValida ? (
+            <p className="text-danger mt-1 text-[10.5px]">
+              No es una timezone IANA reconocida (ej: America/Sao_Paulo).
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <ul className="flex flex-col gap-2.5">
         {DIAS_SEMANA.map((dia) => (
@@ -141,7 +153,7 @@ export function EditorHorario({
                   {r.desde}–{r.hasta}
                   <button
                     type="button"
-                    aria-label={`Quitar rango ${r.desde} a ${r.hasta} de ${DIA_LABEL[dia]}`}
+                    aria-label={`Quitar rango ${r.desde} a ${r.hasta} de ${DIA_LABEL[dia]}${sufijo}`}
                     disabled={disabled}
                     onClick={() => quitarRango(dia, i)}
                     className="text-ink-ghost hover:text-ink-primary"
@@ -152,6 +164,7 @@ export function EditorHorario({
               ))}
               <input
                 type="time"
+                aria-label={`Desde, ${DIA_LABEL[dia]}${sufijo}`}
                 value={borrador[dia].desde}
                 disabled={disabled}
                 onChange={(e) =>
@@ -162,6 +175,7 @@ export function EditorHorario({
               <span className="text-ink-ghost text-[10.5px]">a</span>
               <input
                 type="time"
+                aria-label={`Hasta, ${DIA_LABEL[dia]}${sufijo}`}
                 value={borrador[dia].hasta}
                 disabled={disabled}
                 onChange={(e) =>
@@ -171,6 +185,7 @@ export function EditorHorario({
               />
               <button
                 type="button"
+                aria-label={`Agregar rango ${DIA_LABEL[dia]}${sufijo}`}
                 disabled={disabled}
                 onClick={() => agregarRango(dia)}
                 className="text-ink-dim hover:text-ink-primary text-[10.5px] underline"

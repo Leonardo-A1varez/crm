@@ -18,6 +18,7 @@ import type {
   TipoMensaje,
   Urgencia,
 } from "./domain";
+import type { ModoOverride } from "./copiloto";
 import type { Grafo, MotivoSalto, NodoTipo } from "@/types/workflows";
 
 export type UUID = string;
@@ -132,6 +133,13 @@ export interface MensajeMetadata {
   rico?: MensajeRico;
   /** Entrantes que responden a un mensaje con botones o de lista. */
   respuesta_interactiva?: RespuestaInteractivaGuardada;
+  /**
+   * Saliente que la persona mando desde WhatsApp Web con un borrador del
+   * copiloto. El CRM lo anota al tocar Insertar / Copiar / Abrir, no cuando el
+   * mensaje realmente sale: por eso el hilo dice "sin confirmar".
+   */
+  origen?: "whatsapp_web_sin_confirmar";
+  borrador_id?: string;
   [k: string]: unknown;
 }
 
@@ -251,6 +259,12 @@ export interface Conversacion {
   canal: Canal;
   canal_thread_id: string;
   ultima_actividad_at: Date;
+  /**
+   * Preferencia del equipo para esta conversación (`null` = "Según horario").
+   * Vive acá y no en la sesión: la sesión se cierra y se purga a los 29 días, y
+   * atender un chat a mano tiene que sobrevivir a una sesión nueva del hilo.
+   */
+  modo_respuesta_override: ModoOverride | null;
 }
 
 export interface Mensaje {

@@ -1,9 +1,13 @@
-import { ConflictError, NotFoundError } from "@/lib/errors";
+import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
+import { MODOS_OVERRIDE } from "@/types/copiloto";
 import type { Canal } from "@/types/domain";
 import type { Conversacion, UUID } from "@/types/entities";
 import type { Insert, Update } from "./_types";
 
-export type ConversacionInsert = Insert<Conversacion, "id" | "ultima_actividad_at">;
+export type ConversacionInsert = Insert<
+  Conversacion,
+  "id" | "ultima_actividad_at" | "modo_respuesta_override"
+>;
 export type ConversacionUpdate = Update<Conversacion, "id" | "canal" | "canal_thread_id">;
 
 export interface ConversationsRepository {
@@ -46,6 +50,7 @@ export class InMemoryConversationsRepository implements ConversationsRepository 
       ...input,
       id: crypto.randomUUID(),
       ultima_actividad_at: new Date(),
+      modo_respuesta_override: null,
     };
     this.store.set(conv.id, conv);
     return { ...conv };
@@ -108,6 +113,11 @@ export class InMemoryConversationsRepository implements ConversationsRepository 
   async update(id: UUID, patch: ConversacionUpdate): Promise<Conversacion> {
     const current = this.store.get(id);
     if (!current) throw new NotFoundError(`conversación no encontrada: ${id}`, "conversacion", id);
+    const modo = patch.modo_respuesta_override;
+    if (modo != null && !MODOS_OVERRIDE.includes(modo)) {
+      // Paridad con el CHECK de Postgres, que mapPostgrestError vuelve ValidationError.
+      throw new ValidationError(`modo_respuesta_override fuera de dominio: ${String(modo)}`);
+    }
     const next: Conversacion = {
       ...current,
       ...patch,

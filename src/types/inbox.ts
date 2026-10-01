@@ -51,6 +51,12 @@ export interface InboxItem {
    * caso más urgente, y por eso el filtro de Seguimiento ordena ascendente.
    */
   recordatorio: { at: Date; nota: string } | null;
+  /**
+   * Hay un borrador del copiloto `listo` y sin usar en alguna conversacion del
+   * lead: la persona todavia tiene que enviarlo. Marca la fila con "Borrador
+   * listo"; no cambia el triage (la conversacion sigue donde estaba).
+   */
+  borradorListo: boolean;
 }
 
 /**
@@ -150,6 +156,12 @@ export interface ConversationView {
   messages: Mensaje[];
   // Canal de la conversación con actividad más reciente; fallback canal_origen.
   canalActivo: Canal;
+  /**
+   * La conversación del canal activo (la de actividad más reciente), o `null`
+   * si el lead no tiene ninguna. Es sobre la que operan el interruptor de modo y
+   * la tarjeta del copiloto.
+   */
+  conversacionId: UUID | null;
   /**
    * Producto del catálogo que la sesión cotizó, resuelto desde
    * `producto_cotizado_id`. Es lo único del Twin que NO sale del extractor: por

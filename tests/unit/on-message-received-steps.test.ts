@@ -140,6 +140,9 @@ describe("onMessageReceivedHandler granular steps", () => {
       // de config entre pasadas no cambian el camino.
       "leer-config",
       "decidir-horario",
+      // Step propio: el modo (Copiloto / Automático / Fuera de horario) no cambia
+      // a mitad del turno aunque cruce la hora de cierre del equipo.
+      "decidir-modo",
       // Todo mensaje nuevo dispara los flujos "Mensaje recibido", conteste
       // quien conteste después. Después de clasificar: el disparo lleva el
       // intent de este turno, que la base recién tiene cuando contesta el agente.
@@ -217,6 +220,9 @@ describe("onMessageReceivedHandler granular steps", () => {
       // de config entre pasadas no cambian el camino.
       "leer-config",
       "decidir-horario",
+      // Step propio: el modo (Copiloto / Automático / Fuera de horario) no cambia
+      // a mitad del turno aunque cruce la hora de cierre del equipo.
+      "decidir-modo",
       // Todo mensaje nuevo dispara los flujos "Mensaje recibido", conteste
       // quien conteste después. Después de clasificar: el disparo lleva el
       // intent de este turno, que la base recién tiene cuando contesta el agente.

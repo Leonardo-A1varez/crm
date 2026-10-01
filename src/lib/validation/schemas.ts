@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MODOS_OVERRIDE } from "@/types/copiloto";
 import {
   CANAL,
   CURRENT_STAGE,
@@ -121,6 +122,7 @@ export const ConversacionSchema = z.object({
   canal: CanalSchema,
   canal_thread_id: z.string(),
   ultima_actividad_at: z.date(),
+  modo_respuesta_override: z.enum(MODOS_OVERRIDE).nullable(),
 });
 
 export const MensajeSchema = z.object({

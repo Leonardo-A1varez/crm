@@ -3,6 +3,7 @@ import type {
   ConversacionInsert,
   ConversationsRepository,
 } from "@/server/repositories/conversations.repo";
+import { ValidationError } from "@/lib/errors";
 import type { UUID } from "@/types/entities";
 
 export interface ConversationsContractFixtures {
@@ -191,6 +192,41 @@ export function runConversationsContract(
 
     test("update throws cuando id falta", async () => {
       await expect(repo.update("missing", { lead_id: fixtures.leadIds.one })).rejects.toThrow();
+    });
+
+    test("create arranca sin override: Según horario", async () => {
+      const c = await repo.create(baseInsert(fixtures.leadIds.one));
+      expect(c.modo_respuesta_override).toBeNull();
+      expect((await repo.findById(c.id))?.modo_respuesta_override).toBeNull();
+    });
+
+    test("update fija el override y `null` lo limpia", async () => {
+      const c = await repo.create(baseInsert(fixtures.leadIds.one));
+
+      const fijada = await repo.update(c.id, { modo_respuesta_override: "copiloto" });
+      expect(fijada.modo_respuesta_override).toBe("copiloto");
+      expect((await repo.findById(c.id))?.modo_respuesta_override).toBe("copiloto");
+
+      const limpia = await repo.update(c.id, { modo_respuesta_override: null });
+      expect(limpia.modo_respuesta_override).toBeNull();
+      expect((await repo.findById(c.id))?.modo_respuesta_override).toBeNull();
+    });
+
+    test("update rechaza un modo fuera de dominio con ValidationError", async () => {
+      const c = await repo.create(baseInsert(fixtures.leadIds.one));
+      await expect(repo.update(c.id, { modo_respuesta_override: "otro" as never })).rejects.toThrow(
+        ValidationError,
+      );
+    });
+
+    test("otro update y touch no tocan el override", async () => {
+      const c = await repo.create(baseInsert(fixtures.leadIds.one));
+      await repo.update(c.id, { modo_respuesta_override: "automatico" });
+
+      await repo.touch(c.id);
+      await repo.update(c.id, { lead_id: fixtures.leadIds.one });
+
+      expect((await repo.findById(c.id))?.modo_respuesta_override).toBe("automatico");
     });
   });
 }

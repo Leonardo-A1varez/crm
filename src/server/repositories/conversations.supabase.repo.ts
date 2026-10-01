@@ -153,6 +153,10 @@ export class SupabaseConversationsRepository implements ConversationsRepository 
     if (patch.ultima_actividad_at !== undefined) {
       updatePayload.ultima_actividad_at = patch.ultima_actividad_at.toISOString();
     }
+    // `null` es un valor (vuelve a "Según horario"); `undefined` es "no tocar".
+    if (patch.modo_respuesta_override !== undefined) {
+      updatePayload.modo_respuesta_override = patch.modo_respuesta_override;
+    }
 
     const { data, error } = await this.db
       .from("conversaciones")
@@ -175,6 +179,7 @@ interface ConversacionRow {
   canal: Canal;
   canal_thread_id: string;
   ultima_actividad_at: string;
+  modo_respuesta_override: string | null;
   created_at: string;
 }
 
@@ -185,5 +190,9 @@ function mapRow(row: ConversacionRow): Conversacion {
     canal: row.canal,
     canal_thread_id: row.canal_thread_id,
     ultima_actividad_at: new Date(row.ultima_actividad_at),
+    modo_respuesta_override:
+      row.modo_respuesta_override === "copiloto" || row.modo_respuesta_override === "automatico"
+        ? row.modo_respuesta_override
+        : null,
   };
 }

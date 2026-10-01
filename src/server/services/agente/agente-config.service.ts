@@ -74,7 +74,10 @@ const CAMPOS_ESCALARES = [
   "horario_timezone",
   "plantilla_fuera_horario",
   "plantilla_escalado",
-] as const satisfies readonly (keyof Omit<AgenteConfigValores, "horario" | "escalar_palabras">)[];
+] as const satisfies readonly (keyof Omit<
+  AgenteConfigValores,
+  "horario" | "horario_equipo" | "escalar_palabras"
+>)[];
 
 /**
  * Comparación por valor, día a día y rango a rango. Comparar `horario` por
@@ -117,6 +120,9 @@ function camposCambiados(actual: AgenteConfigValores | null, nuevo: AgenteConfig
     cambiados.push("escalar_palabras");
   }
   if (!horariosIguales(actual.horario, nuevo.horario)) cambiados.push("horario");
+  if (!horariosIguales(actual.horario_equipo, nuevo.horario_equipo)) {
+    cambiados.push("horario_equipo");
+  }
   return cambiados;
 }
 
@@ -141,6 +147,7 @@ function soloValores(c: AgenteConfig): AgenteConfigValores {
     escalar_cotizacion_desde: c.escalar_cotizacion_desde,
     horario: c.horario,
     horario_timezone: c.horario_timezone,
+    horario_equipo: c.horario_equipo,
     plantilla_fuera_horario: c.plantilla_fuera_horario,
     plantilla_escalado: c.plantilla_escalado,
   };

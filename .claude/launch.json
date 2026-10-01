@@ -6,6 +6,24 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 3001
+    },
+    {
+      "name": "crm-local",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:local"],
+      "port": 3002
+    },
+    {
+      "name": "crm-local-mock-meta",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "mock:meta"],
+      "port": 55390
+    },
+    {
+      "name": "crm-local-inngest",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "inngest:local"],
+      "port": 8298
     }
   ]
 }

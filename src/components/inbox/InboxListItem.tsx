@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bolt, PanTool, ReceiptLong, Schedule, Warning } from "@/components/icons";
+import { AutoAwesome, Bolt, PanTool, ReceiptLong, Schedule, Warning } from "@/components/icons";
 import { CanalesFila } from "@/components/inbox/ChannelIcons";
 import { ChannelDot } from "@/components/shared/ChannelDot";
 import { InitialsAvatar } from "@/components/shared/InitialsAvatar";
@@ -113,6 +113,11 @@ function FilaCompacta({ item, activa }: { item: InboxItem; activa: boolean }) {
         stage={item.currentStage}
         className="shrink-0 px-1.5 py-[1.5px] text-[9.5px] font-medium"
       />
+      {item.borradorListo ? (
+        <span role="img" aria-label="Borrador listo" className="inline-flex shrink-0">
+          <AutoAwesome size={12} className="text-brand" aria-hidden />
+        </span>
+      ) : null}
       <span className="text-ink-faint min-w-0 flex-1 truncate text-[11px]">
         {previewTexto(item)}
       </span>
@@ -250,12 +255,22 @@ function FilaCompleta({
           </div>
         ) : null}
 
-        <div className="mt-1.5 flex items-center gap-1.5">
+        {/* Con etapa, IA pausada, borrador listo y urgencia alta a la vez no entran en una línea: envuelven. */}
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
           <StageBadge stage={item.currentStage} />
           {item.iaPausada ? (
             <span className="text-danger bg-danger/13 inline-flex shrink-0 items-center gap-1 rounded-md px-[7px] py-[2.5px] text-[10px] font-semibold">
               <PanTool size={12} className="shrink-0" />
               IA pausada
+            </span>
+          ) : null}
+          {item.borradorListo ? (
+            <span
+              aria-label="Borrador listo"
+              className="text-brand bg-brand/12 inline-flex shrink-0 items-center gap-1 rounded-md px-[7px] py-[2.5px] text-[10px] font-semibold"
+            >
+              <AutoAwesome size={12} className="shrink-0" aria-hidden />
+              Borrador listo
             </span>
           ) : null}
           {item.urgencia === "alta" ? (

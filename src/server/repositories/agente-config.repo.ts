@@ -24,7 +24,11 @@ export interface AgenteConfigRepository {
 const DEFAULT_LIST_LIMIT = 50;
 
 function clonar(c: AgenteConfig): AgenteConfig {
-  return { ...c, horario: structuredClone(c.horario) };
+  return {
+    ...c,
+    horario: structuredClone(c.horario),
+    horario_equipo: structuredClone(c.horario_equipo),
+  };
 }
 
 export class InMemoryAgenteConfigRepository implements AgenteConfigRepository {
@@ -57,6 +61,7 @@ export class InMemoryAgenteConfigRepository implements AgenteConfigRepository {
     const config: AgenteConfig = {
       ...input,
       horario: structuredClone(input.horario),
+      horario_equipo: structuredClone(input.horario_equipo),
       id: crypto.randomUUID(),
       activa: false,
       created_at: new Date().toISOString(),

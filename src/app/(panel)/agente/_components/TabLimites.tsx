@@ -215,14 +215,43 @@ export function TabLimites({
 
         <TarjetaConsola
           titulo="Horario del agente"
-          subtitulo="Fuera de horario responde con plantilla y no genera con LLM."
+          subtitulo="Cuándo la IA puede actuar por su cuenta. Fuera de este horario responde con plantilla y no genera con LLM, salvo que el equipo esté de turno y la IA solo redacte."
         >
           <EditorHorario
             horario={valores.horario}
             timezone={valores.horario_timezone}
+            contexto="del agente"
             onChange={onChange}
             disabled={disabled}
           />
+        </TarjetaConsola>
+
+        <TarjetaConsola
+          titulo="Horario del equipo"
+          subtitulo="Cuándo hay personas para enviar desde WhatsApp Web. En este horario la IA redacta y vos enviás."
+        >
+          <p className="text-ink-dim mb-3 text-[11px]">
+            Vacío = sin equipo: la IA responde sola por la API, según el horario del agente.
+          </p>
+          <EditorHorario
+            horario={valores.horario_equipo}
+            timezone={valores.horario_timezone}
+            mostrarZona={false}
+            contexto="del equipo"
+            onChange={(patch) => {
+              if (patch.horario) onChange({ horario_equipo: patch.horario });
+            }}
+            disabled={disabled}
+          />
+          <p className="text-ink-faint mt-3 text-[10.5px]">
+            Usa la misma zona horaria que el horario del agente:{" "}
+            <span className="font-mono">{valores.horario_timezone}</span>.
+          </p>
+          <p className="text-caution mt-2 text-[10.5px]">
+            Recomendado: dejar el horario del agente abierto 24/7, así de noche, con el equipo
+            cerrado, la IA contesta por la API. Si el agente se cierra de noche, esas conversaciones
+            reciben la plantilla en lugar de una respuesta.
+          </p>
         </TarjetaConsola>
 
         <TarjetaConsola

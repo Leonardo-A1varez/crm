@@ -1,7 +1,8 @@
 import { NonRetriableError } from "inngest";
 import { inngest } from "@/inngest/client";
 import { messageReceived } from "@/inngest/events";
-import { isNonRetriable, ValidationError } from "@/lib/errors";
+import { IllegalStateError, isNonRetriable, ValidationError } from "@/lib/errors";
+import { horarioSinRangos } from "@/lib/agente/defaults";
 import { excedeDescuento } from "@/lib/agente/descuento";
 import {
   CONFIRMACION_BAJA,
@@ -9,12 +10,15 @@ import {
   type PalabraDeBaja,
 } from "@/lib/difusion/baja-por-palabra";
 import { estaAbierto } from "@/lib/agente/horario";
+import { codigoDeErrorBorrador } from "@/lib/copiloto/errores";
+import { decidirModo, equipoAbiertoAhora } from "@/lib/copiloto/modo";
 import { NoopLogger, type Logger } from "@/lib/observability/logger";
 import { contextoDeDisparo } from "@/lib/workflows/contexto";
 import type { DispararWorkflowInput } from "@/inngest/functions/workflow-disparar";
 import { claveSaliente } from "@/server/services/meta-api.service";
 import type { ParsedMessage } from "@/lib/meta/parse-webhook";
 import type { IntentClassification } from "@/lib/validation/ai";
+import type { BorradoresIaRepository } from "@/server/repositories/borradores-ia.repo";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
 import type { DifusionSupresionesRepository } from "@/server/repositories/difusion-supresiones.repo";
 import type { IntentsRepository } from "@/server/repositories/intents.repo";
@@ -40,7 +44,11 @@ import {
 import type { TagsRepository } from "@/server/repositories/tags.repo";
 import type { TurnClassificationsRepository } from "@/server/repositories/turn-classifications.repo";
 import type { AgentConfigProvider } from "@/server/services/agente/config-provider";
-import type { AiAgentService } from "@/server/services/ai-agent.service";
+import {
+  buildConversationTurn,
+  buildRespondInput,
+} from "@/server/services/agente/conversation-turn";
+import type { AgentTurnResult, AiAgentService } from "@/server/services/ai-agent.service";
 import type { IntentClassifierService } from "@/server/services/intent-classifier.service";
 import type { MetaApiService } from "@/server/services/meta-api.service";
 import type { RuleEngineService } from "@/server/services/rule-engine.service";
@@ -50,6 +58,7 @@ import type {
   WorkflowRunsRepository,
 } from "@/server/repositories/workflow-runs.repo";
 import type { DelegacionDelTurno, TurnoDelegacion } from "@/lib/workflows/delegacion";
+import type { ModoDecidido } from "@/types/copiloto";
 import type { Canal } from "@/types/domain";
 import type { Lead, LeadSession, MetaUserIds, UUID } from "@/types/entities";
 
@@ -178,6 +187,17 @@ export interface OnMessageReceivedDeps {
    */
   recordatorios?: SessionRecordatoriosRepository;
   cancelarAvisoRecordatorio?: (input: { recordatorioId: UUID; recordarAt: Date }) => Promise<void>;
+  /**
+   * Dónde se guardan los borradores del copiloto (`borradores_ia`). Opcional
+   * para que los callers que no usan el copiloto sigan compilando, pero con el
+   * modo decidido en Copiloto y sin él el turno **falla en voz alta**
+   * (`exigirBorradores`): el fallback silencioso sería mandar por la API lo que
+   * el equipo pidió redactar. `bootstrap.ts` lo wirea.
+   */
+  borradores?: Pick<
+    BorradoresIaRepository,
+    "iniciar" | "completar" | "marcarError" | "descartar" | "descartarVigentes"
+  >;
   configProvider: AgentConfigProvider;
   emit: (event: EmittedEvent) => Promise<void>;
   logger?: Logger;
@@ -349,6 +369,35 @@ export async function onMessageReceivedHandler(
         sent: false,
         duplicate: true,
       };
+    }
+
+    // Un entrante nuevo deja viejo el borrador que estaba vigente: ofrecerlo
+    // después de que llegó otro mensaje sería contestar la pregunta anterior.
+    // Va acá y no junto a `iniciar-borrador` porque hay turnos que nunca llegan a
+    // redactar (baja, flujo interceptor, fuera de horario) y el borrador previo
+    // igual quedó obsoleto.
+    //
+    // Si falla (el código llegó antes que la migración de `borradores_ia`, o la
+    // base tuvo un hipo) NO tumba el turno: este step corre en cada entrante de
+    // todos los canales, y con el copiloto apagado o fuera de turno el fallo
+    // callaría a quien escribe sin que el copiloto tenga nada que ver. Se avisa
+    // y se sigue; si el modo que se decide más abajo es Copiloto, `decidir-modo`
+    // repite la invalidación y ahí sí falla en voz alta.
+    let invalidacionFallo = false;
+    if (deps.borradores) {
+      const borradores = deps.borradores;
+      invalidacionFallo = await step.run("invalidar-borrador-previo", async () => {
+        try {
+          await borradores.descartarVigentes(conv.id);
+          return false;
+        } catch (error) {
+          logger.warn("borrador.invalidar_previo_fallo", {
+            conversacion_id: conv.id,
+            error_name: error instanceof Error ? error.name : "desconocido",
+          });
+          return true;
+        }
+      });
     }
 
     // El lead tocó un botón o eligió una fila de una lista: el flujo que
@@ -594,6 +643,7 @@ export async function onMessageReceivedHandler(
       return {
         horario: c.horario,
         horario_timezone: c.horario_timezone,
+        horario_equipo: c.horario_equipo,
         plantilla_fuera_horario: c.plantilla_fuera_horario,
         ventana_contexto_mensajes: c.ventana_contexto_mensajes,
         descuento_max_pct: c.descuento_max_pct,
@@ -607,6 +657,40 @@ export async function onMessageReceivedHandler(
     const abierto = await step.run("decidir-horario", async () =>
       estaAbierto(config.horario, config.horario_timezone, new Date()),
     );
+    // Step propio por la misma razón que `decidir-horario`: Inngest vuelve a
+    // correr el handler en cada paso, y una lectura viva del reloj cambiaría el
+    // modo a mitad del turno. El copiloto es de WhatsApp (las acciones de la
+    // tarjeta abren WhatsApp Web y el ahorro es de la API de WhatsApp): en
+    // Instagram y Messenger el modo se calcula sin override y sin equipo, o sea
+    // el comportamiento de siempre. `agenteAbierto` reusa la decisión de arriba
+    // para que las dos nunca discrepen.
+    //
+    // También acá se exige el repositorio de borradores: con el modo en Copiloto y
+    // sin él el turno tiene que fallar ANTES de clasificar y de llamar al agente,
+    // no después de haber pagado las dos llamadas al LLM.
+    const modo: ModoDecidido = await step.run("decidir-modo", async () => {
+      const decidido = decidirModo({
+        override: parsed.canal === "wa" ? conv.modo_respuesta_override : null,
+        // Una corrida en vuelo durante el deploy puede traer una config
+        // memoizada sin `horario_equipo` (el step `leer-config` es anterior a
+        // ese campo): se lee como sin rangos, o sea "no hay equipo".
+        equipoAbierto:
+          parsed.canal === "wa" &&
+          equipoAbiertoAhora(
+            { ...config, horario_equipo: config.horario_equipo ?? horarioSinRangos() },
+            new Date(),
+          ),
+        agenteAbierto: abierto,
+      });
+      if (decidido === "copiloto") {
+        const borradores = exigirBorradores(deps);
+        // Con Copiloto la invalidación sí importa: un borrador viejo vigente
+        // seguiría ofreciéndose. Se repite acá, dentro del step, y si falla otra
+        // vez el turno falla en voz alta (Inngest reintenta el step).
+        if (invalidacionFallo) await borradores.descartarVigentes(conv.id);
+      }
+      return decidido;
+    });
     const interceptor = deps.interceptor;
     const avisarDescarte = (decision: DecisionIntercepcion) => {
       if (decision.tipo === "no" && decision.descartada) {
@@ -671,7 +755,10 @@ export async function onMessageReceivedHandler(
     // nada y la sesion queda como esta para que el triage humano la retome.
     // Fuera de horario nunca hay turno interceptado: el interceptor ni se
     // consulta (arriba), así que la plantilla es la única respuesta.
-    if (!abierto) {
+    // La rama corre solo con el resultado Fuera de horario (§3.2). Con Copiloto
+    // y el agente cerrado el turno sigue por `classify` / `respond` como en
+    // horario: el borrador no sale solo, así que el agente cerrado no lo impide.
+    if (modo === "fuera_de_horario") {
       // Sin LLM no hay intent, pero el flujo se entera igual (y antes de la
       // plantilla, como en el camino normal antes de la respuesta del agente).
       await emitirMensajeRecibido(null);
@@ -839,20 +926,86 @@ export async function onMessageReceivedHandler(
       ),
     );
 
-    const agentResult = await step.run("respond", () =>
-      deps.aiAgent.respond({
-        leadSessionId: session.id,
-        conversationTurn,
-        classification,
-        mensajeOrigenId: inbound.id,
-        ...(tramos.some((t) => t.instrucciones !== null)
-          ? {
-              instruccionesTramo: tramos.flatMap((t) =>
-                t.instrucciones !== null ? [t.instrucciones] : [],
-              ),
+    // En Copiloto el borrador arranca ANTES de `respond` (la tarjeta muestra
+    // "Redactando…") y es idempotente por entrante. Si no hay un borrador
+    // `redactando` donde escribir, el turno no llama al agente: pagar el LLM para
+    // tirar la respuesta es plata sin efecto.
+    //  - `obsoleto`: llegó otro entrante mientras tanto; el turno de ése redacta.
+    //  - `existente` que ya no está `redactando` (listo, usado o en error): este
+    //    entrante ya tuvo su borrador y `completar` no lo pisaría.
+    const arranque: { borradorId: UUID | null; omitido: "obsoleto" | "ya_resuelto" | null } =
+      modo === "copiloto"
+        ? await step.run("iniciar-borrador", async () => {
+            const r = await exigirBorradores(deps).iniciar({
+              conversacionId: conv.id,
+              leadSessionId: session.id,
+              mensajeOrigenId: inbound.id,
+            });
+            if (r.resultado === "obsoleto") {
+              return { borradorId: null, omitido: "obsoleto" as const };
             }
-          : {}),
-      }),
+            if (r.resultado === "existente" && r.estado !== "redactando") {
+              return { borradorId: null, omitido: "ya_resuelto" as const };
+            }
+            return { borradorId: r.borradorId, omitido: null };
+          })
+        : { borradorId: null, omitido: null };
+    const borradorId = arranque.borradorId;
+
+    if (arranque.omitido !== null) {
+      // Termina sin agente, como el descuento excedido: nada sale, y a los
+      // tramos delegados se les avisa que la IA no contestó.
+      avisarErrorAlTramo = null;
+      await avisarTramo(tramos, "turno", classification.intent_nombre, false);
+      logger.info("borrador-omitido", { motivo: arranque.omitido });
+      logger.info("pipeline-complete", {
+        duplicate: false,
+        sent: false,
+        skipped: "borrador_omitido",
+      });
+      return {
+        leadId: lead.id,
+        leadCreated,
+        sessionId: session.id,
+        sessionCreated,
+        conversacionId: conv.id,
+        agentSource: "handoff",
+        sent: false,
+        duplicate: false,
+      };
+    }
+
+    // El turno falla igual que siempre, pero la tarjeta no puede quedarse en
+    // "Redactando…" para siempre: si un step entre `iniciar-borrador` y
+    // `guardar-borrador` agota sus reintentos, el borrador queda en error con un
+    // código corto (nunca el texto del proveedor) y la persona puede reintentar.
+    // Sin borrador (Automático, o el entrante ya no era el último) no hay nada
+    // que marcar y el error pasa tal cual.
+    const conErrorDeBorrador = async <T>(hacer: () => Promise<T>): Promise<T> => {
+      try {
+        return await hacer();
+      } catch (error) {
+        if (borradorId !== null) {
+          await step.run("marcar-borrador-error", () =>
+            exigirBorradores(deps).marcarError(borradorId, codigoDeErrorBorrador(error)),
+          );
+        }
+        throw error;
+      }
+    };
+
+    const agentResult: AgentTurnResult = await conErrorDeBorrador(() =>
+      step.run("respond", () =>
+        deps.aiAgent.respond(
+          buildRespondInput({
+            leadSessionId: session.id,
+            conversationTurn,
+            classification,
+            mensajeOrigenId: inbound.id,
+            tramos,
+          }),
+        ),
+      ),
     );
     logger.info("agent-decision", {
       source: agentResult.source,
@@ -867,20 +1020,22 @@ export async function onMessageReceivedHandler(
     // auditoría de reglas, y antes de la guarda de descuento: el modelo ya
     // corrió y ya se pagó, aunque después la respuesta se descarte.
     if (agentResult.source === "llm") {
-      await step.run("auditar-clasificacion", async () => {
-        // El clasificador ya validó el nombre contra los intents activos, así
-        // que un nombre no nulo resuelve; nulo = no reconoció ninguno.
-        const intent =
-          classification.intent_nombre !== null
-            ? await deps.intents.findByNombre(classification.intent_nombre)
-            : null;
-        await deps.turnClassifications.create({
-          mensaje_id: inbound.id,
-          intent_id: intent?.id ?? null,
-          intent_nombre: classification.intent_nombre,
-          confidence: classification.confidence,
-        });
-      });
+      await conErrorDeBorrador(() =>
+        step.run("auditar-clasificacion", async () => {
+          // El clasificador ya validó el nombre contra los intents activos, así
+          // que un nombre no nulo resuelve; nulo = no reconoció ninguno.
+          const intent =
+            classification.intent_nombre !== null
+              ? await deps.intents.findByNombre(classification.intent_nombre)
+              : null;
+          await deps.turnClassifications.create({
+            mensaje_id: inbound.id,
+            intent_id: intent?.id ?? null,
+            intent_nombre: classification.intent_nombre,
+            confidence: classification.confidence,
+          });
+        }),
+      );
     }
 
     let sent = false;
@@ -897,20 +1052,29 @@ export async function onMessageReceivedHandler(
           maximo: config.descuento_max_pct,
           sessionId: session.id,
         });
-        await step.run("pausar-por-descuento", () =>
-          deps.handoff
-            ? deps.handoff.pause({
-                sessionId: session.id,
-                reasonCode: "discount_limit",
-                source: "pipeline_guard",
-                sourceEventKey: `discount-limit:${session.id}:${parsed.meta_message_id}`,
-                notifyCustomer: true,
-              })
-            : deps.sessions.update(session.id, {
-                current_stage: "requiere_humano",
-                ia_pausada: true,
-              }),
+        await conErrorDeBorrador(() =>
+          step.run("pausar-por-descuento", () =>
+            deps.handoff
+              ? deps.handoff.pause({
+                  sessionId: session.id,
+                  reasonCode: "discount_limit",
+                  source: "pipeline_guard",
+                  sourceEventKey: `discount-limit:${session.id}:${parsed.meta_message_id}`,
+                  notifyCustomer: true,
+                })
+              : deps.sessions.update(session.id, {
+                  current_stage: "requiere_humano",
+                  ia_pausada: true,
+                }),
+          ),
         );
+        if (borradorId !== null) {
+          await conErrorDeBorrador(() =>
+            step.run("descartar-borrador-descuento", () =>
+              exigirBorradores(deps).descartar(borradorId),
+            ),
+          );
+        }
         // El tramo ve la sesión en manos de una persona (`discount_limit`).
         avisarErrorAlTramo = null;
         await avisarTramo(tramos, "turno", classification.intent_nombre, false);
@@ -931,19 +1095,43 @@ export async function onMessageReceivedHandler(
         };
       }
 
-      await step.run("send", () =>
-        deps.metaApi.sendOutbound({
-          conversacionId: conv.id,
-          leadSessionId: session.id,
-          canal: parsed.canal,
-          to: parsed.meta_user_id,
-          contenido: agentResult.respuesta_contenido,
-          sender: "ia",
-          idempotencyKey: claveSaliente(parsed.meta_message_id),
-        }),
-      );
-      sent = true;
-      logger.info("send-out");
+      if (modo === "copiloto") {
+        // Nada sale por la API: la respuesta (de regla o de LLM) queda como
+        // borrador para que una persona la envíe desde WhatsApp Web. El texto
+        // no se loguea. `sent` queda en false, y de ahí `respondio` del tramo
+        // delegado: la IA no le contestó al cliente.
+        let guardado = false;
+        if (borradorId !== null) {
+          guardado = await conErrorDeBorrador(() =>
+            step.run("guardar-borrador", async () => {
+              const completado = await exigirBorradores(deps).completar(borradorId, {
+                contenido: agentResult.respuesta_contenido,
+                origen: agentResult.source === "rule" ? "regla" : "ia",
+                reglaId: agentResult.regla_id ?? null,
+              });
+              // `null`: ya no estaba redactando (otro lo reemplazó o se descartó).
+              return completado !== null;
+            }),
+          );
+        }
+        logger.info(guardado ? "borrador-listo" : "borrador-no-guardado", {
+          origen: agentResult.source,
+        });
+      } else {
+        await step.run("send", () =>
+          deps.metaApi.sendOutbound({
+            conversacionId: conv.id,
+            leadSessionId: session.id,
+            canal: parsed.canal,
+            to: parsed.meta_user_id,
+            contenido: agentResult.respuesta_contenido,
+            sender: "ia",
+            idempotencyKey: claveSaliente(parsed.meta_message_id),
+          }),
+        );
+        sent = true;
+        logger.info("send-out");
+      }
 
       // La tabla `rule_executions` existe desde Slice 1 y nunca se escribio:
       // el agente devolvia `regla_id` y nadie lo guardaba, asi que no habia
@@ -959,6 +1147,13 @@ export async function onMessageReceivedHandler(
         );
       }
     } else {
+      // Si hoy la IA no respondería, tampoco hay borrador (§3.1): el que arrancó
+      // como "Redactando…" se descarta.
+      if (borradorId !== null) {
+        await conErrorDeBorrador(() =>
+          step.run("descartar-borrador", () => exigirBorradores(deps).descartar(borradorId)),
+        );
+      }
       logger.info("send-skipped", { reason: "handoff" });
     }
 
@@ -1087,6 +1282,30 @@ async function turnosPreviosSinIntent(
     racha.push({ intent_nombre: null, confidence: turno.confidence });
   }
   return racha.reverse();
+}
+
+/**
+ * El repositorio de borradores, o un `IllegalStateError`: con el modo decidido en
+ * Copiloto, seguir sin él sería mandar por la API lo que el equipo pidió
+ * redactar.
+ *
+ * Se llama dentro de `step.run` (en `decidir-modo`), y ahí Inngest reintenta
+ * cualquier error del step según su política, también un `IllegalStateError`:
+ * el `isNonRetriable` de `makeOnMessageReceivedFn` mira el error que sale de
+ * toda la función, no el que se lanza dentro de un step. Es inocuo porque falla
+ * antes de clasificar y de llamar al agente: los reintentos no gastan nada, y al
+ * agotarse el turno falla en voz alta.
+ */
+function exigirBorradores(
+  deps: Pick<OnMessageReceivedDeps, "borradores">,
+): NonNullable<OnMessageReceivedDeps["borradores"]> {
+  if (!deps.borradores) {
+    throw new IllegalStateError(
+      "Modo Copiloto sin OnMessageReceivedDeps.borradores: el borrador no tiene dónde guardarse",
+      "copiloto_sin_repositorio",
+    );
+  }
+  return deps.borradores;
 }
 
 async function resolveLead(
@@ -1352,23 +1571,6 @@ async function resolveActiveSession(
     ia_pausada: false,
   });
   return { session: created, created: true };
-}
-
-async function buildConversationTurn(
-  conversacionId: UUID,
-  messages: MessagesRepository,
-  contextSummary: string | null,
-  limit: number,
-): Promise<string[]> {
-  const recent = await messages.listByConversacion(conversacionId, { limit });
-  const formatted = recent
-    .slice()
-    .reverse()
-    .map((m) => `${m.sender}: ${m.contenido ?? ""}`);
-  if (contextSummary) {
-    return [`[Resumen previo]: ${contextSummary}`, ...formatted];
-  }
-  return formatted;
 }
 
 // Adapter: Inngest step.run devuelve Jsonify<T> (serializa Dates → string en replay).
