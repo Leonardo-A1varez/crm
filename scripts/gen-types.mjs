@@ -14,8 +14,25 @@ import { spawnSync } from "node:child_process";
 const destino = "src/server/db/types.gen.ts";
 const temporal = `${destino}.tmp`;
 
+// `--local` genera desde el stack de Docker (la migración todavía no está en
+// crm-dev cuando se escribe); por defecto sigue siendo `--linked`.
+//
+// No se usa `supabase gen types --local`: con el CLI 2.111.0 y este stack falla
+// con `password authentication failed for user "postgres"` (2026-09-30), aunque
+// esa misma contraseña entra bien desde el host. Se le pasa la URL de la base
+// local explícita; `host.docker.internal` es como el contenedor de pg-meta del
+// CLI llega al puerto publicado en el host (Docker Desktop). El puerto sale de
+// `[db]` en supabase/config.toml.
+function argsOrigen() {
+  if (!process.argv.includes("--local")) return ["--linked"];
+  const config = readFileSync("supabase/config.toml", "utf8");
+  const puerto = /^\[db\][^[]*?^port\s*=\s*(\d+)/ms.exec(config)?.[1];
+  if (!puerto) throw new Error("no encontré [db] port en supabase/config.toml");
+  return ["--db-url", `postgresql://postgres:postgres@host.docker.internal:${puerto}/postgres`];
+}
+
 const fd = openSync(temporal, "w");
-const resultado = spawnSync("supabase", ["gen", "types", "typescript", "--linked"], {
+const resultado = spawnSync("supabase", ["gen", "types", "typescript", ...argsOrigen()], {
   stdio: ["inherit", fd, "inherit"],
   // En Windows el CLI puede estar instalado como shim .cmd (npm, scoop), que
   // spawn no resuelve sin shell. Los argumentos son fijos, no hay input externo.

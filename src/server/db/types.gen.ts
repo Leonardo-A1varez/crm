@@ -63,6 +63,7 @@ export type Database = {
           escalar_palabras: string[]
           escalar_umbral_intents: number
           horario: Json
+          horario_equipo: Json
           horario_timezone: string
           id: string
           instrucciones: string
@@ -92,6 +93,7 @@ export type Database = {
           escalar_palabras?: string[]
           escalar_umbral_intents?: number
           horario: Json
+          horario_equipo?: Json
           horario_timezone: string
           id?: string
           instrucciones?: string
@@ -121,6 +123,7 @@ export type Database = {
           escalar_palabras?: string[]
           escalar_umbral_intents?: number
           horario?: Json
+          horario_equipo?: Json
           horario_timezone?: string
           id?: string
           instrucciones?: string
@@ -153,6 +156,93 @@ export type Database = {
             columns: ["rollback_de"]
             isOneToOne: false
             referencedRelation: "agente_config"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      borradores_ia: {
+        Row: {
+          contenido: string | null
+          conversacion_id: string
+          created_at: string
+          error_codigo: string | null
+          estado: string
+          id: string
+          lead_session_id: string
+          mensaje_origen_id: string
+          origen: string | null
+          regla_id: string | null
+          updated_at: string
+          usado_at: string | null
+          usado_por: string | null
+          usado_via: string | null
+        }
+        Insert: {
+          contenido?: string | null
+          conversacion_id: string
+          created_at?: string
+          error_codigo?: string | null
+          estado: string
+          id?: string
+          lead_session_id: string
+          mensaje_origen_id: string
+          origen?: string | null
+          regla_id?: string | null
+          updated_at?: string
+          usado_at?: string | null
+          usado_por?: string | null
+          usado_via?: string | null
+        }
+        Update: {
+          contenido?: string | null
+          conversacion_id?: string
+          created_at?: string
+          error_codigo?: string | null
+          estado?: string
+          id?: string
+          lead_session_id?: string
+          mensaje_origen_id?: string
+          origen?: string | null
+          regla_id?: string | null
+          updated_at?: string
+          usado_at?: string | null
+          usado_por?: string | null
+          usado_via?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "borradores_ia_conversacion_id_fkey"
+            columns: ["conversacion_id"]
+            isOneToOne: false
+            referencedRelation: "conversaciones"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "borradores_ia_lead_session_id_fkey"
+            columns: ["lead_session_id"]
+            isOneToOne: false
+            referencedRelation: "lead_session"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "borradores_ia_mensaje_origen_id_fkey"
+            columns: ["mensaje_origen_id"]
+            isOneToOne: false
+            referencedRelation: "mensajes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "borradores_ia_regla_id_fkey"
+            columns: ["regla_id"]
+            isOneToOne: false
+            referencedRelation: "reglas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "borradores_ia_usado_por_fkey"
+            columns: ["usado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
             referencedColumns: ["id"]
           },
         ]
@@ -206,6 +296,7 @@ export type Database = {
           created_at: string
           id: string
           lead_id: string
+          modo_respuesta_override: string | null
           ultima_actividad_at: string
         }
         Insert: {
@@ -214,6 +305,7 @@ export type Database = {
           created_at?: string
           id?: string
           lead_id: string
+          modo_respuesta_override?: string | null
           ultima_actividad_at?: string
         }
         Update: {
@@ -222,6 +314,7 @@ export type Database = {
           created_at?: string
           id?: string
           lead_id?: string
+          modo_respuesta_override?: string | null
           ultima_actividad_at?: string
         }
         Relationships: [
@@ -2280,6 +2373,19 @@ export type Database = {
           direction: Database["public"]["Enums"]["direction_enum"]
           lead_session_id: string
           sender: Database["public"]["Enums"]["sender_enum"]
+        }[]
+      }
+      iniciar_borrador_ia: {
+        Args: {
+          p_conversacion_id: string
+          p_forzar?: boolean
+          p_lead_session_id: string
+          p_mensaje_origen_id: string
+        }
+        Returns: {
+          out_estado: string
+          out_id: string
+          out_resultado: string
         }[]
       }
       is_admin: { Args: never; Returns: boolean }
