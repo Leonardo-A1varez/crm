@@ -305,6 +305,7 @@ describe("CuerpoCategoria (lista estilo Excel)", () => {
     const cargar = await abrir("estado=activo&pagina=3&sinMarcas=Alfa");
     expect(cargar).toHaveBeenCalledWith({
       filtros: { estado: "activo", sinMarcas: "Alfa" },
+      columna: "categoria",
     });
   });
 
@@ -418,7 +419,11 @@ describe("CuerpoCategoria (lista estilo Excel)", () => {
     await abrirCon(cargar);
     fireEvent.change(screen.getByLabelText("Buscar en Categoría"), { target: { value: "mot" } });
     await waitFor(() =>
-      expect(cargar).toHaveBeenLastCalledWith({ filtros: {}, qCategoria: "mot" }),
+      expect(cargar).toHaveBeenLastCalledWith({
+        filtros: {},
+        columna: "categoria",
+        qCategoria: "mot",
+      }),
     );
     await screen.findByText("Seleccionar resultados");
     expect(screen.queryByLabelText(/Frenos/)).toBeNull();

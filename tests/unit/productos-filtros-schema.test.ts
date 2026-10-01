@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { ValidationError } from "@/lib/errors";
 import {
+  parseOpcionesFacetas,
   parseProductosFiltros,
   POR_PAGINA_MAX,
   POR_PAGINA_DEFAULT,
@@ -241,5 +242,18 @@ describe("parseProductosFiltros", () => {
       expect(f.marcas).toEqual(["MOBIS"]);
       expect(f.pagina).toBe(2);
     });
+  });
+});
+
+describe("parseOpcionesFacetas: columna", () => {
+  test("acepta categoria y marca, y sin columna calcula las dos", () => {
+    expect(parseOpcionesFacetas({ columna: "marca" }).columna).toBe("marca");
+    expect(parseOpcionesFacetas({ columna: "categoria" }).columna).toBe("categoria");
+    expect(parseOpcionesFacetas({}).columna).toBeUndefined();
+    expect(parseOpcionesFacetas({ columna: "" }).columna).toBeUndefined();
+  });
+
+  test("rechaza una columna que no existe", () => {
+    expect(() => parseOpcionesFacetas({ columna: "precio" })).toThrow(ValidationError);
   });
 });

@@ -2429,7 +2429,7 @@ export type Database = {
       plegar_codigos: { Args: { ts: string[] }; Returns: string[] }
       plegar_texto: { Args: { t: string }; Returns: string }
       productos_facetas: {
-        Args: { p_filtros: Json; p_limite?: number }
+        Args: { p_columna?: string; p_filtros: Json; p_limite?: number }
         Returns: {
           cantidad: number
           columna: string

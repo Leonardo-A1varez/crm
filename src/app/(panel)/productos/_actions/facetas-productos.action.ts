@@ -17,11 +17,11 @@ export async function facetasProductosAction(raw: unknown): Promise<FacetasActio
   if (!parsed.success) {
     return { ok: false, error: "No se pudo leer el pedido de la lista. Refrescá la página." };
   }
-  const { filtros, qCategoria, qMarca } = parsed.data;
+  const { filtros, qCategoria, qMarca, columna } = parsed.data;
 
   try {
     const svc = await getCatalogServiceForRequest();
-    const facetas = await svc.facetasProductos(filtros, { qCategoria, qMarca });
+    const facetas = await svc.facetasProductos(filtros, { qCategoria, qMarca, columna });
     return { ok: true, facetas };
   } catch (e) {
     if (e instanceof ValidationError) {

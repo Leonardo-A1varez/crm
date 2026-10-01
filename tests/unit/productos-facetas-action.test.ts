@@ -63,8 +63,22 @@ describe("facetasProductosAction", () => {
     expect(r).toEqual({ ok: true, facetas: FACETAS });
     expect(mocks.facetasProductos).toHaveBeenCalledWith(
       { estado: "activo", sinMarcas: ["A"] },
-      { qCategoria: "fre", qMarca: undefined },
+      { qCategoria: "fre", qMarca: undefined, columna: undefined },
     );
+  });
+
+  test("columna viaja al service para que calcule solo esa lista", async () => {
+    await facetasProductosAction({ filtros: {}, columna: "marca", qMarca: "al" });
+    expect(mocks.facetasProductos).toHaveBeenCalledWith(
+      {},
+      { qCategoria: undefined, qMarca: "al", columna: "marca" },
+    );
+  });
+
+  test("una columna que no existe se rechaza", async () => {
+    const r = await facetasProductosAction({ filtros: {}, columna: "precio" });
+    expect(r.ok).toBe(false);
+    expect(mocks.facetasProductos).not.toHaveBeenCalled();
   });
 
   test("un pedido mal formado se rechaza antes de tocar el service", async () => {

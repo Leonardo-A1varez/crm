@@ -67,7 +67,7 @@ export function useListaFiltro(
     const filtros = filtrosParaFacetas(new URLSearchParams(query));
     const busqueda = qPedida === "" ? undefined : qPedida;
     const opciones = columna === "marca" ? { qMarca: busqueda } : { qCategoria: busqueda };
-    cargarFacetas({ filtros, ...opciones })
+    cargarFacetas({ filtros, columna, ...opciones })
       .then((r) => {
         if (!vigente) return;
         setResultado(

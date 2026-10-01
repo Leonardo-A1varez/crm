@@ -319,7 +319,10 @@ comment on function public.productos_listar(jsonb, integer, integer) is
 -- 4. Facetas estilo Excel
 -- =========================================================================
 
--- Una fila por (columna, valor): 'categoria' y 'marca'. Cada columna se cuenta
+-- Una fila por (columna, valor): 'categoria' y 'marca'. `p_columna` pide solo una
+-- de las dos ('categoria' o 'marca'); null, o cualquier otro valor, las dos: el
+-- desplegable de un filtro muestra una sola lista y no hace falta contar la
+-- otra en cada tecla. Cada columna se cuenta
 -- con todos los filtros menos los suyos. Orden: cantidad desc y, a igual
 -- cantidad, el valor en orden binario (`collate "C"`) para que no dependa de la
 -- collation de la base.
@@ -333,7 +336,11 @@ comment on function public.productos_listar(jsonb, integer, integer) is
 -- del tope o no tengan filas: esos van con cantidad 0. `distintos` repite en
 -- cada fila cuántos valores CON FILAS hay (los seleccionados con 0 no cuentan),
 -- para que la pantalla pueda avisar que la lista está recortada.
-create function public.productos_facetas(p_filtros jsonb, p_limite integer default 500)
+create function public.productos_facetas(
+  p_filtros jsonb,
+  p_limite integer default 500,
+  p_columna text default null
+)
 returns table (columna text, valor text, cantidad bigint, distintos bigint)
 language sql
 stable
@@ -422,19 +429,25 @@ as $function$
   from (
     select 'categoria'::text as columna, r.valor, r.cantidad, r.distintos
     from rank_categoria as r
-    where r.pos <= greatest(coalesce(p_limite, 500), 0)
-       or r.valor in (select v from sel_categoria)
+    where p_columna is distinct from 'marca'
+      and (
+        r.pos <= greatest(coalesce(p_limite, 500), 0)
+        or r.valor in (select v from sel_categoria)
+      )
     union all
     select 'marca'::text, r.valor, r.cantidad, r.distintos
     from rank_marca as r
-    where r.pos <= greatest(coalesce(p_limite, 500), 0)
-       or r.valor in (select v from sel_marca)
+    where p_columna is distinct from 'categoria'
+      and (
+        r.pos <= greatest(coalesce(p_limite, 500), 0)
+        or r.valor in (select v from sel_marca)
+      )
   ) as u
   order by u.columna, u.cantidad desc, u.valor collate "C"
 $function$;
 
-comment on function public.productos_facetas(jsonb, integer) is
-  'Valores distintos de categoria y marca con su cantidad. Cada columna se cuenta con todos los filtros menos los suyos. q_categoria/q_marca buscan dentro de la lista antes del limite. Los valores seleccionados siempre salen; distintos no los cuenta si no tienen filas.';
+comment on function public.productos_facetas(jsonb, integer, text) is
+  'Valores distintos de categoria y marca con su cantidad. p_columna pide solo una de las dos. Cada columna se cuenta con todos los filtros menos los suyos. q_categoria/q_marca buscan dentro de la lista antes del limite. Los valores seleccionados siempre salen; distintos no los cuenta si no tienen filas.';
 
 -- =========================================================================
 -- Permisos: solo usuarios autenticados y service_role; anon no entra.
@@ -443,10 +456,11 @@ comment on function public.productos_facetas(jsonb, integer) is
 revoke all on function public.escapar_like(text) from public, anon;
 revoke all on function public.productos_filtrados(jsonb, text) from public, anon;
 revoke all on function public.productos_listar(jsonb, integer, integer) from public, anon;
-revoke all on function public.productos_facetas(jsonb, integer) from public, anon;
+revoke all on function public.productos_facetas(jsonb, integer, text) from public, anon;
 
 grant execute on function public.escapar_like(text) to authenticated, service_role;
 grant execute on function public.productos_filtrados(jsonb, text) to authenticated, service_role;
 grant execute on function public.productos_listar(jsonb, integer, integer)
   to authenticated, service_role;
-grant execute on function public.productos_facetas(jsonb, integer) to authenticated, service_role;
+grant execute on function public.productos_facetas(jsonb, integer, text)
+  to authenticated, service_role;

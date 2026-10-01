@@ -214,6 +214,14 @@ export const OpcionesFacetasSchema = z.object({
   qCategoria: texto,
   /** Ídem para la lista de marcas. */
   qMarca: texto,
+  /**
+   * Qué lista calcular. Sin ella se calculan las dos. El desplegable de un filtro
+   * muestra una sola, así que pedirla evita contar la otra en cada tecla.
+   */
+  columna: z.preprocess(
+    (v) => (v === "" || v === null ? undefined : v),
+    z.enum(["categoria", "marca"]).optional(),
+  ),
 });
 
 export type OpcionesFacetas = z.output<typeof OpcionesFacetasSchema>;
@@ -224,6 +232,8 @@ export interface OpcionesFacetasEntrada {
   limite?: number;
   qCategoria?: string;
   qMarca?: string;
+  /** Solo esa lista; la otra vuelve vacía. Sin valor, las dos. */
+  columna?: "categoria" | "marca";
 }
 
 export function parseOpcionesFacetas(raw: unknown): OpcionesFacetas {

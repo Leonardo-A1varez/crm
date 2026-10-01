@@ -34,6 +34,8 @@ export const FacetasActionSchema = z.object({
   /** Búsqueda dentro de la lista de categorías o de marcas. */
   qCategoria: z.string().max(TEXTO_MAX).optional(),
   qMarca: z.string().max(TEXTO_MAX).optional(),
+  /** Qué lista calcular; sin ella, las dos. */
+  columna: z.enum(["categoria", "marca"]).optional(),
 });
 
 export type FacetasActionInput = z.input<typeof FacetasActionSchema>;

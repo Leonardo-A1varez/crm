@@ -52,6 +52,8 @@ export interface CatalogService {
    * `opciones` es estado del popover, no va en la URL: `limite` (1 a 3000, por
    * defecto 500) y `qCategoria` / `qMarca`, búsqueda dentro de cada lista
    * (plegada, "contiene", hasta 100 caracteres) que se aplica ANTES del límite.
+   * `columna` (`'categoria'` | `'marca'`) calcula solo esa lista y deja la otra vacía:
+   * el desplegable de un filtro muestra una, y así no se cuenta la otra en cada tecla.
    */
   facetasProductos(
     filtros: ProductosFiltrosEntrada,

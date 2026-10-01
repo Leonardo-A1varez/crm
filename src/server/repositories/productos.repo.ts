@@ -256,19 +256,26 @@ export class InMemoryProductsRepository implements ProductsRepository {
       }
       return cuentas;
     };
+    const vacia = (): Faceta => ({ valores: [], distintos: 0 });
     return {
-      categorias: armarFaceta(
-        contar("categoria", (p) => categoriaDe(p)),
-        [...filtros.categorias, ...filtros.sinCategorias],
-        opciones.limite,
-        opciones.qCategoria,
-      ),
-      marcas: armarFaceta(
-        contar("marca", (p) => marcaDe(p)),
-        [...filtros.marcas, ...filtros.sinMarcas],
-        opciones.limite,
-        opciones.qMarca,
-      ),
+      categorias:
+        opciones.columna === "marca"
+          ? vacia()
+          : armarFaceta(
+              contar("categoria", (p) => categoriaDe(p)),
+              [...filtros.categorias, ...filtros.sinCategorias],
+              opciones.limite,
+              opciones.qCategoria,
+            ),
+      marcas:
+        opciones.columna === "categoria"
+          ? vacia()
+          : armarFaceta(
+              contar("marca", (p) => marcaDe(p)),
+              [...filtros.marcas, ...filtros.sinMarcas],
+              opciones.limite,
+              opciones.qMarca,
+            ),
     };
   }
 

@@ -550,6 +550,25 @@ export function runProductosFiltrosContract(makeRepo: () => ProductsRepository) 
         expect(f.marcas.valores).toEqual([{ valor: "MOBIS", cantidad: 1 }]);
       });
 
+      test("columna calcula solo esa lista y deja la otra vacía", async () => {
+        const todas = await repo.facetas(filtros({ q: "a" }), opc());
+        const soloMarcas = await repo.facetas(filtros({ q: "a" }), opc({ columna: "marca" }));
+        expect(soloMarcas.marcas).toEqual(todas.marcas);
+        expect(soloMarcas.categorias).toEqual({ valores: [], distintos: 0 });
+        const soloCats = await repo.facetas(filtros({ q: "a" }), opc({ columna: "categoria" }));
+        expect(soloCats.categorias).toEqual(todas.categorias);
+        expect(soloCats.marcas).toEqual({ valores: [], distintos: 0 });
+      });
+
+      test("columna respeta la búsqueda dentro de su lista y los valores seleccionados", async () => {
+        const f = await repo.facetas(
+          filtros({ marcas: ["GM"] }),
+          opc({ columna: "marca", qMarca: "mob" }),
+        );
+        expect(f.marcas.valores.map((v) => v.valor)).toEqual(["MOBIS"]);
+        expect(f.categorias.valores).toEqual([]);
+      });
+
       test("distintos no cuenta los valores seleccionados sin filas", async () => {
         const cat = await repo.facetas(filtros({ categorias: ["FANTASMA"] }), opc());
         expect(cat.categorias.valores.find((v) => v.valor === "FANTASMA")?.cantidad).toBe(0);

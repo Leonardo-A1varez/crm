@@ -232,6 +232,8 @@ export class SupabaseProductsRepository implements ProductsRepository {
     const { data, error } = await this.db.rpc("productos_facetas", {
       p_filtros: json,
       p_limite: opciones.limite,
+      // Sin columna van las dos: `undefined` hace que PostgREST use el default.
+      p_columna: opciones.columna,
     });
     if (error) throw mapPostgrestError(error, { resource: "producto" });
 

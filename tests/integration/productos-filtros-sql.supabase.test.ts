@@ -149,6 +149,21 @@ describe("productos_filtrados / listar / facetas: frontera SQL", () => {
     expect(claves).toContain("codigo_interno");
   });
 
+  test.each([
+    ["categoria", ["categoria"]],
+    ["marca", ["marca"]],
+    [null, ["categoria", "marca"]],
+    ["otra", ["categoria", "marca"]],
+  ])("productos_facetas con p_columna=%s devuelve solo %j", async (columna, esperadas) => {
+    const { data, error } = await client.rpc("productos_facetas", {
+      p_filtros: {} as never,
+      p_limite: 10,
+      p_columna: columna as never,
+    });
+    expect(error).toBeNull();
+    expect([...new Set((data ?? []).map((f) => f.columna))].sort()).toEqual(esperadas);
+  });
+
   test("las facetas heredan q: cuentan solo los productos que coinciden", async () => {
     const { data, error } = await client.rpc("productos_facetas", {
       p_filtros: { q: "uno" } as never,
