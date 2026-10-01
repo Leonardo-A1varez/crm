@@ -389,6 +389,15 @@ describe("CopilotoService.solicitarRegeneracion", () => {
     expect(ctx.solicitarRegeneracion).toHaveBeenCalledTimes(1);
   });
 
+  test("un borrador inexistente es NotFoundError y no emite", async () => {
+    const ctx = await makeCtx();
+
+    await expect(
+      ctx.service.solicitarRegeneracion({ borradorId: crypto.randomUUID(), userId: USER }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    expect(ctx.solicitarRegeneracion).not.toHaveBeenCalled();
+  });
+
   test("uno ya usado o que se está redactando es ConflictError y no emite", async () => {
     const ctx = await makeCtx();
     const id = await ctx.borradorListo();

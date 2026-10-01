@@ -39,7 +39,8 @@ export interface CopilotoService {
     borradorId: UUID;
     via: ViaUsoBorrador;
     texto: string;
-    userId: UUID | null;
+    /** Siempre hay usuario: la policy de uso exige `usado_por = auth.uid()`. */
+    userId: UUID;
   }): Promise<{ yaUsado: boolean }>;
   solicitarRegeneracion(input: { borradorId: UUID; userId: UUID | null }): Promise<void>;
 }
@@ -112,7 +113,8 @@ export class DefaultCopilotoService implements CopilotoService {
     borradorId: UUID;
     via: ViaUsoBorrador;
     texto: string;
-    userId: UUID | null;
+    /** Siempre hay usuario: la policy de uso exige `usado_por = auth.uid()`. */
+    userId: UUID;
   }): Promise<{ yaUsado: boolean }> {
     const borrador = await this.requerirBorrador(input.borradorId);
     if (borrador.estado === "usado") return { yaUsado: true };

@@ -31,6 +31,7 @@ export async function usarBorradorAction(raw: unknown): Promise<ActionResult> {
     });
   } catch (e) {
     return toActionError(e, "usar-borrador", {
+      permisoDenegado: "No tenés permiso para usar los borradores de esta conversación.",
       conflicto: "El borrador ya no está disponible. Refrescá la página.",
     });
   }

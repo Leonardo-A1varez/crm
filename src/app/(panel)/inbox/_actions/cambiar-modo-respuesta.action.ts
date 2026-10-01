@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { CambiarModoRespuestaSchema } from "@/lib/validation/copiloto.schema";
 import { getCopilotoServiceForRequest } from "@/server/bootstrap/copiloto-bootstrap";
+import { getAuthenticatedUser } from "@/server/auth/supabase-ssr";
 import { toActionError } from "./action-error";
 import type { ActionResult } from "@/types/inbox";
 
@@ -16,13 +17,18 @@ export async function cambiarModoRespuestaAction(raw: unknown): Promise<ActionRe
   if (!parsed.success) return { ok: false, error: "Modo inválido: refrescá la página." };
 
   try {
+    const user = await getAuthenticatedUser();
+    if (!user) return { ok: false, error: "Tu sesión expiró. Volvé a iniciar sesión." };
     const svc = await getCopilotoServiceForRequest();
     await svc.cambiarModo({
       conversacionId: parsed.data.conversacionId,
       override: parsed.data.modo === "segun_horario" ? null : parsed.data.modo,
     });
   } catch (e) {
-    return toActionError(e, "cambiar-modo-respuesta");
+    return toActionError(e, "cambiar-modo-respuesta", {
+      permisoDenegado: "No tenés permiso para cambiar el modo de respuesta.",
+      conflicto: "No se pudo cambiar el modo. Refrescá la página.",
+    });
   }
 
   revalidatePath(`/inbox/${parsed.data.leadId}`);

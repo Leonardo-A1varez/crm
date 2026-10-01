@@ -23,6 +23,7 @@ export async function regenerarBorradorAction(raw: unknown): Promise<ActionResul
     await svc.solicitarRegeneracion({ borradorId: parsed.data.borradorId, userId: user.id });
   } catch (e) {
     return toActionError(e, "regenerar-borrador", {
+      permisoDenegado: "No tenés permiso para usar los borradores de esta conversación.",
       conflicto: "Ese borrador ya no se puede regenerar. Refrescá la página.",
     });
   }

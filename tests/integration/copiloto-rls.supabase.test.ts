@@ -215,7 +215,11 @@ describe("RLS — borradores_ia", () => {
 
     const descartar = await vendedor
       .from("borradores_ia")
-      .update({ estado: "descartado", updated_at: new Date().toISOString() })
+      .update({
+        estado: "descartado",
+        usado_por: vendedorId,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", borradorId);
     expect(descartar.error?.code).toBe("42501");
 
@@ -350,7 +354,7 @@ describe("RLS — borradores_ia: matriz de escrituras por rol", () => {
     const { borradorId } = await borradorListo();
     const { error } = await admin
       .from("borradores_ia")
-      .update({ estado: "descartado", updated_at: new Date().toISOString() })
+      .update({ estado: "descartado", usado_por: adminId, updated_at: new Date().toISOString() })
       .eq("id", borradorId);
     expect(error?.code).toBe("42501");
   });
