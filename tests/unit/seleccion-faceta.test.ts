@@ -201,6 +201,65 @@ describe("resolverSeleccion con la lista completa", () => {
   });
 });
 
+describe("resolverSeleccion con otros filtros activos: respeta lo que el usuario hizo", () => {
+  const otros = { otrosFiltros: true };
+
+  test("el escenario del bug: con una búsqueda activa aparecen A, B y C; marcar A y B guarda 'solo A y B'", () => {
+    // Partir de "deseleccionar todo" y marcar A y B es modo incluir.
+    const s = alternarValor(alternarValor(NADA, "A"), "B");
+    expect(resolverSeleccion(s, ["A", "B", "C"], otros)).toEqual({
+      tipo: "incluir",
+      valores: ["A", "B"],
+    });
+    // Sin otros filtros la representación más corta era 'todas menos C', que al borrar
+    // la búsqueda cambia lo pedido: acá no se usa.
+    expect(resolverSeleccion(s, ["A", "B", "C"])).toEqual({ tipo: "excluir", valores: ["C"] });
+  });
+
+  test("desmarcar desde 'todo' sigue siendo excluir, aunque quede una sola casilla marcada", () => {
+    const s = alternarValor(alternarValor(TODO, "B"), "C");
+    expect(resolverSeleccion(s, ["A", "B", "C"], otros)).toEqual({
+      tipo: "excluir",
+      valores: ["B", "C"],
+    });
+  });
+
+  test("todo marcado es sin filtro y nada marcado no se aplica, en cualquier modo", () => {
+    expect(resolverSeleccion(TODO, ["A", "B"], otros)).toEqual({ tipo: "sin-filtro" });
+    expect(resolverSeleccion(seleccionDesdeUrl(["A", "B"], []), ["A", "B"], otros)).toEqual({
+      tipo: "sin-filtro",
+    });
+    expect(resolverSeleccion(NADA, ["A", "B"], otros)).toEqual({ tipo: "ninguno" });
+  });
+
+  test("cambia de representación solo si la pedida no entra en el tope", () => {
+    const universo = valores(700);
+    // Modo incluir con 350 marcados no entra; excluir (350) tampoco.
+    expect(
+      resolverSeleccion(seleccionDesdeUrl(universo.slice(0, 350), []), universo, otros),
+    ).toEqual({ tipo: "demasiados", cantidad: 350 });
+    // Modo incluir con 650 marcados no entra, pero excluir (50) sí: se cambia.
+    const casiTodo = seleccionDesdeUrl(universo.slice(50), []);
+    const r = resolverSeleccion(casiTodo, universo, otros);
+    expect(r.tipo).toBe("excluir");
+    if (r.tipo === "excluir") expect(r.valores).toHaveLength(50);
+    // Modo excluir con 400 desmarcados no entra, pero incluir (300) sí.
+    const pocos = seleccionDesdeUrl([], universo.slice(0, 400));
+    const r2 = resolverSeleccion(pocos, universo, otros);
+    expect(r2.tipo).toBe("incluir");
+    if (r2.tipo === "incluir") expect(r2.valores).toHaveLength(300);
+  });
+
+  test("el modo pedido que entra en el tope se mantiene aunque el otro sea más corto", () => {
+    const universo = valores(10);
+    const s = seleccionDesdeUrl(universo.slice(0, 9), []); // incluir 9 de 10
+    expect(resolverSeleccion(s, universo, otros)).toEqual({
+      tipo: "incluir",
+      valores: universo.slice(0, 9).sort(),
+    });
+  });
+});
+
 describe("resolverSeleccion con la lista recortada (universo desconocido)", () => {
   test("excluir sin nada excluido es sin filtro", () => {
     expect(resolverSeleccion(TODO, null)).toEqual({ tipo: "sin-filtro" });

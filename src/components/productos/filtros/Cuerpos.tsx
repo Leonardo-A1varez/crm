@@ -124,7 +124,7 @@ export function CuerpoDescripcion({ cerrar }: CuerpoProps) {
   const { filtros, aplicar, limpiar } = useFiltrosProductos();
   const [texto, setTexto] = useState(filtros.descripcion);
   const [modo, setModo] = useState(filtros.descripcionModo);
-  const marcas = useListaFiltro("marca", filtros.marcas, filtros.sinMarcas);
+  const marcas = useListaFiltro("marca", filtros.marcas, filtros.sinMarcas, texto.trim() !== "");
   const valoresMarca = valoresDeLista(marcas.resolucion, "marcas", "sinMarcas");
   const grupos: GrupoFiltro[] = ["descripcion", "marca"];
 

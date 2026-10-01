@@ -341,6 +341,32 @@ describe("CuerpoCategoria (lista estilo Excel)", () => {
     expect(ultimaUrl()).toBe("/productos?categorias=Frenos");
   });
 
+  it("con otro filtro activo, marcar 'solo Frenos y Motor' no se guarda como 'todas menos Escape'", async () => {
+    await abrir("q=filtro");
+    fireEvent.click(screen.getByLabelText("Seleccionar todo")); // todo → nada
+    fireEvent.click(screen.getByLabelText(/Frenos/));
+    fireEvent.click(screen.getByLabelText(/Motor/));
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
+    expect(ultimaUrl()).toBe("/productos?q=filtro&categorias=Frenos&categorias=Motor");
+  });
+
+  it("con otro filtro activo, desmarcar desde 'todo' sigue siendo 'todas menos'", async () => {
+    await abrir("q=filtro");
+    fireEvent.click(screen.getByLabelText(/Frenos/));
+    fireEvent.click(screen.getByLabelText(/Motor/));
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
+    expect(ultimaUrl()).toBe("/productos?q=filtro&sinCategorias=Frenos&sinCategorias=Motor");
+  });
+
+  it("sin otros filtros sí elige la más corta: dos de tres marcados se guardan como 'todas menos una'", async () => {
+    await abrir();
+    fireEvent.click(screen.getByLabelText("Seleccionar todo"));
+    fireEvent.click(screen.getByLabelText(/Frenos/));
+    fireEvent.click(screen.getByLabelText(/Motor/));
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
+    expect(ultimaUrl()).toBe("/productos?sinCategorias=Escape");
+  });
+
   it("nada marcado no se puede aplicar y dice por qué", async () => {
     await abrir();
     fireEvent.click(screen.getByLabelText("Seleccionar todo"));
@@ -463,11 +489,21 @@ describe("CuerpoCategoria (lista estilo Excel)", () => {
 });
 
 describe("CuerpoDescripcion (texto + marca en un solo desplegable)", () => {
-  it("aplica el texto y las marcas juntos y respeta los comodines", async () => {
+  it("aplica el texto y las marcas juntos; con texto en el borrador respeta el modo (excluir)", async () => {
     conProvider(<CuerpoDescripcion cerrar={() => {}} />);
     await screen.findByLabelText(/Alfa/);
     fireEvent.change(screen.getByLabelText("Descripción"), { target: { value: "bomba" } });
-    fireEvent.click(screen.getByLabelText(/Alfa/)); // queda solo "(sin marca)": empate, gana incluir
+    fireEvent.click(screen.getByLabelText(/Alfa/)); // desmarcar desde "todo": excluir
+    fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
+    expect(ultimaUrl()).toBe("/productos?descripcion=bomba&sinMarcas=Alfa");
+  });
+
+  it("el comodín de marca viaja tal cual cuando se elige solo ese valor", async () => {
+    conProvider(<CuerpoDescripcion cerrar={() => {}} />);
+    await screen.findByLabelText(/Alfa/);
+    fireEvent.change(screen.getByLabelText("Descripción"), { target: { value: "bomba" } });
+    fireEvent.click(screen.getByLabelText("Seleccionar todo")); // todo → nada
+    fireEvent.click(screen.getByLabelText(/sin marca/));
     fireEvent.click(screen.getByRole("button", { name: "Aplicar" }));
     expect(ultimaUrl()).toBe(`/productos?descripcion=bomba&marcas=${SIN_MARCA}`);
   });

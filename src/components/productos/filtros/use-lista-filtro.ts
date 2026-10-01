@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { filtrosParaFacetas } from "@/lib/ui/filtros-productos";
+import { filtrosParaFacetas, gruposActivos } from "@/lib/ui/filtros-productos";
 import { listaCompleta, resolverSeleccion, seleccionDesdeUrl } from "@/lib/ui/seleccion-faceta";
 import { useFiltrosProductos } from "./FiltrosProductosProvider";
 import type { Resolucion, Seleccion } from "@/lib/ui/seleccion-faceta";
@@ -54,8 +54,14 @@ export function useListaFiltro(
   columna: ColumnaLista,
   incluirUrl: readonly string[],
   excluirUrl: readonly string[],
+  /**
+   * Hay un filtro sin aplicar en el mismo desplegable (el texto de Descripción):
+   * al aplicar va junto con esta lista, así que cuenta como "otro filtro".
+   */
+  otroFiltroEnBorrador = false,
 ): ListaFiltro {
-  const { query, cargarFacetas } = useFiltrosProductos();
+  const { filtros, query, cargarFacetas } = useFiltrosProductos();
+  const otrosFiltros = otroFiltroEnBorrador || gruposActivos(filtros).some((g) => g !== columna);
   const [seleccion, setSeleccion] = useState(() => seleccionDesdeUrl(incluirUrl, excluirUrl));
   const [q, setQ] = useState("");
   const [resultado, setResultado] = useState<Resultado | null>(null);
@@ -97,8 +103,10 @@ export function useListaFiltro(
   const completa = faceta !== null && listaCompleta(faceta, resultado?.q !== "");
   const resolucion = useMemo(
     () =>
-      resolverSeleccion(seleccion, completa && faceta ? faceta.valores.map((v) => v.valor) : null),
-    [seleccion, completa, faceta],
+      resolverSeleccion(seleccion, completa && faceta ? faceta.valores.map((v) => v.valor) : null, {
+        otrosFiltros,
+      }),
+    [seleccion, completa, faceta, otrosFiltros],
   );
   const reintentar = useCallback(() => {
     setResultado(null);

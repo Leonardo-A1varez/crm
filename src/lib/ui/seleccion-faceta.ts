@@ -121,37 +121,53 @@ export function listaCompleta(faceta: Faceta, hayBusqueda: boolean): boolean {
 
 const binario = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
+export interface OpcionesResolucion {
+  /**
+   * Hay otros filtros activos (una búsqueda, el de otra columna…): la lista que se
+   * ve es solo lo que esos filtros dejan pasar. Sin ellos la lista ES la columna.
+   */
+  otrosFiltros?: boolean;
+  limite?: number;
+}
+
 /**
  * De la selección a lo que se escribe en la URL.
  *
  * `universo` es la lista completa de valores cuando se conoce (si no, `null`).
- * Con la lista completa se normaliza: todo marcado es "sin filtro" y, si hay
- * filtro, gana la representación más corta; en un empate, incluir.
+ * Con la lista completa: todo marcado es "sin filtro" y nada marcado no se aplica.
+ *
+ * Entre incluir y excluir, el filtro respeta cómo lo armó quien lo usa: desmarcar
+ * desde "todo" es excluir; partir de "deseleccionar todo" y marcar es incluir.
+ * Solo sin otros filtros activos se elige la representación más corta (en un
+ * empate, incluir), porque ahí las dos significan lo mismo. Con otros filtros no:
+ * "solo A y B" y "todas menos C" coinciden mientras la búsqueda muestra A, B y C,
+ * pero al quitar la búsqueda aparecen D y E y la segunda los incluye sin que nadie
+ * lo haya pedido. En cualquier caso se cambia de representación si la pedida no
+ * entra en el tope de la URL y la otra sí.
  */
 export function resolverSeleccion(
   s: Seleccion,
   universo: readonly string[] | null,
-  limite: number = LISTA_MAX,
+  { otrosFiltros = false, limite = LISTA_MAX }: OpcionesResolucion = {},
 ): Resolucion {
   if (universo !== null) {
     const marcados = universo.filter((v) => estaMarcado(s, v));
     const desmarcados = universo.filter((v) => !estaMarcado(s, v));
     if (desmarcados.length === 0) return { tipo: "sin-filtro" };
     if (marcados.length === 0) return { tipo: "ninguno" };
-    const candidatas: { tipo: "incluir" | "excluir"; valores: string[] }[] = [];
-    if (marcados.length <= limite)
-      candidatas.push({ tipo: "incluir", valores: [...marcados].sort(binario) });
-    if (desmarcados.length <= limite)
-      candidatas.push({ tipo: "excluir", valores: [...desmarcados].sort(binario) });
-    const [primera, ...resto] = candidatas;
-    if (primera === undefined) {
-      return { tipo: "demasiados", cantidad: Math.min(marcados.length, desmarcados.length) };
-    }
-    // Estrictamente menor: en un empate se queda la primera, que es incluir.
-    return resto.reduce(
-      (mejor, c) => (c.valores.length < mejor.valores.length ? c : mejor),
-      primera,
-    );
+    const incluir = { tipo: "incluir" as const, valores: [...marcados].sort(binario) };
+    const excluir = { tipo: "excluir" as const, valores: [...desmarcados].sort(binario) };
+    const pedida = otrosFiltros
+      ? s.modo === "incluir"
+        ? incluir
+        : excluir
+      : excluir.valores.length < incluir.valores.length
+        ? excluir
+        : incluir;
+    const otra = pedida === incluir ? excluir : incluir;
+    if (pedida.valores.length <= limite) return pedida;
+    if (otra.valores.length <= limite) return otra;
+    return { tipo: "demasiados", cantidad: Math.min(marcados.length, desmarcados.length) };
   }
 
   const valores = [...s.valores].sort(binario);
