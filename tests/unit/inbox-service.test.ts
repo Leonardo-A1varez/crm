@@ -438,6 +438,21 @@ describe("DefaultInboxService.getConversation", () => {
     expect(view.canalActivo).toBe("fb");
   });
 
+  test("expone la conversación del canal activo para el copiloto, o null sin conversaciones", async () => {
+    const sinConversacion = await makeLead(leads);
+    await makeSession(sessions, sinConversacion.id);
+    expect((await svc.getConversation(sinConversacion.id)).conversacionId).toBeNull();
+
+    const lead = await makeLead(leads);
+    await makeSession(sessions, lead.id);
+    await convs.create({ lead_id: lead.id, canal: "wa", canal_thread_id: "wa-1" });
+    await new Promise((r) => setTimeout(r, 5));
+    const convIg = await convs.create({ lead_id: lead.id, canal: "ig", canal_thread_id: "ig-1" });
+
+    // La más reciente por actividad: la misma que decide `canalActivo`.
+    expect((await svc.getConversation(lead.id)).conversacionId).toBe(convIg.id);
+  });
+
   test("mensajes de otra sesión quedan excluidos", async () => {
     const lead = await makeLead(leads);
     const session = await makeSession(sessions, lead.id);

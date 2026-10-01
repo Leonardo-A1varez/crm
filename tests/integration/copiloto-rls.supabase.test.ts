@@ -20,6 +20,7 @@ let admin: Authed;
 let vendedor: Authed;
 let sinRol: Authed;
 let anon: Authed;
+let adminId: string;
 let vendedorId: string;
 const userIds: string[] = [];
 
@@ -61,7 +62,8 @@ async function entrar(email: string): Promise<Authed> {
 beforeAll(async () => {
   service = makeTestSupabaseClient();
   await cleanupTestDb(service);
-  userIds.push(await crearUsuario(EMAILS.admin, "admin"));
+  adminId = await crearUsuario(EMAILS.admin, "admin");
+  userIds.push(adminId);
   vendedorId = await crearUsuario(EMAILS.vendedor, "vendedor");
   userIds.push(vendedorId);
   userIds.push(await crearUsuario(EMAILS.sinRol, null));
@@ -149,6 +151,47 @@ describe("RLS — borradores_ia", () => {
     expect(otra).toHaveLength(0);
   });
 
+  test("el vendedor no puede atribuir el uso a otro usuario (WITH CHECK, 42501); con su propio uid si", async () => {
+    const { borradorId } = await borradorListo();
+    const ajenoId = await crearUsuario("copiloto-rls-ajeno@crm.local", "vendedor");
+    userIds.push(ajenoId);
+
+    const ajeno = await vendedor
+      .from("borradores_ia")
+      .update({
+        estado: "usado",
+        usado_via: "copiar",
+        usado_por: ajenoId,
+        usado_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", borradorId)
+      .eq("estado", "listo");
+    expect(ajeno.error?.code).toBe("42501");
+
+    const { data: intacta } = await service
+      .from("borradores_ia")
+      .select("estado, usado_por, usado_via")
+      .eq("id", borradorId)
+      .single();
+    expect(intacta).toEqual({ estado: "listo", usado_por: null, usado_via: null });
+
+    const propio = await vendedor
+      .from("borradores_ia")
+      .update({
+        estado: "usado",
+        usado_via: "copiar",
+        usado_por: vendedorId,
+        usado_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", borradorId)
+      .eq("estado", "listo")
+      .select("id");
+    expect(propio.error).toBeNull();
+    expect(propio.data).toHaveLength(1);
+  });
+
   test("el repo con el cliente del vendedor: marcarUsado funciona una sola vez", async () => {
     const { borradorId } = await borradorListo();
     const repo = new SupabaseBorradoresIaRepository(vendedor);
@@ -225,9 +268,9 @@ describe("RLS — borradores_ia: el GRANT por columna, aislado del WITH CHECK", 
     created_at: "2020-01-01T00:00:00Z",
   };
 
-  for (const [rol, quien] of [
-    ["vendedor", () => vendedor],
-    ["admin", () => admin],
+  for (const [rol, quien, uid] of [
+    ["vendedor", () => vendedor, () => vendedorId],
+    ["admin", () => admin, () => adminId],
   ] as const) {
     for (const [columna, valor] of Object.entries(NO_CONCEDIDAS)) {
       test(`${rol}: 'usado' + ${columna} lo frena el GRANT (42501) y la fila queda intacta`, async () => {
@@ -238,6 +281,7 @@ describe("RLS — borradores_ia: el GRANT por columna, aislado del WITH CHECK", 
           .update({
             estado: "usado",
             usado_via: "copiar",
+            usado_por: uid(),
             usado_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
             [columna]: valor,
@@ -271,6 +315,7 @@ describe("RLS — borradores_ia: matriz de escrituras por rol", () => {
       .update({
         estado: "usado",
         usado_via: "insertar",
+        usado_por: adminId,
         usado_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -293,10 +338,12 @@ describe("RLS — borradores_ia: matriz de escrituras por rol", () => {
     const { borradorId } = await borradorListo();
     const repo = new SupabaseBorradoresIaRepository(admin);
 
-    expect(await repo.marcarUsado(borradorId, { via: "abrir_web", usuarioId: null })).toBe(
+    expect(await repo.marcarUsado(borradorId, { via: "abrir_web", usuarioId: adminId })).toBe(
       "marcado",
     );
-    expect(await repo.marcarUsado(borradorId, { via: "copiar", usuarioId: null })).toBe("ya_usado");
+    expect(await repo.marcarUsado(borradorId, { via: "copiar", usuarioId: adminId })).toBe(
+      "ya_usado",
+    );
   });
 
   test("el admin no puede pasar a otro estado que 'usado' (WITH CHECK, 42501)", async () => {

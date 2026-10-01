@@ -151,6 +151,12 @@ export interface ConversationView {
   // Canal de la conversación con actividad más reciente; fallback canal_origen.
   canalActivo: Canal;
   /**
+   * La conversación del canal activo (la de actividad más reciente), o `null`
+   * si el lead no tiene ninguna. Es sobre la que operan el interruptor de modo y
+   * la tarjeta del copiloto.
+   */
+  conversacionId: UUID | null;
+  /**
    * Producto del catálogo que la sesión cotizó, resuelto desde
    * `producto_cotizado_id`. Es lo único del Twin que NO sale del extractor: por
    * eso lleva chip "Del catálogo" y no se puede editar a mano. `null` cuando la

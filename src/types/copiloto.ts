@@ -47,3 +47,24 @@ export interface BorradorIa {
   created_at: Date;
   updated_at: Date;
 }
+/** El borrador como lo consume la UI: sin ids internos de FK y con fechas en ISO (viajan a componentes cliente). */
+export interface BorradorVista {
+  id: UUID;
+  estado: EstadoBorrador;
+  contenido: string | null;
+  origen: OrigenBorrador | null;
+  /** "Regla: <nombre>" cuando `origen = "regla"`; `null` si la regla ya no existe. */
+  reglaNombre: string | null;
+  errorCodigo: string | null;
+  usadoVia: ViaUsoBorrador | null;
+  creadoAt: string;
+}
+
+export interface EstadoCopiloto {
+  conversacionId: UUID;
+  /** `null` = "Según horario". */
+  override: ModoOverride | null;
+  /** Lo que el pipeline haría si llegara un mensaje ahora (§3.2). */
+  modoEfectivo: ModoDecidido;
+  borrador: BorradorVista | null;
+}

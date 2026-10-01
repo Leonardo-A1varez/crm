@@ -432,6 +432,7 @@ export class DefaultInboxService implements InboxService {
       session,
       messages,
       canalActivo,
+      conversacionId: masReciente?.id ?? null,
       producto,
       // Solo lo que el chip necesita: `AssignedTag` arrastra `assigned_by` y
       // `source`, que son de la capa de repos y no cruzan a components.

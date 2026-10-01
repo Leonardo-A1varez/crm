@@ -127,7 +127,12 @@ drop policy if exists borradores_ia_update_uso on public.borradores_ia;
 create policy borradores_ia_update_uso on public.borradores_ia
   for update to authenticated
   using (((select public.is_admin()) or (select public.is_vendedor())) and estado = 'listo')
-  with check (((select public.is_admin()) or (select public.is_vendedor())) and estado = 'usado');
+  with check (
+    ((select public.is_admin()) or (select public.is_vendedor()))
+    and estado = 'usado'
+    -- Quien marca el uso es quien queda registrado: no se puede atribuir a otro.
+    and usado_por = (select auth.uid())
+  );
 
 -- Permisos de tabla: los default privileges (20260816042039) otorgan todo; acá
 -- se recorta a lo que el panel necesita. service_role conserva todo.
