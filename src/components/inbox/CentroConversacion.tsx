@@ -1,11 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ContextoCopiloto,
+  type ContextoCopilotoValor,
+  type ResultadoInsertar,
+} from "@/components/inbox/copiloto/ContextoCopiloto";
 import { AreaWhatsApp } from "@/components/whatsapp/AreaWhatsApp";
 import { BarraVistaWhatsApp } from "@/components/whatsapp/BarraVistaWhatsApp";
 import { useEscritorio } from "@/components/whatsapp/useEscritorio";
 import { usePreferenciaVistaCentro } from "@/components/whatsapp/usePreferenciaVistaCentro";
 import { useVistaWhatsApp } from "@/components/whatsapp/useVistaWhatsApp";
+import type { UbicacionTarjeta } from "@/lib/copiloto/acciones";
 import { motivoLegible } from "@/lib/whatsapp/chat";
 
 interface ResultadoApertura {
@@ -44,6 +50,7 @@ export function CentroConversacion({
   usuarioId,
   telefono,
   hilo,
+  tarjeta = null,
 }: {
   leadId: string;
   /** Solo para recordar la elección por usuario; `null` si no hay sesión. */
@@ -52,6 +59,12 @@ export function CentroConversacion({
   telefono: string | null;
   /** Header, mensajes y composer del Inbox, armados por el server. */
   hilo: React.ReactNode;
+  /**
+   * La tarjeta del copiloto para el modo WhatsApp Web: va entre la barra y la
+   * vista nativa (que se achica). En "Hilo del CRM" la tarjeta ya viene adentro
+   * de `hilo`, sobre el composer; es la misma tarjeta y solo hay una montada.
+   */
+  tarjeta?: React.ReactNode;
 }) {
   const escritorio = useEscritorio();
   const [modo, cambiarModo] = usePreferenciaVistaCentro(usuarioId);
@@ -88,6 +101,49 @@ export function CentroConversacion({
     abrir(leadId, telefono);
   }, [enWhatsApp, leadId, telefono, abrir]);
 
+  /**
+   * "Insertar en WhatsApp" de la tarjeta: abre el chat con el texto precargado.
+   * Va acá porque este componente es el dueño del puente y de la vista. Si se
+   * está en "Hilo del CRM" se marca el chat como ya abierto ANTES de cambiar a
+   * "WhatsApp Web": sin eso el efecto de arriba lo recargaría vacío
+   * (`abrirChat(n, "")`) y pisaría el texto recién precargado.
+   */
+  const insertarEnWhatsApp = useCallback(
+    async (texto: string): Promise<ResultadoInsertar> => {
+      const puente = window.crmEscritorio;
+      if (!puente || telefono === null) {
+        return { ok: false, error: "La app de escritorio no está disponible." };
+      }
+      const yaEstabaEnWhatsApp = modo === "whatsapp";
+      abierto.current = leadId;
+      const r = await puente.abrirChat(telefono, texto).catch(() => null);
+      if (r === null || r.ok === false) {
+        // No quedó abierto: sin la guarda, entrar a "WhatsApp Web" a mano lo abre.
+        if (!yaEstabaEnWhatsApp) abierto.current = null;
+        const error = r === null ? "No se pudo abrir la conversación." : motivoLegible(r.motivo);
+        setResultado({ leadId, error });
+        return { ok: false, error };
+      }
+      setResultado({ leadId, error: null });
+      if (!yaEstabaEnWhatsApp) cambiarModo("whatsapp");
+      return { ok: true };
+    },
+    [leadId, telefono, modo, cambiarModo],
+  );
+
+  const ubicacion: UbicacionTarjeta | null =
+    escritorio === null
+      ? null
+      : escritorio && telefono !== null
+        ? enWhatsApp
+          ? "escritorio-whatsapp"
+          : "escritorio-hilo"
+        : "navegador";
+  const valorContexto = useMemo<ContextoCopilotoValor>(
+    () => ({ ubicacion, telefono, insertarEnWhatsApp }),
+    [ubicacion, telefono, insertarEnWhatsApp],
+  );
+
   const apertura = resultado !== null && resultado.leadId === leadId ? resultado : null;
   const estado = errorVista
     ? { texto: errorVista, esError: true }
@@ -98,28 +154,33 @@ export function CentroConversacion({
         : null;
 
   return (
-    <div className="bg-surface-chat flex min-w-[520px] flex-1 flex-col overflow-hidden">
-      {conVista ? (
-        <BarraVistaWhatsApp
-          modo={modo}
-          onModo={cambiarModo}
-          vista={vista}
-          estado={estado}
-          onCambiar={(cambios) => void cambiar(cambios)}
-          onRecargado={() => {
-            if (!telefono) return;
-            setResultado(null);
-            abrir(leadId, telefono);
-          }}
-        />
-      ) : null}
-      {enWhatsApp ? (
-        <div className="min-h-0 flex-1">
-          <AreaWhatsApp />
-        </div>
-      ) : (
-        hilo
-      )}
-    </div>
+    <ContextoCopiloto.Provider value={valorContexto}>
+      <div className="bg-surface-chat flex min-w-[520px] flex-1 flex-col overflow-hidden">
+        {conVista ? (
+          <BarraVistaWhatsApp
+            modo={modo}
+            onModo={cambiarModo}
+            vista={vista}
+            estado={estado}
+            onCambiar={(cambios) => void cambiar(cambios)}
+            onRecargado={() => {
+              if (!telefono) return;
+              setResultado(null);
+              abrir(leadId, telefono);
+            }}
+          />
+        ) : null}
+        {enWhatsApp ? (
+          <>
+            {tarjeta}
+            <div className="min-h-0 flex-1">
+              <AreaWhatsApp />
+            </div>
+          </>
+        ) : (
+          hilo
+        )}
+      </div>
+    </ContextoCopiloto.Provider>
   );
 }
