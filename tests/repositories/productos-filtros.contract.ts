@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import {
+  parseOpcionesFacetas,
   parseProductosFiltros,
+  SIN_CATEGORIA,
   SIN_MARCA,
+  type OpcionesFacetasEntrada,
   type ProductosFiltrosEntrada,
 } from "@/lib/validation/productos-filtros.schema";
 import type { ProductoInsert, ProductsRepository } from "@/server/repositories/productos.repo";
@@ -28,6 +31,10 @@ function producto(s: Seed): ProductoInsert {
 
 function filtros(entrada: ProductosFiltrosEntrada = {}) {
   return parseProductosFiltros(entrada);
+}
+
+function opc(entrada: OpcionesFacetasEntrada = {}) {
+  return parseOpcionesFacetas(entrada);
 }
 
 async function sembrar(repo: ProductsRepository, seeds: Seed[]): Promise<void> {
@@ -241,6 +248,85 @@ export function runProductosFiltrosContract(makeRepo: () => ProductsRepository) 
         expect(r.total).toBe(1);
       });
 
+      test("sinMarcas excluye: todas menos las elegidas, incluida (sin marca)", async () => {
+        const menosMobis = await repo.listarFiltrado(filtros({ sinMarcas: ["MOBIS"] }));
+        expect(menosMobis.items.map((p) => p.codigo_interno).sort()).toEqual([
+          "A-002",
+          "B-200",
+          "C%1",
+          "C_2",
+          "D-9",
+        ]);
+        const menosSin = await repo.listarFiltrado(filtros({ sinMarcas: [SIN_MARCA] }));
+        expect(menosSin.total).toBe(5);
+        const menosTres = await repo.listarFiltrado(
+          filtros({ sinMarcas: ["MOBIS", "GM", SIN_MARCA] }),
+        );
+        expect(menosTres.items.map((p) => p.codigo_interno)).toEqual(["A-002"]);
+      });
+
+      test("sinCategorias excluye y se combina con marcas de la otra columna", async () => {
+        const r = await repo.listarFiltrado(filtros({ sinCategorias: ["RADIADOR", "FRENOS"] }));
+        expect(r.total).toBe(4);
+        const comb = await repo.listarFiltrado(
+          filtros({ sinCategorias: ["RADIADOR"], marcas: ["MOBIS"] }),
+        );
+        expect(comb.items.map((p) => p.codigo_interno)).toEqual(["A-001"]);
+      });
+
+      test("categoría nula o en blanco se agrupa en (sin categoría) y se puede marcar o excluir", async () => {
+        await sembrar(repo, [
+          { codigo_interno: "N-1", nombre: "Sin cat nula", categoria: null },
+          { codigo_interno: "N-2", nombre: "Sin cat blanca", categoria: " \t " },
+        ]);
+        const incluir = await repo.listarFiltrado(filtros({ categorias: [SIN_CATEGORIA] }));
+        expect(incluir.items.map((p) => p.codigo_interno).sort()).toEqual(["N-1", "N-2"]);
+        const excluir = await repo.listarFiltrado(filtros({ sinCategorias: [SIN_CATEGORIA] }));
+        expect(excluir.total).toBe(7);
+        const f = await repo.facetas(filtros(), opc());
+        expect(f.categorias.valores.find((v) => v.valor === SIN_CATEGORIA)?.cantidad).toBe(2);
+      });
+
+      test("los espacios de los bordes (espacio, tab, CR, LF, NBSP) no cambian la marca ni la categoría", async () => {
+        await sembrar(repo, [
+          {
+            codigo_interno: "W-1",
+            nombre: "Con espacios uno",
+            descripcion: "\tMOBIS ",
+            categoria: " FRENOS\r\n",
+          },
+          {
+            codigo_interno: "W-2",
+            nombre: "Con espacios dos",
+            descripcion: " MOBIS ",
+            categoria: " FRENOS",
+          },
+        ]);
+        const marca = await repo.listarFiltrado(filtros({ marcas: ["MOBIS"] }));
+        expect(marca.items.map((p) => p.codigo_interno).sort()).toEqual([
+          "A-001",
+          "B-100",
+          "W-1",
+          "W-2",
+        ]);
+        const cat = await repo.listarFiltrado(filtros({ categorias: ["FRENOS"] }));
+        expect(cat.items.map((p) => p.codigo_interno).sort()).toEqual(["B-200", "W-1", "W-2"]);
+
+        // El valor que devuelve la faceta es exactamente el que se filtra.
+        const f = await repo.facetas(filtros(), opc());
+        expect(f.marcas.valores.find((v) => v.valor === "MOBIS")?.cantidad).toBe(4);
+        expect(f.categorias.valores.find((v) => v.valor === "FRENOS")?.cantidad).toBe(3);
+        for (const v of [...f.marcas.valores, ...f.categorias.valores]) {
+          expect(v.valor).toBe(v.valor.replace(/^[ \t\r\n ]+|[ \t\r\n ]+$/g, ""));
+        }
+        const porFaceta = await repo.listarFiltrado(
+          filtros({
+            marcas: f.marcas.valores.filter((v) => v.valor === "MOBIS").map((v) => v.valor),
+          }),
+        );
+        expect(porFaceta.total).toBe(4);
+      });
+
       test("sin coincidencias: items vacío y total 0", async () => {
         const r = await repo.listarFiltrado(filtros({ codigo: "zzz" }));
         expect(r).toMatchObject({ items: [], total: 0, pagina: 1, porPagina: 50 });
@@ -293,7 +379,7 @@ export function runProductosFiltrosContract(makeRepo: () => ProductsRepository) 
         expect(mobis.total).toBe(625);
 
         // Las facetas cuentan sobre el catálogo entero, no sobre una muestra.
-        const f = await repo.facetas(filtros(), 500);
+        const f = await repo.facetas(filtros(), opc());
         expect(f.categorias.valores).toEqual([
           { valor: "OTRA", cantidad: 1000 },
           { valor: "CINCO", cantidad: 250 },
@@ -303,6 +389,45 @@ export function runProductosFiltrosContract(makeRepo: () => ProductsRepository) 
           { valor: "MOBIS", cantidad: 625 },
         ]);
       }, 60_000);
+
+      test("muchas marcas de una sola fila: todas se pueden encontrar y 'todas menos 3' son 3 valores", async () => {
+        const N = 700;
+        const marca = (i: number) => `M${String(i).padStart(4, "0")}`;
+        await repo.bulkUpsert(
+          Array.from({ length: N }, (_, i) => ({
+            codigo_interno: `Q-${String(i).padStart(4, "0")}`,
+            sku_proveedor: null,
+            nombre: `Producto ${i}`,
+            descripcion: marca(i),
+            categoria: "UNICA",
+            precio: 1,
+            stock: 1,
+          })),
+        );
+
+        // Con el tope de 500, la lista completa queda recortada y lo dice.
+        const lista = await repo.facetas(filtros(), opc({ limite: 500 }));
+        expect(lista.marcas.valores).toHaveLength(500);
+        expect(lista.marcas.distintos).toBe(N);
+
+        // Una marca fuera del top se encuentra buscándola.
+        const buscada = await repo.facetas(filtros(), opc({ limite: 500, qMarca: "m0699" }));
+        expect(buscada.marcas.valores).toEqual([{ valor: "M0699", cantidad: 1 }]);
+        expect(buscada.marcas.distintos).toBe(1);
+
+        // Todas menos 3: tres valores en la URL, no 697.
+        const menos3 = await repo.listarFiltrado(
+          filtros({ sinMarcas: [marca(0), marca(1), marca(2)], porPagina: 100 }),
+        );
+        expect(menos3.total).toBe(N - 3);
+        expect(menos3.items.map((p) => p.descripcion)).not.toContain(marca(0));
+
+        // Y la faceta de marcas, con esa exclusión, sigue mostrando las 3 excluidas.
+        const f = await repo.facetas(filtros({ sinMarcas: [marca(0), marca(1), marca(2)] }), opc());
+        expect(f.marcas.valores.map((v) => v.valor)).toEqual(
+          expect.arrayContaining([marca(0), marca(1), marca(2)]),
+        );
+      }, 60_000);
     });
 
     describe("facetas", () => {
@@ -311,7 +436,7 @@ export function runProductosFiltrosContract(makeRepo: () => ProductsRepository) 
       });
 
       test("sin filtros: valores distintos con su cantidad, de mayor a menor y por nombre", async () => {
-        const f = await repo.facetas(filtros(), 500);
+        const f = await repo.facetas(filtros(), opc());
         expect(f.categorias.valores).toEqual([
           { valor: "FILTRO", cantidad: 2 },
           { valor: "RADIADOR", cantidad: 2 },
@@ -330,7 +455,10 @@ export function runProductosFiltrosContract(makeRepo: () => ProductsRepository) 
       });
 
       test("cada faceta respeta todos los filtros menos el de su propia columna", async () => {
-        const f = await repo.facetas(filtros({ categorias: ["RADIADOR"], marcas: ["MOBIS"] }), 500);
+        const f = await repo.facetas(
+          filtros({ categorias: ["RADIADOR"], marcas: ["MOBIS"] }),
+          opc(),
+        );
         // Categorías: marca MOBIS aplicada, categoría ignorada → VALVULA y RADIADOR.
         expect(f.categorias.valores).toEqual([
           { valor: "RADIADOR", cantidad: 1 },
@@ -344,7 +472,7 @@ export function runProductosFiltrosContract(makeRepo: () => ProductsRepository) 
       });
 
       test("los demás filtros (texto, precio, stock, estado) sí recortan las dos facetas", async () => {
-        const f = await repo.facetas(filtros({ estado: "activo", conStock: true }), 500);
+        const f = await repo.facetas(filtros({ estado: "activo", conStock: true }), opc());
         expect(f.categorias.valores).toEqual([
           { valor: "FILTRO", cantidad: 1 },
           { valor: "FRENOS", cantidad: 1 },
@@ -356,21 +484,86 @@ export function runProductosFiltrosContract(makeRepo: () => ProductsRepository) 
       });
 
       test("la paginación no afecta las facetas", async () => {
-        const a = await repo.facetas(filtros({ pagina: 1, porPagina: 1 }), 500);
-        const b = await repo.facetas(filtros({ pagina: 3, porPagina: 2 }), 500);
+        const a = await repo.facetas(filtros({ pagina: 1, porPagina: 1 }), opc());
+        const b = await repo.facetas(filtros({ pagina: 3, porPagina: 2 }), opc());
         expect(b).toEqual(a);
       });
 
       test("limite recorta la lista pero distintos cuenta todos", async () => {
-        const f = await repo.facetas(filtros(), 2);
+        const f = await repo.facetas(filtros(), opc({ limite: 2 }));
         expect(f.categorias.valores).toHaveLength(2);
         expect(f.categorias.distintos).toBe(4);
         expect(f.marcas.valores).toHaveLength(2);
         expect(f.marcas.distintos).toBe(4);
       });
 
+      test("en modo excluir, la faceta de esa columna ignora la exclusión y la otra la aplica", async () => {
+        const f = await repo.facetas(filtros({ sinMarcas: ["MOBIS"] }), opc());
+        // Marcas: la exclusión propia se ignora → MOBIS sigue en la lista, con sus 2.
+        expect(f.marcas.valores.find((v) => v.valor === "MOBIS")?.cantidad).toBe(2);
+        expect(f.marcas.distintos).toBe(4);
+        // Categorías: sí se aplica → sin los productos MOBIS no queda VALVULA de A-001.
+        expect(f.categorias.valores).toEqual([
+          { valor: "FILTRO", cantidad: 2 },
+          { valor: "FRENOS", cantidad: 1 },
+          { valor: "RADIADOR", cantidad: 1 },
+          { valor: "VALVULA", cantidad: 1 },
+        ]);
+      });
+
+      test("qMarca y qCategoria buscan dentro de la lista: plegado, contiene, sin tildes", async () => {
+        const marcas = await repo.facetas(filtros(), opc({ qMarca: "mob" }));
+        expect(marcas.marcas.valores).toEqual([{ valor: "MOBIS", cantidad: 2 }]);
+        expect(marcas.marcas.distintos).toBe(1);
+        // La otra lista no se toca.
+        expect(marcas.categorias.distintos).toBe(4);
+
+        const cats = await repo.facetas(filtros(), opc({ qCategoria: "VÁLV" }));
+        expect(cats.categorias.valores).toEqual([{ valor: "VALVULA", cantidad: 2 }]);
+        expect(cats.marcas.distintos).toBe(4);
+
+        const sinMarca = await repo.facetas(filtros(), opc({ qMarca: "sin marca" }));
+        expect(sinMarca.marcas.valores).toEqual([{ valor: SIN_MARCA, cantidad: 2 }]);
+      });
+
+      test("la búsqueda dentro de la lista trata los comodines como texto", async () => {
+        const f = await repo.facetas(filtros(), opc({ qMarca: "%", qCategoria: "_" }));
+        expect(f.marcas).toEqual({ valores: [], distintos: 0 });
+        expect(f.categorias).toEqual({ valores: [], distintos: 0 });
+      });
+
+      test("la búsqueda se aplica antes del límite: un valor de pocas filas igual aparece", async () => {
+        // Sin búsqueda y con límite 1, CHINA (1 fila) queda fuera del top.
+        const sin = await repo.facetas(filtros(), opc({ limite: 1 }));
+        expect(sin.marcas.valores.map((v) => v.valor)).not.toContain("CHINA");
+        const con = await repo.facetas(filtros(), opc({ limite: 1, qMarca: "chin" }));
+        expect(con.marcas.valores).toEqual([{ valor: "CHINA", cantidad: 1 }]);
+      });
+
+      test("la búsqueda también recorta los valores seleccionados que no coinciden", async () => {
+        const f = await repo.facetas(filtros({ marcas: ["GM"] }), opc({ qMarca: "mob" }));
+        expect(f.marcas.valores.map((v) => v.valor)).toEqual(["MOBIS"]);
+      });
+
+      test("los filtros activos siguen recortando las cantidades de la lista buscada", async () => {
+        const f = await repo.facetas(filtros({ categorias: ["RADIADOR"] }), opc({ qMarca: "mob" }));
+        expect(f.marcas.valores).toEqual([{ valor: "MOBIS", cantidad: 1 }]);
+      });
+
+      test("distintos no cuenta los valores seleccionados sin filas", async () => {
+        const cat = await repo.facetas(filtros({ categorias: ["FANTASMA"] }), opc());
+        expect(cat.categorias.valores.find((v) => v.valor === "FANTASMA")?.cantidad).toBe(0);
+        expect(cat.categorias.distintos).toBe(4);
+        const marca = await repo.facetas(filtros({ sinMarcas: ["OTRO FANTASMA"] }), opc());
+        expect(marca.marcas.valores.find((v) => v.valor === "OTRO FANTASMA")?.cantidad).toBe(0);
+        expect(marca.marcas.distintos).toBe(4);
+      });
+
       test("un valor seleccionado aparece aunque quede fuera del límite, o sin filas (cantidad 0)", async () => {
-        const f = await repo.facetas(filtros({ categorias: ["FRENOS", "FANTASMA"] }), 1);
+        const f = await repo.facetas(
+          filtros({ categorias: ["FRENOS", "FANTASMA"] }),
+          opc({ limite: 1 }),
+        );
         const valores = f.categorias.valores.map((v) => v.valor);
         expect(valores).toContain("FRENOS");
         expect(valores).toContain("FANTASMA");
@@ -379,7 +572,7 @@ export function runProductosFiltrosContract(makeRepo: () => ProductsRepository) 
     });
 
     test("catálogo vacío: listado y facetas vacíos", async () => {
-      const f = await repo.facetas(filtros(), 500);
+      const f = await repo.facetas(filtros(), opc());
       expect(f.categorias).toEqual({ valores: [], distintos: 0 });
       expect(f.marcas).toEqual({ valores: [], distintos: 0 });
       expect(await repo.listarFiltrado(filtros())).toMatchObject({ items: [], total: 0 });

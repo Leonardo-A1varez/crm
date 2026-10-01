@@ -1,7 +1,7 @@
-import { z } from "zod";
-import { ValidationError } from "@/lib/errors";
 import {
+  parseOpcionesFacetas,
   parseProductosFiltros,
+  type OpcionesFacetasEntrada,
   type ProductosFiltrosEntrada,
 } from "@/lib/validation/productos-filtros.schema";
 import type { ProductsRepository } from "@/server/repositories/productos.repo";
@@ -17,14 +17,8 @@ import type {
   CatalogListInput,
   CatalogService,
   CreateProductoServiceInput,
-  FacetasOpciones,
   UpdateProductoServiceInput,
 } from "./catalog.service";
-
-export const LIMITE_FACETAS_DEFAULT = 500;
-export const LIMITE_FACETAS_MAX = 3000;
-
-const LimiteFacetasSchema = z.number().int().min(1).max(LIMITE_FACETAS_MAX);
 
 // Cap defensivo de la lista (sin paginación v1; la búsqueda acota resultados).
 const LIST_LIMIT = 1000;
@@ -49,17 +43,10 @@ export class DefaultCatalogService implements CatalogService {
 
   async facetasProductos(
     entrada: ProductosFiltrosEntrada,
-    opciones: FacetasOpciones = {},
+    opciones: OpcionesFacetasEntrada = {},
   ): Promise<ProductosFacetas> {
     const filtros = parseProductosFiltros(entrada);
-    const limite = LimiteFacetasSchema.safeParse(opciones.limite ?? LIMITE_FACETAS_DEFAULT);
-    if (!limite.success) {
-      throw new ValidationError(
-        `limite de facetas inválido: debe ser un entero entre 1 y ${LIMITE_FACETAS_MAX}`,
-        limite.error.issues,
-      );
-    }
-    return this.deps.productos.facetas(filtros, limite.data);
+    return this.deps.productos.facetas(filtros, parseOpcionesFacetas(opciones));
   }
 
   async createProducto(input: CreateProductoServiceInput): Promise<Producto> {

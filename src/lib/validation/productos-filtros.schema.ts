@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizarValor } from "@/lib/catalogo/normalizar-valor";
 import { ValidationError } from "@/lib/errors";
 
 // Filtros y paginación de /productos. Los parámetros llegan de la URL como
@@ -20,6 +21,12 @@ export const VALOR_LISTA_MAX = 1000;
  * quedaría mezclado con los sin marca; no existe hoy en el catálogo.
  */
 export const SIN_MARCA = "(sin marca)";
+/**
+ * Lo mismo para la categoría: `categoria` nula, vacía o en blanco. Así toda
+ * fila tiene un valor de faceta que se puede marcar, y el valor que la faceta
+ * devuelve es exactamente el que el filtro compara.
+ */
+export const SIN_CATEGORIA = "(sin categoría)";
 
 const PRECIO_MAX = 9_999_999_999.99;
 const STOCK_MAX = 2_147_483_647;
@@ -28,7 +35,7 @@ const STOCK_MAX = 2_147_483_647;
 function vacioAUndefined(v: unknown): unknown {
   if (v === undefined || v === null) return undefined;
   if (typeof v === "string") {
-    const t = v.trim();
+    const t = normalizarValor(v);
     return t === "" ? undefined : t;
   }
   return v;
@@ -72,7 +79,7 @@ const lista = z.preprocess(
         out.push(item);
         continue;
       }
-      const t = item.trim();
+      const t = normalizarValor(item);
       if (t === "" || vistos.has(t)) continue;
       vistos.add(t);
       out.push(t);
@@ -99,7 +106,9 @@ export const ProductosFiltrosSchema = z
     descripcion: texto,
     descripcionModo: modoTexto,
     categorias: lista,
+    sinCategorias: lista,
     marcas: lista,
+    sinMarcas: lista,
     precioMin: numero(PRECIO_MAX, false),
     precioMax: numero(PRECIO_MAX, false),
     stockMin: numero(STOCK_MAX, true),
@@ -110,6 +119,21 @@ export const ProductosFiltrosSchema = z
     porPagina: entero(1, POR_PAGINA_MAX, POR_PAGINA_DEFAULT),
   })
   .superRefine((f, ctx) => {
+    // Incluir y excluir en la misma columna no tiene un significado único.
+    if (f.marcas.length > 0 && f.sinMarcas.length > 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["marcas"],
+        message: "marcas y sinMarcas no se pueden usar juntas",
+      });
+    }
+    if (f.categorias.length > 0 && f.sinCategorias.length > 0) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["categorias"],
+        message: "categorias y sinCategorias no se pueden usar juntas",
+      });
+    }
     if (f.precioMin !== undefined && f.precioMax !== undefined && f.precioMin > f.precioMax) {
       ctx.addIssue({
         code: "custom",
@@ -139,8 +163,14 @@ export interface ProductosFiltrosEntrada {
   codigoModo?: string;
   descripcion?: string;
   descripcionModo?: string;
+  /** Incluir: solo estas. Excluyente con `sinCategorias`. */
   categorias?: string | string[];
+  /** Excluir: todas menos estas. Excluyente con `categorias`. */
+  sinCategorias?: string | string[];
+  /** Incluir: solo estas. Excluyente con `sinMarcas`. */
   marcas?: string | string[];
+  /** Excluir: todas menos estas. Excluyente con `marcas`. */
+  sinMarcas?: string | string[];
   precioMin?: string | number;
   precioMax?: string | number;
   stockMin?: string | number;
@@ -162,4 +192,38 @@ export function parseProductosFiltros(raw: unknown): ProductosFiltros {
     .map((i) => `${i.path.join(".") || "filtros"}: ${i.message}`)
     .join("; ");
   throw new ValidationError(`filtros de productos inválidos (${detalle})`, r.error.issues);
+}
+
+// ---------------------------------------------------------------------------
+// Opciones de las facetas: no viajan en la URL, son estado del popover.
+// ---------------------------------------------------------------------------
+
+export const LIMITE_FACETAS_DEFAULT = 500;
+export const LIMITE_FACETAS_MAX = 3000;
+
+export const OpcionesFacetasSchema = z.object({
+  limite: z.number().int().min(1).max(LIMITE_FACETAS_MAX).default(LIMITE_FACETAS_DEFAULT),
+  /** Búsqueda dentro de la lista de categorías (plegada, "contiene"), antes del límite. */
+  qCategoria: texto,
+  /** Ídem para la lista de marcas. */
+  qMarca: texto,
+});
+
+export type OpcionesFacetas = z.output<typeof OpcionesFacetasSchema>;
+
+/** Entrada de `facetasProductos`: todo opcional. */
+export interface OpcionesFacetasEntrada {
+  /** Tope de valores por lista: entero entre 1 y 3000. Por defecto 500. */
+  limite?: number;
+  qCategoria?: string;
+  qMarca?: string;
+}
+
+export function parseOpcionesFacetas(raw: unknown): OpcionesFacetas {
+  const r = OpcionesFacetasSchema.safeParse(raw ?? {});
+  if (r.success) return r.data;
+  const detalle = r.error.issues
+    .map((i) => `${i.path.join(".") || "opciones"}: ${i.message}`)
+    .join("; ");
+  throw new ValidationError(`opciones de facetas inválidas (${detalle})`, r.error.issues);
 }

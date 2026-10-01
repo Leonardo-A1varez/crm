@@ -1,5 +1,8 @@
 import type { Producto, UUID } from "@/types/entities";
-import type { ProductosFiltrosEntrada } from "@/lib/validation/productos-filtros.schema";
+import type {
+  OpcionesFacetasEntrada,
+  ProductosFiltrosEntrada,
+} from "@/lib/validation/productos-filtros.schema";
 import type {
   ImportPreview,
   ImportResult,
@@ -9,11 +12,6 @@ import type {
 
 export interface CatalogListInput {
   q?: string;
-}
-
-export interface FacetasOpciones {
-  /** Tope de valores por lista de facetas: entero entre 1 y 3000. Por defecto 500. */
-  limite?: number;
 }
 
 export interface CreateProductoServiceInput {
@@ -47,13 +45,17 @@ export interface CatalogService {
 
   /**
    * Valores distintos de categoría y de marca con su cantidad, para las listas
-   * del filtro. Cada lista se calcula con todos los filtros activos menos el de
-   * su propia columna; `pagina` y `porPagina` no cuentan. Mismo input y mismo
-   * `ValidationError` que `buscarProductos`.
+   * del filtro. Cada lista se calcula con todos los filtros activos menos los de
+   * su propia columna (incluir y excluir); `pagina` y `porPagina` no cuentan.
+   * Mismo input y mismo `ValidationError` que `buscarProductos`.
+   *
+   * `opciones` es estado del popover, no va en la URL: `limite` (1 a 3000, por
+   * defecto 500) y `qCategoria` / `qMarca`, búsqueda dentro de cada lista
+   * (plegada, "contiene", hasta 100 caracteres) que se aplica ANTES del límite.
    */
   facetasProductos(
     filtros: ProductosFiltrosEntrada,
-    opciones?: FacetasOpciones,
+    opciones?: OpcionesFacetasEntrada,
   ): Promise<ProductosFacetas>;
 
   /** Alta manual. Defaults no-form: activo=true, compatibilidad=[], imagen_url=null. */

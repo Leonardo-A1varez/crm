@@ -1,7 +1,10 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { PermissionDeniedError } from "@/lib/errors";
-import { parseProductosFiltros } from "@/lib/validation/productos-filtros.schema";
+import {
+  parseOpcionesFacetas,
+  parseProductosFiltros,
+} from "@/lib/validation/productos-filtros.schema";
 import type { Database } from "@/server/db/types.gen";
 import { SupabaseProductsRepository } from "@/server/repositories/productos.supabase.repo";
 import { cleanupTestDb, makeTestSupabaseClient, type TestClient } from "./setup";
@@ -88,6 +91,8 @@ afterAll(async () => {
   await cleanupTestDb(service);
 }, 120_000);
 
+const opc = () => parseOpcionesFacetas({});
+
 describe("productos: filtros y facetas bajo RLS", () => {
   const filtros = parseProductosFiltros({ categorias: "RADIADOR" });
 
@@ -100,7 +105,7 @@ describe("productos: filtros y facetas bajo RLS", () => {
     expect(pagina.total).toBe(2);
     // Orden por nombre: "Radiador dos" va antes que "Radiador uno".
     expect(pagina.items.map((p) => p.codigo_interno)).toEqual(["R-2", "R-1"]);
-    const facetas = await repo.facetas(filtros, 500);
+    const facetas = await repo.facetas(filtros, opc());
     expect(facetas.categorias.valores).toEqual([{ valor: "RADIADOR", cantidad: 2 }]);
   });
 
@@ -109,7 +114,7 @@ describe("productos: filtros y facetas bajo RLS", () => {
     const pagina = await repo.listarFiltrado(filtros);
     expect(pagina.total).toBe(0);
     expect(pagina.items).toEqual([]);
-    expect((await repo.facetas(filtros, 500)).categorias.valores).toEqual([
+    expect((await repo.facetas(filtros, opc())).categorias.valores).toEqual([
       { valor: "RADIADOR", cantidad: 0 },
     ]);
   });
@@ -117,6 +122,6 @@ describe("productos: filtros y facetas bajo RLS", () => {
   test("anon no puede ejecutar las funciones", async () => {
     const repo = new SupabaseProductsRepository(anon);
     await expect(repo.listarFiltrado(filtros)).rejects.toThrow(PermissionDeniedError);
-    await expect(repo.facetas(filtros, 500)).rejects.toThrow(PermissionDeniedError);
+    await expect(repo.facetas(filtros, opc())).rejects.toThrow(PermissionDeniedError);
   });
 });

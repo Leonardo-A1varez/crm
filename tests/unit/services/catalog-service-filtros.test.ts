@@ -81,7 +81,10 @@ describe("DefaultCatalogService.buscarProductos / facetasProductos", () => {
   test("facetas: límite por defecto 500, y los filtros ya normalizados", async () => {
     const espia = vi.spyOn(repo, "facetas");
     const f = await svc.facetasProductos({ categorias: "RADIADOR" });
-    expect(espia).toHaveBeenCalledWith(expect.objectContaining({ categorias: ["RADIADOR"] }), 500);
+    expect(espia).toHaveBeenCalledWith(
+      expect.objectContaining({ categorias: ["RADIADOR"] }),
+      expect.objectContaining({ limite: 500 }),
+    );
     // La faceta de categorías ignora el filtro de categorías: trae las dos.
     expect(f.categorias.valores.map((v) => v.valor).sort()).toEqual(["FRENOS", "RADIADOR"]);
   });
@@ -89,7 +92,45 @@ describe("DefaultCatalogService.buscarProductos / facetasProductos", () => {
   test("facetas: límite explícito", async () => {
     const espia = vi.spyOn(repo, "facetas");
     await svc.facetasProductos({}, { limite: 3000 });
-    expect(espia).toHaveBeenCalledWith(expect.anything(), 3000);
+    expect(espia).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ limite: 3000 }),
+    );
+  });
+
+  test("facetas: qMarca y qCategoria se normalizan y viajan al repo; en blanco no", async () => {
+    const espia = vi.spyOn(repo, "facetas");
+    await svc.facetasProductos({}, { qMarca: "  mob\u00a0", qCategoria: "   " });
+    const opciones = espia.mock.calls[0]?.[1];
+    expect(opciones?.qMarca).toBe("mob");
+    expect(opciones?.qCategoria).toBeUndefined();
+  });
+
+  test("facetas: la búsqueda dentro de la lista llega hasta el resultado", async () => {
+    const f = await svc.facetasProductos({}, { qMarca: "mob" });
+    expect(f.marcas.valores).toEqual([{ valor: "MOBIS", cantidad: 1 }]);
+  });
+
+  test("facetas: qMarca de más de 100 caracteres es ValidationError", async () => {
+    await expect(svc.facetasProductos({}, { qMarca: "a".repeat(101) })).rejects.toThrow(
+      ValidationError,
+    );
+  });
+
+  test("buscar y facetas: incluir y excluir la misma columna es ValidationError", async () => {
+    const espia = vi.spyOn(repo, "listarFiltrado");
+    await expect(svc.buscarProductos({ marcas: "A", sinMarcas: "B" })).rejects.toThrow(
+      ValidationError,
+    );
+    await expect(svc.facetasProductos({ categorias: "A", sinCategorias: "B" })).rejects.toThrow(
+      ValidationError,
+    );
+    expect(espia).not.toHaveBeenCalled();
+  });
+
+  test("buscar: sinMarcas filtra de punta a punta", async () => {
+    const r = await svc.buscarProductos({ sinMarcas: "MOBIS" });
+    expect(r.items.map((p) => p.codigo_interno)).toEqual(["P-2"]);
   });
 
   test.each([0, -1, 3001, 1.5])("facetas: límite %s inválido", async (limite) => {

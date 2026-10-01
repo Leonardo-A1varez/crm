@@ -5,7 +5,7 @@ import {
   PermissionDeniedError,
   ValidationError,
 } from "@/lib/errors";
-import type { ProductosFiltros } from "@/lib/validation/productos-filtros.schema";
+import type { OpcionesFacetas, ProductosFiltros } from "@/lib/validation/productos-filtros.schema";
 import type { AppClient } from "@/server/db/client";
 import { FILAS_POR_PAGINA } from "@/server/db/paginar";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
@@ -221,11 +221,17 @@ export class SupabaseProductsRepository implements ProductsRepository {
     };
   }
 
-  /** Delega en `public.productos_facetas`: el conteo y el recorte los hace Postgres. */
-  async facetas(filtros: ProductosFiltros, limite: number): Promise<ProductosFacetas> {
+  /**
+   * Delega en `public.productos_facetas`: el conteo, la búsqueda dentro de la
+   * lista y el recorte los hace Postgres.
+   */
+  async facetas(filtros: ProductosFiltros, opciones: OpcionesFacetas): Promise<ProductosFacetas> {
+    const json = filtrosAJson(filtros) as Record<string, Json>;
+    if (opciones.qCategoria !== undefined) json["q_categoria"] = opciones.qCategoria;
+    if (opciones.qMarca !== undefined) json["q_marca"] = opciones.qMarca;
     const { data, error } = await this.db.rpc("productos_facetas", {
-      p_filtros: filtrosAJson(filtros),
-      p_limite: limite,
+      p_filtros: json,
+      p_limite: opciones.limite,
     });
     if (error) throw mapPostgrestError(error, { resource: "producto" });
 
@@ -337,7 +343,9 @@ function filtrosAJson(f: ProductosFiltros): Json {
     j["descripcion_modo"] = f.descripcionModo;
   }
   if (f.categorias.length > 0) j["categorias"] = f.categorias;
+  if (f.sinCategorias.length > 0) j["sin_categorias"] = f.sinCategorias;
   if (f.marcas.length > 0) j["marcas"] = f.marcas;
+  if (f.sinMarcas.length > 0) j["sin_marcas"] = f.sinMarcas;
   if (f.precioMin !== undefined) j["precio_min"] = f.precioMin;
   if (f.precioMax !== undefined) j["precio_max"] = f.precioMax;
   if (f.stockMin !== undefined) j["stock_min"] = f.stockMin;

@@ -4,6 +4,7 @@ import {
   parseProductosFiltros,
   POR_PAGINA_MAX,
   POR_PAGINA_DEFAULT,
+  SIN_CATEGORIA,
   SIN_MARCA,
 } from "@/lib/validation/productos-filtros.schema";
 
@@ -14,7 +15,9 @@ describe("parseProductosFiltros", () => {
       codigoModo: "contiene",
       descripcionModo: "contiene",
       categorias: [],
+      sinCategorias: [],
       marcas: [],
+      sinMarcas: [],
       conStock: null,
       estado: null,
       pagina: 1,
@@ -135,5 +138,80 @@ describe("parseProductosFiltros", () => {
       expect(e).toBeInstanceOf(ValidationError);
       expect((e as ValidationError).message).toMatch(/precioMin/);
     }
+  });
+
+  describe("modo excluir (estilo Excel: todas menos algunas)", () => {
+    test("sinMarcas y sinCategorias son listas aparte, con el mismo tratamiento", () => {
+      const f = parseProductosFiltros({
+        sinMarcas: ["CHINA", " CHINA ", "", SIN_MARCA],
+        sinCategorias: "FRENOS",
+      });
+      expect(f.sinMarcas).toEqual(["CHINA", SIN_MARCA]);
+      expect(f.sinCategorias).toEqual(["FRENOS"]);
+      expect(f.marcas).toEqual([]);
+      expect(f.categorias).toEqual([]);
+    });
+
+    test("SIN_CATEGORIA es un valor válido de categorias y de sinCategorias", () => {
+      expect(parseProductosFiltros({ categorias: SIN_CATEGORIA }).categorias).toEqual([
+        SIN_CATEGORIA,
+      ]);
+      expect(parseProductosFiltros({ sinCategorias: SIN_CATEGORIA }).sinCategorias).toEqual([
+        SIN_CATEGORIA,
+      ]);
+    });
+
+    test.each([
+      ["marcas + sinMarcas", { marcas: "A", sinMarcas: "B" }, /marcas/],
+      ["categorias + sinCategorias", { categorias: "A", sinCategorias: "B" }, /categorias/],
+    ])("incluir y excluir en la misma columna es ValidationError: %s", (_n, raw, campo) => {
+      try {
+        parseProductosFiltros(raw);
+        expect.unreachable();
+      } catch (e) {
+        expect(e).toBeInstanceOf(ValidationError);
+        expect((e as ValidationError).message).toMatch(campo);
+      }
+    });
+
+    test("incluir una columna y excluir la otra sí se puede", () => {
+      const f = parseProductosFiltros({ marcas: "A", sinCategorias: "B" });
+      expect(f.marcas).toEqual(["A"]);
+      expect(f.sinCategorias).toEqual(["B"]);
+    });
+
+    test("el tope de 300 valores rige para las listas de exclusión", () => {
+      const ok = Array.from({ length: 300 }, (_, i) => `M${i}`);
+      expect(parseProductosFiltros({ sinMarcas: ok }).sinMarcas).toHaveLength(300);
+      expect(() => parseProductosFiltros({ sinMarcas: [...ok, "M300"] })).toThrow(ValidationError);
+      expect(() =>
+        parseProductosFiltros({ sinCategorias: Array.from({ length: 301 }, (_, i) => `C${i}`) }),
+      ).toThrow(ValidationError);
+    });
+  });
+
+  describe("espacios: el mismo conjunto que usa SQL (espacio, tab, CR, LF, NBSP)", () => {
+    test("quita los cinco en los bordes de textos y de valores de lista", () => {
+      const f = parseProductosFiltros({
+        codigo: "\t  AB \r\n",
+        descripcion: " radiador ",
+        marcas: ["\tMOBIS "],
+        sinCategorias: [" FRENOS\n"],
+      });
+      expect(f.codigo).toBe("AB");
+      expect(f.descripcion).toBe("radiador");
+      expect(f.marcas).toEqual(["MOBIS"]);
+      expect(f.sinCategorias).toEqual(["FRENOS"]);
+    });
+
+    test("no quita otros espacios Unicode que trim() de JS sí quitaría y btrim de SQL no", () => {
+      const f = parseProductosFiltros({ marcas: [" MOBIS"], codigo: "\f\v" });
+      expect(f.marcas).toEqual([" MOBIS"]);
+      expect(f.codigo).toBe("\f\v");
+    });
+
+    test("un valor que queda vacío tras normalizar se descarta", () => {
+      expect(parseProductosFiltros({ marcas: [" ", "\t"] }).marcas).toEqual([]);
+    });
   });
 });

@@ -1,7 +1,13 @@
+import { normalizarValor } from "@/lib/catalogo/normalizar-valor";
 import { plegarTexto } from "@/lib/catalogo/plegar-texto";
 import { compatibleCon, puntaje } from "@/lib/catalogo/puntaje";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
-import { SIN_MARCA, type ProductosFiltros } from "@/lib/validation/productos-filtros.schema";
+import {
+  SIN_CATEGORIA,
+  SIN_MARCA,
+  type OpcionesFacetas,
+  type ProductosFiltros,
+} from "@/lib/validation/productos-filtros.schema";
 import type { Producto, UUID } from "@/types/entities";
 import type { Faceta, ProductosFacetas, ProductosPagina } from "@/types/productos";
 import type { Insert, Update } from "./_types";
@@ -90,11 +96,16 @@ export interface ProductsRepository {
   listarFiltrado(filtros: ProductosFiltros): Promise<ProductosPagina>;
   /**
    * Facetas estilo Excel: valores distintos de categoría y de marca con su
-   * cantidad. Cada una se calcula con todos los filtros activos EXCEPTO el de
-   * su propia columna, y la paginación no cuenta. `limite` recorta cada lista
-   * (los valores seleccionados siempre entran); `distintos` informa el total.
+   * cantidad. Cada una se calcula con todos los filtros activos EXCEPTO los de
+   * su propia columna (incluir y excluir), y la paginación no cuenta.
+   *
+   * `opciones.qCategoria` / `qMarca` buscan dentro de la lista (plegado,
+   * "contiene") ANTES del límite, así cualquier valor es encontrable aunque
+   * quede fuera del top. `limite` recorta cada lista; los valores seleccionados
+   * que coinciden con la búsqueda siempre entran, con cantidad 0 si no tienen
+   * filas. `distintos` cuenta solo valores con filas (cantidad > 0).
    */
-  facetas(filtros: ProductosFiltros, limite: number): Promise<ProductosFacetas>;
+  facetas(filtros: ProductosFiltros, opciones: OpcionesFacetas): Promise<ProductosFacetas>;
   // Upsert masivo por codigo_interno (import CSV). Throws si hay codigo_interno
   // duplicado en el input. Preserva orden del input en el array de retorno.
   bulkUpsert(items: ProductoBulkUpsertItem[]): Promise<Producto[]>;
@@ -233,7 +244,7 @@ export class InMemoryProductsRepository implements ProductsRepository {
     };
   }
 
-  async facetas(filtros: ProductosFiltros, limite: number): Promise<ProductosFacetas> {
+  async facetas(filtros: ProductosFiltros, opciones: OpcionesFacetas): Promise<ProductosFacetas> {
     const filas = [...this.store.values()];
     const contar = (excluir: "categoria" | "marca", valorDe: (p: Producto) => string | null) => {
       const cuentas = new Map<string, number>();
@@ -247,14 +258,16 @@ export class InMemoryProductsRepository implements ProductsRepository {
     };
     return {
       categorias: armarFaceta(
-        contar("categoria", (p) => p.categoria),
-        filtros.categorias,
-        limite,
+        contar("categoria", (p) => categoriaDe(p)),
+        [...filtros.categorias, ...filtros.sinCategorias],
+        opciones.limite,
+        opciones.qCategoria,
       ),
       marcas: armarFaceta(
         contar("marca", (p) => marcaDe(p)),
-        filtros.marcas,
-        limite,
+        [...filtros.marcas, ...filtros.sinMarcas],
+        opciones.limite,
+        opciones.qMarca,
       ),
     };
   }
@@ -291,10 +304,19 @@ export class InMemoryProductsRepository implements ProductsRepository {
   }
 }
 
-/** La "marca" de un producto es su `descripcion` sin espacios; nula o en blanco es SIN_MARCA. */
+/**
+ * La "marca" es `descripcion` sin los espacios de los bordes (los mismos que
+ * `btrim` en SQL, ver `normalizarValor`); nula o en blanco es SIN_MARCA.
+ */
 function marcaDe(p: Producto): string {
-  const m = p.descripcion?.trim() ?? "";
+  const m = normalizarValor(p.descripcion ?? "");
   return m === "" ? SIN_MARCA : m;
+}
+
+/** Ídem para `categoria`: nula o en blanco es SIN_CATEGORIA. */
+function categoriaDe(p: Producto): string {
+  const c = normalizarValor(p.categoria ?? "");
+  return c === "" ? SIN_CATEGORIA : c;
 }
 
 /** Espejo de `plegar_texto(campo) like patrón` con los comodines de LIKE como texto literal. */
@@ -319,14 +341,16 @@ function cumpleFiltros(
   if (f.descripcion !== undefined && !coincideTexto(p.nombre, f.descripcion, f.descripcionModo)) {
     return false;
   }
-  if (
-    excluir !== "categoria" &&
-    f.categorias.length > 0 &&
-    (p.categoria === null || !f.categorias.includes(p.categoria))
-  ) {
-    return false;
+  if (excluir !== "categoria") {
+    const c = categoriaDe(p);
+    if (f.categorias.length > 0 && !f.categorias.includes(c)) return false;
+    if (f.sinCategorias.includes(c)) return false;
   }
-  if (excluir !== "marca" && f.marcas.length > 0 && !f.marcas.includes(marcaDe(p))) return false;
+  if (excluir !== "marca") {
+    const m = marcaDe(p);
+    if (f.marcas.length > 0 && !f.marcas.includes(m)) return false;
+    if (f.sinMarcas.includes(m)) return false;
+  }
   if (f.precioMin !== undefined && p.precio < f.precioMin) return false;
   if (f.precioMax !== undefined && p.precio > f.precioMax) return false;
   if (f.stockMin !== undefined && p.stock < f.stockMin) return false;
@@ -342,10 +366,14 @@ function armarFaceta(
   cuentas: Map<string, number>,
   seleccionados: string[],
   limite: number,
+  q: string | undefined,
 ): Faceta {
   // Un valor seleccionado sin filas bajo los demás filtros igual se muestra, en 0.
   for (const s of seleccionados) if (!cuentas.has(s)) cuentas.set(s, 0);
+  // La búsqueda dentro de la lista va ANTES del límite y recorta también a los seleccionados.
+  const buscado = q === undefined ? null : plegarTexto(q);
   const todos = [...cuentas.entries()]
+    .filter(([valor]) => buscado === null || plegarTexto(valor).includes(buscado))
     .map(([valor, cantidad]) => ({ valor, cantidad }))
     // Orden binario, no localeCompare: es el desempate de Postgres con `collate "C"`.
     .sort(
@@ -353,5 +381,6 @@ function armarFaceta(
     );
   const elegidos = new Set(seleccionados);
   const valores = todos.filter((v, i) => i < limite || elegidos.has(v.valor));
-  return { valores, distintos: todos.length };
+  // Los seleccionados con 0 filas se muestran pero no son valores "que existen".
+  return { valores, distintos: todos.filter((v) => v.cantidad > 0).length };
 }

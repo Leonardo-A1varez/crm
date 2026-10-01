@@ -2438,8 +2438,10 @@ export type Database = {
         Args: { p_excluir?: string; p_filtros: Json }
         Returns: {
           categoria: string
+          codigo_interno: string
           id: string
           marca: string
+          nombre: string
         }[]
       }
       productos_listar: {

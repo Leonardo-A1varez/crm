@@ -23,36 +23,44 @@
 -- impide usar los índices trigram: medido con 21.009 filas, un filtro de texto
 -- tardaba ~200 ms haciendo seq scan. Con un plan por llamada los valores son
 -- constantes, las guardas se pliegan, y el LIKE usa el índice.
-
+--
 -- Filtros (jsonb, claves ausentes = sin filtro):
 --   codigo, codigo_modo ('contiene'|'empieza')   sobre codigo_interno
 --   descripcion, descripcion_modo                sobre nombre
---   categorias  [texto]                          IN sobre categoria
---   marcas      [texto]                          IN sobre la marca; '(sin marca)'
---                                                es descripcion nula o en blanco
+--   categorias, sin_categorias  [texto]          incluir / excluir categorías
+--   marcas, sin_marcas          [texto]          incluir / excluir marcas
 --   precio_min, precio_max, stock_min, stock_max rangos inclusivos
 --   con_stock   boolean                          true: stock > 0 · false: stock = 0
 --   estado      'activo'|'inactivo'
+-- Solo para `productos_facetas`:
+--   q_categoria, q_marca                         búsqueda dentro de cada lista
+--
+-- Incluir y excluir son excluyentes por columna (lo valida el schema Zod); acá,
+-- si llegaran los dos, se aplican los dos. Una clave de lista que no sea un
+-- array se ignora en vez de romper la consulta.
 --
 -- Los textos se comparan con `plegar_texto` (minúsculas, sin tildes), el mismo
 -- plegado de `buscar_productos`; en TypeScript lo espeja `plegarTexto`.
 --
--- La "marca" de un producto es `btrim(descripcion)`: en el inventario real esa
--- columna trae la marca del repuesto (MOBIS, CHINA, GM…) y 2.740 filas la tienen
--- nula. El literal '(sin marca)' es el mismo que `SIN_MARCA` en TypeScript.
+-- Valor de categoría y de marca. Un solo criterio, el mismo en el filtro y en la
+-- faceta, para que lo que la faceta devuelve sea EXACTAMENTE lo que se filtra:
+--   marca     = btrim(descripcion), o '(sin marca)' si queda vacía o es nula
+--   categoria = btrim(categoria),   o '(sin categoría)' si queda vacía o es nula
+-- `btrim` quita espacio, tab, CR, LF y NBSP (E' \t\r\n '). En TypeScript es
+-- `normalizarValor`; NO es `String.trim()`, que quita más. Los literales son los
+-- mismos que `SIN_MARCA` y `SIN_CATEGORIA`. Hoy 2.740 filas tienen la marca
+-- nula; la categoría nunca es nula en crm-dev, pero el sentinela evita que una
+-- fila con categoría vacía quede sin casilla que marcar.
 
 -- =========================================================================
--- 0. Índices para los filtros de texto
+-- 0. Índices
 -- =========================================================================
 
--- Sobre la expresión plegada, que es la que comparan los filtros. `plegar_texto`
--- es IMMUTABLE y la expresión del índice es idéntica a la de la consulta. Un
--- GIN trigram sirve tanto para `contiene` como para `empieza`. Con menos de 3
--- caracteres no hay trigramas que buscar y Postgres cae a recorrer la tabla.
---
--- Costo: dos índices más en cada escritura de `productos` (hoy ya hay 6 y el
--- import CSV hace upsert por lotes). El catálogo cambia por import, no por
--- tráfico transaccional, así que se acepta.
+-- Texto: sobre la expresión plegada, que es la que comparan los filtros.
+-- `plegar_texto` es IMMUTABLE y la expresión del índice es idéntica a la de la
+-- consulta. Un GIN trigram sirve tanto para `contiene` como para `empieza`. Con
+-- menos de 3 caracteres no hay trigramas que buscar y Postgres cae a recorrer la
+-- tabla.
 create index if not exists productos_codigo_interno_texto_trgm_idx
   on public.productos using gin (public.plegar_texto(codigo_interno) gin_trgm_ops);
 
@@ -81,10 +89,13 @@ comment on function public.escapar_like(text) is
 -- 2. El predicado único
 -- =========================================================================
 
--- `p_excluir` ('categoria' | 'marca') salta el filtro de esa columna: es lo que
--- necesita la faceta de esa columna para no vaciarse al seleccionar un valor.
+-- Devuelve lo que necesitan sus dos clientes: el listado ordena por
+-- (nombre, codigo_interno) y cuenta; las facetas agrupan por categoría y marca.
+-- `p_excluir` ('categoria' | 'marca') salta TODOS los filtros de esa columna
+-- (incluir y excluir): es lo que necesita la faceta de esa columna para no
+-- vaciarse al seleccionar un valor.
 create function public.productos_filtrados(p_filtros jsonb, p_excluir text default null)
-returns table (id uuid, categoria text, marca text)
+returns table (id uuid, nombre text, codigo_interno text, categoria text, marca text)
 language plpgsql
 stable
 security invoker
@@ -92,40 +103,59 @@ set search_path = ''
 set plan_cache_mode = force_custom_plan
 as $function$
 #variable_conflict use_column
+declare
+  v_cats text[] := case when jsonb_typeof(p_filtros -> 'categorias') = 'array'
+    then array(select jsonb_array_elements_text(p_filtros -> 'categorias'))
+    else '{}'::text[] end;
+  v_sin_cats text[] := case when jsonb_typeof(p_filtros -> 'sin_categorias') = 'array'
+    then array(select jsonb_array_elements_text(p_filtros -> 'sin_categorias'))
+    else '{}'::text[] end;
+  v_marcas text[] := case when jsonb_typeof(p_filtros -> 'marcas') = 'array'
+    then array(select jsonb_array_elements_text(p_filtros -> 'marcas'))
+    else '{}'::text[] end;
+  v_sin_marcas text[] := case when jsonb_typeof(p_filtros -> 'sin_marcas') = 'array'
+    then array(select jsonb_array_elements_text(p_filtros -> 'sin_marcas'))
+    else '{}'::text[] end;
 begin
   return query
-  select
-    p.id,
-    p.categoria,
-    coalesce(nullif(btrim(p.descripcion), ''), '(sin marca)') as marca
+  select p.id, p.nombre, p.codigo_interno, n.cat, n.marca
   from public.productos as p
+  cross join lateral (
+    select
+      coalesce(nullif(btrim(p.categoria, E' \t\r\n '), ''), '(sin categoría)') as cat,
+      coalesce(nullif(btrim(p.descripcion, E' \t\r\n '), ''), '(sin marca)') as marca
+  ) as n
   where
     (
-      nullif(btrim(p_filtros ->> 'codigo'), '') is null
+      nullif(btrim(p_filtros ->> 'codigo', E' \t\r\n '), '') is null
       or public.plegar_texto(p.codigo_interno) like
         case when p_filtros ->> 'codigo_modo' = 'empieza' then '' else '%' end
-        || public.escapar_like(public.plegar_texto(btrim(p_filtros ->> 'codigo')))
+        || public.escapar_like(
+          public.plegar_texto(btrim(p_filtros ->> 'codigo', E' \t\r\n '))
+        )
         || '%'
     )
     and (
-      nullif(btrim(p_filtros ->> 'descripcion'), '') is null
+      nullif(btrim(p_filtros ->> 'descripcion', E' \t\r\n '), '') is null
       or public.plegar_texto(p.nombre) like
         case when p_filtros ->> 'descripcion_modo' = 'empieza' then '' else '%' end
-        || public.escapar_like(public.plegar_texto(btrim(p_filtros ->> 'descripcion')))
+        || public.escapar_like(
+          public.plegar_texto(btrim(p_filtros ->> 'descripcion', E' \t\r\n '))
+        )
         || '%'
     )
     and (
       p_excluir is not distinct from 'categoria'
-      or jsonb_array_length(coalesce(p_filtros -> 'categorias', '[]'::jsonb)) = 0
-      or p.categoria = any (
-        array(select jsonb_array_elements_text(p_filtros -> 'categorias'))
+      or (
+        (cardinality(v_cats) = 0 or n.cat = any (v_cats))
+        and not (n.cat = any (v_sin_cats))
       )
     )
     and (
       p_excluir is not distinct from 'marca'
-      or jsonb_array_length(coalesce(p_filtros -> 'marcas', '[]'::jsonb)) = 0
-      or coalesce(nullif(btrim(p.descripcion), ''), '(sin marca)') = any (
-        array(select jsonb_array_elements_text(p_filtros -> 'marcas'))
+      or (
+        (cardinality(v_marcas) = 0 or n.marca = any (v_marcas))
+        and not (n.marca = any (v_sin_marcas))
       )
     )
     and (p_filtros ->> 'precio_min' is null or p.precio >= (p_filtros ->> 'precio_min')::numeric)
@@ -144,7 +174,7 @@ end
 $function$;
 
 comment on function public.productos_filtrados(jsonb, text) is
-  'Predicado unico de los filtros de /productos: devuelve id, categoria y marca de los productos que lo cumplen. p_excluir salta el filtro de una columna (facetas).';
+  'Predicado unico de los filtros de /productos: devuelve id, nombre, codigo_interno, categoria y marca (ya normalizadas) de los productos que lo cumplen. p_excluir salta los filtros de una columna (facetas).';
 
 -- =========================================================================
 -- 3. Una página y el total real
@@ -159,6 +189,12 @@ comment on function public.productos_filtrados(jsonb, text) is
 --
 -- Orden `nombre, codigo_interno`: `codigo_interno` es UNIQUE, por lo que es un
 -- orden total y dos páginas nunca se pisan.
+--
+-- La página se elige ordenando solo las claves que devuelve `productos_filtrados`
+-- y recién entonces se leen las ≤100 filas completas por primary key. No se une
+-- el resultado de la función con `productos` entero: Postgres estima 1.000 filas
+-- para una función que devuelve conjuntos y el plan del join dependía de esa
+-- estimación (nested loop con 21k lookups si el filtro era ancho).
 create function public.productos_listar(
   p_filtros jsonb,
   p_pagina integer default 1,
@@ -171,7 +207,7 @@ security invoker
 set search_path = ''
 as $function$
   with ids as (
-    select f.id from public.productos_filtrados(p_filtros) as f
+    select f.id, f.nombre, f.codigo_interno from public.productos_filtrados(p_filtros) as f
   ),
   total as (
     select count(*)::bigint as n from ids
@@ -179,13 +215,17 @@ as $function$
   tamanio as (
     select greatest(1, least(coalesce(p_por_pagina, 50), 100)) as n
   ),
+  pagina_ids as (
+    select i.id
+    from ids as i
+    order by i.nombre, i.codigo_interno
+    limit (select n from tamanio)
+    offset (greatest(coalesce(p_pagina, 1), 1) - 1) * (select n from tamanio)
+  ),
   pagina as (
     select p.*
     from public.productos as p
-    join ids using (id)
-    order by p.nombre, p.codigo_interno
-    limit (select n from tamanio)
-    offset (greatest(coalesce(p_pagina, 1), 1) - 1) * (select n from tamanio)
+    where p.id in (select id from pagina_ids)
   )
   select jsonb_build_object(
     'total', (select n from total),
@@ -210,12 +250,19 @@ comment on function public.productos_listar(jsonb, integer, integer) is
 -- =========================================================================
 
 -- Una fila por (columna, valor): 'categoria' y 'marca'. Cada columna se cuenta
--- con todos los filtros menos el suyo. Orden: cantidad desc y, a igual cantidad,
--- el valor en orden binario (`collate "C"`) para que no dependa de la collation
--- de la base. Se devuelven los `p_limite` primeros más los valores seleccionados
--- —aunque queden fuera del tope o no tengan filas, en cuyo caso van con cantidad
--- 0— y `distintos` repite en cada fila cuántos valores hay en total, para que la
--- pantalla pueda avisar que la lista está recortada.
+-- con todos los filtros menos los suyos. Orden: cantidad desc y, a igual
+-- cantidad, el valor en orden binario (`collate "C"`) para que no dependa de la
+-- collation de la base.
+--
+-- `q_categoria` / `q_marca` (en p_filtros) buscan dentro de la lista —plegado,
+-- "contiene"— ANTES del límite, así una marca de una sola fila fuera del top
+-- sigue siendo encontrable. La búsqueda recorta también a los seleccionados.
+--
+-- Se devuelven los `p_limite` primeros más los valores seleccionados (los de
+-- incluir y los de excluir) que coinciden con la búsqueda, aunque queden fuera
+-- del tope o no tengan filas: esos van con cantidad 0. `distintos` repite en
+-- cada fila cuántos valores CON FILAS hay (los seleccionados con 0 no cuentan),
+-- para que la pantalla pueda avisar que la lista está recortada.
 create function public.productos_facetas(p_filtros jsonb, p_limite integer default 500)
 returns table (columna text, valor text, cantidad bigint, distintos bigint)
 language sql
@@ -225,19 +272,47 @@ set search_path = ''
 as $function$
   with
   sel_categoria as (
-    select distinct v from jsonb_array_elements_text(
-      coalesce(p_filtros -> 'categorias', '[]'::jsonb)
-    ) as t(v)
+    select distinct x.v
+    from (
+      select jsonb_array_elements_text(
+        case when jsonb_typeof(p_filtros -> 'categorias') = 'array'
+          then p_filtros -> 'categorias' else '[]'::jsonb end
+      ) as v
+      union all
+      select jsonb_array_elements_text(
+        case when jsonb_typeof(p_filtros -> 'sin_categorias') = 'array'
+          then p_filtros -> 'sin_categorias' else '[]'::jsonb end
+      )
+    ) as x
   ),
   sel_marca as (
-    select distinct v from jsonb_array_elements_text(
-      coalesce(p_filtros -> 'marcas', '[]'::jsonb)
-    ) as t(v)
+    select distinct x.v
+    from (
+      select jsonb_array_elements_text(
+        case when jsonb_typeof(p_filtros -> 'marcas') = 'array'
+          then p_filtros -> 'marcas' else '[]'::jsonb end
+      ) as v
+      union all
+      select jsonb_array_elements_text(
+        case when jsonb_typeof(p_filtros -> 'sin_marcas') = 'array'
+          then p_filtros -> 'sin_marcas' else '[]'::jsonb end
+      )
+    ) as x
+  ),
+  busqueda as (
+    select
+      case when nullif(btrim(p_filtros ->> 'q_categoria', E' \t\r\n '), '') is null then null
+        else '%' || public.escapar_like(
+          public.plegar_texto(btrim(p_filtros ->> 'q_categoria', E' \t\r\n '))
+        ) || '%' end as categoria,
+      case when nullif(btrim(p_filtros ->> 'q_marca', E' \t\r\n '), '') is null then null
+        else '%' || public.escapar_like(
+          public.plegar_texto(btrim(p_filtros ->> 'q_marca', E' \t\r\n '))
+        ) || '%' end as marca
   ),
   cuenta_categoria as (
     select f.categoria as valor, count(*) as cantidad
     from public.productos_filtrados(p_filtros, 'categoria') as f
-    where f.categoria is not null
     group by f.categoria
   ),
   cuenta_marca as (
@@ -260,16 +335,18 @@ as $function$
       t.valor,
       t.cantidad,
       row_number() over (order by t.cantidad desc, t.valor collate "C") as pos,
-      count(*) over () as distintos
-    from todo_categoria as t
+      count(*) filter (where t.cantidad > 0) over () as distintos
+    from todo_categoria as t, busqueda as b
+    where b.categoria is null or public.plegar_texto(t.valor) like b.categoria
   ),
   rank_marca as (
     select
       t.valor,
       t.cantidad,
       row_number() over (order by t.cantidad desc, t.valor collate "C") as pos,
-      count(*) over () as distintos
-    from todo_marca as t
+      count(*) filter (where t.cantidad > 0) over () as distintos
+    from todo_marca as t, busqueda as b
+    where b.marca is null or public.plegar_texto(t.valor) like b.marca
   )
   select u.columna, u.valor, u.cantidad, u.distintos
   from (
@@ -287,7 +364,7 @@ as $function$
 $function$;
 
 comment on function public.productos_facetas(jsonb, integer) is
-  'Valores distintos de categoria y marca con su cantidad. Cada columna se cuenta con todos los filtros menos el suyo. Los valores seleccionados siempre salen.';
+  'Valores distintos de categoria y marca con su cantidad. Cada columna se cuenta con todos los filtros menos los suyos. q_categoria/q_marca buscan dentro de la lista antes del limite. Los valores seleccionados siempre salen; distintos no los cuenta si no tienen filas.';
 
 -- =========================================================================
 -- Permisos: solo usuarios autenticados y service_role; anon no entra.
