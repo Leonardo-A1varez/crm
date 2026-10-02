@@ -1388,10 +1388,12 @@ export type Database = {
         Row: {
           activo: boolean
           busqueda: string | null
+          busqueda_general: string | null
           categoria: string | null
           codigo_fabrica: string | null
           codigo_fabrica_plegado: string | null
           codigo_interno: string
+          codigo_interno_orden: number | null
           codigo_interno_plegado: string | null
           compatibilidad: Json
           created_at: string
@@ -1408,10 +1410,12 @@ export type Database = {
         Insert: {
           activo?: boolean
           busqueda?: string | null
+          busqueda_general?: string | null
           categoria?: string | null
           codigo_fabrica?: string | null
           codigo_fabrica_plegado?: string | null
           codigo_interno: string
+          codigo_interno_orden?: number | null
           codigo_interno_plegado?: string | null
           compatibilidad?: Json
           created_at?: string
@@ -1428,10 +1432,12 @@ export type Database = {
         Update: {
           activo?: boolean
           busqueda?: string | null
+          busqueda_general?: string | null
           categoria?: string | null
           codigo_fabrica?: string | null
           codigo_fabrica_plegado?: string | null
           codigo_interno?: string
+          codigo_interno_orden?: number | null
           codigo_interno_plegado?: string | null
           compatibilidad?: Json
           created_at?: string
@@ -2364,6 +2370,7 @@ export type Database = {
         }
       }
       difusion_uso_cupo_24h: { Args: { p_desde: string }; Returns: number }
+      escapar_like: { Args: { t: string }; Returns: string }
       inbox_recent_messages: {
         Args: { p_limit?: number; p_session_ids: string[] }
         Returns: {
@@ -2421,9 +2428,44 @@ export type Database = {
           reason_code: string
         }[]
       }
+      jsonb_lista: { Args: { p_clave: string; p_filtros: Json }; Returns: string[] }
       plegar_codigo: { Args: { t: string }; Returns: string }
       plegar_codigos: { Args: { ts: string[] }; Returns: string[] }
       plegar_texto: { Args: { t: string }; Returns: string }
+      productos_faceta: {
+        Args: {
+          p_busqueda?: string
+          p_columna: string
+          p_filtros: Json
+          p_limite?: number
+        }
+        Returns: {
+          cantidad: number
+          distintos: number
+          valor: string
+        }[]
+      }
+      productos_filtrados: {
+        Args: { p_excluir?: string; p_filtros: Json }
+        Returns: {
+          id: string
+          v_categoria: string
+          v_codigo: string
+          v_codigo_fabrica: string
+          v_descripcion: string
+          v_marca: string
+          v_otros_codigos: string
+        }[]
+      }
+      productos_listar: {
+        Args: {
+          p_cantidad?: number
+          p_desde?: number
+          p_filtros: Json
+          p_orden?: Json
+        }
+        Returns: Json
+      }
       programar_difusion: {
         Args: {
           p_canary_tamano?: number

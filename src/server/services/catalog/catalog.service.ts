@@ -1,9 +1,9 @@
 import type { Producto, UUID } from "@/types/entities";
-import type { ImportPreview, ImportResult } from "@/types/productos";
-
-export interface CatalogListInput {
-  q?: string;
-}
+import type {
+  OpcionesFacetaEntrada,
+  ProductosFiltrosEntrada,
+} from "@/lib/validation/productos-filtros.schema";
+import type { Faceta, ImportPreview, ImportResult, LoteProductos } from "@/types/productos";
 
 export interface CreateProductoServiceInput {
   codigo_interno: string;
@@ -19,11 +19,30 @@ export type UpdateProductoServiceInput = Omit<CreateProductoServiceInput, "codig
 
 export interface CatalogService {
   /**
-   * Catálogo completo (activos + inactivos) ordenado por nombre asc (orden lo
-   * garantiza el repo). `q` filtra por nombre o codigo_interno case-insensitive.
-   * Cap 1000 filas — pilot ~5K SKUs, la búsqueda acota; paginación diferida.
+   * Un lote de la carga completa del catálogo: `LOTE_TAMANO` (1.000) filas del
+   * conjunto filtrado y ordenado, con el total REAL del filtro. La pantalla pide el
+   * lote 1 y después los demás, y los junta: no hay paginación.
+   *
+   * `filtros` son los `searchParams` de la URL tal cual (strings) o valores ya
+   * tipados; se valida con Zod antes de tocar nada y tira `ValidationError` si algo
+   * no cumple (rangos invertidos, listas de más de 300…). El orden son los niveles
+   * `orden`/`dir` (hasta tres) y siempre cierra con el código, que es único.
    */
-  listProductos(input?: CatalogListInput): Promise<Producto[]>;
+  loteProductos(filtros: ProductosFiltrosEntrada, lote?: unknown): Promise<LoteProductos>;
+
+  /**
+   * Los valores distintos de UNA columna con su cantidad, para su lista de filtro.
+   * Se calcula con todos los filtros activos menos los de su propia columna; el orden
+   * no cuenta. Mismo input y mismo `ValidationError` que `loteProductos`.
+   *
+   * `opciones` es estado del panel, no va en la URL: `columna`, `q` (búsqueda dentro
+   * de la lista, hasta 100 caracteres, antes del límite; exacta en el código) y
+   * `limite` (1 a 3000, por defecto 500).
+   */
+  facetaProductos(
+    filtros: ProductosFiltrosEntrada,
+    opciones: OpcionesFacetaEntrada,
+  ): Promise<Faceta>;
 
   /** Alta manual. Defaults no-form: activo=true, compatibilidad=[], imagen_url=null. */
   createProducto(input: CreateProductoServiceInput): Promise<Producto>;

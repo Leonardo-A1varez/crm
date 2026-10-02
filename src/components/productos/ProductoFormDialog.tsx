@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,8 +14,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { useRecargarProductos } from "./filtros/FiltrosProductosProvider";
 import type { ComponentProps } from "react";
-import type { Producto } from "@/types/entities";
+import type { ProductoFila } from "@/types/productos";
 import type { ActionResult } from "@/types/inbox";
 
 export interface ProductoFormValues {
@@ -48,10 +48,10 @@ export function ProductoFormDialog({
   triggerLabel: string;
   triggerVariant?: ComponentProps<typeof Button>["variant"];
   // Presente = modo edición (codigo_interno inmutable, precargado).
-  initial?: Producto;
+  initial?: ProductoFila;
   onSubmit: (values: ProductoFormValues) => Promise<ActionResult>;
 }) {
-  const router = useRouter();
+  const recargar = useRecargarProductos();
   const [open, setOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
@@ -75,7 +75,7 @@ export function ProductoFormDialog({
       }
       toast.success(initial ? "Producto actualizado" : "Producto creado");
       setOpen(false);
-      router.refresh();
+      recargar();
     });
   };
 

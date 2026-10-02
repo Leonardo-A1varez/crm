@@ -1,16 +1,19 @@
+import {
+  parseLote,
+  parseOpcionesFaceta,
+  parseProductosFiltros,
+  type OpcionesFacetaEntrada,
+  type ProductosFiltrosEntrada,
+} from "@/lib/validation/productos-filtros.schema";
 import type { ProductsRepository } from "@/server/repositories/productos.repo";
 import type { Producto, UUID } from "@/types/entities";
-import type { ImportPreview, ImportResult } from "@/types/productos";
+import type { Faceta, ImportPreview, ImportResult, LoteProductos } from "@/types/productos";
 import { parseProductosCsv } from "./csv-import";
 import type {
-  CatalogListInput,
   CatalogService,
   CreateProductoServiceInput,
   UpdateProductoServiceInput,
 } from "./catalog.service";
-
-// Cap defensivo de la lista (sin paginación v1; la búsqueda acota resultados).
-const LIST_LIMIT = 1000;
 
 export interface DefaultCatalogServiceDeps {
   productos: ProductsRepository;
@@ -19,10 +22,18 @@ export interface DefaultCatalogServiceDeps {
 export class DefaultCatalogService implements CatalogService {
   constructor(private readonly deps: DefaultCatalogServiceDeps) {}
 
-  async listProductos(input: CatalogListInput = {}): Promise<Producto[]> {
-    // Cap defensivo: patrones absurdamente largos.
-    const q = input.q?.trim().slice(0, 100);
-    return this.deps.productos.list({ q: q || undefined, limit: LIST_LIMIT });
+  async loteProductos(filtros: ProductosFiltrosEntrada, lote?: unknown): Promise<LoteProductos> {
+    return this.deps.productos.listarLote(parseProductosFiltros(filtros), parseLote(lote));
+  }
+
+  async facetaProductos(
+    filtros: ProductosFiltrosEntrada,
+    opciones: OpcionesFacetaEntrada,
+  ): Promise<Faceta> {
+    return this.deps.productos.faceta(
+      parseProductosFiltros(filtros),
+      parseOpcionesFaceta(opciones),
+    );
   }
 
   async createProducto(input: CreateProductoServiceInput): Promise<Producto> {

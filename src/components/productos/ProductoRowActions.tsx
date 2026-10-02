@@ -1,12 +1,12 @@
 "use client";
 
 import { useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { useRecargarProductos } from "./filtros/FiltrosProductosProvider";
 import { ProductoFormDialog } from "./ProductoFormDialog";
 import type { ProductoFormValues } from "./ProductoFormDialog";
-import type { Producto } from "@/types/entities";
+import type { ProductoFila } from "@/types/productos";
 import type {
   SetProductoActivoInput,
   UpdateProductoInput,
@@ -18,11 +18,11 @@ export function ProductoRowActions({
   onUpdate,
   onToggleActivo,
 }: {
-  producto: Producto;
+  producto: ProductoFila;
   onUpdate: (input: UpdateProductoInput) => Promise<ActionResult>;
   onToggleActivo: (input: SetProductoActivoInput) => Promise<ActionResult>;
 }) {
-  const router = useRouter();
+  const recargar = useRecargarProductos();
   const [isPending, startTransition] = useTransition();
 
   const update = (values: ProductoFormValues): Promise<ActionResult> =>
@@ -44,7 +44,7 @@ export function ProductoRowActions({
         return;
       }
       toast.success(producto.activo ? "Producto desactivado" : "Producto activado");
-      router.refresh();
+      recargar();
     });
   };
 
