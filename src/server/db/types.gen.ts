@@ -2232,6 +2232,17 @@ export type Database = {
           stock: number
         }[]
       }
+      busquedas_sin_resultado: {
+        Args: { p_desde?: string; p_limite?: number }
+        Returns: {
+          anio: number
+          busqueda: string
+          marca: string
+          modelo: string
+          ultima_vez: string
+          veces: number
+        }[]
+      }
       clonar_workflow_version: {
         Args: {
           p_created_by?: string

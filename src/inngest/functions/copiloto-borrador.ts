@@ -17,7 +17,9 @@ import type { AgentConfigProvider } from "@/server/services/agente/config-provid
 import {
   buildConversationTurn,
   buildRespondInput,
+  vehiculosParaAgente,
 } from "@/server/services/agente/conversation-turn";
+import type { LeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 import type { AiAgentService } from "@/server/services/ai-agent.service";
 import type { IntentClassifierService } from "@/server/services/intent-classifier.service";
 import type { UUID } from "@/types/entities";
@@ -37,6 +39,12 @@ export interface CopilotoBorradorDeps {
    * `bootstrap.ts` lo wirea.
    */
   delegaciones?: Pick<WorkflowRunsRepository, "delegacionesActivas">;
+  /**
+   * Los autos guardados del lead, igual que en el pipeline: regenerar tiene que
+   * buscar con el mismo vehículo que habría usado el turno original. Opcional;
+   * `bootstrap.ts` lo wirea.
+   */
+  vehiculos?: Pick<LeadVehiculosRepository, "listByLeadId">;
   logger?: Logger;
 }
 
@@ -151,6 +159,10 @@ export async function copilotoBorradorHandler(
       );
     });
 
+    const vehiculos = await step.run(idPaso("leer-vehiculos"), async () =>
+      deps.vehiculos ? vehiculosParaAgente(await deps.vehiculos.listByLeadId(previo.leadId)) : [],
+    );
+
     const respuesta = await step.run(idPaso("responder"), () =>
       deps.aiAgent.respond(
         buildRespondInput({
@@ -159,6 +171,7 @@ export async function copilotoBorradorHandler(
           classification: clasificacion,
           mensajeOrigenId: previo.mensajeOrigenId,
           tramos,
+          vehiculos,
           // Regenerar no tiene efectos: una escalada no pausa la sesión ni le
           // avisa al cliente, queda como error del borrador.
           soloRedactar: true,

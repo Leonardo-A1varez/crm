@@ -19,6 +19,19 @@ import type {
   IntentClassification,
 } from "@/lib/validation/ai";
 
+/**
+ * Un auto guardado del cliente, tal como lo ve el LLM. Sin placa ni VIN: no
+ * hacen falta para buscar un repuesto y son identificadores personales.
+ */
+export interface AgentVehiculo {
+  marca: string | null;
+  modelo: string | null;
+  anio: number | null;
+  motor: string | null;
+  /** El vigente: el primero de la lista. Es el que se usa salvo que el cliente nombre otro. */
+  actual: boolean;
+}
+
 export interface AgentTurnInput {
   leadSessionId: UUID;
   conversationTurn: string[];
@@ -42,6 +55,12 @@ export interface AgentTurnInput {
    * ("Delegar al agente"): va al prompt mientras dure el tramo.
    */
   instruccionesTramo?: string[];
+  /**
+   * Los autos guardados del cliente (`lead_vehiculos`), el vigente primero.
+   * Lista vacía si no hay ninguno. Sin esto el agente solo ve los últimos
+   * turnos y, si el año se dijo antes, lo inventa al buscar.
+   */
+  vehiculos?: AgentVehiculo[];
   /**
    * Solo redactar, sin efectos: si el turno escalaría (palabra sensible,
    * cotización sobre el tope, regla `handoff`) devuelve el resultado de handoff
@@ -84,6 +103,8 @@ export interface AgentLLMInput {
   mensajeOrigenId?: UUID | null;
   /** Ver `AgentTurnInput.instruccionesTramo`. */
   instruccionesTramo?: string[];
+  /** Ver `AgentTurnInput.vehiculos`. */
+  vehiculos?: AgentVehiculo[];
 }
 
 export interface AgentLLMResult {
@@ -246,6 +267,7 @@ export class DefaultAiAgentService implements AiAgentService {
       ...(input.instruccionesTramo && input.instruccionesTramo.length > 0
         ? { instruccionesTramo: input.instruccionesTramo }
         : {}),
+      vehiculos: input.vehiculos ?? [],
     });
 
     return {

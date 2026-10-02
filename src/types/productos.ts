@@ -78,3 +78,17 @@ export interface Faceta {
   /** Cuántos valores distintos hay en total: si supera `valores.length`, la lista está recortada. */
   distintos: number;
 }
+
+/**
+ * Una búsqueda del agente (`buscar_repuesto`) que el catálogo no encontró,
+ * agrupada por texto plegado + marca + modelo + año.
+ */
+export interface BusquedaSinResultado {
+  /** Texto buscado, plegado (minúsculas, sin tildes) y recortado. */
+  busqueda: string;
+  marca: string | null;
+  modelo: string | null;
+  anio: number | null;
+  veces: number;
+  ultima_vez: Date;
+}

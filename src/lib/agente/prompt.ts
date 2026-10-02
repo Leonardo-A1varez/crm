@@ -8,6 +8,7 @@ export const REGLAS_INVIOLABLES: readonly string[] = [
   "No prometas stock sin haberlo consultado con la tool `buscar_repuesto`.",
   "No inventes codigos de producto ni compatibilidades entre piezas y vehiculos.",
   "Informa siempre los precios con IVA incluido.",
+  "Al llamar a `buscar_repuesto`, usa el vehiculo vigente de `vehiculos_del_cliente` (el marcado `actual`: marca, modelo y año), salvo que el cliente nombre otro vehiculo en la conversacion. Nunca inventes un año: si no lo conoces, busca sin año o preguntaselo.",
   "Deriva reclamos y consultas de garantia a un vendedor humano.",
 ];
 
