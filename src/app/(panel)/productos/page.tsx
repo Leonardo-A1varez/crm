@@ -1,4 +1,8 @@
 import Link from "next/link";
+import { getBusquedasSinResultadoServiceForRequest } from "@/server/bootstrap/busquedas-sin-resultado-bootstrap";
+import { DIAS_POR_DEFECTO } from "@/server/services/catalog/busquedas-sin-resultado.service";
+import { BusquedasSinResultado } from "@/components/productos/BusquedasSinResultado";
+import { VistasProductos } from "@/components/productos/VistasProductos";
 import { BuscadorProductos } from "@/components/productos/filtros/BuscadorProductos";
 import { FiltrosActivos } from "@/components/productos/filtros/FiltrosActivos";
 import { FiltrosProductosProvider } from "@/components/productos/filtros/FiltrosProductosProvider";
@@ -17,8 +21,29 @@ export const dynamic = "force-dynamic";
  * los dos `GET` de `/api/productos/*`, que el navegador pide por lotes y junta. Acá solo
  * se decide quién ve los botones de administración.
  */
-export default async function ProductosPage() {
+export default async function ProductosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ vista?: string | string[] }>;
+}) {
   const isAdmin = (await getCurrentRol()) === "admin";
+  const { vista } = await searchParams;
+
+  // "Sin resultado": lo que el agente buscó y el catálogo no tuvo. Solo admin.
+  if (isAdmin && vista === "sin-resultado") {
+    const service = await getBusquedasSinResultadoServiceForRequest();
+    const filas = await service.listar({ dias: DIAS_POR_DEFECTO });
+    return (
+      <div className="bg-surface-root flex h-full flex-col overflow-hidden">
+        <PageHeader
+          title="Productos"
+          subtitle="Lo que el agente buscó y el catálogo no tuvo"
+          actions={<VistasProductos activa="sin-resultado" />}
+        />
+        <BusquedasSinResultado filas={filas} dias={DIAS_POR_DEFECTO} />
+      </div>
+    );
+  }
 
   return (
     // El proveedor envuelve también el encabezado: el alta de "Nuevo producto" vive ahí y
@@ -32,6 +57,7 @@ export default async function ProductosPage() {
           actions={
             isAdmin ? (
               <>
+                <VistasProductos activa="catalogo" />
                 <Link
                   href="/productos/import"
                   className="border-line-control text-ink-secondary hover:bg-surface-hover inline-flex items-center rounded-[9px] border px-[11px] py-1.5 text-[11.5px] font-semibold transition-colors"
