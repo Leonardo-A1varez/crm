@@ -604,6 +604,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       aiAgent,
       configProvider: agenteConfigProvider,
       delegaciones: workflowRuns,
+      vehiculos,
       logger,
     },
   };

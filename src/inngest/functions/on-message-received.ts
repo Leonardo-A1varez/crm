@@ -47,7 +47,9 @@ import type { AgentConfigProvider } from "@/server/services/agente/config-provid
 import {
   buildConversationTurn,
   buildRespondInput,
+  vehiculosParaAgente,
 } from "@/server/services/agente/conversation-turn";
+import type { LeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 import type { AgentTurnResult, AiAgentService } from "@/server/services/ai-agent.service";
 import type { IntentClassifierService } from "@/server/services/intent-classifier.service";
 import type { MetaApiService } from "@/server/services/meta-api.service";
@@ -180,6 +182,12 @@ export interface OnMessageReceivedDeps {
    * wirea.
    */
   delegaciones?: Pick<WorkflowRunsRepository, "delegacionesActivas">;
+  /**
+   * Los autos guardados del lead: van al contexto del agente para que busque
+   * con el vehículo real y no adivine el año. Opcional: sin él el agente recibe
+   * una lista vacía, como antes; `bootstrap.ts` lo wirea.
+   */
+  vehiculos?: Pick<LeadVehiculosRepository, "listByLeadId">;
   /**
    * Para apagar el seguimiento cuando el cliente vuelve solo. Opcional con
    * default Noop —mismo criterio que `dispatches` en el cron de reactivación—
@@ -994,6 +1002,14 @@ export async function onMessageReceivedHandler(
       }
     };
 
+    // Lectura pura y determinística: el step devuelve el JSON ya armado (no
+    // las filas con `Date`), que es lo que Inngest memoiza entre reintentos.
+    const vehiculos = await conErrorDeBorrador(() =>
+      step.run("leer-vehiculos", async () =>
+        deps.vehiculos ? vehiculosParaAgente(await deps.vehiculos.listByLeadId(lead.id)) : [],
+      ),
+    );
+
     const agentResult: AgentTurnResult = await conErrorDeBorrador(() =>
       step.run("respond", () =>
         deps.aiAgent.respond(
@@ -1003,6 +1019,7 @@ export async function onMessageReceivedHandler(
             classification,
             mensajeOrigenId: inbound.id,
             tramos,
+            vehiculos,
           }),
         ),
       ),

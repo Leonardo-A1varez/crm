@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
+import type { LeadVehiculo } from "@/types/entities";
 import { InMemoryMessagesRepository } from "@/server/repositories/messages.repo";
 import {
   buildConversationTurn,
   buildRespondInput,
+  vehiculosParaAgente,
 } from "@/server/services/agente/conversation-turn";
 
 const CLASIFICACION = { intent_nombre: "horario", confidence: 0.8 };
@@ -127,5 +129,52 @@ describe("buildConversationTurn", () => {
       "lead: dos",
       "lead: tres",
     ]);
+  });
+});
+
+describe("vehiculosParaAgente", () => {
+  const fila = (o: Partial<LeadVehiculo>): LeadVehiculo => ({
+    id: "v",
+    lead_id: "l-1",
+    marca: null,
+    modelo: null,
+    anio: null,
+    motor: null,
+    placa: "ABC123",
+    placa_original: "ABC-123",
+    vin: "VIN1",
+    vin_original: "VIN1",
+    principal: false,
+    created_at: new Date("2026-01-01"),
+    ...o,
+  });
+
+  test("deja solo marca/modelo/anio/motor y marca el primero como actual", () => {
+    expect(
+      vehiculosParaAgente([fila({ marca: "Chevrolet", modelo: "Aveo", anio: 2005, motor: "1.6" })]),
+    ).toEqual([{ marca: "Chevrolet", modelo: "Aveo", anio: 2005, motor: "1.6", actual: true }]);
+  });
+
+  test("el principal va primero y despues el mas nuevo", () => {
+    const r = vehiculosParaAgente([
+      fila({ modelo: "viejo", created_at: new Date("2026-01-01") }),
+      fila({ modelo: "nuevo", created_at: new Date("2026-03-01") }),
+      fila({ modelo: "principal", principal: true, created_at: new Date("2025-01-01") }),
+    ]);
+    expect(r.map((v) => v.modelo)).toEqual(["principal", "nuevo", "viejo"]);
+    expect(r.map((v) => v.actual)).toEqual([true, false, false]);
+  });
+
+  test("buildRespondInput los pasa y sin ellos la clave no existe", () => {
+    const base = {
+      leadSessionId: "s-1",
+      conversationTurn: [],
+      classification: CLASIFICACION,
+      mensajeOrigenId: "m-1",
+      tramos: [],
+    };
+    const v = [{ marca: "Kia", modelo: "Rio", anio: 2010, motor: null, actual: true }];
+    expect(buildRespondInput({ ...base, vehiculos: v }).vehiculos).toEqual(v);
+    expect("vehiculos" in buildRespondInput(base)).toBe(false);
   });
 });

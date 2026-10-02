@@ -363,6 +363,38 @@ describe("config en runtime", () => {
     expect(prompts[1]).toContain('"difusion_respondida": null');
   });
 
+  // Bug real: el contexto mandaba `vehiculo: {}` y el agente, sin ver el Aveo
+  // 2005 guardado, cotizaba con un año inventado.
+  test("el contexto lleva los vehiculos guardados del cliente, sin placa ni VIN", async () => {
+    const prompts: string[] = [];
+    const llm = makeAgentLLM({
+      doGenerate: async (options) => {
+        for (const m of options.prompt) {
+          if (m.role !== "user") continue;
+          for (const parte of m.content) if (parte.type === "text") prompts.push(parte.text);
+        }
+        return rawTextResult("ok");
+      },
+    });
+    await llm.generate({
+      ...agentInputFalso(),
+      vehiculos: [
+        { marca: "Chevrolet", modelo: "Aveo", anio: 2005, motor: "1.6", actual: true },
+        { marca: "Kia", modelo: "Rio", anio: null, motor: null, actual: false },
+      ],
+    });
+    await llm.generate(agentInputFalso());
+
+    const contexto = prompts[0] ?? "";
+    expect(contexto).toContain('"vehiculos_del_cliente"');
+    expect(contexto).toContain('"anio": 2005');
+    expect(contexto).toContain('"actual": true');
+    expect(contexto).not.toMatch(/placa|vin/i);
+    expect(contexto).not.toContain('"vehiculo"');
+    // Sin vehiculos la lista va vacia, no ausente.
+    expect(prompts[1]).toContain('"vehiculos_del_cliente": []');
+  });
+
   test("recordLlmUsage registra el modelo de la config, no el de bootstrap", async () => {
     const tracker = new InMemoryCostTracker({ pricing: OPENAI_PRICING, dailyCapUsd: 10 });
     const spy = vi.spyOn(tracker, "record");

@@ -11,6 +11,7 @@ import { InMemoryProductsRepository } from "@/server/repositories/productos.repo
 import { InMemoryLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
 import { InMemoryDifusionSupresionesRepository } from "@/server/repositories/difusion-supresiones.repo";
 import { InMemoryReglasEtiquetaRepository } from "@/server/repositories/reglas-etiqueta.repo";
+import { InMemoryLeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 import { InMemoryTagsRepository } from "@/server/repositories/tags.repo";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
 import { DefaultIntentClassifierService } from "@/server/services/intent-classifier.service";
@@ -72,6 +73,7 @@ function makeDeps(activas: DelegacionActiva[]) {
     new DefaultCatalogMatcherService(new InMemoryProductsRepository()),
     agentLLM,
   );
+  const vehiculos = new InMemoryLeadVehiculosRepository();
   const delegacionesActivas = vi.fn(async () => activas);
   const emitted: EmittedEvent[] = [];
   const deps: OnMessageReceivedDeps = {
@@ -92,12 +94,13 @@ function makeDeps(activas: DelegacionActiva[]) {
     respuestaDifusion: { registrar: async () => null },
     plantillasSinSesion: { registrar: async () => 0 },
     delegaciones: { delegacionesActivas },
+    vehiculos,
     configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
     emit: async (e) => {
       emitted.push(e);
     },
   };
-  return { deps, emitted, intentLLM, agentLLM, intents, messages, delegacionesActivas };
+  return { deps, emitted, intentLLM, agentLLM, intents, messages, delegacionesActivas, vehiculos };
 }
 
 const turnos = (emitted: EmittedEvent[]) =>
@@ -171,6 +174,36 @@ describe("on-message-received — Delegar al agente", () => {
         id: expect.stringMatching(/^delegacion-error:/),
         data: { tipo: "error", runIds: ["run-1"] },
       },
+    ]);
+  });
+});
+
+describe("on-message-received — vehiculos guardados del cliente", () => {
+  test("el agente recibe los autos del lead; sin autos, lista vacia", async () => {
+    const ctx = makeDeps([]);
+    await conIntent(ctx);
+    ctx.agentLLM.enqueueText("Hola");
+    await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+    expect(ctx.agentLLM.calls[0]?.vehiculos).toEqual([]);
+
+    const lead = await ctx.deps.leads.findByTelefono("5491122334455");
+    await ctx.vehiculos.create({
+      lead_id: lead!.id,
+      marca: "Chevrolet",
+      modelo: "Aveo",
+      anio: 2005,
+      motor: null,
+      placa: null,
+      placa_original: null,
+      vin: null,
+      vin_original: null,
+      principal: true,
+    });
+    await conIntent(ctx);
+    ctx.agentLLM.enqueueText("Listo");
+    await onMessageReceivedHandler({ parsed: parsed({ meta_message_id: "wamid.IN-2" }) }, ctx.deps);
+    expect(ctx.agentLLM.calls[1]?.vehiculos).toEqual([
+      { marca: "Chevrolet", modelo: "Aveo", anio: 2005, motor: null, actual: true },
     ]);
   });
 });

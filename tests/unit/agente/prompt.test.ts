@@ -36,8 +36,14 @@ describe("orden de los bloques", () => {
 });
 
 describe("reglas inviolables", () => {
-  test("son las 4 del handoff", () => {
-    expect(REGLAS_INVIOLABLES).toHaveLength(4);
+  test("son las 4 del handoff mas la del vehiculo guardado", () => {
+    expect(REGLAS_INVIOLABLES).toHaveLength(5);
+  });
+
+  test("buscar_repuesto usa el vehiculo vigente del cliente y nunca inventa un anio", () => {
+    const prompt = componerSystemPrompt(config());
+    expect(prompt).toContain("vehiculos_del_cliente");
+    expect(prompt).toMatch(/nunca inventes un a[nñ]o/i);
   });
 
   test("estan siempre presentes, con cualquier configuracion", () => {

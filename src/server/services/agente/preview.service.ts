@@ -1,6 +1,8 @@
 import { NotFoundError } from "@/lib/errors";
 import { StaticAgentConfigProvider } from "@/server/services/agente/config-provider";
 import type { AgentConfigProvider } from "@/server/services/agente/config-provider";
+import { vehiculosParaAgente } from "@/server/services/agente/conversation-turn";
+import type { LeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.repo";
 import type { AgentLLM, AgentTools } from "@/server/services/ai-agent.service";
 import type { CatalogMatcherService } from "@/server/services/catalog-matcher.service";
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
@@ -51,6 +53,8 @@ export class DefaultAgentePreviewService implements AgentePreviewService {
     // que el `AgentLLM` (con su `StaticAgentConfigProvider`) se arma acá
     // adentro, no una sola vez al bootstrapear el service.
     private readonly makeLlm: (configProvider: AgentConfigProvider) => AgentLLM,
+    // Opcional: sin repo el preview corre sin autos, como antes.
+    private readonly vehiculos?: Pick<LeadVehiculosRepository, "listByLeadId">,
   ) {}
 
   async previsualizar(input: PrevisualizarInput): Promise<PrevisualizarResult> {
@@ -93,6 +97,9 @@ export class DefaultAgentePreviewService implements AgentePreviewService {
       // así que un valor neutro no le resta fidelidad a lo que se prueba.
       classification: { intent_nombre: null, confidence: 0 },
       tools,
+      vehiculos: this.vehiculos
+        ? vehiculosParaAgente(await this.vehiculos.listByLeadId(session.lead_id))
+        : [],
     });
 
     return { respuesta: result.text, respuestaOriginal };

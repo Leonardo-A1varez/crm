@@ -109,10 +109,9 @@ export class OpenAiAgentLLM implements AgentLLM {
         current_stage: input.session.current_stage,
         urgencia: input.session.urgencia,
         consulta_previa: input.session.consulta,
-        vehiculo: {
-          // Lead-level data viaja en el twin de la sesión via extras o consulta.
-          // Acá lo dejamos a discreción del LLM extraer del turn.
-        },
+        // Los autos guardados del cliente, el vigente primero. Sin esto el
+        // modelo adivinaba el año al buscar (cotizó un Aveo 2005 como 2023).
+        vehiculos_del_cliente: input.vehiculos ?? [],
         context_summary: input.session.context_summary,
         // A qué difusión respondió el cliente en esta sesión, o null. La
         // plantilla también está en el turno, pero sale de la ventana de

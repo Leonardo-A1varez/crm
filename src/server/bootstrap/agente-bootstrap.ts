@@ -17,6 +17,7 @@ import {
   type AgenteConfigAuditPort,
 } from "@/server/services/agente/agente-config.service";
 import { CachedAgentConfigProvider } from "@/server/services/agente/config-provider";
+import { SupabaseLeadVehiculosRepository } from "@/server/repositories/lead-vehiculos.supabase.repo";
 import { DefaultAgentePreviewService } from "@/server/services/agente/preview.service";
 import {
   DefaultAgentePreviewSessionsService,
@@ -120,5 +121,6 @@ export async function getAgentePreviewServiceForRequest(): Promise<AgentePreview
         workflow: WORKFLOW_LLM.agentePreview,
         logger,
       }),
+    new SupabaseLeadVehiculosRepository(db),
   );
 }
