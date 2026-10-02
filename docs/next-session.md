@@ -6,41 +6,27 @@
 >
 > Acotar el foco limita el alcance, nunca el rigor.
 
-Escrito el 2026-09-26. Todo lo que dice "verificado" tiene al lado el comando o la fuente; el resto está marcado como pendiente o sin verificar.
+Actualizado el 2026-10-02 (el resto del archivo es del 2026-09-26 y puede estar viejo). Todo lo que dice "verificado" tiene al lado el comando o la fuente; el resto está marcado como pendiente o sin verificar.
 
 ---
 
 ## 1. Estado de la rama
 
-| Qué                       | Estado                                                              | Cómo comprobarlo                                                    |
-| ------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `feat/workflows-difusion` | 13 commits sobre `master`, **no existe en el remoto**               | `git log --oneline master..HEAD` · `git ls-remote --heads origin`   |
-| `master` local            | 27 commits sin pushear sobre `origin/master` (`91de606`)            | `git log --oneline origin/master..master`                           |
-| Migraciones               | 88 archivos, las 88 aplicadas en crm-dev                            | `ls supabase/migrations/*.sql \| wc -l` · `supabase migration list` |
-| Código en Vercel          | **No desplegado.** Producción corre lo que había en `origin/master` | —                                                                   |
+| Qué         | Estado                                                                                                                                                     | Cómo comprobarlo                                                                                       |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `master`    | = `origin/master` = `7173f87`                                                                                                                              | `git rev-parse master origin/master`                                                                   |
+| Producción  | Desplegada en `https://crm-wine-one-38.vercel.app`; `/api/health` ok (db/inngest/openai)                                                                   | Vercel + `curl /api/health`                                                                            |
+| Migraciones | 91 archivos, 91 en el ledger de crm-dev; última `20261001130000`                                                                                           | `ls supabase/migrations/*.sql \| wc -l` · `select count(*) from supabase_migrations.schema_migrations` |
+| Catálogo    | 21.009 filas en `productos` (ya no está vacío)                                                                                                             | `select count(*) from productos`                                                                       |
+| Sin mergear | `feat/costos-meta-oct` (migración `20260927180000_costos_meta.sql` no aplicada) · `workflows-fundacion` (sin revisar) · suite de evals del agente en curso | `git branch -vv`                                                                                       |
 
-**Falta:** push de `master`, push de la rama y PR contra `master`. Antes del PR, semgrep sobre los archivos tocados (CLAUDE.md global). El PR es grande: conviene que el cuerpo remita a `AGENTS.md` §2 en lugar de repetir la lista.
+**Falta:** ver "Siguiente sub-paso" en `AGENTS.md` §2. El orden del deploy ya se cumplió; antes de cualquier migración nueva, `AGENTS.md` lección 16 (frenar agentes, `supabase db push --dry-run`, comparar).
 
-### Orden del deploy
+### Copiloto del Inbox
 
-1. **`db:push` a crm-dev: ya está hecho.** El ledger remoto tiene las 88 y la última es `20260926180000_turnos_interceptados_y_notificaciones`. Antes de cualquier push nuevo, `AGENTS.md` lección 16: frenar a los agentes, `supabase db push --dry-run` y comparar.
-2. **Variables en Vercel** (sección 3), antes de que entre el código.
-3. **Recién ahí, el código.** Al revés, el código nuevo corre contra columnas y RPC que no existen.
+`20260930120000_copiloto.sql` aplicada en crm-dev y código desplegado (PR #1). Regla que queda: **si un push a `master` despliega solo (Vercel), la migración se aplica antes del push** (lección 16).
 
-### Copiloto del Inbox: la migración va ANTES del código
-
-`supabase/migrations/20260930120000_copiloto.sql` (tabla `borradores_ia`, RPC `iniciar_borrador_ia`, `conversaciones.modo_respuesta_override`, `agente_config.horario_equipo`) está aplicada **solo en el stack local**, no en crm-dev. Con el código desplegado y la migración sin aplicar:
-
-- `invalidar-borrador-previo` falla en cada entrante. Con el código actual solo se avisa (`borrador.invalidar_previo_fallo`) y el turno sigue si el modo no es Copiloto, pero la lista del Inbox pierde la marca de borrador y **guardar en `/agente` falla** (la columna `horario_equipo` no existe). No es un estado para dejar a propósito.
-- **Si un push a `master` despliega solo (Vercel), la migración se aplica antes del push**, no después.
-
-Pasos (lección 16 de `AGENTS.md`): (1) frenar a cualquier agente que pueda estar escribiendo migraciones; (2) `supabase db push --dry-run` y comparar la lista con `ls supabase/migrations/*.sql`; (3) recién ahí `npm run db:push`; (4) `supabase migration list` con local = remoto; (5) después el push del código.
-
-**Requisitos operativos antes de encender el copiloto en crm-dev** (hoy no se cumplen y no están automatizados):
-
-- [ ] Corregir `horario_timezone` a `America/Guayaquil` en la config activa del agente (el horario del equipo se evalúa en esa zona; con una zona inválida el equipo cuenta como cerrado y el modo cae a Automático).
-- [ ] Subir `escalar_umbral_intents` a 5 (el de fábrica es 2; requisito de la revisión final de rama del copiloto).
-- [ ] Cargar el `horario_equipo` real desde `/agente` → Límites. Vacío = sin equipo = el comportamiento de siempre (Automático).
+Config activa del agente (versión 2, leída el 2026-10-02): `horario_timezone = America/Guayaquil` ✅ · `escalar_umbral_intents = 5` ✅ · `horario_equipo` vacío en los 7 días ⏳ — falta que el dueño cargue el horario real desde `/agente` → Límites; mientras esté vacío el modo es Automático, como antes.
 
 ---
 
