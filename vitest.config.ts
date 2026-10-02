@@ -10,6 +10,7 @@ export default defineConfig({
     exclude: [
       "**/node_modules/**",
       "tests/integration/**", // Slice 1 7.4+: requieren Supabase real (npm run test:integration)
+      "tests/evals/**", // llaman a OpenAI real y cuestan plata (npm run test:eval:agente)
     ],
     coverage: {
       provider: "v8",
