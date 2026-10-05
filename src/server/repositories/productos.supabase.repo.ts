@@ -23,7 +23,7 @@ import { ilikeContains } from "@/server/db/postgrest-like";
 import { serverNowIso } from "@/server/db/server-time";
 import type { Database, Json } from "@/server/db/types.gen";
 import { isUuid } from "@/server/db/uuid";
-import type { CompatibilidadEntry, Producto, UUID } from "@/types/entities";
+import type { Producto, UUID } from "@/types/entities";
 import type { Faceta, LoteProductos, ProductoFila } from "@/types/productos";
 import type {
   ProductoBulkUpsertItem,
@@ -404,7 +404,7 @@ interface ProductoRow {
 }
 
 function mapRow(row: ProductoRow): Producto {
-  const compat = (row.compatibilidad ?? []) as CompatibilidadEntry[];
+  const compat = leerCompatibilidad(row.compatibilidad);
   return {
     id: row.id,
     codigo_interno: row.codigo_interno,

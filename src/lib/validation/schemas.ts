@@ -41,8 +41,11 @@ export const MetaUserIdsSchema = z.object({
 export const CompatibilidadEntrySchema = z.object({
   marca: z.string().min(1),
   modelo: z.string().min(1),
-  anio_desde: z.number().int().min(1900).max(2100),
-  anio_hasta: z.number().int().min(1900).max(2100),
+  modelo_nombre: z.string().nullish(),
+  anio_desde: z.number().int().min(1900).max(2100).nullish(),
+  anio_hasta: z.number().int().min(1900).max(2100).nullish(),
+  cilindrada: z.string().nullish(),
+  combustible: z.enum(["GAS", "DSL"]).nullish(),
   motor: z.string().optional(),
 });
 

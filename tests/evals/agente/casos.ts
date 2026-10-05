@@ -77,6 +77,7 @@ import {
   noAfirmaTener,
   noOfreceDescuento,
   noPrometeDisponibilidad,
+  noVuelveAPedirElModelo,
   pideAclaracion,
   pideDato,
   pideVehiculo,
@@ -144,12 +145,18 @@ export const CASOS: CasoAgente[] = [
     id: "real-radiador-aveo-sin-auto-guardado",
     origen: "real",
     proposito:
-      "Decisión del dueño 2026-10-05: sin auto guardado, el agente pide el vehículo (marca, modelo, año) ANTES de buscar. No busca, no cotiza.",
+      "Regla del dueño 2026-10-05: solo pide el vehículo si no hay ninguno guardado NI nombrado. Acá el cliente nombra el Aveo: busca ya y no vuelve a pedir el modelo (si algo difiere, pregunta solo eso).",
     notaOrigen:
-      "Mensaje real del 2026-08-15 (típico del turno anterior al auto guardado). Catálogo del stub: el radiador real, para detectar si cotiza sin preguntar.",
+      "Mensaje real del 2026-08-15 (típico del turno anterior al auto guardado). Catálogo del stub: el radiador real.",
     turno: ["lead: Busco radiador para el aveo"],
     catalogo: [RADIADOR_AVEO],
-    verificaciones: [noBusca(), pideVehiculo(), sinCotizar()],
+    verificaciones: [
+      buscaAlgunaVez(),
+      argumento("modelo", "aveo"),
+      noVuelveAPedirElModelo(),
+      noInventaPrecios(),
+      noInventaCodigos(),
+    ],
   },
   {
     id: "real-radiador-aveo-activo-sin-stock",

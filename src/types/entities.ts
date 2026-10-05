@@ -29,11 +29,24 @@ export interface MetaUserIds {
   fb?: string;
 }
 
+/**
+ * Un elemento de `productos.compatibilidad`. Es la forma unica: la escribe el
+ * traductor del catalogo (`traducirDescripcion`), la valida
+ * `CompatibilidadEntrySchema` y la lee `leerCompatibilidad`. Todo lo que no sea
+ * marca y modelo puede faltar o ser `null`: "no sabemos", no "no sirve". Un
+ * `anio_desde` nulo es "desde siempre"; un `anio_hasta` nulo, "hasta hoy".
+ */
 export interface CompatibilidadEntry {
   marca: string;
+  /** Sigla del modelo tal como esta en el catalogo: `ACC`. */
   modelo: string;
-  anio_desde: number;
-  anio_hasta: number;
+  /** Nombre unificado del diccionario ("Hyundai Accent"). */
+  modelo_nombre?: string | null;
+  anio_desde?: number | null;
+  anio_hasta?: number | null;
+  /** En litros con un decimal: "1.6". */
+  cilindrada?: string | null;
+  combustible?: "GAS" | "DSL" | null;
   motor?: string;
 }
 

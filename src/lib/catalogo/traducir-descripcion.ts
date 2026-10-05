@@ -13,6 +13,8 @@
  * ningún modelo del diccionario devuelve `[]`.
  */
 
+import type { CompatibilidadEntry } from "@/types/entities";
+
 export type Combustible = "GAS" | "DSL";
 export type ConfianzaModelo = "alta" | "media" | "baja";
 
@@ -35,19 +37,8 @@ export interface ModeloDiccionario {
   compuesto: boolean;
 }
 
-export interface Compatibilidad {
-  /** Marca completa derivada de la sigla del modelo: `Hyundai`. */
-  marca: string;
-  /** Sigla del modelo tal como está en el catálogo: `ACC`. */
-  modelo: string;
-  /** Nombre unificado del modelo (el de todas sus variantes de escritura). */
-  modelo_nombre: string;
-  anio_desde: number | null;
-  anio_hasta: number | null;
-  /** Litros con un decimal: `"1.6"`. */
-  cilindrada: string | null;
-  combustible: Combustible | null;
-}
+/** Lo que escribe el traductor: la forma unica `CompatibilidadEntry`, con todos sus campos presentes. */
+export type Compatibilidad = Required<Omit<CompatibilidadEntry, "motor">>;
 
 // ---------------------------------------------------------------------------
 // Diccionario

@@ -119,7 +119,7 @@ const el = (
   anio_desde: number | null,
   anio_hasta: number | null,
   cilindrada: string | null,
-  combustible: string | null,
+  combustible: "GAS" | "DSL" | null,
   modelo_nombre?: string,
 ): ElementoCompatibilidad => ({
   marca,

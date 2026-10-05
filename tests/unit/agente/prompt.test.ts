@@ -53,6 +53,13 @@ describe("reglas inviolables", () => {
       );
     });
 
+    test("con el modelo nombrado busca sin volver a pedirlo y pregunta solo lo que difiere", () => {
+      expect(prompt()).toMatch(/solo si el cliente no dijo para que auto es la pieza/i);
+      expect(prompt()).toMatch(
+        /busca ya sin volver a pedirle el modelo y pregunta despues solo lo que difiera/i,
+      );
+    });
+
     test("la regla del vehiculo no aplica a reclamos ni a codigos exactos", () => {
       expect(prompt()).toMatch(/no aplica a reclamos, garantias/i);
       expect(prompt()).toMatch(/codigo de producto exacto/i);

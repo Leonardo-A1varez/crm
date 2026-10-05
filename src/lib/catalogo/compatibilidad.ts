@@ -1,4 +1,5 @@
 import { plegarTexto } from "@/lib/catalogo/plegar-texto";
+import type { CompatibilidadEntry } from "@/types/entities";
 
 /**
  * Compatibilidad de un producto con un vehículo.
@@ -19,22 +20,7 @@ import { plegarTexto } from "@/lib/catalogo/plegar-texto";
  * Todo lo que no sea marca y modelo puede faltar: `null` es "no sabemos", no
  * "no sirve". Un `anio_desde` nulo es "desde siempre"; un `anio_hasta` nulo, "hasta hoy".
  */
-export interface ElementoCompatibilidad {
-  marca: string;
-  modelo: string;
-  anio_desde?: number | null;
-  anio_hasta?: number | null;
-  /** En litros con un decimal: "1.6". */
-  cilindrada?: string | null;
-  /** "GAS" o "DSL". */
-  combustible?: string | null;
-  /**
-   * El nombre unificado del diccionario ("Kia Picanto"): PIC, PICANT y PICANTO son
-   * siglas distintas del mismo modelo. Lo escribe el traductor del inventario.
-   */
-  modelo_nombre?: string | null;
-  motor?: string;
-}
+export type ElementoCompatibilidad = CompatibilidadEntry;
 
 /** Una fila de `catalogo_modelos`. */
 export interface ModeloCatalogo {
@@ -68,6 +54,9 @@ const numeroONulo = (v: unknown): number | null =>
 const textoONulo = (v: unknown): string | null =>
   typeof v === "string" && v.trim() !== "" ? v : null;
 
+const combustibleONulo = (v: unknown): "GAS" | "DSL" | null =>
+  v === "GAS" || v === "DSL" ? v : null;
+
 /**
  * Lee `compatibilidad` tal como vuelve de Postgres (`jsonb`). Descarta lo que no
  * tenga marca y modelo en vez de tirar: un elemento mal escrito no tiene que
@@ -82,13 +71,15 @@ export function leerCompatibilidad(json: unknown): ElementoCompatibilidad[] {
     const marca = textoONulo(r["marca"]);
     const modelo = textoONulo(r["modelo"]);
     if (marca === null || modelo === null) continue;
+    const motor = textoONulo(r["motor"]);
     salida.push({
       marca,
       modelo,
+      ...(motor !== null ? { motor } : {}),
       anio_desde: numeroONulo(r["anio_desde"]),
       anio_hasta: numeroONulo(r["anio_hasta"]),
       cilindrada: textoONulo(r["cilindrada"]),
-      combustible: textoONulo(r["combustible"]),
+      combustible: combustibleONulo(r["combustible"]),
       modelo_nombre: textoONulo(r["modelo_nombre"]),
     });
   }

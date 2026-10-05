@@ -200,6 +200,19 @@ function pideAlgo(texto: string): boolean {
   );
 }
 
+/**
+ * El cliente ya nombró el modelo: no vuelve a pedirle el modelo ni la marca
+ * (preguntar el año o la cilindrada que difieren sí está permitido).
+ */
+export function noVuelveAPedirElModelo(): Verificacion {
+  return (r) =>
+    /(que (modelo|auto|vehiculo|marca)|cual (es )?(el|la) (modelo|marca)|(modelo|marca) (es|de tu|del))/.test(
+      norm(r.texto),
+    )
+      ? `volvió a pedir el modelo o la marca que el cliente ya nombró. Respuesta: «${r.texto}»`
+      : null;
+}
+
 /** Pregunta algo y lo que pregunta es por el vehículo (marca, modelo o año). */
 export function pideVehiculo(): Verificacion {
   return pideDato(/(vehiculo|auto\b|carro|camioneta|marca|modelo|\bano\b)/, "el vehículo");
