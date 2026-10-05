@@ -10,6 +10,7 @@ import {
   COLUMNAS_LISTA,
   DEFINICIONES_LISTA,
 } from "@/lib/catalogo/columnas-productos";
+import { leerCompatibilidad } from "@/lib/catalogo/compatibilidad";
 import {
   LOTE_TAMANO,
   type OpcionesFaceta,
@@ -184,6 +185,7 @@ export class SupabaseProductsRepository implements ProductsRepository {
       p_marca: input.marca ?? undefined,
       p_modelo: input.modelo ?? undefined,
       p_anio: input.anio ?? undefined,
+      p_cilindrada: input.cilindrada ?? undefined,
       p_tope: input.tope ?? undefined,
     });
     if (error) throw mapPostgrestError(error, { resource: "producto" });
@@ -197,6 +199,7 @@ export class SupabaseProductsRepository implements ProductsRepository {
       precio: row.precio,
       stock: row.stock,
       puntaje: row.puntaje,
+      compatibilidad: leerCompatibilidad(row.compatibilidad),
     }));
   }
 

@@ -3,6 +3,12 @@ import type {
   BuscarRepuestoMatch,
   BuscarRepuestoOutput,
 } from "@/lib/validation/ai";
+import {
+  diferenciasEntre,
+  etiquetasDeCompatibilidad,
+  normalizarCilindrada,
+} from "@/lib/catalogo/compatibilidad";
+import { avisoSobremedida } from "@/lib/catalogo/sobremedida";
 import type { ProductsRepository } from "@/server/repositories/productos.repo";
 
 /**
@@ -33,26 +39,68 @@ export interface CatalogMatcherService {
  */
 const TOPE_PARA_EL_AGENTE = 20;
 
+/** Un texto vacío o en blanco es "no lo dijo". */
+const textoUtil = (s: string | undefined): string | undefined => {
+  const t = s?.trim();
+  return t ? t : undefined;
+};
+
 export class DefaultCatalogMatcherService implements CatalogMatcherService {
   constructor(private readonly productos: ProductsRepository) {}
 
   async buscar(input: BuscarRepuestoInput): Promise<BuscarRepuestoOutput> {
+    // Los modelos de lenguaje mandan `0` cuando no saben el año aunque el schema
+    // les diga que lo omitan. El año 0 no existe: es "desconocido", y buscarlo
+    // como año descartaría todo producto con rango de años cargado.
+    const anio = input.anio !== undefined && input.anio > 0 ? input.anio : undefined;
+    const cilindrada = normalizarCilindrada(input.cilindrada);
+
     const hits = await this.productos.search({
       q: input.query,
-      marca: input.marca,
-      modelo: input.modelo,
-      anio: input.anio,
+      marca: textoUtil(input.marca),
+      modelo: textoUtil(input.modelo),
+      anio,
+      cilindrada,
       tope: TOPE_PARA_EL_AGENTE,
     });
 
-    const matches: BuscarRepuestoMatch[] = hits.map((h) => ({
-      id: h.id,
-      codigo_interno: h.codigo_interno,
-      nombre: h.nombre,
-      precio: h.precio,
-      stock: h.stock,
-    }));
+    // En qué se diferencian los mejores candidatos: lo único que el agente tiene
+    // que preguntar. Lo que el cliente ya dijo (año, cilindrada) no entra.
+    const diferencias = diferenciasEntre(hits, { anio, cilindrada });
 
-    return { matches, count: matches.length };
+    const matches: BuscarRepuestoMatch[] = hits.map((h) => {
+      const base: BuscarRepuestoMatch = {
+        id: h.id,
+        codigo_interno: h.codigo_interno,
+        nombre: h.nombre,
+        precio: h.precio,
+        stock: h.stock,
+      };
+      if (!diferencias) return base;
+      // A cada candidato, solo los atributos que lo distinguen de los otros.
+      const e = etiquetasDeCompatibilidad(h.compatibilidad);
+      const dif = diferencias.atributos;
+      return {
+        ...base,
+        ...(dif.includes("anio") && e.anio.length > 0 ? { anios: e.anio } : {}),
+        ...(dif.includes("cilindrada") && e.cilindrada.length > 0
+          ? { cilindradas: e.cilindrada }
+          : {}),
+        ...(dif.includes("combustible") && e.combustible.length > 0
+          ? { combustibles: e.combustible }
+          : {}),
+      };
+    });
+
+    const aviso = avisoSobremedida(hits);
+
+    // El aviso va primero a propósito: es lo que el modelo tiene que leer antes
+    // de mirar precios.
+    return {
+      ...(aviso ? { aviso } : {}),
+      matches,
+      count: matches.length,
+      ...(diferencias ? { diferencias } : {}),
+    };
   }
 }

@@ -36,8 +36,69 @@ describe("orden de los bloques", () => {
 });
 
 describe("reglas inviolables", () => {
-  test("son las 4 del handoff mas la del vehiculo guardado", () => {
-    expect(REGLAS_INVIOLABLES).toHaveLength(5);
+  test("son las 4 del handoff, la del vehiculo guardado y las 5 de conducta del catalogo", () => {
+    expect(REGLAS_INVIOLABLES).toHaveLength(10);
+  });
+
+  describe("conducta del catalogo (como-leer-el-catalogo.md §12)", () => {
+    const prompt = () => componerSystemPrompt(config());
+
+    test("sin vehiculo conocido pide el modelo antes de buscar y no cotiza", () => {
+      expect(prompt()).toMatch(/pedile el modelo antes de usar `buscar_repuesto` y no cotices/i);
+    });
+
+    test("alcanza con el vehiculo guardado o con que el cliente haya nombrado el modelo", () => {
+      expect(prompt()).toMatch(
+        /no hay un vehiculo en `vehiculos_del_cliente`.*si ya nombro un modelo en la conversacion.*no pidas la marca/is,
+      );
+    });
+
+    test("la regla del vehiculo no aplica a reclamos ni a codigos exactos", () => {
+      expect(prompt()).toMatch(/no aplica a reclamos, garantias/i);
+      expect(prompt()).toMatch(/codigo de producto exacto/i);
+    });
+
+    test("busca primero: no se pide año, cilindrada ni combustible antes de buscar", () => {
+      expect(prompt()).toMatch(/no pidas año, cilindrada ni combustible antes de buscar/i);
+    });
+
+    test("el año desconocido se omite, nunca se manda 0", () => {
+      expect(prompt()).toMatch(/omiti.*anio|omit[ií].*a[nñ]o/i);
+      expect(prompt()).toMatch(/nunca (mandes|envies|pongas) 0/i);
+    });
+
+    test("pistones, chaquetas y anillos exigen la sobremedida antes de cotizar", () => {
+      const p = prompt();
+      expect(p).toMatch(/pistones/i);
+      expect(p).toMatch(/chaquetas/i);
+      expect(p).toMatch(/anillos/i);
+      expect(p).toMatch(/sobremedida/i);
+      expect(p).toMatch(/rectificado/i);
+    });
+
+    test("si los candidatos difieren en un atributo, pregunta ese atributo", () => {
+      const p = prompt();
+      expect(p).toContain("diferencias");
+      expect(p).toMatch(/cilindrada/i);
+      expect(p).toMatch(/combustible/i);
+      expect(p).toMatch(/delantero o posterior/i);
+      expect(p).toMatch(/solo (ese|lo que difiere)/i);
+    });
+
+    test("precio vacio o cero es 'a consultar', nunca $0; stock 0 se dice", () => {
+      const p = prompt();
+      expect(p).toMatch(/precio a consultar/i);
+      expect(p).toMatch(/nunca "\$0"/);
+      expect(p).toMatch(/stock 0/i);
+    });
+
+    test("si ofrece una pieza distinta a la pedida, lo aclara", () => {
+      expect(prompt()).toMatch(/pieza distinta/i);
+    });
+
+    test("mantiene la regla del IVA", () => {
+      expect(prompt()).toContain("Informa siempre los precios con IVA incluido.");
+    });
   });
 
   test("buscar_repuesto usa el vehiculo vigente del cliente y nunca inventa un anio", () => {
