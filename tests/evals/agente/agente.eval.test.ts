@@ -28,6 +28,9 @@ import { CASOS, type BusquedaHecha, type CasoAgente } from "./casos";
  *   EVAL_UMBRAL           fracción de repeticiones que tiene que pasar para dar
  *                         el caso por bueno (default 1 = todas).
  *   EVAL_CASO             filtro por id (substring) para correr solo algunos.
+ *   EVAL_CONCURRENCIA     llamadas a OpenAI en paralelo (default 4). Bajarla si el
+ *                         modelo tiene un TPM chico: con gpt-4.1 (30.000 TPM) 29 casos
+ *                         a la vez dan 429 y la corrida mide el rate limit, no al agente.
  *
  * No entra en `npm test`: `vitest.config.ts` excluye `tests/evals/**` porque
  * cada corrida gasta plata y depende de la red.
@@ -38,6 +41,7 @@ const modelo = process.env["EVAL_AGENTE_MODELO"] || CONFIG_DE_FABRICA.modelo;
 const repeticiones = Math.max(1, Number(process.env["EVAL_REPETICIONES"] ?? "1") || 1);
 const umbral = Number(process.env["EVAL_UMBRAL"] ?? "1") || 1;
 const filtro = process.env["EVAL_CASO"] ?? "";
+const concurrencia = Math.max(1, Number(process.env["EVAL_CONCURRENCIA"] ?? "4") || 4);
 
 if (!apiKey) {
   console.warn(
@@ -85,6 +89,35 @@ interface Corrida {
 
 const resumen = new Map<string, { caso: CasoAgente; corridas: Corrida[] }>();
 
+/** Semáforo simple: a lo sumo `concurrencia` llamadas al modelo a la vez. */
+let enVuelo = 0;
+const cola: Array<() => void> = [];
+async function conCupo<T>(f: () => Promise<T>): Promise<T> {
+  if (enVuelo >= concurrencia) await new Promise<void>((ok) => cola.push(ok));
+  enVuelo += 1;
+  try {
+    return await f();
+  } finally {
+    enVuelo -= 1;
+    cola.shift()?.();
+  }
+}
+
+const esRateLimit = (e: unknown): boolean =>
+  /rate limit|429|too many requests/i.test(e instanceof Error ? e.message : String(e));
+
+/** Reintenta los 429 con espera: un rate limit no es una falla del agente. */
+async function generarConReintento(agente: OpenAiAgentLLM, input: AgentLLMInput): Promise<string> {
+  for (let intento = 1; ; intento++) {
+    try {
+      return (await agente.generate(input)).text;
+    } catch (e) {
+      if (!esRateLimit(e) || intento >= 6) throw e;
+      await new Promise((ok) => setTimeout(ok, 10_000 * intento));
+    }
+  }
+}
+
 async function correr(caso: CasoAgente): Promise<Corrida> {
   const costTracker = new InMemoryCostTracker({ pricing: OPENAI_PRICING, dailyCapUsd: 1000 });
   const agente = new OpenAiAgentLLM({
@@ -113,9 +146,11 @@ async function correr(caso: CasoAgente): Promise<Corrida> {
   let texto = "";
   const fallas: string[] = [];
   try {
-    texto = (await agente.generate(input)).text;
+    texto = await generarConReintento(agente, input);
   } catch (e) {
-    fallas.push(`el agente tiró una excepción: ${e instanceof Error ? e.message : String(e)}`);
+    fallas.push(
+      `${esRateLimit(e) ? "INFRA (rate limit, no es el agente)" : "el agente tiró una excepción"}: ${e instanceof Error ? e.message : String(e)}`,
+    );
   }
 
   if (fallas.length === 0) {
@@ -146,7 +181,7 @@ suite(`eval agente vendedor (modelo ${modelo}, ${repeticiones} repetición/es)`,
       `[${caso.origen}] ${caso.id}`,
       async () => {
         const corridas: Corrida[] = [];
-        for (let i = 0; i < repeticiones; i++) corridas.push(await correr(caso));
+        for (let i = 0; i < repeticiones; i++) corridas.push(await conCupo(() => correr(caso)));
         resumen.set(caso.id, { caso, corridas });
 
         const aciertos = corridas.filter((c) => c.ok).length;

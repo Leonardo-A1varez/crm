@@ -63,9 +63,13 @@ import {
   noBusca,
   noInventaCodigos,
   noInventaPrecios,
+  noAfirmaTener,
   noOfreceDescuento,
   noPrometeDisponibilidad,
   pideAclaracion,
+  pideDato,
+  pideVehiculo,
+  siBusca,
   sinAnioEnNingunaBusqueda,
   sinCotizar,
   citaPrecio,
@@ -121,18 +125,13 @@ export const CASOS: CasoAgente[] = [
   {
     id: "real-radiador-aveo-sin-auto-guardado",
     origen: "real",
-    proposito: "Sin auto guardado ni año dicho, NO inventa un año al buscar.",
+    proposito:
+      "Decisión del dueño 2026-10-05: sin auto guardado, el agente pide el vehículo (marca, modelo, año) ANTES de buscar. No busca, no cotiza.",
     notaOrigen:
-      "Mensaje real del 2026-08-15 (típico del turno anterior al auto guardado). Catálogo del stub: el radiador real.",
+      "Mensaje real del 2026-08-15 (típico del turno anterior al auto guardado). Catálogo del stub: el radiador real, para detectar si cotiza sin preguntar.",
     turno: ["lead: Busco radiador para el aveo"],
     catalogo: [RADIADOR_AVEO],
-    verificaciones: [
-      buscaAlgunaVez(),
-      argumento("modelo", "aveo"),
-      sinAnioEnNingunaBusqueda(),
-      citaPrecio(37.13),
-      mencionaIva(),
-    ],
+    verificaciones: [noBusca(), pideVehiculo(), sinCotizar()],
   },
   {
     id: "real-radiador-aveo-activo-sin-stock",
@@ -140,8 +139,9 @@ export const CASOS: CasoAgente[] = [
     proposito:
       "Catálogo sin coincidencias: dice que no lo tiene y no inventa precio ni código ni stock.",
     notaOrigen:
-      'Mensaje real del 2026-08-15, con su typo ("radiator para e aveo activo"). Stub vacío.',
+      'Mensaje real del 2026-08-15, con su typo ("radiator para e aveo activo"). Stub vacío. El Aveo 2005 guardado NO es real de ese mensaje: se agrega para que el caso pruebe el "sin resultados" y no la pregunta por el vehículo.',
     turno: ["lead: Busco un radiator para e aveo activo"],
+    vehiculos: [AVEO_2005],
     catalogo: [],
     verificaciones: [buscaAlgunaVez(), noPrometeDisponibilidad(), sinCotizar(), noInventaCodigos()],
   },
@@ -164,11 +164,16 @@ export const CASOS: CasoAgente[] = [
   {
     id: "real-pregunta-por-codigo",
     origen: "real",
-    proposito: "El cliente pregunta por un código exacto que sí está: confirma el precio con IVA.",
+    proposito:
+      "El cliente pregunta por un código exacto que sí está: si busca, confirma el precio con IVA; si en cambio pide el vehículo, también es válido (la regla del dueño no distingue códigos). Nunca inventa.",
     notaOrigen: 'Mensaje real del 2026-08-15 ("Tenes el 96817344/CH"). Catálogo: el radiador real.',
     turno: ["lead: Tenes el 96817344/CH"],
     catalogo: [RADIADOR_AVEO],
-    verificaciones: [buscaAlgunaVez(), citaPrecio(37.13), mencionaIva()],
+    verificaciones: [
+      noInventaCodigos(),
+      noInventaPrecios(),
+      siBusca(citaPrecio(37.13), mencionaIva()),
+    ],
   },
   {
     id: "real-aceite-con-auto-guardado",
@@ -266,27 +271,24 @@ export const CASOS: CasoAgente[] = [
     id: "inv-solo-hay-otra-pieza",
     origen: "inventado",
     proposito:
-      "Piden pastillas y el catálogo solo devuelve discos: no presenta los discos como pastillas ni inventa.",
+      "Piden pastillas y el catálogo solo devuelve discos: puede ofrecer los discos como discos, pero no afirma tener pastillas ni inventa.",
     turno: ["lead: Necesito pastillas de freno para el Aveo 2007"],
     catalogo: [prod("DF-400", "DISCO FRENO DEL CHEVROLET AVEO 04-09", 33.5, 4)],
     verificaciones: [
       buscaAlgunaVez(),
       noInventaCodigos(),
       noInventaPrecios(),
-      dice(/pastilla/i, "debería nombrar las pastillas (para decir que no las tiene)"),
-      dice(
-        /(no (tengo|tenemos|hay|cuento|dispongo|encontr)|sin stock|agotad|lamentablemente)/i,
-        "debería decir que las pastillas no están",
-      ),
+      noAfirmaTener(/pastilla/, "pastillas"),
     ],
   },
   {
     id: "inv-pieza-ambigua-sin-auto",
     origen: "inventado",
-    proposito: "Pedido ambiguo y sin auto: hace una pregunta aclaratoria y no inventa.",
+    proposito:
+      "Decisión del dueño 2026-10-05: pedido ambiguo y sin auto: pide el vehículo antes de buscar; no busca ni cotiza.",
     turno: ["lead: Necesito un sensor"],
     catalogo: [prod("SEN-500", "SENSOR OXIGENO UNIVERSAL", 55.0, 2)],
-    verificaciones: [pideAclaracion(), noInventaCodigos(), noInventaPrecios()],
+    verificaciones: [noBusca(), pideVehiculo(), sinCotizar(), noInventaCodigos()],
   },
   {
     id: "inv-garantia",
@@ -360,5 +362,111 @@ export const CASOS: CasoAgente[] = [
     vehiculos: [AVEO_2005],
     catalogo: [RADIADOR_AVEO],
     verificaciones: [noInventaCodigos(), noInventaPrecios({ permitirMultiplos: true })],
+  },
+
+  // ─────── Reglas de conducta de docs/catalogo/como-leer-el-catalogo.md §12 ───────
+  // Todos inventados: el catálogo real no se leyó para armarlos, solo la regla.
+  {
+    id: "inv-12-piston-sin-sobremedida",
+    origen: "inventado",
+    proposito: "§12.3: nunca cotiza un pistón sin la sobremedida; la pregunta.",
+    turno: ["lead: Necesito un juego de pistones para el Hyundai Accent 1.6 2012"],
+    catalogo: [
+      prod("PIS-STD", "PISTON HY ACCENT 1.6 STD", 60, 4),
+      prod("PIS-025", "PISTON HY ACCENT 1.6 0.25", 64, 2),
+      prod("PIS-050", "PISTON HY ACCENT 1.6 0.50", 68, 2),
+    ],
+    verificaciones: [
+      pideDato(/(sobremedida|rectific|medida|estandar|std)/, "la sobremedida"),
+      sinCotizar(),
+    ],
+  },
+  {
+    id: "inv-12-chaquetas-sin-sobremedida",
+    origen: "inventado",
+    proposito: "§12.3: las chaquetas también exigen sobremedida antes de cotizar.",
+    turno: ["lead: Cuanto cuestan las chaquetas del Chevrolet Aveo 1.6 2008?"],
+    catalogo: [
+      prod("CHA-STD", "CHAQUETA CH AVEO 1.6 STD", 90, 3),
+      prod("CHA-050", "CHAQUETA CH AVEO 1.6 0.50", 95, 3),
+    ],
+    verificaciones: [
+      pideDato(/(sobremedida|rectific|medida|estandar|std)/, "la sobremedida"),
+      sinCotizar(),
+    ],
+  },
+  {
+    id: "inv-12-anillos-sin-sobremedida",
+    origen: "inventado",
+    proposito: "§12.3: los anillos también exigen sobremedida antes de cotizar.",
+    turno: ["lead: Necesito anillos para un Kia Rio 1.4 2010"],
+    catalogo: [
+      prod("ANI-STD", "ANILLOS KIA RIO 1.4 STD", 22, 5),
+      prod("ANI-025", "ANILLOS KIA RIO 1.4 0.25", 24, 5),
+    ],
+    verificaciones: [
+      pideDato(/(sobremedida|rectific|medida|estandar|std)/, "la sobremedida"),
+      sinCotizar(),
+    ],
+  },
+  {
+    id: "inv-12-varias-cilindradas",
+    origen: "inventado",
+    proposito:
+      "§12.2: un Accent viene en 1.4 y 1.6; sin cilindrada ni año, pregunta en vez de elegir una variante. Puede buscar antes de preguntar, pero no cotiza.",
+    turno: ["lead: Necesito un termostato para mi Accent"],
+    catalogo: [
+      prod("TER-14", "TERMOSTATO HY ACCENT 1.4", 12, 6),
+      prod("TER-16", "TERMOSTATO HY ACCENT 1.6", 14, 6),
+    ],
+    verificaciones: [
+      pideDato(/(cilindrada|motor|1\.4|1\.6|\bcc\b|litros|\bano\b)/, "la cilindrada o el año"),
+      sinCotizar(),
+    ],
+  },
+  {
+    id: "inv-12-candidatos-difieren-solo-por-anio",
+    origen: "inventado",
+    proposito:
+      "§12.3: si los candidatos difieren solo en un atributo (acá, el año), pregunta por ese atributo.",
+    turno: ["lead: Termostato para el Accent 1.6"],
+    catalogo: [
+      prod("TER-16A", "TERMOSTATO HY ACCENT 1.6 00-05", 13, 3),
+      prod("TER-16B", "TERMOSTATO HY ACCENT 1.6 10-14", 15, 3),
+    ],
+    verificaciones: [pideDato(/\bano\b|generacion|modelo del/, "el año"), sinCotizar()],
+  },
+  {
+    id: "inv-12-un-solo-candidato",
+    origen: "inventado",
+    proposito:
+      "Un único candidato claro (vehículo completo): lo cotiza con IVA, sin preguntar de más.",
+    turno: ["lead: Termostato para el Hyundai Accent 1.6 2012"],
+    catalogo: [prod("TER-16C", "TERMOSTATO HY ACCENT 1.6 10-14", 15, 3)],
+    verificaciones: [buscaAlgunaVez(), citaPrecio(15), mencionaIva(), noInventaCodigos()],
+  },
+  {
+    id: "inv-12-precio-vacio",
+    origen: "inventado",
+    proposito:
+      "§12.3: si el precio viene vacío, no inventa un precio: dice que hay que consultarlo. (La tool hoy entrega `precio` como número; el stub usa 0 para el vacío.)",
+    turno: ["lead: Cuanto cuesta el termostato del Hyundai Accent 1.6 2012?"],
+    catalogo: [prod("TER-16D", "TERMOSTATO HY ACCENT 1.6 10-14", 0, 3)],
+    verificaciones: [
+      buscaAlgunaVez(),
+      dice(
+        /(consult|confirmar|precio no (me )?(esta|figura|disponible|cargado)|sin precio|no (tengo|figura|hay|cuento)[^.]*precio|vendedor)/,
+        "debería decir que el precio no está y hay que consultarlo",
+      ),
+      sinCotizar(),
+    ],
+  },
+  {
+    id: "inv-12-stock-cero-lo-dice",
+    origen: "inventado",
+    proposito: "§12.3: con existencia 0 lo dice, no lo ofrece como disponible.",
+    turno: ["lead: Tienen el termostato del Hyundai Accent 1.6 2012?"],
+    catalogo: [prod("TER-16E", "TERMOSTATO HY ACCENT 1.6 10-14", 15, 0)],
+    verificaciones: [buscaAlgunaVez(), noPrometeDisponibilidad(), noInventaCodigos()],
   },
 ];

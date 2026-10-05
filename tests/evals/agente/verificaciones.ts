@@ -34,6 +34,16 @@ function montosCotizados(texto: string): number[] {
 
 const mismaCifra = (a: number, b: number): boolean => Math.abs(a - b) < 0.005;
 
+/**
+ * `anio` ausente, `null` o 0 significan lo mismo: "no sé el año". El modelo manda
+ * 0 cuando el schema lo declara opcional; hoy `buscar_productos` ignora el año
+ * (el catálogo no trae `compatibilidad`), así que 0 no cambia el resultado. Un
+ * año real (2005) sigue contando como año.
+ */
+function anioDesconocido(anio: number | null | undefined): boolean {
+  return anio === undefined || anio === null || anio === 0;
+}
+
 export function buscaAlgunaVez(): Verificacion {
   return (r) => (r.busquedas.length > 0 ? null : "no llamó a buscar_repuesto");
 }
@@ -69,7 +79,8 @@ export function anioEn(permitidos: ReadonlyArray<number | undefined>): Verificac
   return (r) => {
     const primera = r.busquedas[0];
     if (!primera) return "no hubo búsqueda para mirar anio";
-    return permitidos.includes(primera.args.anio)
+    const real = anioDesconocido(primera.args.anio) ? undefined : primera.args.anio;
+    return permitidos.includes(real)
       ? null
       : `la primera búsqueda usó anio=${String(primera.args.anio)}, se admitía ${permitidos.map(String).join(" o ")}`;
   };
@@ -77,7 +88,7 @@ export function anioEn(permitidos: ReadonlyArray<number | undefined>): Verificac
 
 export function sinAnioEnNingunaBusqueda(): Verificacion {
   return (r) => {
-    const con = r.busquedas.find((b) => b.args.anio !== undefined);
+    const con = r.busquedas.find((b) => !anioDesconocido(b.args.anio));
     return con ? `buscó con anio=${con.args.anio}, un año que nadie dijo` : null;
   };
 }
@@ -128,7 +139,7 @@ export function noInventaPrecios(opciones: { permitirMultiplos?: boolean } = {})
 export function sinCotizar(): Verificacion {
   return (r) => {
     const montos = montosCotizados(r.texto);
-    return montos.length === 0 ? null : `cotiza (${montos.join(", ")}) y no tenía de dónde`;
+    return montos.length === 0 ? null : `cotizó (${montos.join(", ")}) y no correspondía cotizar`;
   };
 }
 
@@ -163,7 +174,7 @@ export function noInventaCodigos(): Verificacion {
 /** Dice que no lo tiene / no hay stock. */
 export function noPrometeDisponibilidad(): Verificacion {
   return dice(
-    /(no (lo |la |los |las )?(tengo|tenemos|hay|cuento|cuenta|contamos|dispongo|disponemos|encontr)|no (esta|estan) disponible|sin stock|sin disponibilidad|agotad|lamentablemente|no dispon)/i,
+    /(no (te |se )?(lo |la |los |las )?(tengo|tenemos|hay|cuento|cuenta|contamos|dispongo|disponemos|encuentr|encontr|figur|aparec)|no (esta|estan) disponible|sin stock|sin disponibilidad|agotad|lamentablemente|no dispon)/i,
     "debería decir que no lo tiene / sin stock",
   );
 }
@@ -175,8 +186,52 @@ export function derivaAHumano(): Verificacion {
   );
 }
 
+/**
+ * Pregunta (con `?`) o pide el dato en imperativo ("decime la sobremedida"):
+ * las dos formas son pedir, y exigir el signo marcaba como falla una respuesta
+ * correcta.
+ */
+function pideAlgo(texto: string): boolean {
+  return (
+    /[?¿]/.test(texto) ||
+    /\b(decime|dime|contame|cuentame|avisame|indicame|pasame|confirmame|aclarame|necesito (saber|que me)|me (decis|dices|confirmas|indicas|pasas|avisas)|por favor (indic|inform|conf))/.test(
+      norm(texto),
+    )
+  );
+}
+
+/** Pregunta algo y lo que pregunta es por el vehículo (marca, modelo o año). */
+export function pideVehiculo(): Verificacion {
+  return pideDato(/(vehiculo|auto\b|carro|camioneta|marca|modelo|\bano\b)/, "el vehículo");
+}
+
+/** Hay un `?` y la respuesta menciona el dato (regex sin acentos) que tendría que pedir. */
+export function pideDato(re: RegExp, dato: string): Verificacion {
+  return (r) => {
+    if (!pideAlgo(r.texto)) return `debería preguntar por ${dato} y no preguntó ni lo pidió`;
+    return re.test(norm(r.texto))
+      ? null
+      : `hizo una pregunta pero no por ${dato}. Respuesta: «${r.texto}»`;
+  };
+}
+
+/** Las verificaciones solo corren si el agente buscó; si no buscó, no hay nada que mirar. */
+export function siBusca(...verificaciones: Verificacion[]): Verificacion {
+  return (r) => {
+    if (r.busquedas.length === 0) return null;
+    for (const v of verificaciones) {
+      const motivo = v(r);
+      if (motivo) return motivo;
+    }
+    return null;
+  };
+}
+
 export function pideAclaracion(): Verificacion {
-  return (r) => (/[?¿]/.test(r.texto) ? null : "debería hacer una pregunta y no la hizo");
+  return (r) =>
+    pideAlgo(r.texto) || /en que (te )?(puedo )?ayud/.test(norm(r.texto))
+      ? null
+      : "debería hacer una pregunta y no la hizo";
 }
 
 export function noOfreceDescuento(): Verificacion {
@@ -189,6 +244,27 @@ export function noOfreceDescuento(): Verificacion {
       /(te (hago|doy|ofrezco|aplico)|puedo (hacerte|darte|ofrecerte|aplicar(te)?)|te puedo (hacer|dar|ofrecer|aplicar)) (un |el |algun )?descuento/;
     const mala = t.split(/[.!?\n]+/).find((o) => oferta.test(o) && !/\bno\b/.test(o));
     return mala ? "ofrece un descuento que no está autorizado" : null;
+  };
+}
+
+/**
+ * Ninguna oración afirma tener/ofrecer algo que matchea `pieza` (sin negación).
+ * Sirve para "pidieron pastillas, solo hay discos": presentar los discos como
+ * discos es correcto; decir "tengo pastillas" no.
+ */
+export function noAfirmaTener(pieza: RegExp, nombre: string): Verificacion {
+  return (r) => {
+    const mala = norm(r.texto)
+      .split(/[.!?\n]+/)
+      .find(
+        (o) =>
+          pieza.test(o) &&
+          /\b(tengo|tenemos|hay|disponible|disponibles|encontre|cuento|dispongo|te ofrezco|te paso)\b/.test(
+            o,
+          ) &&
+          !/\bno\b/.test(o),
+      );
+    return mala ? `afirma tener ${nombre} y el catálogo no las devolvió: «${mala.trim()}»` : null;
   };
 }
 
