@@ -10,7 +10,13 @@ import {
 } from "@/lib/catalogo/columnas-productos";
 import { normalizarValor } from "@/lib/catalogo/normalizar-valor";
 import { plegarTexto } from "@/lib/catalogo/plegar-texto";
-import { compatibleCon, puntaje } from "@/lib/catalogo/puntaje";
+import {
+  compatibilidadParaVehiculo,
+  resolverModelos,
+  type ElementoCompatibilidad,
+  type ModeloCatalogo,
+} from "@/lib/catalogo/compatibilidad";
+import { blobDeBusqueda, puntaje } from "@/lib/catalogo/puntaje";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import {
   LOTE_TAMANO,
@@ -46,6 +52,8 @@ export interface ProductoSearchInput {
   marca?: string;
   modelo?: string;
   anio?: number;
+  /** En litros, ya normalizada ("1.6"). Una compatibilidad sin cilindrada sirve para cualquiera. */
+  cilindrada?: string;
   /** Tope de filas. La DB lo recorta a 50 como máximo. */
   tope?: number;
 }
@@ -61,6 +69,12 @@ export interface ProductoSearchHit {
   precio: number;
   stock: number;
   puntaje: number;
+  /**
+   * Los elementos de `compatibilidad` que justifican el match para el vehículo
+   * pedido (todos si no se pidió ninguno). Vacío si el producto no tiene
+   * compatibilidad cargada: "no sabemos", no "no sirve".
+   */
+  compatibilidad: ElementoCompatibilidad[];
 }
 
 // Item de upsert masivo con scope CSV import: solo las columnas del archivo.
@@ -133,6 +147,16 @@ function cloneProducto(p: Producto): Producto {
 
 export class InMemoryProductsRepository implements ProductsRepository {
   private readonly store = new Map<UUID, Producto>();
+  private readonly modelos: readonly ModeloCatalogo[];
+
+  /**
+   * `modelos` es el espejo en memoria de `catalogo_modelos`: sin él, "Accent" no
+   * se resuelve a la sigla `ACC` y la búsqueda cae al texto, igual que en la base
+   * con el diccionario vacío.
+   */
+  constructor(opciones: { modelos?: readonly ModeloCatalogo[] } = {}) {
+    this.modelos = opciones.modelos ?? [];
+  }
 
   async create(input: ProductoInsert): Promise<Producto> {
     const existing = await this.findByCodigoInterno(input.codigo_interno);
@@ -211,10 +235,17 @@ export class InMemoryProductsRepository implements ProductsRepository {
   async search(input: ProductoSearchInput): Promise<ProductoSearchHit[]> {
     const tope = Math.max(1, Math.min(input.tope ?? 20, 50));
     const hits: ProductoSearchHit[] = [];
+    const resueltos = resolverModelos(this.modelos, input.marca, input.modelo);
 
     for (const p of this.store.values()) {
       if (!p.activo) continue;
-      if (!compatibleCon(p.compatibilidad, input.marca, input.modelo, input.anio)) continue;
+      const elementos = compatibilidadParaVehiculo(
+        p.compatibilidad,
+        input,
+        resueltos,
+        blobDeBusqueda(p),
+      );
+      if (elementos === null) continue;
       const score = puntaje(p, input.q);
       if (score <= 0) continue;
       hits.push({
@@ -227,6 +258,7 @@ export class InMemoryProductsRepository implements ProductsRepository {
         precio: p.precio,
         stock: p.stock,
         puntaje: score,
+        compatibilidad: elementos.map((e) => ({ ...e })),
       });
     }
 

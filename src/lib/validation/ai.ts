@@ -50,9 +50,27 @@ export type LeadTwinUpdate = z.infer<typeof LeadTwinUpdateSchema>;
 
 export const BuscarRepuestoInputSchema = z.object({
   query: z.string().min(1).describe("Texto libre describe pieza buscada"),
-  marca: z.string().optional().describe("Filtro marca vehículo"),
-  modelo: z.string().optional().describe("Filtro modelo vehículo"),
-  anio: z.number().int().optional().describe("Año vehículo"),
+  marca: z
+    .string()
+    .optional()
+    .describe("Marca del vehículo (ej. Hyundai). Omitila si no la conocés."),
+  modelo: z
+    .string()
+    .optional()
+    .describe("Modelo como lo dice el cliente (ej. Accent, Aveo), no siglas del catálogo."),
+  anio: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      "Año del vehículo. Si no lo conocés, OMITÍ el campo: no mandes 0, null ni un año inventado.",
+    ),
+  cilindrada: z
+    .string()
+    .optional()
+    .describe(
+      "Cilindrada en litros (ej. 1.6). Solo si el cliente la dijo o figura en `vehiculos_del_cliente`; si no, OMITILA. Nunca la inventes ni se la pidas al cliente antes de buscar.",
+    ),
 });
 export type BuscarRepuestoInput = z.infer<typeof BuscarRepuestoInputSchema>;
 
@@ -62,12 +80,33 @@ export const BuscarRepuestoMatchSchema = z.object({
   nombre: z.string(),
   precio: z.number().nonnegative(),
   stock: z.number().int().nonnegative(),
+  // Solo los atributos en los que los candidatos se diferencian (ver `diferencias`).
+  anios: z.array(z.string()).optional(),
+  cilindradas: z.array(z.string()).optional(),
+  combustibles: z.array(z.string()).optional(),
 });
 export type BuscarRepuestoMatch = z.infer<typeof BuscarRepuestoMatchSchema>;
+
+export const DiferenciasCandidatosSchema = z.object({
+  atributos: z.array(z.enum(["anio", "cilindrada", "combustible"])),
+  valores: z.object({
+    anio: z.array(z.string()).optional(),
+    cilindrada: z.array(z.string()).optional(),
+    combustible: z.array(z.string()).optional(),
+  }),
+  instruccion: z.string(),
+});
 
 export const BuscarRepuestoOutputSchema = z.object({
   matches: z.array(BuscarRepuestoMatchSchema),
   count: z.number().int().nonnegative(),
+  /**
+   * En qué se diferencian los mejores candidatos. Ausente si no hay nada que
+   * preguntar: el agente pregunta por esos atributos y solo por esos.
+   */
+  diferencias: DiferenciasCandidatosSchema.optional(),
+  /** Una advertencia que el agente tiene que respetar antes de cotizar (p. ej. la sobremedida). */
+  aviso: z.string().optional(),
 });
 export type BuscarRepuestoOutput = z.infer<typeof BuscarRepuestoOutputSchema>;
 

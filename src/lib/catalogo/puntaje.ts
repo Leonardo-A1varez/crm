@@ -83,38 +83,11 @@ const PESO_CODIGO = {
   alterno: 700,
 } as const;
 
-/**
- * Si el producto sirve para el auto que preguntan.
- *
- * Un `compatibilidad` vacío significa **"no sabemos"**, no "no sirve". El
- * catálogo llega de un export de inventario que no trae esa columna: el
- * vehículo va escrito adentro del nombre (`CH AVEO 1.6 05-`, `MZ ALEG`). Como
- * `[].some()` es siempre `false`, filtrar por ahí escondía el catálogo entero
- * apenas el agente mencionaba una marca, y el agente respondía "no tenemos"
- * con stock en el depósito.
- *
- * Espeja la rama `jsonb_array_length(...) = 0` de `buscar_productos`.
+/*
+ * El filtro por vehículo (marca, modelo, año, cilindrada) vive en
+ * `./compatibilidad`, que espeja `buscar_productos` y `resolver_modelos`. Una
+ * `compatibilidad` vacía sigue significando "no sabemos", no "no sirve".
  */
-export function compatibleCon(
-  compatibilidad: ReadonlyArray<{
-    marca: string;
-    modelo: string;
-    anio_desde: number;
-    anio_hasta: number;
-  }>,
-  marca: string | undefined,
-  modelo: string | undefined,
-  anio: number | undefined,
-): boolean {
-  if (!marca && !modelo && anio === undefined) return true;
-  if (compatibilidad.length === 0) return true;
-  return compatibilidad.some((c) => {
-    if (marca && plegar(c.marca) !== plegar(marca)) return false;
-    if (modelo && plegar(c.modelo) !== plegar(modelo)) return false;
-    if (anio !== undefined && !(c.anio_desde <= anio && anio <= c.anio_hasta)) return false;
-    return true;
-  });
-}
 
 /** Lo mínimo que hace falta saber de un producto para puntuarlo. */
 export interface ProductoPuntuable {
@@ -139,7 +112,7 @@ export function palabrasDe(q: string): string[] {
 }
 
 /** El texto donde se cuenta cuántas palabras acertó: espeja la columna generada `busqueda`. */
-function blobDeBusqueda(p: ProductoPuntuable): string {
+export function blobDeBusqueda(p: ProductoPuntuable): string {
   return plegar(
     [
       p.codigo_interno,
