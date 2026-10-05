@@ -289,6 +289,48 @@ export type Database = {
         }
         Relationships: []
       }
+      catalogo_modelos: {
+        Row: {
+          activo: boolean | null
+          alias: string[]
+          confianza: string
+          confirmado: boolean
+          created_at: string
+          id: string
+          marca: string
+          nombre_clave: string | null
+          nombre_real: string
+          sigla_modelo: string
+          updated_at: string
+        }
+        Insert: {
+          activo?: never
+          alias?: string[]
+          confianza: string
+          confirmado?: boolean
+          created_at?: string
+          id?: string
+          marca: string
+          nombre_clave?: never
+          nombre_real: string
+          sigla_modelo: string
+          updated_at?: string
+        }
+        Update: {
+          activo?: never
+          alias?: string[]
+          confianza?: string
+          confirmado?: boolean
+          created_at?: string
+          id?: string
+          marca?: string
+          nombre_clave?: never
+          nombre_real?: string
+          sigla_modelo?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       conversaciones: {
         Row: {
           canal: Database["public"]["Enums"]["canal_enum"]
@@ -2215,6 +2257,7 @@ export type Database = {
       buscar_productos: {
         Args: {
           p_anio?: number
+          p_cilindrada?: string
           p_marca?: string
           p_modelo?: string
           p_q: string
@@ -2224,6 +2267,7 @@ export type Database = {
           categoria: string
           codigo_fabrica: string
           codigo_interno: string
+          compatibilidad: Json
           descripcion: string
           id: string
           nombre: string
@@ -2540,6 +2584,14 @@ export type Database = {
           cancelados: string[]
           error_code: string
           run_id: string
+        }[]
+      }
+      resolver_modelos: {
+        Args: { p_marca: string; p_modelo: string }
+        Returns: {
+          marca: string
+          nombre: string
+          sigla: string
         }[]
       }
       resumen_asignaciones_vendedores: {
