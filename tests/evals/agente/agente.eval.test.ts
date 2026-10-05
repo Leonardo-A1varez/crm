@@ -1,5 +1,6 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { afterAll, describe, expect, test } from "vitest";
+import { avisoSobremedida } from "@/lib/catalogo/sobremedida";
 import { CONFIG_DE_FABRICA } from "@/lib/agente/defaults";
 import { InMemoryCostTracker } from "@/lib/observability/cost-tracker";
 import type { BuscarRepuestoOutput } from "@/lib/validation/ai";
@@ -138,7 +139,15 @@ async function correr(caso: CasoAgente): Promise<Corrida> {
       buscar_repuesto: async (args): Promise<BuscarRepuestoOutput> => {
         const matches = caso.catalogo;
         busquedas.push({ args, matches });
-        return { matches, count: matches.length };
+        // El aviso lo calcula la misma función de producción sobre el catálogo del caso.
+        const aviso = avisoSobremedida(matches);
+        // Mismo orden de claves que `DefaultCatalogMatcherService`: el aviso primero.
+        return {
+          ...(aviso ? { aviso } : {}),
+          matches,
+          count: matches.length,
+          ...(caso.diferencias ? { diferencias: caso.diferencias } : {}),
+        };
       },
     },
   };

@@ -1,5 +1,10 @@
+import { construirDiferencias } from "@/lib/catalogo/compatibilidad";
 import type { AgentVehiculo } from "@/server/services/ai-agent.service";
-import type { BuscarRepuestoInput, BuscarRepuestoMatch } from "@/lib/validation/ai";
+import type {
+  BuscarRepuestoInput,
+  BuscarRepuestoMatch,
+  BuscarRepuestoOutput,
+} from "@/lib/validation/ai";
 
 /**
  * Casos del eval del agente vendedor. Para agregar uno: un objeto más en
@@ -50,6 +55,12 @@ export interface CasoAgente {
   consultaPrevia?: string;
   /** Qué devuelve el stub de `buscar_repuesto` para cualquier búsqueda. */
   catalogo: BuscarRepuestoMatch[];
+  /**
+   * Lo que la tool real calcula con la compatibilidad de los candidatos (ver
+   * `diferenciasEntre`): el stub lo devuelve tal cual junto a los matches. Sin
+   * esto el agente nunca ve en qué se diferencian y el caso no mide la regla.
+   */
+  diferencias?: BuscarRepuestoOutput["diferencias"];
   verificaciones: Verificacion[];
 }
 
@@ -78,7 +89,13 @@ import {
 
 let n = 0;
 /** Producto del stub. Los ids son UUID deterministas; el código y el precio los pone el caso. */
-function prod(codigo: string, nombre: string, precio: number, stock: number): BuscarRepuestoMatch {
+function prod(
+  codigo: string,
+  nombre: string,
+  precio: number,
+  stock: number,
+  extra: Partial<BuscarRepuestoMatch> = {},
+): BuscarRepuestoMatch {
   n += 1;
   return {
     id: `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`,
@@ -86,6 +103,7 @@ function prod(codigo: string, nombre: string, precio: number, stock: number): Bu
     nombre,
     precio,
     stock,
+    ...extra,
   };
 }
 
@@ -416,9 +434,10 @@ export const CASOS: CasoAgente[] = [
       "§12.2: un Accent viene en 1.4 y 1.6; sin cilindrada ni año, pregunta en vez de elegir una variante. Puede buscar antes de preguntar, pero no cotiza.",
     turno: ["lead: Necesito un termostato para mi Accent"],
     catalogo: [
-      prod("TER-14", "TERMOSTATO HY ACCENT 1.4", 12, 6),
-      prod("TER-16", "TERMOSTATO HY ACCENT 1.6", 14, 6),
+      prod("TER-14", "TERMOSTATO HY ACCENT 1.4", 12, 6, { cilindradas: ["1.4"] }),
+      prod("TER-16", "TERMOSTATO HY ACCENT 1.6", 14, 6, { cilindradas: ["1.6"] }),
     ],
+    diferencias: construirDiferencias(["cilindrada"], { cilindrada: ["1.4", "1.6"] }),
     verificaciones: [
       pideDato(/(cilindrada|motor|1\.4|1\.6|\bcc\b|litros|\bano\b)/, "la cilindrada o el año"),
       sinCotizar(),
@@ -431,10 +450,28 @@ export const CASOS: CasoAgente[] = [
       "§12.3: si los candidatos difieren solo en un atributo (acá, el año), pregunta por ese atributo.",
     turno: ["lead: Termostato para el Accent 1.6"],
     catalogo: [
-      prod("TER-16A", "TERMOSTATO HY ACCENT 1.6 00-05", 13, 3),
-      prod("TER-16B", "TERMOSTATO HY ACCENT 1.6 10-14", 15, 3),
+      prod("TER-16A", "TERMOSTATO HY ACCENT 1.6 00-05", 13, 3, { anios: ["2000-2005"] }),
+      prod("TER-16B", "TERMOSTATO HY ACCENT 1.6 10-14", 15, 3, { anios: ["2010-2014"] }),
     ],
+    diferencias: construirDiferencias(["anio"], { anio: ["2000-2005", "2010-2014"] }),
     verificaciones: [pideDato(/\bano\b|generacion|modelo del/, "el año"), sinCotizar()],
+  },
+  {
+    id: "inv-12-difieren-por-combustible",
+    origen: "inventado",
+    proposito:
+      "La tool avisa que los candidatos difieren en combustible (diesel y gasolina): pregunta por el combustible en vez de elegir uno, y no cotiza.",
+    turno: ["lead: Necesito un filtro de combustible para la Hyundai Santa Fe 2012"],
+    catalogo: [
+      prod("FC-DSL", "FILTRO COMBUSTIBLE HY STA FE 2.2 DSL", 18, 4, { combustibles: ["DSL"] }),
+      prod("FC-GAS", "FILTRO COMBUSTIBLE HY STA FE 2.4", 9, 4, { combustibles: ["GAS"] }),
+    ],
+    diferencias: construirDiferencias(["combustible"], { combustible: ["DSL", "GAS"] }),
+    verificaciones: [
+      buscaAlgunaVez(),
+      pideDato(/(diesel|dsl|gasolina|nafta|combustible)/, "el combustible"),
+      sinCotizar(),
+    ],
   },
   {
     id: "inv-12-un-solo-candidato",
