@@ -161,6 +161,7 @@ export function runProductosFiltrosContract(makeRepo: () => ProductsRepository) 
           [
             "activo",
             "categoria",
+            "codigo_difiere",
             "codigo_fabrica",
             "codigo_interno",
             "descripcion",
@@ -168,6 +169,10 @@ export function runProductosFiltrosContract(makeRepo: () => ProductsRepository) 
             "nombre",
             "otros_codigos",
             "precio",
+            "precio_koreanos",
+            "precio_magdalena",
+            "precio_matriz",
+            "precio_sas_repuestos",
             "sku_proveedor",
             "stock",
           ].sort(),

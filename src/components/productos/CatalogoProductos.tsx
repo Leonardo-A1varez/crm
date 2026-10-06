@@ -3,10 +3,17 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Inventory2 } from "@/components/icons";
 import { EmptyState } from "@/components/shared/EmptyState";
+import { campoDeEmpresa, formatearPrecio, precioDeEmpresa } from "@/lib/catalogo/precios-erp";
 import { hayFiltros } from "@/lib/ui/filtros-productos";
 import { ALTO_FILA, calcularVentana, indiceAriaDeFila } from "@/lib/ui/ventana-virtual";
 import { cn } from "@/lib/utils";
-import { ANCHO_ACCIONES, anchoMinimoDeTabla, COLUMNAS_TABLA, type ColumnaTabla } from "./columnas";
+import {
+  ANCHO_ACCIONES,
+  anchoDeColumna,
+  anchoMinimoDeTabla,
+  COLUMNAS_VISIBLES,
+  type ColumnaTabla,
+} from "./columnas";
 import { EncabezadoProductos } from "./filtros/EncabezadoProductos";
 import { LimpiarFiltrosBoton } from "./filtros/FiltrosActivos";
 import { useFiltrosProductos } from "./filtros/FiltrosProductosProvider";
@@ -23,10 +30,6 @@ const ALTO_VISIBLE_INICIAL = 600;
 const FILAS_ESQUELETO = 12;
 
 const numeroFmt = new Intl.NumberFormat("es-EC");
-const precioFmt = new Intl.NumberFormat("es-EC", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
 
 /**
  * Celda de una fila de alto fijo: una sola línea, truncada con puntos suspensivos y el
@@ -36,7 +39,10 @@ const precioFmt = new Intl.NumberFormat("es-EC", {
 const TD =
   "h-[38px] overflow-hidden px-3.5 py-0 text-ellipsis whitespace-nowrap shadow-[inset_0_-1px_0_var(--color-line-layout)]";
 
-const columnasConAncho = COLUMNAS_TABLA.map((c) => c.ancho);
+const columnasConAncho = COLUMNAS_VISIBLES.map(anchoDeColumna);
+
+/** El tinte de la columna de precio de la empresa del usuario: se lee sin competir con el resto. */
+const RESALTE = "bg-brand/[0.07]";
 
 function Vacio() {
   return <span className="text-ink-ghost">—</span>;
@@ -65,12 +71,15 @@ const FilaProducto = memo(function FilaProducto({
   producto: p,
   indice,
   isAdmin,
+  campoPropio,
   onUpdate,
   onToggleActivo,
 }: {
   producto: ProductoFila;
   indice: number;
   isAdmin: boolean;
+  /** La columna de precio de la empresa del usuario, o `null` si no tiene. */
+  campoPropio: ReturnType<typeof campoDeEmpresa>;
   onUpdate: (input: UpdateProductoInput) => Promise<ActionResult>;
   onToggleActivo: (input: SetProductoActivoInput) => Promise<ActionResult>;
 }) {
@@ -81,15 +90,37 @@ const FilaProducto = memo(function FilaProducto({
       style={{ height: ALTO_FILA }}
       className="hover:bg-surface-elevated"
     >
-      {COLUMNAS_TABLA.map((c) => {
+      {COLUMNAS_VISIBLES.map((v) => {
+        if (v.tipo === "empresa") {
+          const precio = precioDeEmpresa(p, v.empresa.campo);
+          const propia = v.empresa.campo === campoPropio;
+          return (
+            <td
+              key={v.empresa.campo}
+              title={precio === null ? undefined : String(precio)}
+              className={cn(
+                TD,
+                "text-right font-mono tabular-nums",
+                propia ? cn(RESALTE, "text-ink-primary font-semibold") : "text-ink-secondary",
+              )}
+            >
+              {precio === null ? <Vacio /> : formatearPrecio(precio)}
+            </td>
+          );
+        }
+        const c = v.columna;
         if (c.id === "precio") {
           return (
             <td
               key={c.id}
-              title={String(p.precio)}
-              className={cn(TD, "text-ink-body text-right font-mono tabular-nums")}
+              title={p.precio === null ? undefined : String(p.precio)}
+              className={cn(
+                TD,
+                "text-right font-mono tabular-nums",
+                p.precio === null ? "text-ink-dim font-sans" : "text-ink-body",
+              )}
             >
-              {precioFmt.format(p.precio)}
+              {formatearPrecio(p.precio)}
             </td>
           );
         }
@@ -130,6 +161,15 @@ const FilaProducto = memo(function FilaProducto({
             )}
           >
             {texto === null || texto === "" ? <Vacio /> : texto}
+            {c.id === "codigo" && p.codigo_difiere === true ? (
+              <span
+                title="Código difiere: el del ERP no coincide con el código interno"
+                className="text-warn bg-warn/10 border-warn/28 ml-2 inline-flex items-center rounded-md border px-[6px] py-[1.5px] align-middle font-sans text-[9.5px] font-semibold"
+              >
+                Difiere
+                <span className="sr-only"> (el código del ERP no coincide con el interno)</span>
+              </span>
+            ) : null}
           </td>
         );
       })}
@@ -201,10 +241,13 @@ function FilaMensaje({ columnas, children }: { columnas: number; children: React
  */
 export function CatalogoProductos({
   isAdmin,
+  empresaErp = null,
   onUpdate,
   onToggleActivo,
 }: {
   isAdmin: boolean;
+  /** La empresa del ERP del usuario: se le resalta su columna de precio. */
+  empresaErp?: number | null;
   onUpdate: (input: UpdateProductoInput) => Promise<ActionResult>;
   onToggleActivo: (input: SetProductoActivoInput) => Promise<ActionResult>;
 }) {
@@ -214,7 +257,8 @@ export function CatalogoProductos({
   const cuadro = useRef<number | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [altoVisible, setAltoVisible] = useState(ALTO_VISIBLE_INICIAL);
-  const columnas = COLUMNAS_TABLA.length + (isAdmin ? 1 : 0);
+  const columnas = COLUMNAS_VISIBLES.length + (isAdmin ? 1 : 0);
+  const campoPropio = campoDeEmpresa(empresaErp);
   const filtrado = hayFiltros(filtros);
 
   // Una carga nueva (otra consulta, o "Reintentar") arranca arriba. Un refresco en
@@ -329,7 +373,7 @@ export function CatalogoProductos({
               ))}
               {isAdmin ? <col style={{ width: ANCHO_ACCIONES }} /> : null}
             </colgroup>
-            <EncabezadoProductos isAdmin={isAdmin} />
+            <EncabezadoProductos isAdmin={isAdmin} empresaErp={empresaErp} />
             <tbody>
               {estado.tipo === "cargando" ? <Esqueleto columnas={columnas} /> : null}
               {estado.tipo === "invalido" ? (
@@ -371,6 +415,7 @@ export function CatalogoProductos({
                   producto={p}
                   indice={ventana.inicio + i}
                   isAdmin={isAdmin}
+                  campoPropio={campoPropio}
                   onUpdate={onUpdate}
                   onToggleActivo={onToggleActivo}
                 />

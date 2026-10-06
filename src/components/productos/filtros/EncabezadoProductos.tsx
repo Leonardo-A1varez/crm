@@ -1,9 +1,10 @@
 "use client";
 
+import { campoDeEmpresa } from "@/lib/catalogo/precios-erp";
 import { grupoActivo } from "@/lib/ui/filtros-productos";
 import { ordenDeColumna } from "@/lib/ui/orden-productos";
 import { cn } from "@/lib/utils";
-import { ANCHO_ACCIONES, COLUMNAS_TABLA, type ColumnaTabla } from "../columnas";
+import { ANCHO_ACCIONES, COLUMNAS_VISIBLES, type ColumnaTabla } from "../columnas";
 import { CuerpoEstado, CuerpoLista, CuerpoPrecio, CuerpoStock } from "./Cuerpos";
 import { FiltroColumna } from "./FiltroColumna";
 import { useFiltrosProductos } from "./FiltrosProductosProvider";
@@ -45,13 +46,39 @@ function ContenidoPanel({ columna, cerrar }: { columna: ColumnaTabla; cerrar: ()
  * de orden y filtro, y lleva a la vista si la columna está filtrada y por cuál nivel del
  * orden manda. Los dos indicadores leen de la URL, así que dicen lo mismo que los chips.
  */
-export function EncabezadoProductos({ isAdmin }: { isAdmin: boolean }) {
+export function EncabezadoProductos({
+  isAdmin,
+  empresaErp = null,
+}: {
+  isAdmin: boolean;
+  /** La empresa del ERP del usuario: su columna de precio se resalta. */
+  empresaErp?: number | null;
+}) {
   const { filtros } = useFiltrosProductos();
+  const campoPropio = campoDeEmpresa(empresaErp);
 
   return (
     <thead>
       <tr aria-rowindex={1} className="text-left">
-        {COLUMNAS_TABLA.map((c) => {
+        {COLUMNAS_VISIBLES.map((v) => {
+          if (v.tipo === "empresa") {
+            const propia = v.empresa.campo === campoPropio;
+            return (
+              <th
+                key={v.empresa.campo}
+                scope="col"
+                title={propia ? `Tu empresa: ${v.empresa.nombre}` : `Precio ${v.empresa.nombre}`}
+                className={cn(
+                  TH,
+                  "px-3.5 py-2 text-right",
+                  propia && "text-brand shadow-[inset_0_-2px_0_var(--color-brand)]",
+                )}
+              >
+                {v.empresa.etiqueta}
+              </th>
+            );
+          }
+          const c = v.columna;
           const orden = ordenDeColumna(filtros.orden, c.id);
           // `aria-sort` solo en el primer nivel: es el que manda. Los niveles 2 y 3 los dice
           // el `aria-label` del botón.

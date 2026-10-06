@@ -1,3 +1,4 @@
+import { esEmpresaErp } from "@/lib/catalogo/precios-erp";
 import { ConflictError, NotFoundError } from "@/lib/errors";
 import type { AppClient } from "@/server/db/client";
 import { mapPostgrestError } from "@/server/db/postgrest-errors";
@@ -72,6 +73,7 @@ export class SupabaseUsersRepository implements UsersRepository {
     if (patch.nombre !== undefined) updatePayload.nombre = patch.nombre;
     if (patch.rol !== undefined) updatePayload.rol = patch.rol;
     if (patch.activo !== undefined) updatePayload.activo = patch.activo;
+    if (patch.empresa_erp !== undefined) updatePayload.empresa_erp = patch.empresa_erp;
 
     const { data, error } = await this.db
       .from("usuarios")
@@ -104,6 +106,7 @@ interface UsuarioRow {
   email: string;
   rol: RolUsuario;
   activo: boolean;
+  empresa_erp?: number | null;
   created_at: string;
 }
 
@@ -114,6 +117,7 @@ function mapRow(row: UsuarioRow): Usuario {
     email: row.email,
     rol: row.rol,
     activo: row.activo,
+    empresa_erp: esEmpresaErp(row.empresa_erp) ? row.empresa_erp : null,
     created_at: new Date(row.created_at),
   };
 }

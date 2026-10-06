@@ -685,6 +685,7 @@ export function vistaUsuarios(usuarios: readonly Usuario[]): UsuarioDelPanel[] {
       email: u.email,
       rol: u.rol,
       activo: u.activo,
+      empresaErp: u.empresa_erp ?? null,
       ultimoAcceso: { estado: "sin-dato" },
     }));
 }

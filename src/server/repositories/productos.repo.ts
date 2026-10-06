@@ -23,7 +23,7 @@ import {
   type OpcionesFaceta,
   type ProductosFiltros,
 } from "@/lib/validation/productos-filtros.schema";
-import type { Producto, UUID } from "@/types/entities";
+import type { CompatibilidadEntry, Producto, UUID } from "@/types/entities";
 import type { Faceta, LoteProductos, ProductoFila } from "@/types/productos";
 import type { Insert, Update } from "./_types";
 
@@ -134,6 +134,29 @@ export interface ProductsRepository {
   // Upsert masivo por codigo_interno (import CSV). Throws si hay codigo_interno
   // duplicado en el input. Preserva orden del input en el array de retorno.
   bulkUpsert(items: ProductoBulkUpsertItem[]): Promise<Producto[]>;
+  /**
+   * Hasta `limite` productos cuyo `nombre` cambió y cuya compatibilidad hay que
+   * recalcular (`compatibilidad_pendiente`). Solo `id` y `nombre`: es todo lo que
+   * necesita el traductor.
+   */
+  listarCompatibilidadPendiente(limite: number): Promise<ProductoPendienteDeCompatibilidad[]>;
+  /**
+   * Guarda la compatibilidad recalculada y baja la marca de pendiente, SOLO si el
+   * `nombre` sigue siendo el que se tradujo. Si la sincronización lo cambió
+   * mientras tanto devuelve `false` y el producto queda pendiente para la próxima
+   * pasada: guardar igual dejaría una compatibilidad de un nombre viejo marcada
+   * como al día.
+   */
+  guardarCompatibilidad(
+    id: UUID,
+    nombreTraducido: string,
+    compatibilidad: CompatibilidadEntry[],
+  ): Promise<boolean>;
+}
+
+export interface ProductoPendienteDeCompatibilidad {
+  id: UUID;
+  nombre: string;
 }
 
 // Deep clone defensivo de compatibilidad (jsonb array) para evitar mutación cruzada de refs.
@@ -325,6 +348,31 @@ export class InMemoryProductsRepository implements ProductsRepository {
     }
     return result;
   }
+
+  async listarCompatibilidadPendiente(
+    limite: number,
+  ): Promise<ProductoPendienteDeCompatibilidad[]> {
+    return Array.from(this.store.values())
+      .filter((p) => p.compatibilidad_pendiente === true)
+      .sort((a, b) => a.codigo_interno.localeCompare(b.codigo_interno))
+      .slice(0, Math.max(0, limite))
+      .map((p) => ({ id: p.id, nombre: p.nombre }));
+  }
+
+  async guardarCompatibilidad(
+    id: UUID,
+    nombreTraducido: string,
+    compatibilidad: CompatibilidadEntry[],
+  ): Promise<boolean> {
+    const current = this.store.get(id);
+    if (!current || current.nombre !== nombreTraducido) return false;
+    this.store.set(id, {
+      ...current,
+      compatibilidad: compatibilidad.map((c) => ({ ...c })),
+      compatibilidad_pendiente: false,
+    });
+    return true;
+  }
 }
 
 /** Espejo de `plegar_texto(campo) like %buscado%`: sin mayúsculas ni tildes, subcadena. */
@@ -388,6 +436,11 @@ function aFila(p: Producto): ProductoFila {
     descripcion: p.descripcion,
     categoria: p.categoria,
     precio: p.precio,
+    precio_matriz: p.precio_matriz ?? null,
+    precio_magdalena: p.precio_magdalena ?? null,
+    precio_koreanos: p.precio_koreanos ?? null,
+    precio_sas_repuestos: p.precio_sas_repuestos ?? null,
+    codigo_difiere: p.codigo_difiere ?? false,
     stock: p.stock,
     activo: p.activo,
   };

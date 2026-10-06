@@ -63,6 +63,7 @@ interface Opciones {
   faceta?: CargadoresProductos["faceta"];
   search?: string;
   isAdmin?: boolean;
+  empresaErp?: number | null;
 }
 
 function montar(extra: ReactElement | null = null, o: Opciones = {}) {
@@ -88,6 +89,7 @@ function montar(extra: ReactElement | null = null, o: Opciones = {}) {
       {extra}
       <CatalogoProductos
         isAdmin={o.isAdmin ?? true}
+        empresaErp={o.empresaErp ?? null}
         onUpdate={onUpdate}
         onToggleActivo={onToggleActivo}
       />
@@ -149,7 +151,7 @@ describe("CatalogoProductos: la tabla", () => {
     expect(region().getAttribute("aria-busy")).toBe("false");
   });
 
-  it("las nueve columnas, en orden, con su encabezado", async () => {
+  it("las trece columnas, en orden, con su encabezado", async () => {
     montar();
     await waitFor(() => expect(filasDelDom()).toHaveLength(5));
     const th = [...document.querySelectorAll("thead th")].map(
@@ -163,10 +165,25 @@ describe("CatalogoProductos: la tabla", () => {
       "Descripción",
       "Marca",
       "Precio",
+      "Matriz",
+      "Magdalena",
+      "Koreanos",
+      "SAS",
       "Stock",
       "Estado",
       "Acciones",
     ]);
+  });
+
+  it("las columnas de precio por empresa no abren panel: no se ordenan ni se filtran", async () => {
+    montar();
+    await waitFor(() => expect(filasDelDom()).toHaveLength(5));
+    for (const nombre of ["Matriz", "Magdalena", "Koreanos", "SAS"]) {
+      const th = [...document.querySelectorAll("thead th")].find((t) => t.textContent === nombre);
+      expect(th).toBeTruthy();
+      expect(th?.querySelector("button")).toBeNull();
+    }
+    expect(screen.queryByRole("button", { name: /^Matriz/ })).toBeNull();
   });
 
   it("formatea cada celda: precio con 2 decimales y coma, '—' en lo vacío, chip de estado", async () => {
@@ -179,7 +196,8 @@ describe("CatalogoProductos: la tabla", () => {
     await waitFor(() => expect(filasDelDom()).toHaveLength(2));
     const [a, b] = [...filasDelDom()] as HTMLTableRowElement[];
     const celdas = (tr: HTMLTableRowElement) => [...tr.cells].map((c) => c.textContent);
-    expect(celdas(a!).slice(0, 9)).toEqual([
+    // Sin precios por empresa, esas cuatro celdas quedan en "—".
+    expect(celdas(a!).slice(0, 13)).toEqual([
       "1",
       "—",
       "ALT-1, ZZ.9",
@@ -187,10 +205,14 @@ describe("CatalogoProductos: la tabla", () => {
       "Producto 0",
       "—",
       "1.234,50",
+      "—",
+      "—",
+      "—",
+      "—",
       "12",
       "Activo",
     ]);
-    expect(celdas(b!).slice(0, 9)).toEqual([
+    expect(celdas(b!).slice(0, 13)).toEqual([
       "2",
       "F-1",
       "—",
@@ -198,6 +220,10 @@ describe("CatalogoProductos: la tabla", () => {
       "Producto 1",
       "Alfa",
       "5,00",
+      "—",
+      "—",
+      "—",
+      "—",
       "1.500",
       "Inactivo",
     ]);
@@ -206,6 +232,72 @@ describe("CatalogoProductos: la tabla", () => {
     expect(a!.style.height).toBe(`${ALTO_FILA}px`);
     expect(a!.cells[0]?.className).toContain("font-mono");
     expect(a!.cells[6]?.className).toContain("text-right");
+  });
+
+  it("muestra el precio de cada empresa con coma decimal y deja en blanco la que no lo vende", async () => {
+    montar(null, {
+      filas: [
+        fila(0, {
+          precio: 8.5,
+          precio_matriz: 10,
+          precio_magdalena: 8.5,
+          precio_koreanos: 0,
+          precio_sas_repuestos: null,
+        }),
+      ],
+    });
+    await waitFor(() => expect(filasDelDom()).toHaveLength(1));
+    const tr = filasDelDom()[0] as HTMLTableRowElement;
+    expect([...tr.cells].slice(6, 11).map((c) => c.textContent)).toEqual([
+      "8,50",
+      "10,00",
+      "8,50",
+      "—",
+      "—",
+    ]);
+  });
+
+  it("un producto sin precio dice 'A consultar' y no 'NaN' ni '0,00'", async () => {
+    montar(null, { filas: [fila(0, { precio: null })] });
+    await waitFor(() => expect(filasDelDom()).toHaveLength(1));
+    const tr = filasDelDom()[0] as HTMLTableRowElement;
+    expect(tr.cells[6]?.textContent).toBe("A consultar");
+  });
+
+  it("resalta la columna de la empresa del usuario, en el encabezado y en las filas", async () => {
+    montar(null, {
+      empresaErp: 3,
+      filas: [fila(0, { precio_matriz: 10, precio_magdalena: 8.5 })],
+    });
+    await waitFor(() => expect(filasDelDom()).toHaveLength(1));
+    const ths = [...document.querySelectorAll("thead th")];
+    const th = (n: string) => ths.find((t) => t.textContent === n) as HTMLElement;
+    expect(th("Magdalena").className).toContain("text-brand");
+    expect(th("Matriz").className).not.toContain("text-brand");
+    const tr = filasDelDom()[0] as HTMLTableRowElement;
+    // Columnas 7 a 10: Matriz, Magdalena, Koreanos, SAS.
+    expect(tr.cells[8]?.className).toContain("bg-brand");
+    expect(tr.cells[7]?.className).not.toContain("bg-brand");
+    expect(tr.cells[9]?.className).not.toContain("bg-brand");
+    expect(tr.cells[10]?.className).not.toContain("bg-brand");
+  });
+
+  it("sin empresa asignada no resalta ninguna columna", async () => {
+    montar(null, { empresaErp: null, filas: [fila(0, { precio_matriz: 10 })] });
+    await waitFor(() => expect(filasDelDom()).toHaveLength(1));
+    expect(document.querySelectorAll("thead th.text-brand")).toHaveLength(0);
+    expect(document.querySelectorAll("tr[data-fila=producto] td[class*='bg-brand']")).toHaveLength(
+      0,
+    );
+  });
+
+  it("marca con 'Código difiere' el producto cuyo código del ERP no coincide", async () => {
+    montar(null, { filas: [fila(0, { codigo_difiere: true }), fila(1)] });
+    await waitFor(() => expect(filasDelDom()).toHaveLength(2));
+    const [a, b] = [...filasDelDom()] as HTMLTableRowElement[];
+    expect(a!.cells[0]?.textContent).toContain("Difiere");
+    expect(a!.cells[0]?.textContent).toContain("el código del ERP no coincide");
+    expect(b!.cells[0]?.textContent).not.toContain("Difiere");
   });
 
   it("sin rol admin no hay columna de acciones", async () => {

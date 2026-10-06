@@ -50,7 +50,7 @@ const motorDeMentira: MotorDifusionService = {
 };
 
 describe("makeCrmInngestFunctions", () => {
-  test("produce 19 InngestFunction con IDs esperados", () => {
+  test("produce 20 InngestFunction con IDs esperados", () => {
     const leads = new InMemoryLeadsRepository();
     const conversations = new InMemoryConversationsRepository();
     const sessions = new InMemoryLeadSessionRepository();
@@ -158,9 +158,14 @@ describe("makeCrmInngestFunctions", () => {
         aiAgent,
         configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
       },
+      recalcularCompatibilidad: {
+        servicio: {
+          recalcular: async () => ({ leidos: 0, actualizados: 0, sinVehiculo: 0, descartados: 0 }),
+        },
+      },
     });
 
-    expect(fns).toHaveLength(19);
+    expect(fns).toHaveLength(20);
     const ids = fns.map((f) => f.id());
     expect(ids).toEqual(
       expect.arrayContaining([
@@ -183,6 +188,7 @@ describe("makeCrmInngestFunctions", () => {
         expect.stringContaining("workflow-inactividad"),
         expect.stringContaining("drenar-difusiones"),
         expect.stringContaining("copiloto-borrador"),
+        expect.stringContaining("recalcular-compatibilidad"),
       ]),
     );
   });

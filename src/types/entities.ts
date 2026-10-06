@@ -259,6 +259,20 @@ export interface Producto {
   categoria: string | null;
   compatibilidad: CompatibilidadEntry[];
   precio: number;
+  /**
+   * Precio por empresa del ERP (`null` o 0: esa empresa no lo vende). `precio` es
+   * el más barato de los cuatro que no sean 0. Los escribe la sincronización con
+   * el ERP; opcionales mientras no todos los llamadores los conozcan.
+   */
+  precio_matriz?: number | null;
+  precio_magdalena?: number | null;
+  precio_koreanos?: number | null;
+  precio_sas_repuestos?: number | null;
+  /** El código del ERP no coincide con `codigo_interno`. */
+  codigo_difiere?: boolean;
+  erp_actualizado_at?: Date | null;
+  /** `nombre` cambió y `compatibilidad` está por recalcularse. */
+  compatibilidad_pendiente?: boolean;
   stock: number;
   imagen_url: string | null;
   activo: boolean;
@@ -498,13 +512,28 @@ export interface LeadTag {
   quitada_por: UUID | null;
 }
 
+/** Empresa del ERP: 1 Matriz, 3 Magdalena, 5 Koreanos SAS, 6 SAS Repuestos. */
+export type EmpresaErp = 1 | 3 | 5 | 6;
+
 export interface Usuario {
   id: UUID;
   nombre: string;
   email: string;
   rol: RolUsuario;
   activo: boolean;
+  /** La empresa del ERP del vendedor: la columna de precio que se le resalta. */
+  empresa_erp?: EmpresaErp | null;
   created_at: Date;
+}
+
+/** La fila única de `erp_sync_estado`: cómo va la sincronización del catálogo con el ERP. */
+export interface ErpSyncEstado {
+  ultimo_inicio: Date | null;
+  ultimo_fin: Date | null;
+  ultimo_exito: Date | null;
+  ultimo_error: string | null;
+  filas_cargadas: number | null;
+  actualizado_at: Date | null;
 }
 
 export interface ToolExecution {
