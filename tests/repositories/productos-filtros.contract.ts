@@ -391,6 +391,20 @@ export function runProductosFiltrosContract(makeRepo: () => ProductsRepository) 
         expect(desc.filas.map((p) => p.precio)).toEqual([250.5, 200, 80, 50, 15, 12, 5]);
       });
 
+      test.each(["precio_matriz", "precio_magdalena", "precio_koreanos", "precio_sas_repuestos"])(
+        "%s ordena como número y deja el que no lo vende (null) al final en las dos direcciones",
+        async (campo) => {
+          await sembrar(repo, [
+            { codigo_interno: "1", nombre: "a", [campo]: 10 },
+            { codigo_interno: "2", nombre: "b" },
+            { codigo_interno: "3", nombre: "c", [campo]: 9 },
+            { codigo_interno: "4", nombre: "d", [campo]: 100 },
+          ]);
+          expect(codigos(await lote({ orden: campo, dir: "asc" }))).toEqual(["3", "1", "4", "2"]);
+          expect(codigos(await lote({ orden: campo, dir: "desc" }))).toEqual(["4", "1", "3", "2"]);
+        },
+      );
+
       test("precio a consultar (null) va al final en las dos direcciones y no entra en un rango", async () => {
         await sembrar(repo, [
           { codigo_interno: "1", nombre: "a", precio: 10 },

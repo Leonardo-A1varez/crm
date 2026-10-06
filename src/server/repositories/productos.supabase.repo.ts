@@ -370,6 +370,14 @@ function toDbInsert(input: ProductoInsert): ProductoDbInsert {
     categoria: input.categoria,
     compatibilidad: input.compatibilidad as never,
     precio: input.precio,
+    // Lo del ERP lo escribe normalmente `erp_sync_cargar`; si el llamador lo trae
+    // (tests, un alta con precios) se respeta en vez de descartarlo en silencio.
+    precio_matriz: input.precio_matriz ?? null,
+    precio_magdalena: input.precio_magdalena ?? null,
+    precio_koreanos: input.precio_koreanos ?? null,
+    precio_sas_repuestos: input.precio_sas_repuestos ?? null,
+    codigo_difiere: input.codigo_difiere ?? false,
+    erp_actualizado_at: input.erp_actualizado_at ? input.erp_actualizado_at.toISOString() : null,
     stock: input.stock,
     imagen_url: input.imagen_url,
     activo: input.activo,

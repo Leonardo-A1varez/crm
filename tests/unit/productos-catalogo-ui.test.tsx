@@ -181,15 +181,24 @@ describe("CatalogoProductos: la tabla", () => {
     ]);
   });
 
-  it("las columnas de precio por empresa no abren panel: no se ordenan ni se filtran", async () => {
+  it("las columnas de precio por empresa se ordenan pero no se filtran: el panel es solo de orden", async () => {
     montar();
     await waitFor(() => expect(filasDelDom()).toHaveLength(5));
-    for (const nombre of ["Matriz", "Magdalena", "Koreanos", "SAS"]) {
-      const th = [...document.querySelectorAll("thead th")].find((t) => t.textContent === nombre);
-      expect(th).toBeTruthy();
-      expect(th?.querySelector("button")).toBeNull();
+    for (const [nombre, campo] of [
+      ["Matriz", "precio_matriz"],
+      ["Magdalena", "precio_magdalena"],
+      ["Koreanos", "precio_koreanos"],
+      ["SAS", "precio_sas_repuestos"],
+    ] as const) {
+      fireEvent.click(encabezado(nombre));
+      const panel = await screen.findByRole("dialog");
+      // Sin filtro: nada que no sea el orden (dos sentidos y, sin orden elegido, ningún "Quitar").
+      expect(within(panel).getAllByRole("button")).toHaveLength(2);
+      fireEvent.click(within(panel).getByRole("button", { name: /Ordenar Menor a mayor/ }));
+      expect(urlActual()).toBe(`orden=${campo}&dir=asc`);
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      ponerUrl("");
     }
-    expect(screen.queryByRole("button", { name: /^Matriz/ })).toBeNull();
   });
 
   it("formatea cada celda: precio con 2 decimales y coma, '—' en lo vacío, chip de estado", async () => {

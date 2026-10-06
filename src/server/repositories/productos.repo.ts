@@ -508,6 +508,12 @@ function claveDe(p: Producto, campo: CampoOrden): ClaveOrden {
       return textoONulo(p.descripcion);
     case "precio":
       return p.precio;
+    case "precio_matriz":
+    case "precio_magdalena":
+    case "precio_koreanos":
+    case "precio_sas_repuestos":
+      // `null` queda al final en las dos direcciones, como `nulls last` en SQL.
+      return p[campo];
     case "stock":
       return p.stock;
     case "estado":

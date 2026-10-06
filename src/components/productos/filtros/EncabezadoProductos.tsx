@@ -63,18 +63,38 @@ export function EncabezadoProductos({
         {COLUMNAS_VISIBLES.map((v) => {
           if (v.tipo === "empresa") {
             const propia = v.empresa.campo === campoPropio;
+            const orden = ordenDeColumna(filtros.orden, v.empresa.campo);
+            const ordenada = orden.nivel === 1 && orden.dir !== null;
             return (
               <th
                 key={v.empresa.campo}
                 scope="col"
+                aria-sort={
+                  ordenada ? (orden.dir === "asc" ? "ascending" : "descending") : undefined
+                }
                 title={propia ? `Tu empresa: ${v.empresa.nombre}` : `Precio ${v.empresa.nombre}`}
                 className={cn(
                   TH,
-                  "px-3.5 py-2 text-right",
                   propia && "text-brand shadow-[inset_0_-2px_0_var(--color-brand)]",
                 )}
               >
-                {v.empresa.etiqueta}
+                {/* Solo se ordena: no hay filtro por empresa, así que el panel es solo el orden. */}
+                <FiltroColumna
+                  etiqueta={v.empresa.etiqueta}
+                  accion="Ordenar"
+                  activo={false}
+                  orden={orden}
+                  derecha
+                  ancho={ANCHO_PANEL_RANGO}
+                >
+                  {(cerrar) => (
+                    <SeccionOrden
+                      campo={v.empresa.campo}
+                      etiqueta={v.empresa.etiqueta}
+                      cerrar={cerrar}
+                    />
+                  )}
+                </FiltroColumna>
               </th>
             );
           }

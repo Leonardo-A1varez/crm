@@ -75,8 +75,7 @@ export const ANCHO_PRECIO_EMPRESA = 108;
 /**
  * Lo que dibuja la tabla, en orden: las columnas del catálogo y, justo después de
  * "Precio" (el más barato), una de precio por cada empresa del ERP. Las de empresa
- * son solo de lectura: no abren panel, ni se ordenan ni se filtran, porque
- * `productos_listar` y `productos_faceta` todavía no conocen esas columnas.
+ * se ordenan (panel solo de orden) pero no se filtran.
  */
 export type ColumnaVisible =
   | { tipo: "catalogo"; columna: ColumnaTabla }

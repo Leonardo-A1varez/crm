@@ -122,6 +122,10 @@ const TIPO_ORDEN: Record<CampoOrden, "texto" | "numero" | "estado"> = {
   descripcion: "texto",
   marca: "texto",
   precio: "numero",
+  precio_matriz: "numero",
+  precio_magdalena: "numero",
+  precio_koreanos: "numero",
+  precio_sas_repuestos: "numero",
   stock: "numero",
   estado: "estado",
 };
