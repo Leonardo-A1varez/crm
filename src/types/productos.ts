@@ -46,7 +46,15 @@ export interface ProductoFila {
   nombre: string;
   descripcion: string | null;
   categoria: string | null;
-  precio: number;
+  /** `null` = a consultar (ningún precio del ERP es mayor que cero). */
+  precio: number | null;
+  precio_matriz: number | null;
+  precio_magdalena: number | null;
+  precio_koreanos: number | null;
+  precio_sas_repuestos: number | null;
+  codigo_difiere: boolean;
+  /** ISO 8601, tal como lo devuelve `productos_listar`; `null` = nunca vino del ERP. */
+  erp_actualizado_at: string | null;
   stock: number;
   activo: boolean;
 }

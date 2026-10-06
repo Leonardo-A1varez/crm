@@ -258,7 +258,22 @@ export interface Producto {
   descripcion: string | null;
   categoria: string | null;
   compatibilidad: CompatibilidadEntry[];
-  precio: number;
+  /**
+   * El precio que cotiza el agente. Para lo cargado del ERP, el más barato
+   * distinto de cero de los cuatro por empresa. `null` = "a consultar".
+   */
+  precio: number | null;
+  /** PVP lista 1 por empresa del ERP: 1 Matriz, 3 Magdalena, 5 Koreanos SAS, 6 SAS Repuestos. */
+  precio_matriz: number | null;
+  precio_magdalena: number | null;
+  precio_koreanos: number | null;
+  precio_sas_repuestos: number | null;
+  /** El mismo No. Item tiene distinto código de fábrica en otra empresa. Solo informativo. */
+  codigo_difiere: boolean;
+  /** Última vez que la carga del ERP cambió la fila; `null` = nunca vino del ERP. */
+  erp_actualizado_at: Date | null;
+  /** El nombre es nuevo o cambió y `compatibilidad` no se recalculó. */
+  compatibilidad_pendiente: boolean;
   stock: number;
   imagen_url: string | null;
   activo: boolean;

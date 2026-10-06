@@ -72,6 +72,13 @@ describe("forma de productos.compatibilidad", () => {
       categoria: null,
       compatibilidad,
       precio: 10,
+      precio_matriz: null,
+      precio_magdalena: null,
+      precio_koreanos: null,
+      precio_sas_repuestos: null,
+      codigo_difiere: false,
+      erp_actualizado_at: null,
+      compatibilidad_pendiente: true,
       stock: 1,
       imagen_url: null,
       activo: true,
@@ -79,6 +86,19 @@ describe("forma de productos.compatibilidad", () => {
       updated_at: ahora,
     };
     expect(ProductoSchema.safeParse(producto).success).toBe(true);
+    // Lo que deja la carga del ERP: precio a consultar y los cuatro por empresa.
+    const delErp = {
+      ...producto,
+      precio: null,
+      precio_matriz: 0,
+      precio_koreanos: 12.29,
+      codigo_difiere: true,
+      erp_actualizado_at: ahora,
+    };
+    expect(ProductoSchema.safeParse(delErp).success).toBe(true);
+    expect(ProductoSchema.safeParse({ ...producto, precio_matriz: -1 }).success).toBe(false);
+    const { codigo_difiere: _sinFlag, ...sinFlag } = producto;
+    expect(ProductoSchema.safeParse(sinFlag).success).toBe(false);
     const alta = { codigo_interno: "P-1", nombre: "x", precio: 10, compatibilidad };
     expect(CreateProductoInputSchema.safeParse(alta).success).toBe(true);
   });

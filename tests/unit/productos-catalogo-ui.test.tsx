@@ -41,6 +41,12 @@ function fila(i: number, parcial: Partial<ProductoFila> = {}): ProductoFila {
     descripcion: "Alfa",
     categoria: "Frenos",
     precio: 1234.5,
+    precio_matriz: null,
+    precio_magdalena: null,
+    precio_koreanos: null,
+    precio_sas_repuestos: null,
+    codigo_difiere: false,
+    erp_actualizado_at: null,
     stock: 12,
     activo: true,
     ...parcial,
@@ -206,6 +212,14 @@ describe("CatalogoProductos: la tabla", () => {
     expect(a!.style.height).toBe(`${ALTO_FILA}px`);
     expect(a!.cells[0]?.className).toContain("font-mono");
     expect(a!.cells[6]?.className).toContain("text-right");
+  });
+
+  it("un precio null se lee 'A consultar', no '0,00'", async () => {
+    montar(null, { filas: [fila(0, { precio: null })] });
+    await waitFor(() => expect(filasDelDom()).toHaveLength(1));
+    const [a] = [...filasDelDom()] as HTMLTableRowElement[];
+    expect(a!.cells[6]?.textContent).toBe("A consultar");
+    expect(a!.cells[6]?.getAttribute("title")).toBe("A consultar");
   });
 
   it("sin rol admin no hay columna de acciones", async () => {

@@ -102,6 +102,9 @@ export class SupabaseProductsRepository implements ProductsRepository {
     if (patch.stock !== undefined) updatePayload.stock = patch.stock;
     if (patch.imagen_url !== undefined) updatePayload.imagen_url = patch.imagen_url;
     if (patch.activo !== undefined) updatePayload.activo = patch.activo;
+    if (patch.compatibilidad_pendiente !== undefined) {
+      updatePayload.compatibilidad_pendiente = patch.compatibilidad_pendiente;
+    }
 
     const { data, error } = await this.db
       .from("productos")
@@ -380,6 +383,12 @@ function mapFila(row: FilaRow): ProductoFila {
     descripcion: row.descripcion,
     categoria: row.categoria,
     precio: row.precio,
+    precio_matriz: row.precio_matriz ?? null,
+    precio_magdalena: row.precio_magdalena ?? null,
+    precio_koreanos: row.precio_koreanos ?? null,
+    precio_sas_repuestos: row.precio_sas_repuestos ?? null,
+    codigo_difiere: row.codigo_difiere ?? false,
+    erp_actualizado_at: row.erp_actualizado_at ?? null,
     stock: row.stock,
     activo: row.activo,
   };
@@ -395,7 +404,14 @@ interface ProductoRow {
   descripcion: string | null;
   categoria: string | null;
   compatibilidad: unknown;
-  precio: number;
+  precio: number | null;
+  precio_matriz: number | null;
+  precio_magdalena: number | null;
+  precio_koreanos: number | null;
+  precio_sas_repuestos: number | null;
+  codigo_difiere: boolean;
+  erp_actualizado_at: string | null;
+  compatibilidad_pendiente: boolean;
   stock: number;
   imagen_url: string | null;
   activo: boolean;
@@ -416,6 +432,13 @@ function mapRow(row: ProductoRow): Producto {
     categoria: row.categoria,
     compatibilidad: compat.map((c) => ({ ...c })),
     precio: row.precio,
+    precio_matriz: row.precio_matriz,
+    precio_magdalena: row.precio_magdalena,
+    precio_koreanos: row.precio_koreanos,
+    precio_sas_repuestos: row.precio_sas_repuestos,
+    codigo_difiere: row.codigo_difiere,
+    erp_actualizado_at: row.erp_actualizado_at ? new Date(row.erp_actualizado_at) : null,
+    compatibilidad_pendiente: row.compatibilidad_pendiente,
     stock: row.stock,
     imagen_url: row.imagen_url,
     activo: row.activo,

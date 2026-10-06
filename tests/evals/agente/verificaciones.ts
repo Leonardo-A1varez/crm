@@ -121,7 +121,8 @@ export function mencionaIva(): Verificacion {
 /** Todo monto cotizado está en el catálogo del stub (o es múltiplo entero si se permite). */
 export function noInventaPrecios(opciones: { permitirMultiplos?: boolean } = {}): Verificacion {
   return (r) => {
-    const validos = r.catalogo.map((p) => p.precio);
+    // Un producto "a consultar" (precio null) no habilita ningún monto.
+    const validos = r.catalogo.flatMap((p) => (p.precio === null ? [] : [p.precio]));
     for (const monto of montosCotizados(r.texto)) {
       const ok = validos.some(
         (v) =>
