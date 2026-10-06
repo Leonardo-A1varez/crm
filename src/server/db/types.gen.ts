@@ -659,6 +659,33 @@ export type Database = {
         }
         Relationships: []
       }
+      erp_sync_estado: {
+        Row: {
+          actualizado_at: string | null
+          filas_cargadas: number | null
+          ultimo_error: string | null
+          ultimo_exito: string | null
+          ultimo_fin: string | null
+          ultimo_inicio: string | null
+        }
+        Insert: {
+          actualizado_at?: string | null
+          filas_cargadas?: number | null
+          ultimo_error?: string | null
+          ultimo_exito?: string | null
+          ultimo_fin?: string | null
+          ultimo_inicio?: string | null
+        }
+        Update: {
+          actualizado_at?: string | null
+          filas_cargadas?: number | null
+          ultimo_error?: string | null
+          ultimo_exito?: string | null
+          ultimo_fin?: string | null
+          ultimo_inicio?: string | null
+        }
+        Relationships: []
+      }
       event_outbox: {
         Row: {
           attempts: number
@@ -1437,14 +1464,21 @@ export type Database = {
           codigo_interno: string
           codigo_interno_orden: number | null
           codigo_interno_plegado: string | null
+          codigo_difiere: boolean
           compatibilidad: Json
+          compatibilidad_pendiente: boolean
           created_at: string
           descripcion: string | null
+          erp_actualizado_at: string | null
           id: string
           imagen_url: string | null
           nombre: string
           otros_codigos: string[]
           precio: number
+          precio_koreanos: number | null
+          precio_magdalena: number | null
+          precio_matriz: number | null
+          precio_sas_repuestos: number | null
           sku_proveedor: string | null
           stock: number
           updated_at: string
@@ -1459,14 +1493,21 @@ export type Database = {
           codigo_interno: string
           codigo_interno_orden?: number | null
           codigo_interno_plegado?: string | null
+          codigo_difiere?: boolean
           compatibilidad?: Json
+          compatibilidad_pendiente?: boolean
           created_at?: string
           descripcion?: string | null
+          erp_actualizado_at?: string | null
           id?: string
           imagen_url?: string | null
           nombre: string
           otros_codigos?: string[]
           precio: number
+          precio_koreanos?: number | null
+          precio_magdalena?: number | null
+          precio_matriz?: number | null
+          precio_sas_repuestos?: number | null
           sku_proveedor?: string | null
           stock?: number
           updated_at?: string
@@ -1481,14 +1522,21 @@ export type Database = {
           codigo_interno?: string
           codigo_interno_orden?: number | null
           codigo_interno_plegado?: string | null
+          codigo_difiere?: boolean
           compatibilidad?: Json
+          compatibilidad_pendiente?: boolean
           created_at?: string
           descripcion?: string | null
+          erp_actualizado_at?: string | null
           id?: string
           imagen_url?: string | null
           nombre?: string
           otros_codigos?: string[]
           precio?: number
+          precio_koreanos?: number | null
+          precio_magdalena?: number | null
+          precio_matriz?: number | null
+          precio_sas_repuestos?: number | null
           sku_proveedor?: string | null
           stock?: number
           updated_at?: string
@@ -1897,6 +1945,7 @@ export type Database = {
           activo: boolean
           created_at: string
           email: string
+          empresa_erp: number | null
           id: string
           nombre: string
           rol: Database["public"]["Enums"]["rol_usuario_enum"]
@@ -1905,6 +1954,7 @@ export type Database = {
           activo?: boolean
           created_at?: string
           email: string
+          empresa_erp?: number | null
           id: string
           nombre: string
           rol?: Database["public"]["Enums"]["rol_usuario_enum"]
@@ -1913,6 +1963,7 @@ export type Database = {
           activo?: boolean
           created_at?: string
           email?: string
+          empresa_erp?: number | null
           id?: string
           nombre?: string
           rol?: Database["public"]["Enums"]["rol_usuario_enum"]

@@ -46,7 +46,18 @@ export interface ProductoFila {
   nombre: string;
   descripcion: string | null;
   categoria: string | null;
-  precio: number;
+  /** El más barato de los cuatro precios del ERP que no sean 0; `null` es "a consultar". */
+  precio: number | null;
+  /**
+   * Precio por empresa del ERP. Opcionales: los trae `productos_listar` una vez que
+   * la base los expone; si faltan, la tabla los muestra como "sin precio".
+   */
+  precio_matriz?: number | null;
+  precio_magdalena?: number | null;
+  precio_koreanos?: number | null;
+  precio_sas_repuestos?: number | null;
+  /** El código del ERP no coincide con `codigo_interno`. */
+  codigo_difiere?: boolean;
   stock: number;
   activo: boolean;
 }

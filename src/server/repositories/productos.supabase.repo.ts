@@ -23,12 +23,13 @@ import { ilikeContains } from "@/server/db/postgrest-like";
 import { serverNowIso } from "@/server/db/server-time";
 import type { Database, Json } from "@/server/db/types.gen";
 import { isUuid } from "@/server/db/uuid";
-import type { Producto, UUID } from "@/types/entities";
+import type { CompatibilidadEntry, Producto, UUID } from "@/types/entities";
 import type { Faceta, LoteProductos, ProductoFila } from "@/types/productos";
 import type {
   ProductoBulkUpsertItem,
   ProductoInsert,
   ProductoListFilter,
+  ProductoPendienteDeCompatibilidad,
   ProductoSearchHit,
   ProductoSearchInput,
   ProductoUpdate,
@@ -312,6 +313,39 @@ export class SupabaseProductsRepository implements ProductsRepository {
       return mapRow(row);
     });
   }
+
+  async listarCompatibilidadPendiente(
+    limite: number,
+  ): Promise<ProductoPendienteDeCompatibilidad[]> {
+    const { data, error } = await this.db
+      .from("productos")
+      .select("id, nombre")
+      .eq("compatibilidad_pendiente", true)
+      .order("id", { ascending: true })
+      .limit(Math.max(1, Math.min(limite, FILAS_POR_PAGINA)));
+    if (error) throw mapPostgrestError(error, { resource: "producto" });
+    return (data ?? []).map((r) => ({ id: r.id, nombre: r.nombre }));
+  }
+
+  async guardarCompatibilidad(
+    id: UUID,
+    nombreTraducido: string,
+    compatibilidad: CompatibilidadEntry[],
+  ): Promise<boolean> {
+    // `.eq("nombre", ...)` es la guarda: si la sincronización cambió el nombre
+    // después de leerlo, el UPDATE no toca ninguna fila y el producto sigue pendiente.
+    const { data, error } = await this.db
+      .from("productos")
+      .update({
+        compatibilidad: compatibilidad as unknown as Json,
+        compatibilidad_pendiente: false,
+      })
+      .eq("id", id)
+      .eq("nombre", nombreTraducido)
+      .select("id");
+    if (error) throw mapPostgrestError(error, { resource: "producto" });
+    return (data ?? []).length > 0;
+  }
 }
 
 /**
@@ -380,6 +414,11 @@ function mapFila(row: FilaRow): ProductoFila {
     descripcion: row.descripcion,
     categoria: row.categoria,
     precio: row.precio,
+    precio_matriz: row.precio_matriz ?? null,
+    precio_magdalena: row.precio_magdalena ?? null,
+    precio_koreanos: row.precio_koreanos ?? null,
+    precio_sas_repuestos: row.precio_sas_repuestos ?? null,
+    codigo_difiere: row.codigo_difiere ?? false,
     stock: row.stock,
     activo: row.activo,
   };
@@ -396,6 +435,13 @@ interface ProductoRow {
   categoria: string | null;
   compatibilidad: unknown;
   precio: number;
+  precio_matriz?: number | null;
+  precio_magdalena?: number | null;
+  precio_koreanos?: number | null;
+  precio_sas_repuestos?: number | null;
+  codigo_difiere?: boolean;
+  erp_actualizado_at?: string | null;
+  compatibilidad_pendiente?: boolean;
   stock: number;
   imagen_url: string | null;
   activo: boolean;
@@ -416,6 +462,13 @@ function mapRow(row: ProductoRow): Producto {
     categoria: row.categoria,
     compatibilidad: compat.map((c) => ({ ...c })),
     precio: row.precio,
+    precio_matriz: row.precio_matriz ?? null,
+    precio_magdalena: row.precio_magdalena ?? null,
+    precio_koreanos: row.precio_koreanos ?? null,
+    precio_sas_repuestos: row.precio_sas_repuestos ?? null,
+    codigo_difiere: row.codigo_difiere ?? false,
+    erp_actualizado_at: row.erp_actualizado_at ? new Date(row.erp_actualizado_at) : null,
+    compatibilidad_pendiente: row.compatibilidad_pendiente ?? false,
     stock: row.stock,
     imagen_url: row.imagen_url,
     activo: row.activo,

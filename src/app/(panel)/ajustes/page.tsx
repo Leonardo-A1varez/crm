@@ -18,6 +18,7 @@ import {
 } from "@/server/bootstrap/ajustes-bootstrap";
 import { getUsuariosServiceForRequest } from "@/server/bootstrap/usuarios-bootstrap";
 import { getWorkflowsAdminServiceForRequest } from "@/server/bootstrap/workflows-bootstrap";
+import { asignarEmpresaErpAction } from "./_actions/empresa-erp.action";
 import { guardarRolNumeroAction } from "./_actions/rol-numero.action";
 import { leerSeccion } from "./_lib/leer-seccion";
 import { NOTA_SANCIONES } from "./_lib/politica-meta";
@@ -141,7 +142,12 @@ async function contenidoDe(
         logger,
       );
       if (usuarios.estado !== "ok") return <AvisoLectura titulo="Usuarios" lectura={usuarios} />;
-      return <UsuariosYRoles usuarios={vistaUsuarios(usuarios.datos)} />;
+      return (
+        <UsuariosYRoles
+          usuarios={vistaUsuarios(usuarios.datos)}
+          asignarEmpresa={esAdmin ? asignarEmpresaErpAction : null}
+        />
+      );
     }
 
     case "horario": {
