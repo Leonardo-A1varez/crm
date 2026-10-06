@@ -123,6 +123,14 @@ describe("CatalogMatcherService.buscar con vehículo", () => {
       expect(() => BuscarRepuestoOutputSchema.parse(r)).not.toThrow();
     });
   });
+
+  test("un producto sin precio (a consultar) llega con precio null y cumple el schema", async () => {
+    const solo = new InMemoryProductsRepository();
+    await solo.create({ ...termostato("SP", "TERMOSTATO SIN PRECIO", []), precio: null });
+    const r = await new DefaultCatalogMatcherService(solo).buscar({ query: "termostato" });
+    expect(r.matches[0]?.precio).toBeNull();
+    expect(() => BuscarRepuestoOutputSchema.parse(r)).not.toThrow();
+  });
 });
 
 describe("BuscarRepuestoInputSchema", () => {

@@ -78,7 +78,8 @@ export const BuscarRepuestoMatchSchema = z.object({
   id: z.string().uuid(),
   codigo_interno: z.string(),
   nombre: z.string(),
-  precio: z.number().nonnegative(),
+  // null = a consultar: ninguno de los precios del ERP es mayor que cero.
+  precio: z.number().nonnegative().nullable(),
   stock: z.number().int().nonnegative(),
   // Solo los atributos en los que los candidatos se diferencian (ver `diferencias`).
   anios: z.array(z.string()).optional(),

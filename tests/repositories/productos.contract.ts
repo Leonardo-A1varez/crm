@@ -79,6 +79,45 @@ export function runProductosContract(makeRepo: () => ProductsRepository) {
       await expect(repo.update("missing", { precio: 1 })).rejects.toThrow();
     });
 
+    describe("columnas del ERP y compatibilidad_pendiente", () => {
+      test("un alta manual nace sin datos del ERP y con la compatibilidad pendiente", async () => {
+        const p = await repo.create(baseInsert());
+        expect(p).toMatchObject({
+          precio_matriz: null,
+          precio_magdalena: null,
+          precio_koreanos: null,
+          precio_sas_repuestos: null,
+          codigo_difiere: false,
+          erp_actualizado_at: null,
+          compatibilidad_pendiente: true,
+        });
+      });
+
+      test("precio null es 'a consultar' y se guarda como null", async () => {
+        const p = await repo.create(baseInsert({ precio: null }));
+        expect(p.precio).toBeNull();
+        expect((await repo.findById(p.id))?.precio).toBeNull();
+      });
+
+      test("apagar la marca persiste; otro cambio no la vuelve a prender", async () => {
+        const p = await repo.create(baseInsert());
+        const apagada = await repo.update(p.id, { compatibilidad_pendiente: false });
+        expect(apagada.compatibilidad_pendiente).toBe(false);
+        const conStock = await repo.update(p.id, { stock: 3, precio: 99 });
+        expect(conStock.compatibilidad_pendiente).toBe(false);
+      });
+
+      test("cambiar el nombre la prende de nuevo, aunque el patch diga false", async () => {
+        const p = await repo.create(baseInsert());
+        await repo.update(p.id, { compatibilidad_pendiente: false });
+        const renombrada = await repo.update(p.id, {
+          nombre: "Pastilla de freno Corolla 2019-",
+          compatibilidad_pendiente: false,
+        });
+        expect(renombrada.compatibilidad_pendiente).toBe(true);
+      });
+    });
+
     test("list devuelve todos cuando no hay filter", async () => {
       await repo.create(baseInsert());
       await repo.create(baseInsert({ codigo_interno: "X-2", nombre: "Otro" }));

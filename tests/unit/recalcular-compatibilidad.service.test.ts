@@ -37,7 +37,7 @@ describe("DefaultRecalcularCompatibilidadService", () => {
   });
 
   async function crear(codigo: string, nombre: string, pendiente: boolean) {
-    return productos.create({
+    const creado = await productos.create({
       codigo_interno: codigo,
       sku_proveedor: null,
       nombre,
@@ -48,8 +48,10 @@ describe("DefaultRecalcularCompatibilidadService", () => {
       stock: 1,
       imagen_url: null,
       activo: true,
-      compatibilidad_pendiente: pendiente,
     });
+    // El alta siempre queda pendiente (trigger); acá se baja la marca a mano.
+    if (pendiente) return creado;
+    return productos.update(creado.id, { compatibilidad_pendiente: false });
   }
 
   it("traduce el nombre con el diccionario de la base y baja la marca", async () => {

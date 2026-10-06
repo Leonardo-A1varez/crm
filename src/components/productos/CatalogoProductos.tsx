@@ -113,7 +113,7 @@ const FilaProducto = memo(function FilaProducto({
           return (
             <td
               key={c.id}
-              title={p.precio === null ? undefined : String(p.precio)}
+              title={p.precio === null ? "A consultar" : String(p.precio)}
               className={cn(
                 TD,
                 "text-right font-mono tabular-nums",

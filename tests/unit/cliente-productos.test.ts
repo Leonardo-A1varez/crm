@@ -16,6 +16,12 @@ const FILA = {
   descripcion: null,
   categoria: null,
   precio: 10,
+  precio_matriz: 12.5,
+  precio_magdalena: null,
+  precio_koreanos: 10,
+  precio_sas_repuestos: 0,
+  codigo_difiere: false,
+  erp_actualizado_at: "2026-10-06T12:00:00+00:00",
   stock: 1,
   activo: true,
 };
@@ -39,8 +45,34 @@ describe("leerLote", () => {
     });
   });
 
+  test("acepta precio null (a consultar) y una fila que nunca vino del ERP", () => {
+    const sinPrecio = {
+      ...FILA,
+      precio: null,
+      precio_matriz: null,
+      precio_koreanos: null,
+      precio_sas_repuestos: null,
+      erp_actualizado_at: null,
+    };
+    expect(leerLote({ filas: [sinPrecio], total: 1, lote: 1, desde: 0 }).filas).toEqual([
+      sinPrecio,
+    ]);
+  });
+
   test.each([
     ["no es un objeto", null],
+    [
+      "un precio del ERP como texto",
+      { filas: [{ ...FILA, precio_matriz: "1" }], total: 1, lote: 1, desde: 0 },
+    ],
+    [
+      "codigo_difiere ausente",
+      { filas: [{ ...FILA, codigo_difiere: undefined }], total: 1, lote: 1, desde: 0 },
+    ],
+    [
+      "erp_actualizado_at numérico",
+      { filas: [{ ...FILA, erp_actualizado_at: 5 }], total: 1, lote: 1, desde: 0 },
+    ],
     ["un arreglo", []],
     ["total negativo", { filas: [], total: -1, lote: 1, desde: 0 }],
     ["lote cero", { filas: [], total: 0, lote: 0, desde: 0 }],

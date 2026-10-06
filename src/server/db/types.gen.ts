@@ -661,28 +661,34 @@ export type Database = {
       }
       erp_sync_estado: {
         Row: {
-          actualizado_at: string | null
+          actualizado_at: string
           filas_cargadas: number | null
+          id: number
           ultimo_error: string | null
           ultimo_exito: string | null
           ultimo_fin: string | null
           ultimo_inicio: string | null
+          ultimo_ok: boolean | null
         }
         Insert: {
-          actualizado_at?: string | null
+          actualizado_at?: string
           filas_cargadas?: number | null
+          id?: number
           ultimo_error?: string | null
           ultimo_exito?: string | null
           ultimo_fin?: string | null
           ultimo_inicio?: string | null
+          ultimo_ok?: boolean | null
         }
         Update: {
-          actualizado_at?: string | null
+          actualizado_at?: string
           filas_cargadas?: number | null
+          id?: number
           ultimo_error?: string | null
           ultimo_exito?: string | null
           ultimo_fin?: string | null
           ultimo_inicio?: string | null
+          ultimo_ok?: boolean | null
         }
         Relationships: []
       }
@@ -1459,12 +1465,12 @@ export type Database = {
           busqueda: string | null
           busqueda_general: string | null
           categoria: string | null
+          codigo_difiere: boolean
           codigo_fabrica: string | null
           codigo_fabrica_plegado: string | null
           codigo_interno: string
           codigo_interno_orden: number | null
           codigo_interno_plegado: string | null
-          codigo_difiere: boolean
           compatibilidad: Json
           compatibilidad_pendiente: boolean
           created_at: string
@@ -1474,7 +1480,7 @@ export type Database = {
           imagen_url: string | null
           nombre: string
           otros_codigos: string[]
-          precio: number
+          precio: number | null
           precio_koreanos: number | null
           precio_magdalena: number | null
           precio_matriz: number | null
@@ -1488,12 +1494,12 @@ export type Database = {
           busqueda?: string | null
           busqueda_general?: string | null
           categoria?: string | null
+          codigo_difiere?: boolean
           codigo_fabrica?: string | null
           codigo_fabrica_plegado?: string | null
           codigo_interno: string
           codigo_interno_orden?: number | null
           codigo_interno_plegado?: string | null
-          codigo_difiere?: boolean
           compatibilidad?: Json
           compatibilidad_pendiente?: boolean
           created_at?: string
@@ -1503,7 +1509,7 @@ export type Database = {
           imagen_url?: string | null
           nombre: string
           otros_codigos?: string[]
-          precio: number
+          precio?: number | null
           precio_koreanos?: number | null
           precio_magdalena?: number | null
           precio_matriz?: number | null
@@ -1517,12 +1523,12 @@ export type Database = {
           busqueda?: string | null
           busqueda_general?: string | null
           categoria?: string | null
+          codigo_difiere?: boolean
           codigo_fabrica?: string | null
           codigo_fabrica_plegado?: string | null
           codigo_interno?: string
           codigo_interno_orden?: number | null
           codigo_interno_plegado?: string | null
-          codigo_difiere?: boolean
           compatibilidad?: Json
           compatibilidad_pendiente?: boolean
           created_at?: string
@@ -1532,7 +1538,7 @@ export type Database = {
           imagen_url?: string | null
           nombre?: string
           otros_codigos?: string[]
-          precio?: number
+          precio?: number | null
           precio_koreanos?: number | null
           precio_magdalena?: number | null
           precio_matriz?: number | null
@@ -2476,6 +2482,28 @@ export type Database = {
         }
       }
       difusion_uso_cupo_24h: { Args: { p_desde: string }; Returns: number }
+      erp_sync_borrar: {
+        Args: { p_clave: string; p_claves: Json; p_tabla: string }
+        Returns: number
+      }
+      erp_sync_cargar: {
+        Args: { p_clave: string; p_filas: Json; p_tabla: string }
+        Returns: number
+      }
+      erp_sync_clave_fijar: {
+        Args: { p_clave_hash: string }
+        Returns: undefined
+      }
+      erp_sync_estado_fijar: {
+        Args: {
+          p_clave: string
+          p_error?: string
+          p_fase: string
+          p_filas_cargadas?: number
+          p_ok?: boolean
+        }
+        Returns: undefined
+      }
       escapar_like: { Args: { t: string }; Returns: string }
       inbox_recent_messages: {
         Args: { p_limit?: number; p_session_ids: string[] }

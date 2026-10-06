@@ -20,7 +20,7 @@ describe("InMemoryProductsRepository: compatibilidad pendiente", () => {
   });
 
   async function crear(codigo: string, nombre: string, pendiente: boolean) {
-    return repo.create({
+    const creado = await repo.create({
       codigo_interno: codigo,
       sku_proveedor: null,
       nombre,
@@ -31,8 +31,10 @@ describe("InMemoryProductsRepository: compatibilidad pendiente", () => {
       stock: 1,
       imagen_url: null,
       activo: true,
-      compatibilidad_pendiente: pendiente,
     });
+    // El alta siempre queda pendiente (trigger); acá se baja la marca a mano.
+    if (pendiente) return creado;
+    return repo.update(creado.id, { compatibilidad_pendiente: false });
   }
 
   it("lista solo los pendientes, con id y nombre, hasta el límite", async () => {

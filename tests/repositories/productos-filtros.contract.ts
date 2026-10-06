@@ -169,10 +169,11 @@ export function runProductosFiltrosContract(makeRepo: () => ProductsRepository) 
             "nombre",
             "otros_codigos",
             "precio",
-            "precio_koreanos",
-            "precio_magdalena",
             "precio_matriz",
+            "precio_magdalena",
+            "precio_koreanos",
             "precio_sas_repuestos",
+            "erp_actualizado_at",
             "sku_proveedor",
             "stock",
           ].sort(),
@@ -388,6 +389,25 @@ export function runProductosFiltrosContract(makeRepo: () => ProductsRepository) 
         const desc = await lote({ orden: "precio", dir: "desc" });
         expect(asc.filas.map((p) => p.precio)).toEqual([5, 12, 15, 50, 80, 200, 250.5]);
         expect(desc.filas.map((p) => p.precio)).toEqual([250.5, 200, 80, 50, 15, 12, 5]);
+      });
+
+      test("precio a consultar (null) va al final en las dos direcciones y no entra en un rango", async () => {
+        await sembrar(repo, [
+          { codigo_interno: "1", nombre: "a", precio: 10 },
+          { codigo_interno: "2", nombre: "b", precio: null },
+          { codigo_interno: "3", nombre: "c", precio: 30 },
+        ]);
+        expect(codigos(await lote({ orden: "precio", dir: "asc" }))).toEqual(["1", "3", "2"]);
+        expect(codigos(await lote({ orden: "precio", dir: "desc" }))).toEqual(["3", "1", "2"]);
+        expect(codigos(await lote({ precioMin: 0 })).sort()).toEqual(["1", "3"]);
+        expect(codigos(await lote({ precioMax: 1000 })).sort()).toEqual(["1", "3"]);
+        const fila = (await lote()).filas.find((f) => f.codigo_interno === "2");
+        expect(fila).toMatchObject({
+          precio: null,
+          precio_matriz: null,
+          codigo_difiere: false,
+          erp_actualizado_at: null,
+        });
       });
 
       test("el código se ordena como número: 2, 10, 100 y no 10, 100, 2; los no numéricos al final", async () => {

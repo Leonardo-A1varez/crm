@@ -41,6 +41,12 @@ function fila(i: number, parcial: Partial<ProductoFila> = {}): ProductoFila {
     descripcion: "Alfa",
     categoria: "Frenos",
     precio: 1234.5,
+    precio_matriz: null,
+    precio_magdalena: null,
+    precio_koreanos: null,
+    precio_sas_repuestos: null,
+    codigo_difiere: false,
+    erp_actualizado_at: null,
     stock: 12,
     activo: true,
     ...parcial,
@@ -262,6 +268,7 @@ describe("CatalogoProductos: la tabla", () => {
     await waitFor(() => expect(filasDelDom()).toHaveLength(1));
     const tr = filasDelDom()[0] as HTMLTableRowElement;
     expect(tr.cells[6]?.textContent).toBe("A consultar");
+    expect(tr.cells[6]?.getAttribute("title")).toBe("A consultar");
   });
 
   it("resalta la columna de la empresa del usuario, en el encabezado y en las filas", async () => {

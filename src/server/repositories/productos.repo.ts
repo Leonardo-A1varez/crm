@@ -32,17 +32,30 @@ import type { Insert, Update } from "./_types";
 // llamadores que ya existen —el alta manual, el import CSV, los tests— para
 // que escriban un dato que todavía nadie tiene: el import que los llena es un
 // paso posterior.
+//
+// Lo del ERP (los cuatro precios, `codigo_difiere`, `erp_actualizado_at`) también
+// es opcional: solo lo escribe la carga del ERP (`erp_sync_cargar`), nunca el alta
+// manual ni el import CSV. `compatibilidad_pendiente` la decide la base (trigger).
+type CamposErp =
+  | "precio_matriz"
+  | "precio_magdalena"
+  | "precio_koreanos"
+  | "precio_sas_repuestos"
+  | "codigo_difiere"
+  | "erp_actualizado_at";
+
 export type ProductoInsert = Omit<
   Insert<Producto, "id" | "created_at" | "updated_at">,
-  "codigo_fabrica" | "otros_codigos"
+  "codigo_fabrica" | "otros_codigos" | CamposErp | "compatibilidad_pendiente"
 > & {
   codigo_fabrica?: string | null;
   otros_codigos?: string[];
-};
+} & Partial<Pick<Producto, CamposErp>>;
 
+// Los campos del ERP no se editan desde el CRM: los pisa la próxima carga.
 export type ProductoUpdate = Update<
   Producto,
-  "id" | "created_at" | "updated_at" | "codigo_interno"
+  "id" | "created_at" | "updated_at" | "codigo_interno" | CamposErp
 >;
 
 /** Lo que se le pregunta al catálogo. Espeja los parámetros de `buscar_productos`. */
@@ -66,7 +79,8 @@ export interface ProductoSearchHit {
   nombre: string;
   categoria: string | null;
   descripcion: string | null;
-  precio: number;
+  /** `null` = a consultar. */
+  precio: number | null;
   stock: number;
   puntaje: number;
   /**
@@ -195,6 +209,14 @@ export class InMemoryProductsRepository implements ProductsRepository {
       compatibilidad: input.compatibilidad.map((c) => ({ ...c })),
       codigo_fabrica: input.codigo_fabrica ?? null,
       otros_codigos: [...(input.otros_codigos ?? [])],
+      precio_matriz: input.precio_matriz ?? null,
+      precio_magdalena: input.precio_magdalena ?? null,
+      precio_koreanos: input.precio_koreanos ?? null,
+      precio_sas_repuestos: input.precio_sas_repuestos ?? null,
+      codigo_difiere: input.codigo_difiere ?? false,
+      erp_actualizado_at: input.erp_actualizado_at ?? null,
+      // Espejo del trigger `productos_compatibilidad_pendiente`: todo alta queda pendiente.
+      compatibilidad_pendiente: true,
       id: crypto.randomUUID(),
       created_at: now,
       updated_at: now,
@@ -225,6 +247,11 @@ export class InMemoryProductsRepository implements ProductsRepository {
         ? patch.compatibilidad.map((c) => ({ ...c }))
         : current.compatibilidad.map((c) => ({ ...c })),
       otros_codigos: patch.otros_codigos ? [...patch.otros_codigos] : [...current.otros_codigos],
+      // Espejo del trigger: un nombre distinto la prende, gane lo que gane el patch.
+      compatibilidad_pendiente:
+        patch.nombre !== undefined && patch.nombre !== current.nombre
+          ? true
+          : (patch.compatibilidad_pendiente ?? current.compatibilidad_pendiente),
       id: current.id,
       codigo_interno: current.codigo_interno,
       created_at: current.created_at,
@@ -414,8 +441,9 @@ function cumpleFiltros(p: Producto, f: ProductosFiltros, excluir: ColumnaLista |
     if (incluir.length > 0 && !incluir.includes(v)) return false;
     if (quitar.includes(v)) return false;
   }
-  if (f.precioMin !== undefined && p.precio < f.precioMin) return false;
-  if (f.precioMax !== undefined && p.precio > f.precioMax) return false;
+  // Como en SQL: con un rango de precio pedido, "a consultar" (null) no entra.
+  if (f.precioMin !== undefined && (p.precio === null || p.precio < f.precioMin)) return false;
+  if (f.precioMax !== undefined && (p.precio === null || p.precio > f.precioMax)) return false;
   if (f.stockMin !== undefined && p.stock < f.stockMin) return false;
   if (f.stockMax !== undefined && p.stock > f.stockMax) return false;
   if (f.conStock === true && p.stock <= 0) return false;
@@ -436,11 +464,12 @@ function aFila(p: Producto): ProductoFila {
     descripcion: p.descripcion,
     categoria: p.categoria,
     precio: p.precio,
-    precio_matriz: p.precio_matriz ?? null,
-    precio_magdalena: p.precio_magdalena ?? null,
-    precio_koreanos: p.precio_koreanos ?? null,
-    precio_sas_repuestos: p.precio_sas_repuestos ?? null,
-    codigo_difiere: p.codigo_difiere ?? false,
+    precio_matriz: p.precio_matriz,
+    precio_magdalena: p.precio_magdalena,
+    precio_koreanos: p.precio_koreanos,
+    precio_sas_repuestos: p.precio_sas_repuestos,
+    codigo_difiere: p.codigo_difiere,
+    erp_actualizado_at: p.erp_actualizado_at ? p.erp_actualizado_at.toISOString() : null,
     stock: p.stock,
     activo: p.activo,
   };
