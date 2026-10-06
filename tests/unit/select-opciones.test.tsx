@@ -1,5 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { execFileSync } from "node:child_process";
 import type { ReactElement } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -198,26 +197,28 @@ describe("inspector del editor: cada select muestra una de sus etiquetas", () =>
 
 describe("guarda: nadie usa el Select crudo fuera del envoltorio", () => {
   it("sólo SelectOpciones importa @/components/ui/select", () => {
-    const raiz = join(process.cwd(), "src");
     const permitidos = new Set([
-      "components/shared/SelectOpciones.tsx",
-      "components/ui/select.tsx",
+      "src/components/shared/SelectOpciones.tsx",
+      "src/components/ui/select.tsx",
     ]);
-    const infractores: string[] = [];
-    const recorrer = (dir: string) => {
-      for (const e of readdirSync(dir, { withFileTypes: true })) {
-        const ruta = join(dir, e.name);
-        if (e.isDirectory()) recorrer(ruta);
-        else if (/\.tsx?$/.test(e.name)) {
-          const rel = relative(raiz, ruta).split(sep).join("/");
-          if (permitidos.has(rel)) continue;
-          if (readFileSync(ruta, "utf8").includes('from "@/components/ui/select"')) {
-            infractores.push(rel);
-          }
-        }
-      }
-    };
-    recorrer(raiz);
+    // Un solo `git grep` en vez de leer archivo por archivo: el recorrido con
+    // readFileSync pasaba los 5 s con la suite completa y otros procesos
+    // usando el disco, y frenaba el pre-push. `--untracked` cubre lo nuevo.
+    let salida = "";
+    try {
+      salida = execFileSync(
+        "git",
+        ["grep", "-l", "--untracked", "-F", 'from "@/components/ui/select"', "--", "src"],
+        { encoding: "utf8" },
+      );
+    } catch (e) {
+      // git grep sale con 1 cuando no hay coincidencias.
+      if ((e as { status?: number }).status !== 1) throw e;
+    }
+    const infractores = salida
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l !== "" && !permitidos.has(l));
     expect(infractores).toEqual([]);
   });
 });
