@@ -23,6 +23,7 @@ export const ADMIN_ACTIONS = {
   TAG_UPDATE: "tag.update",
   TAG_DELETE: "tag.delete",
   WORKFLOW_RUN_CANCEL: "workflow_run.cancel",
+  USER_UPDATE_EMPRESA_ERP: "user.update_empresa_erp",
 } as const;
 
 export type AdminActionName = (typeof ADMIN_ACTIONS)[keyof typeof ADMIN_ACTIONS] | string;

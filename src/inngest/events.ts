@@ -92,6 +92,12 @@ export const sessionsPurgeRequested = eventType("sessions/purge.requested", {
   schema: staticSchema<Record<string, never>>(),
 });
 
+// Pedido manual de recalcular la compatibilidad de los productos pendientes
+// (además del cron de cada 5 minutos).
+export const compatibilidadRecalculoRequested = eventType("catalogo/compatibilidad.requested", {
+  schema: staticSchema<Record<string, never>>(),
+});
+
 export const leadsReactivationRequested = eventType("leads/reactivation.requested", {
   schema: staticSchema<Record<string, never>>(),
 });

@@ -17,6 +17,12 @@ function filas(n: number, prefijo = "p"): ProductoFila[] {
     descripcion: null,
     categoria: null,
     precio: 1,
+    precio_matriz: null,
+    precio_magdalena: null,
+    precio_koreanos: null,
+    precio_sas_repuestos: null,
+    codigo_difiere: false,
+    erp_actualizado_at: null,
     stock: 1,
     activo: true,
   }));

@@ -8,6 +8,20 @@
 
 Actualizado el 2026-10-02 (el resto del archivo es del 2026-09-26 y puede estar viejo). Todo lo que dice "verificado" tiene al lado el comando o la fuente; el resto está marcado como pendiente o sin verificar.
 
+## PAUSA 2026-10-06 — retomar acá
+
+Rama `feat/catalogo-compatibilidad` (pusheada, sin PR). Nada aplicado en crm-dev todavía.
+
+**Hecho en la rama:** traductor `src/lib/catalogo/traducir-descripcion.ts` (93,8 % de una muestra de 2000 productos reales con vehículo) · `catalogo_modelos` + `buscar_productos` con filtro de modelo/año/cilindrada y `diferencias` (migraciones `20261005120000`, `20261005120100`) · scripts `scripts/catalogo/cargar-modelos.mjs` y `rellenar-compatibilidad.mjs` (dry-run por defecto, `--aplicar` exige `CONFIRMO_ESCRITURA=1`) · reglas §12 en el prompt · una sola forma de `CompatibilidadEntry` · `docs/catalogo/diccionario-modelos-sugerido.csv` (401 siglas, 316 alta) · `docs/catalogo/investigacion-modelos.md` (dudas resueltas con fuentes web). Eval con 3 repeticiones: gpt-4o-mini 22/30, gpt-4.1 29/30.
+
+**En pausa (WIP en ramas `worktree-agent-*`, ver `git branch`):** integración del ERP Oracle — contrato en `C:\Users\Tinki\Documents\Archivos para Claude\crm_erp_oracle_contrato.md`, datos `crm_catalogo_erp.csv` (27.187 ítems). Migraciones previstas `20261006130000_productos_erp`, `…130100_erp_sync` (RPC con clave, patrón de `bodega_web/supabase/migrations/20261005120000_erp_oracle_sync.sql`), `…130200_usuarios_empresa`; UI de 4 precios + empresa del vendedor; cron que recalcula compatibilidad.
+
+**Decisiones del dueño:** el agente cotiza el precio más barato distinto de 0 de las 4 empresas · ítems sin stock se cargan · código de fábrica = el de SAS (empresa 6; fallback a Matriz sin confirmar, preguntado a la sesión de Bodega Web) · sin vehículo guardado ni nombrado el agente pregunta; si nombra el modelo busca y pregunta solo lo que difiere · modelos: confirmados + sugeridos de confianza alta · **aprobado (2026-10-06): juntar todo, aplicar en crm-dev, cambiar el modelo del agente a `gpt-4.1` y desplegar; avisar al dueño para su prueba de cotización.**
+
+**Siguiente:** terminar/revisar las ramas WIP del ERP (security review de las RPC anon) → mergear en `feat/catalogo-compatibilidad` → dry-run de migraciones → aplicar → cargar modelos → rellenar compatibilidad (dry-run sobre todo el catálogo primero) → `gpt-4.1` en `/agente` → PR + deploy → pasarle a Bodega Web `docs/integraciones/erp-oracle-contrato-crm.md` → guiar al dueño para generar la clave del extractor (`scripts/erp/configurar-clave.mjs`), sin que la clave pase por el chat.
+
+**Lección nueva:** un agente creó un junction a `node_modules` dentro de su worktree y `git worktree remove` vació el `node_modules` del repo principal (se recuperó con `npm ci`). Antes de borrar un worktree: buscar reparse points; los agentes no crean enlaces.
+
 ---
 
 ## 1. Estado de la rama

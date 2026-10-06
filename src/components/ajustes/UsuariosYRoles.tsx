@@ -1,4 +1,8 @@
 import { Done, Remove } from "@/components/icons";
+import {
+  EmpresaErpDelUsuario,
+  type AsignarEmpresaDeUsuario,
+} from "@/components/ajustes/EmpresaErpDelUsuario";
 import { SeccionAjuste } from "@/components/ajustes/SeccionAjuste";
 import { InitialsAvatar } from "@/components/shared/InitialsAvatar";
 
@@ -28,6 +32,8 @@ export interface UsuarioDelPanel {
   rol: Rol;
   ultimoAcceso: UltimoAcceso;
   activo: boolean;
+  /** La empresa del ERP (1, 3, 5 o 6): su columna de precio se le resalta en /productos. */
+  empresaErp?: number | null;
 }
 
 function textoDeAcceso(acceso: UltimoAcceso): string {
@@ -63,11 +69,18 @@ const PERMISOS: readonly { que: string; admin: boolean; vendedor: boolean }[] = 
 ];
 
 /**
- * El equipo, leído de la tabla `usuarios`. De sólo lectura: invitar, cambiar
- * un rol o desactivar tocan `auth.users`, y ninguna de esas acciones existe
- * todavía.
+ * El equipo, leído de la tabla `usuarios`. Invitar, cambiar un rol o desactivar
+ * tocan `auth.users` y no existen todavía. Lo único que un admin edita acá es la
+ * empresa del ERP de cada usuario.
  */
-export function UsuariosYRoles({ usuarios }: { usuarios: readonly UsuarioDelPanel[] }) {
+export function UsuariosYRoles({
+  usuarios,
+  asignarEmpresa = null,
+}: {
+  usuarios: readonly UsuarioDelPanel[];
+  /** Solo para un admin: sin ella, la empresa del ERP se muestra y no se edita. */
+  asignarEmpresa?: AsignarEmpresaDeUsuario | null;
+}) {
   const algunoSinDato = usuarios.some((u) => u.ultimoAcceso.estado === "sin-dato");
 
   return (
@@ -103,6 +116,12 @@ export function UsuariosYRoles({ usuarios }: { usuarios: readonly UsuarioDelPane
                 <span className="bg-surface-input text-ink-secondary shrink-0 rounded-[6px] px-2 py-1 text-[10.5px] leading-none font-semibold">
                   {ROL_LABEL[u.rol]}
                 </span>
+                <EmpresaErpDelUsuario
+                  usuarioId={u.id}
+                  nombre={u.nombre}
+                  empresaErp={u.empresaErp ?? null}
+                  asignar={asignarEmpresa}
+                />
                 <span className="text-ink-ghost w-[104px] shrink-0 text-right font-mono text-[10.5px] tabular-nums">
                   {textoDeAcceso(u.ultimoAcceso)}
                 </span>

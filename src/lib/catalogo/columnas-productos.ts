@@ -184,8 +184,26 @@ export const VALORES_VACIOS: ReadonlySet<string> = new Set(
 // Orden
 // ---------------------------------------------------------------------------
 
-/** Los campos por los que se puede ordenar: las seis listas más precio, stock y estado. */
-export const CAMPOS_ORDEN = [...COLUMNAS_LISTA, "precio", "stock", "estado"] as const;
+/** Un precio por empresa del ERP: se ordena por él pero no se filtra. */
+export const CAMPOS_PRECIO_EMPRESA = [
+  "precio_matriz",
+  "precio_magdalena",
+  "precio_koreanos",
+  "precio_sas_repuestos",
+] as const;
+
+/**
+ * Los campos por los que se puede ordenar: las seis listas, el precio (el más barato),
+ * los cuatro precios por empresa, stock y estado. Los nombres coinciden con los que
+ * lee `productos_listar`.
+ */
+export const CAMPOS_ORDEN = [
+  ...COLUMNAS_LISTA,
+  "precio",
+  ...CAMPOS_PRECIO_EMPRESA,
+  "stock",
+  "estado",
+] as const;
 
 export type CampoOrden = (typeof CAMPOS_ORDEN)[number];
 export type DireccionOrden = "asc" | "desc";

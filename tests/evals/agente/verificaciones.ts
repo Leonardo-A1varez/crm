@@ -121,7 +121,8 @@ export function mencionaIva(): Verificacion {
 /** Todo monto cotizado está en el catálogo del stub (o es múltiplo entero si se permite). */
 export function noInventaPrecios(opciones: { permitirMultiplos?: boolean } = {}): Verificacion {
   return (r) => {
-    const validos = r.catalogo.map((p) => p.precio);
+    // Un producto "a consultar" (precio null) no habilita ningún monto.
+    const validos = r.catalogo.flatMap((p) => (p.precio === null ? [] : [p.precio]));
     for (const monto of montosCotizados(r.texto)) {
       const ok = validos.some(
         (v) =>
@@ -198,6 +199,19 @@ function pideAlgo(texto: string): boolean {
       norm(texto),
     )
   );
+}
+
+/**
+ * El cliente ya nombró el modelo: no vuelve a pedirle el modelo ni la marca
+ * (preguntar el año o la cilindrada que difieren sí está permitido).
+ */
+export function noVuelveAPedirElModelo(): Verificacion {
+  return (r) =>
+    /(que (modelo|auto|vehiculo|marca)|cual (es )?(el|la) (modelo|marca)|(modelo|marca) (es|de tu|del))/.test(
+      norm(r.texto),
+    )
+      ? `volvió a pedir el modelo o la marca que el cliente ya nombró. Respuesta: «${r.texto}»`
+      : null;
 }
 
 /** Pregunta algo y lo que pregunta es por el vehículo (marca, modelo o año). */

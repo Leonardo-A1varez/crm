@@ -317,6 +317,10 @@ describe("parseProductosFiltros", () => {
         "descripcion",
         "marca",
         "precio",
+        "precio_matriz",
+        "precio_magdalena",
+        "precio_koreanos",
+        "precio_sas_repuestos",
         "stock",
         "estado",
       ]);

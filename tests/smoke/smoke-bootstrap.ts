@@ -404,6 +404,12 @@ export function makeSmokeBundle(): SmokeBundle {
       configProvider: new StaticAgentConfigProvider(CONFIG_DE_FABRICA),
       logger,
     },
+    recalcularCompatibilidad: {
+      servicio: {
+        recalcular: async () => ({ leidos: 0, actualizados: 0, sinVehiculo: 0, descartados: 0 }),
+      },
+      logger,
+    },
   };
 
   return {

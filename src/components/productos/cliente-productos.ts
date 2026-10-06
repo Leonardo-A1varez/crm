@@ -55,6 +55,11 @@ function esTextoONulo(v: unknown): v is string | null {
   return v === null || typeof v === "string";
 }
 
+/** `null` es "a consultar" (precio) o "sin precio en esa empresa" (los del ERP). */
+function esNumeroONulo(v: unknown): v is number | null {
+  return v === null || typeof v === "number";
+}
+
 function esFila(v: unknown): v is ProductoFila {
   if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
   const f = v as Record<string, unknown>;
@@ -67,7 +72,13 @@ function esFila(v: unknown): v is ProductoFila {
     typeof f["nombre"] === "string" &&
     esTextoONulo(f["descripcion"]) &&
     esTextoONulo(f["categoria"]) &&
-    typeof f["precio"] === "number" &&
+    esNumeroONulo(f["precio"]) &&
+    esNumeroONulo(f["precio_matriz"]) &&
+    esNumeroONulo(f["precio_magdalena"]) &&
+    esNumeroONulo(f["precio_koreanos"]) &&
+    esNumeroONulo(f["precio_sas_repuestos"]) &&
+    typeof f["codigo_difiere"] === "boolean" &&
+    esTextoONulo(f["erp_actualizado_at"]) &&
     typeof f["stock"] === "number" &&
     typeof f["activo"] === "boolean"
   );

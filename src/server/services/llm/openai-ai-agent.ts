@@ -145,7 +145,7 @@ export class OpenAiAgentLLM implements AgentLLM {
           tools: {
             buscar_repuesto: tool({
               description:
-                "Busca repuestos en catálogo por texto + filtros opcionales marca/modelo/año. Devuelve matches con precio + stock.",
+                "Busca repuestos en catálogo por texto + filtros opcionales marca/modelo/año/cilindrada. Todos los filtros son opcionales: busca ya con lo que sepas, sin pedirle más datos al cliente antes. Devuelve matches con precio + stock y, si los mejores candidatos se diferencian en año, cilindrada o combustible, `diferencias` con los valores a preguntar.",
               inputSchema: BuscarRepuestoInputSchema,
               // §4.4 "Timeout de herramienta". Antes la búsqueda corría sin
               // corte propio: una consulta lenta dejaba al cliente esperando

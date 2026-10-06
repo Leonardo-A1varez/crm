@@ -10,6 +10,7 @@ import {
   COLUMNAS_LISTA,
   DEFINICIONES_LISTA,
 } from "@/lib/catalogo/columnas-productos";
+import { leerCompatibilidad } from "@/lib/catalogo/compatibilidad";
 import {
   LOTE_TAMANO,
   type OpcionesFaceta,
@@ -28,6 +29,7 @@ import type {
   ProductoBulkUpsertItem,
   ProductoInsert,
   ProductoListFilter,
+  ProductoPendienteDeCompatibilidad,
   ProductoSearchHit,
   ProductoSearchInput,
   ProductoUpdate,
@@ -101,6 +103,9 @@ export class SupabaseProductsRepository implements ProductsRepository {
     if (patch.stock !== undefined) updatePayload.stock = patch.stock;
     if (patch.imagen_url !== undefined) updatePayload.imagen_url = patch.imagen_url;
     if (patch.activo !== undefined) updatePayload.activo = patch.activo;
+    if (patch.compatibilidad_pendiente !== undefined) {
+      updatePayload.compatibilidad_pendiente = patch.compatibilidad_pendiente;
+    }
 
     const { data, error } = await this.db
       .from("productos")
@@ -184,6 +189,7 @@ export class SupabaseProductsRepository implements ProductsRepository {
       p_marca: input.marca ?? undefined,
       p_modelo: input.modelo ?? undefined,
       p_anio: input.anio ?? undefined,
+      p_cilindrada: input.cilindrada ?? undefined,
       p_tope: input.tope ?? undefined,
     });
     if (error) throw mapPostgrestError(error, { resource: "producto" });
@@ -197,6 +203,7 @@ export class SupabaseProductsRepository implements ProductsRepository {
       precio: row.precio,
       stock: row.stock,
       puntaje: row.puntaje,
+      compatibilidad: leerCompatibilidad(row.compatibilidad),
     }));
   }
 
@@ -309,6 +316,39 @@ export class SupabaseProductsRepository implements ProductsRepository {
       return mapRow(row);
     });
   }
+
+  async listarCompatibilidadPendiente(
+    limite: number,
+  ): Promise<ProductoPendienteDeCompatibilidad[]> {
+    const { data, error } = await this.db
+      .from("productos")
+      .select("id, nombre")
+      .eq("compatibilidad_pendiente", true)
+      .order("id", { ascending: true })
+      .limit(Math.max(1, Math.min(limite, FILAS_POR_PAGINA)));
+    if (error) throw mapPostgrestError(error, { resource: "producto" });
+    return (data ?? []).map((r) => ({ id: r.id, nombre: r.nombre }));
+  }
+
+  async guardarCompatibilidad(
+    id: UUID,
+    nombreTraducido: string,
+    compatibilidad: CompatibilidadEntry[],
+  ): Promise<boolean> {
+    // `.eq("nombre", ...)` es la guarda: si la sincronización cambió el nombre
+    // después de leerlo, el UPDATE no toca ninguna fila y el producto sigue pendiente.
+    const { data, error } = await this.db
+      .from("productos")
+      .update({
+        compatibilidad: compatibilidad as unknown as Json,
+        compatibilidad_pendiente: false,
+      })
+      .eq("id", id)
+      .eq("nombre", nombreTraducido)
+      .select("id");
+    if (error) throw mapPostgrestError(error, { resource: "producto" });
+    return (data ?? []).length > 0;
+  }
 }
 
 /**
@@ -330,6 +370,14 @@ function toDbInsert(input: ProductoInsert): ProductoDbInsert {
     categoria: input.categoria,
     compatibilidad: input.compatibilidad as never,
     precio: input.precio,
+    // Lo del ERP lo escribe normalmente `erp_sync_cargar`; si el llamador lo trae
+    // (tests, un alta con precios) se respeta en vez de descartarlo en silencio.
+    precio_matriz: input.precio_matriz ?? null,
+    precio_magdalena: input.precio_magdalena ?? null,
+    precio_koreanos: input.precio_koreanos ?? null,
+    precio_sas_repuestos: input.precio_sas_repuestos ?? null,
+    codigo_difiere: input.codigo_difiere ?? false,
+    erp_actualizado_at: input.erp_actualizado_at ? input.erp_actualizado_at.toISOString() : null,
     stock: input.stock,
     imagen_url: input.imagen_url,
     activo: input.activo,
@@ -377,6 +425,12 @@ function mapFila(row: FilaRow): ProductoFila {
     descripcion: row.descripcion,
     categoria: row.categoria,
     precio: row.precio,
+    precio_matriz: row.precio_matriz ?? null,
+    precio_magdalena: row.precio_magdalena ?? null,
+    precio_koreanos: row.precio_koreanos ?? null,
+    precio_sas_repuestos: row.precio_sas_repuestos ?? null,
+    codigo_difiere: row.codigo_difiere ?? false,
+    erp_actualizado_at: row.erp_actualizado_at ?? null,
     stock: row.stock,
     activo: row.activo,
   };
@@ -392,7 +446,14 @@ interface ProductoRow {
   descripcion: string | null;
   categoria: string | null;
   compatibilidad: unknown;
-  precio: number;
+  precio: number | null;
+  precio_matriz: number | null;
+  precio_magdalena: number | null;
+  precio_koreanos: number | null;
+  precio_sas_repuestos: number | null;
+  codigo_difiere: boolean;
+  erp_actualizado_at: string | null;
+  compatibilidad_pendiente: boolean;
   stock: number;
   imagen_url: string | null;
   activo: boolean;
@@ -401,7 +462,7 @@ interface ProductoRow {
 }
 
 function mapRow(row: ProductoRow): Producto {
-  const compat = (row.compatibilidad ?? []) as CompatibilidadEntry[];
+  const compat = leerCompatibilidad(row.compatibilidad);
   return {
     id: row.id,
     codigo_interno: row.codigo_interno,
@@ -413,6 +474,13 @@ function mapRow(row: ProductoRow): Producto {
     categoria: row.categoria,
     compatibilidad: compat.map((c) => ({ ...c })),
     precio: row.precio,
+    precio_matriz: row.precio_matriz,
+    precio_magdalena: row.precio_magdalena,
+    precio_koreanos: row.precio_koreanos,
+    precio_sas_repuestos: row.precio_sas_repuestos,
+    codigo_difiere: row.codigo_difiere,
+    erp_actualizado_at: row.erp_actualizado_at ? new Date(row.erp_actualizado_at) : null,
+    compatibilidad_pendiente: row.compatibilidad_pendiente,
     stock: row.stock,
     imagen_url: row.imagen_url,
     activo: row.activo,

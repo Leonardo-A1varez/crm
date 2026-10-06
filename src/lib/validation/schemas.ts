@@ -41,8 +41,11 @@ export const MetaUserIdsSchema = z.object({
 export const CompatibilidadEntrySchema = z.object({
   marca: z.string().min(1),
   modelo: z.string().min(1),
-  anio_desde: z.number().int().min(1900).max(2100),
-  anio_hasta: z.number().int().min(1900).max(2100),
+  modelo_nombre: z.string().nullish(),
+  anio_desde: z.number().int().min(1900).max(2100).nullish(),
+  anio_hasta: z.number().int().min(1900).max(2100).nullish(),
+  cilindrada: z.string().nullish(),
+  combustible: z.enum(["GAS", "DSL"]).nullish(),
   motor: z.string().optional(),
 });
 
@@ -108,7 +111,15 @@ export const ProductoSchema = z.object({
   descripcion: z.string().nullable(),
   categoria: z.string().nullable(),
   compatibilidad: z.array(CompatibilidadEntrySchema),
-  precio: z.number().nonnegative(),
+  // null = a consultar (ningún precio del ERP es mayor que cero).
+  precio: z.number().nonnegative().nullable(),
+  precio_matriz: z.number().nonnegative().nullable(),
+  precio_magdalena: z.number().nonnegative().nullable(),
+  precio_koreanos: z.number().nonnegative().nullable(),
+  precio_sas_repuestos: z.number().nonnegative().nullable(),
+  codigo_difiere: z.boolean(),
+  erp_actualizado_at: z.date().nullable(),
+  compatibilidad_pendiente: z.boolean(),
   stock: z.number().int().nonnegative(),
   imagen_url: z.string().url().nullable(),
   activo: z.boolean(),

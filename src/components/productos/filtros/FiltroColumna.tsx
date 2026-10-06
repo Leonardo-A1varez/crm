@@ -27,6 +27,7 @@ export function FiltroColumna({
   orden,
   derecha,
   ancho = 288,
+  accion = "Filtrar y ordenar",
   children,
 }: {
   /** Nombre de la columna: "Categoría". */
@@ -38,6 +39,8 @@ export function FiltroColumna({
   derecha?: boolean;
   /** Ancho del panel en px. */
   ancho?: number;
+  /** Qué hace el panel, para el lector de pantalla: "Ordenar" si la columna no se filtra. */
+  accion?: string;
   children: (cerrar: () => void) => ReactNode;
 }) {
   const [abierto, setAbierto] = useState(false);
@@ -55,7 +58,7 @@ export function FiltroColumna({
   return (
     <Popover open={abierto} onOpenChange={setAbierto}>
       <PopoverTrigger
-        aria-label={`${nombre}. Filtrar y ordenar`}
+        aria-label={`${nombre}. ${accion}`}
         className={cn(
           "focus-visible:ring-brand/60 flex size-full min-h-[34px] items-center gap-1 px-3.5 py-2 text-left font-[inherit] tracking-[inherit] uppercase outline-none focus-visible:ring-2 focus-visible:ring-inset",
           derecha && "justify-end text-right",

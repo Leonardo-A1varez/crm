@@ -10,14 +10,20 @@ import {
 } from "@/lib/catalogo/columnas-productos";
 import { normalizarValor } from "@/lib/catalogo/normalizar-valor";
 import { plegarTexto } from "@/lib/catalogo/plegar-texto";
-import { compatibleCon, puntaje } from "@/lib/catalogo/puntaje";
+import {
+  compatibilidadParaVehiculo,
+  resolverModelos,
+  type ElementoCompatibilidad,
+  type ModeloCatalogo,
+} from "@/lib/catalogo/compatibilidad";
+import { blobDeBusqueda, puntaje } from "@/lib/catalogo/puntaje";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import {
   LOTE_TAMANO,
   type OpcionesFaceta,
   type ProductosFiltros,
 } from "@/lib/validation/productos-filtros.schema";
-import type { Producto, UUID } from "@/types/entities";
+import type { CompatibilidadEntry, Producto, UUID } from "@/types/entities";
 import type { Faceta, LoteProductos, ProductoFila } from "@/types/productos";
 import type { Insert, Update } from "./_types";
 
@@ -26,17 +32,30 @@ import type { Insert, Update } from "./_types";
 // llamadores que ya existen —el alta manual, el import CSV, los tests— para
 // que escriban un dato que todavía nadie tiene: el import que los llena es un
 // paso posterior.
+//
+// Lo del ERP (los cuatro precios, `codigo_difiere`, `erp_actualizado_at`) también
+// es opcional: solo lo escribe la carga del ERP (`erp_sync_cargar`), nunca el alta
+// manual ni el import CSV. `compatibilidad_pendiente` la decide la base (trigger).
+type CamposErp =
+  | "precio_matriz"
+  | "precio_magdalena"
+  | "precio_koreanos"
+  | "precio_sas_repuestos"
+  | "codigo_difiere"
+  | "erp_actualizado_at";
+
 export type ProductoInsert = Omit<
   Insert<Producto, "id" | "created_at" | "updated_at">,
-  "codigo_fabrica" | "otros_codigos"
+  "codigo_fabrica" | "otros_codigos" | CamposErp | "compatibilidad_pendiente"
 > & {
   codigo_fabrica?: string | null;
   otros_codigos?: string[];
-};
+} & Partial<Pick<Producto, CamposErp>>;
 
+// Los campos del ERP no se editan desde el CRM: los pisa la próxima carga.
 export type ProductoUpdate = Update<
   Producto,
-  "id" | "created_at" | "updated_at" | "codigo_interno"
+  "id" | "created_at" | "updated_at" | "codigo_interno" | CamposErp
 >;
 
 /** Lo que se le pregunta al catálogo. Espeja los parámetros de `buscar_productos`. */
@@ -46,6 +65,8 @@ export interface ProductoSearchInput {
   marca?: string;
   modelo?: string;
   anio?: number;
+  /** En litros, ya normalizada ("1.6"). Una compatibilidad sin cilindrada sirve para cualquiera. */
+  cilindrada?: string;
   /** Tope de filas. La DB lo recorta a 50 como máximo. */
   tope?: number;
 }
@@ -58,9 +79,16 @@ export interface ProductoSearchHit {
   nombre: string;
   categoria: string | null;
   descripcion: string | null;
-  precio: number;
+  /** `null` = a consultar. */
+  precio: number | null;
   stock: number;
   puntaje: number;
+  /**
+   * Los elementos de `compatibilidad` que justifican el match para el vehículo
+   * pedido (todos si no se pidió ninguno). Vacío si el producto no tiene
+   * compatibilidad cargada: "no sabemos", no "no sirve".
+   */
+  compatibilidad: ElementoCompatibilidad[];
 }
 
 // Item de upsert masivo con scope CSV import: solo las columnas del archivo.
@@ -120,6 +148,29 @@ export interface ProductsRepository {
   // Upsert masivo por codigo_interno (import CSV). Throws si hay codigo_interno
   // duplicado en el input. Preserva orden del input en el array de retorno.
   bulkUpsert(items: ProductoBulkUpsertItem[]): Promise<Producto[]>;
+  /**
+   * Hasta `limite` productos cuyo `nombre` cambió y cuya compatibilidad hay que
+   * recalcular (`compatibilidad_pendiente`). Solo `id` y `nombre`: es todo lo que
+   * necesita el traductor.
+   */
+  listarCompatibilidadPendiente(limite: number): Promise<ProductoPendienteDeCompatibilidad[]>;
+  /**
+   * Guarda la compatibilidad recalculada y baja la marca de pendiente, SOLO si el
+   * `nombre` sigue siendo el que se tradujo. Si la sincronización lo cambió
+   * mientras tanto devuelve `false` y el producto queda pendiente para la próxima
+   * pasada: guardar igual dejaría una compatibilidad de un nombre viejo marcada
+   * como al día.
+   */
+  guardarCompatibilidad(
+    id: UUID,
+    nombreTraducido: string,
+    compatibilidad: CompatibilidadEntry[],
+  ): Promise<boolean>;
+}
+
+export interface ProductoPendienteDeCompatibilidad {
+  id: UUID;
+  nombre: string;
 }
 
 // Deep clone defensivo de compatibilidad (jsonb array) para evitar mutación cruzada de refs.
@@ -133,6 +184,16 @@ function cloneProducto(p: Producto): Producto {
 
 export class InMemoryProductsRepository implements ProductsRepository {
   private readonly store = new Map<UUID, Producto>();
+  private readonly modelos: readonly ModeloCatalogo[];
+
+  /**
+   * `modelos` es el espejo en memoria de `catalogo_modelos`: sin él, "Accent" no
+   * se resuelve a la sigla `ACC` y la búsqueda cae al texto, igual que en la base
+   * con el diccionario vacío.
+   */
+  constructor(opciones: { modelos?: readonly ModeloCatalogo[] } = {}) {
+    this.modelos = opciones.modelos ?? [];
+  }
 
   async create(input: ProductoInsert): Promise<Producto> {
     const existing = await this.findByCodigoInterno(input.codigo_interno);
@@ -148,6 +209,14 @@ export class InMemoryProductsRepository implements ProductsRepository {
       compatibilidad: input.compatibilidad.map((c) => ({ ...c })),
       codigo_fabrica: input.codigo_fabrica ?? null,
       otros_codigos: [...(input.otros_codigos ?? [])],
+      precio_matriz: input.precio_matriz ?? null,
+      precio_magdalena: input.precio_magdalena ?? null,
+      precio_koreanos: input.precio_koreanos ?? null,
+      precio_sas_repuestos: input.precio_sas_repuestos ?? null,
+      codigo_difiere: input.codigo_difiere ?? false,
+      erp_actualizado_at: input.erp_actualizado_at ?? null,
+      // Espejo del trigger `productos_compatibilidad_pendiente`: todo alta queda pendiente.
+      compatibilidad_pendiente: true,
       id: crypto.randomUUID(),
       created_at: now,
       updated_at: now,
@@ -178,6 +247,11 @@ export class InMemoryProductsRepository implements ProductsRepository {
         ? patch.compatibilidad.map((c) => ({ ...c }))
         : current.compatibilidad.map((c) => ({ ...c })),
       otros_codigos: patch.otros_codigos ? [...patch.otros_codigos] : [...current.otros_codigos],
+      // Espejo del trigger: un nombre distinto la prende, gane lo que gane el patch.
+      compatibilidad_pendiente:
+        patch.nombre !== undefined && patch.nombre !== current.nombre
+          ? true
+          : (patch.compatibilidad_pendiente ?? current.compatibilidad_pendiente),
       id: current.id,
       codigo_interno: current.codigo_interno,
       created_at: current.created_at,
@@ -211,10 +285,17 @@ export class InMemoryProductsRepository implements ProductsRepository {
   async search(input: ProductoSearchInput): Promise<ProductoSearchHit[]> {
     const tope = Math.max(1, Math.min(input.tope ?? 20, 50));
     const hits: ProductoSearchHit[] = [];
+    const resueltos = resolverModelos(this.modelos, input.marca, input.modelo);
 
     for (const p of this.store.values()) {
       if (!p.activo) continue;
-      if (!compatibleCon(p.compatibilidad, input.marca, input.modelo, input.anio)) continue;
+      const elementos = compatibilidadParaVehiculo(
+        p.compatibilidad,
+        input,
+        resueltos,
+        blobDeBusqueda(p),
+      );
+      if (elementos === null) continue;
       const score = puntaje(p, input.q);
       if (score <= 0) continue;
       hits.push({
@@ -227,6 +308,7 @@ export class InMemoryProductsRepository implements ProductsRepository {
         precio: p.precio,
         stock: p.stock,
         puntaje: score,
+        compatibilidad: elementos.map((e) => ({ ...e })),
       });
     }
 
@@ -293,6 +375,31 @@ export class InMemoryProductsRepository implements ProductsRepository {
     }
     return result;
   }
+
+  async listarCompatibilidadPendiente(
+    limite: number,
+  ): Promise<ProductoPendienteDeCompatibilidad[]> {
+    return Array.from(this.store.values())
+      .filter((p) => p.compatibilidad_pendiente === true)
+      .sort((a, b) => a.codigo_interno.localeCompare(b.codigo_interno))
+      .slice(0, Math.max(0, limite))
+      .map((p) => ({ id: p.id, nombre: p.nombre }));
+  }
+
+  async guardarCompatibilidad(
+    id: UUID,
+    nombreTraducido: string,
+    compatibilidad: CompatibilidadEntry[],
+  ): Promise<boolean> {
+    const current = this.store.get(id);
+    if (!current || current.nombre !== nombreTraducido) return false;
+    this.store.set(id, {
+      ...current,
+      compatibilidad: compatibilidad.map((c) => ({ ...c })),
+      compatibilidad_pendiente: false,
+    });
+    return true;
+  }
 }
 
 /** Espejo de `plegar_texto(campo) like %buscado%`: sin mayúsculas ni tildes, subcadena. */
@@ -334,8 +441,9 @@ function cumpleFiltros(p: Producto, f: ProductosFiltros, excluir: ColumnaLista |
     if (incluir.length > 0 && !incluir.includes(v)) return false;
     if (quitar.includes(v)) return false;
   }
-  if (f.precioMin !== undefined && p.precio < f.precioMin) return false;
-  if (f.precioMax !== undefined && p.precio > f.precioMax) return false;
+  // Como en SQL: con un rango de precio pedido, "a consultar" (null) no entra.
+  if (f.precioMin !== undefined && (p.precio === null || p.precio < f.precioMin)) return false;
+  if (f.precioMax !== undefined && (p.precio === null || p.precio > f.precioMax)) return false;
   if (f.stockMin !== undefined && p.stock < f.stockMin) return false;
   if (f.stockMax !== undefined && p.stock > f.stockMax) return false;
   if (f.conStock === true && p.stock <= 0) return false;
@@ -356,6 +464,12 @@ function aFila(p: Producto): ProductoFila {
     descripcion: p.descripcion,
     categoria: p.categoria,
     precio: p.precio,
+    precio_matriz: p.precio_matriz,
+    precio_magdalena: p.precio_magdalena,
+    precio_koreanos: p.precio_koreanos,
+    precio_sas_repuestos: p.precio_sas_repuestos,
+    codigo_difiere: p.codigo_difiere,
+    erp_actualizado_at: p.erp_actualizado_at ? p.erp_actualizado_at.toISOString() : null,
     stock: p.stock,
     activo: p.activo,
   };
@@ -394,6 +508,12 @@ function claveDe(p: Producto, campo: CampoOrden): ClaveOrden {
       return textoONulo(p.descripcion);
     case "precio":
       return p.precio;
+    case "precio_matriz":
+    case "precio_magdalena":
+    case "precio_koreanos":
+    case "precio_sas_repuestos":
+      // `null` queda al final en las dos direcciones, como `nulls last` en SQL.
+      return p[campo];
     case "stock":
       return p.stock;
     case "estado":

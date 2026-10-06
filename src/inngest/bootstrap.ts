@@ -17,6 +17,7 @@
 
 import { GraphApiMetaClient } from "@/server/services/meta/graph-api-client";
 import { DefaultAiAgentService } from "@/server/services/ai-agent.service";
+import { DefaultRecalcularCompatibilidadService } from "@/server/services/catalog/recalcular-compatibilidad.service";
 import { DefaultCatalogMatcherService } from "@/server/services/catalog-matcher.service";
 import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultIntentClassifierService } from "@/server/services/intent-classifier.service";
@@ -38,6 +39,7 @@ import { SupabaseReglasEtiquetaRepository } from "@/server/repositories/reglas-e
 import { SupabaseTagsRepository } from "@/server/repositories/tags.supabase.repo";
 import { SupabaseMergeCandidatesRepository } from "@/server/repositories/merge-candidates.supabase.repo";
 import { SupabaseMessagesRepository } from "@/server/repositories/messages.supabase.repo";
+import { SupabaseCatalogoModelosRepository } from "@/server/repositories/catalogo-modelos.supabase.repo";
 import { SupabaseProductsRepository } from "@/server/repositories/productos.supabase.repo";
 import { SupabaseReactivationDispatchesRepository } from "@/server/repositories/reactivation-dispatches.supabase.repo";
 import { SupabaseRuleExecutionsRepository } from "@/server/repositories/rule-executions.supabase.repo";
@@ -605,6 +607,13 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       configProvider: agenteConfigProvider,
       delegaciones: workflowRuns,
       vehiculos,
+      logger,
+    },
+    recalcularCompatibilidad: {
+      servicio: new DefaultRecalcularCompatibilidadService({
+        productos,
+        modelos: new SupabaseCatalogoModelosRepository(db),
+      }),
       logger,
     },
   };

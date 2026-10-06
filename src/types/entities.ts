@@ -29,11 +29,24 @@ export interface MetaUserIds {
   fb?: string;
 }
 
+/**
+ * Un elemento de `productos.compatibilidad`. Es la forma unica: la escribe el
+ * traductor del catalogo (`traducirDescripcion`), la valida
+ * `CompatibilidadEntrySchema` y la lee `leerCompatibilidad`. Todo lo que no sea
+ * marca y modelo puede faltar o ser `null`: "no sabemos", no "no sirve". Un
+ * `anio_desde` nulo es "desde siempre"; un `anio_hasta` nulo, "hasta hoy".
+ */
 export interface CompatibilidadEntry {
   marca: string;
+  /** Sigla del modelo tal como esta en el catalogo: `ACC`. */
   modelo: string;
-  anio_desde: number;
-  anio_hasta: number;
+  /** Nombre unificado del diccionario ("Hyundai Accent"). */
+  modelo_nombre?: string | null;
+  anio_desde?: number | null;
+  anio_hasta?: number | null;
+  /** En litros con un decimal: "1.6". */
+  cilindrada?: string | null;
+  combustible?: "GAS" | "DSL" | null;
   motor?: string;
 }
 
@@ -245,7 +258,22 @@ export interface Producto {
   descripcion: string | null;
   categoria: string | null;
   compatibilidad: CompatibilidadEntry[];
-  precio: number;
+  /**
+   * El precio que cotiza el agente. Para lo cargado del ERP, el más barato
+   * distinto de cero de los cuatro por empresa. `null` = "a consultar".
+   */
+  precio: number | null;
+  /** PVP lista 1 por empresa del ERP: 1 Matriz, 3 Magdalena, 5 Koreanos SAS, 6 SAS Repuestos. */
+  precio_matriz: number | null;
+  precio_magdalena: number | null;
+  precio_koreanos: number | null;
+  precio_sas_repuestos: number | null;
+  /** El mismo No. Item tiene distinto código de fábrica en otra empresa. Solo informativo. */
+  codigo_difiere: boolean;
+  /** Última vez que la carga del ERP cambió la fila; `null` = nunca vino del ERP. */
+  erp_actualizado_at: Date | null;
+  /** El nombre es nuevo o cambió y `compatibilidad` no se recalculó. */
+  compatibilidad_pendiente: boolean;
   stock: number;
   imagen_url: string | null;
   activo: boolean;
@@ -485,13 +513,28 @@ export interface LeadTag {
   quitada_por: UUID | null;
 }
 
+/** Empresa del ERP: 1 Matriz, 3 Magdalena, 5 Koreanos SAS, 6 SAS Repuestos. */
+export type EmpresaErp = 1 | 3 | 5 | 6;
+
 export interface Usuario {
   id: UUID;
   nombre: string;
   email: string;
   rol: RolUsuario;
   activo: boolean;
+  /** La empresa del ERP del vendedor: la columna de precio que se le resalta. */
+  empresa_erp?: EmpresaErp | null;
   created_at: Date;
+}
+
+/** La fila única de `erp_sync_estado`: cómo va la sincronización del catálogo con el ERP. */
+export interface ErpSyncEstado {
+  ultimo_inicio: Date | null;
+  ultimo_fin: Date | null;
+  ultimo_exito: Date | null;
+  ultimo_error: string | null;
+  filas_cargadas: number | null;
+  actualizado_at: Date | null;
 }
 
 export interface ToolExecution {
