@@ -48,7 +48,10 @@ describe("buscar_repuesto: marca y procedencia por la tabla de marcas", () => {
     expect(por("B-1")).toMatchObject({ marca: "MOBIS", procedencia: "Original", precio: 96.66 });
     expect(por("B-2")).toMatchObject({ marca: "JUNGWOO", procedencia: "Korea", precio: 21.51 });
     expect(r.diferencias?.procedencias).toEqual(["MOBIS (Original)", "JUNGWOO (Korea)"]);
-    expect(r.diferencias?.instruccion).toContain("MARCA (Procedencia) $precio");
+    expect(r.cotizacion_texto?.split("\n").slice(1)).toEqual([
+      "MOBIS (Original) $96,66",
+      "JUNGWOO (Korea) $21,51",
+    ]);
   });
 
   test("las marcas inactivas no cuentan", async () => {

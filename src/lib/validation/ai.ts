@@ -131,6 +131,8 @@ export const BuscarRepuestoOutputSchema = z.object({
   sin_existencia: z.literal(true).optional(),
   /** Nombres de otras piezas (empaque, polea…) que también hay para este vehículo: se ofrecen sin precio. */
   relacionadas: z.array(z.string()).optional(),
+  /** La cotización completa ya escrita (encabezado, una línea por opción, relacionadas): el agente la copia tal cual. */
+  cotizacion_texto: z.string().optional(),
   /** Primera línea de la cotización, ya escrita: pieza + vehículo + «(IVA incluido):». Solo cuando hay precios. */
   encabezado: z.string().optional(),
   /** Última línea de la cotización, ya escrita (de usted), que ofrece las `relacionadas` sin precio. */

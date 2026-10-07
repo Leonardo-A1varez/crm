@@ -673,6 +673,10 @@ export const CASOS: CasoAgente[] = [
       argumento("anio", 2020),
       citaPrecio(89.55),
       citaPrecio(94.22),
+      // La herramienta entrega `cotizacion_texto` (marca, procedencia, lado y precio por línea).
+      // Falla real 2026-10-07 21:36 UTC: el modelo contestó «Izquierdo $89,55» y perdió la marca.
+      citaOpcion("MANDO", "Korea", 89.55),
+      citaOpcion("MANDO", "Korea", 94.22),
       dice(/izquierd/, "debería decir que uno es el izquierdo"),
       dice(/derech/, "debería decir que el otro es el derecho"),
       mencionaIva(),

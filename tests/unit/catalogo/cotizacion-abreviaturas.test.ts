@@ -4,6 +4,7 @@ import type { BuscarRepuestoOutput } from "@/lib/validation/ai";
 import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
 import { armarSalida } from "@/server/services/catalog-matcher.service";
 import { ABREVIATURAS, AMORTIGUADORES_NIRO } from "../../helpers/catalogo-abreviaturas-fixtures";
+import { MARCAS } from "../../helpers/catalogo-marcas-fixtures";
 import type { ProductoReal } from "../../helpers/catalogo-ranking-fixtures";
 
 /*
@@ -18,7 +19,7 @@ const NIRO = { marca: "Kia", modelo: "Niro", anio: 2020 } as const;
 async function salidaDe(
   productos: readonly ProductoReal[],
   query: string,
-  opciones: { excluidos?: string[]; sinTabla?: boolean } = {},
+  opciones: { excluidos?: string[]; sinTabla?: boolean; conMarcas?: boolean } = {},
 ): Promise<BuscarRepuestoOutput> {
   const repo = new InMemoryProductsRepository({
     abreviaturas: opciones.sinTabla ? [] : ABREVIATURAS,
@@ -43,7 +44,7 @@ async function salidaDe(
     hits,
     { anio: NIRO.anio },
     { query, marca: NIRO.marca, modelo: NIRO.modelo },
-    [],
+    opciones.conMarcas ? MARCAS : [],
     opciones.sinTabla ? undefined : INDICE,
   );
 }
@@ -69,11 +70,29 @@ describe("amortiguadores delanteros para el Kia Niro 2020", () => {
     expect(JSON.stringify(s).toLowerCase()).not.toContain("repuesto emg");
   });
 
-  test("la instrucción pide una línea por lado y no preguntar el lado", async () => {
-    const s = await salidaDe(AMORTIGUADORES_NIRO, "amortiguadores delanteros");
+  test("la herramienta entrega la cotización ya escrita: marca, procedencia, lado y precio", async () => {
+    const s = await salidaDe(AMORTIGUADORES_NIRO, "amortiguadores delanteros", {
+      conMarcas: true,
+    });
+    expect(s.cotizacion_texto).toBe(
+      [
+        "Amortiguadores delanteros Niro 2020 (IVA incluido):",
+        "MANDO (Korea) izquierdo $89,55",
+        "MANDO (Korea) derecho $94,22",
+      ].join("\n"),
+    );
+    // Los campos sueltos siguen por compatibilidad.
+    expect(s.encabezado).toBe("Amortiguadores delanteros Niro 2020 (IVA incluido):");
+  });
+
+  test("la instrucción es corta: copiar `cotizacion_texto` tal cual", async () => {
+    const s = await salidaDe(AMORTIGUADORES_NIRO, "amortiguadores delanteros", {
+      conMarcas: true,
+    });
     expect(s.diferencias?.atributos).toEqual([]);
-    expect(s.diferencias?.instruccion).toMatch(/`lado`/);
-    expect(s.diferencias?.instruccion).toMatch(/una línea por candidato/i);
+    expect(s.diferencias?.instruccion).toBe(
+      "Responde copiando `cotizacion_texto` tal cual, sin agregar nada.",
+    );
   });
 
   test("sin tabla de abreviaturas no se rompe: sigue encontrándolos y el encabezado no usa AMORTIG DELT", async () => {
@@ -107,6 +126,7 @@ describe("existencia 0: no se cotiza", () => {
     const s = await salidaDe(AMORTIGUADORES_NIRO.slice(0, 2).map(sin), "amortiguadores delanteros");
     expect(s.matches.every((m) => m.precio === undefined && m.disponible === false)).toBe(true);
     expect(s.encabezado).toBeUndefined();
+    expect(s.cotizacion_texto).toBeUndefined();
     expect(s.relacionadas_texto).toBeUndefined();
     expect(s.sin_existencia).toBe(true);
     expect(s.aviso).toMatch(/ninguna.*disponible/i);

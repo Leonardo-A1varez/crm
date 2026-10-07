@@ -135,8 +135,11 @@ describe("armarSalida: conversación real del termostato para el Accent 1.6 (200
     expect(salida.relacionadas_texto).toBe(
       "Si necesita la base, la tapa o el termostato completo, también dispongo. ¿Desea que le cotice?",
     );
-    expect(salida.diferencias?.instruccion).toMatch(/`relacionadas_texto`/);
-    expect(salida.diferencias?.instruccion).toMatch(/sin precios/i);
+    expect(salida.diferencias?.instruccion).toMatch(/`cotizacion_texto`/);
+    // La última línea de la cotización es la de las relacionadas, sin precios.
+    const ultima = (salida.cotizacion_texto ?? "").split("\n").at(-1);
+    expect(ultima).toBe(salida.relacionadas_texto);
+    expect(ultima).not.toMatch(/\$/);
   });
 
   test("cuando hay que preguntar no hay encabezado ni línea de relacionadas", async () => {
@@ -207,10 +210,11 @@ describe("armarSalida: conversación real del termostato para el Accent 1.6 (200
 
     expect(salida.diferencias?.atributos).toEqual([]);
     expect(salida.diferencias?.procedencias).toEqual(["MOBIS (Original)", "Korea"]);
-    expect(salida.diferencias?.instruccion).toMatch(/no las preguntes/i);
-    expect(salida.diferencias?.instruccion).toMatch(/MOBIS \(Original\), Korea/);
-    expect(salida.diferencias?.instruccion).toMatch(/MARCA \(Procedencia\) \$precio/);
-    expect(salida.diferencias?.instruccion).toMatch(/sin rangos/i);
+    expect(salida.diferencias?.instruccion).toMatch(/`cotizacion_texto`/);
+    expect(salida.cotizacion_texto?.split("\n").slice(1)).toEqual([
+      expect.stringMatching(/^MOBIS \(Original\) \$\d+,\d\d$/),
+      expect.stringMatching(/^Korea \$\d+,\d\d$/),
+    ]);
     expect(salida.matches.every((m) => m.pieza === "TERMOSTATOS")).toBe(true);
     expect(salida.matches.map((m) => m.marca)).toEqual(["MOBIS", undefined]);
     expect(salida.matches.map((m) => m.procedencia)).toEqual(["Original", "Korea"]);
