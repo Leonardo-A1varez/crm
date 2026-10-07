@@ -723,4 +723,52 @@ describe("XELIM: los items marcados para eliminar quedan inactivos", () => {
     await cargar([fila({ no_item: "1", descripcion_auxiliar: "MOBIS" })]);
     expect((await producto("1"))?.activo).toBe(true);
   });
+
+  test("un NOMBRE (descripcion) que empieza con XELIM carga inactivo y se mantiene al recargar", async () => {
+    const r = await cargar([
+      fila({ no_item: "1", descripcion: "XELIM" }),
+      fila({ no_item: "2", descripcion: "  xelim bomba vieja" }),
+      fila({ no_item: "3", descripcion: "BOMBA XELIM" }),
+    ]);
+    expect(r.error).toBeNull();
+    expect((await producto("1"))?.activo).toBe(false);
+    expect((await producto("2"))?.activo).toBe(false);
+    // Solo cuenta si EMPIEZA con XELIM.
+    expect((await producto("3"))?.activo).toBe(true);
+    await cargar([fila({ no_item: "1", descripcion: "XELIM", existencias_total: 9 })]);
+    expect(await producto("1")).toMatchObject({ activo: false, stock: 9 });
+  });
+});
+
+describe("grupos eliminados: catalogo_grupos_excluidos.inactivar", () => {
+  test("REPUESTO EMG (decisión del dueño, 2026-10-08) carga inactivo en cada recarga", async () => {
+    await cargar([
+      fila({ no_item: "1", grupo: "REPUESTO EMG" }),
+      fila({ no_item: "2", grupo: " repuesto emg " }),
+      fila({ no_item: "3", grupo: "BOMBA DE AGUA" }),
+    ]);
+    expect((await producto("1"))?.activo).toBe(false);
+    expect((await producto("2"))?.activo).toBe(false);
+    expect((await producto("3"))?.activo).toBe(true);
+    await cargar([fila({ no_item: "1", grupo: "REPUESTO EMG", existencias_total: 4 })]);
+    expect(await producto("1")).toMatchObject({ activo: false, stock: 4 });
+  });
+
+  test("un grupo de la tabla con inactivar = false sigue activo (solo la búsqueda lo ignora)", async () => {
+    await cargar([fila({ no_item: "1", grupo: "GASTOS VARIOS" })]);
+    expect((await producto("1"))?.activo).toBe(true);
+  });
+
+  test("el dueño suma un grupo con un INSERT y la próxima carga lo deja inactivo", async () => {
+    const { error } = await service
+      .from("catalogo_grupos_excluidos")
+      .insert({ grupo: "GRUPO DE PRUEBA", inactivar: true, motivo: "test" });
+    expect(error).toBeNull();
+    try {
+      await cargar([fila({ no_item: "1", grupo: "Grupo de Prueba" })]);
+      expect((await producto("1"))?.activo).toBe(false);
+    } finally {
+      await service.from("catalogo_grupos_excluidos").delete().eq("grupo", "GRUPO DE PRUEBA");
+    }
+  });
 });
