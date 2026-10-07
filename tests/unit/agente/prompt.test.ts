@@ -51,7 +51,7 @@ describe("reglas inviolables", () => {
   test("pide respuestas minimas: solo la pregunta, y al cotizar solo las opciones", () => {
     const prompt = componerSystemPrompt(config());
     expect(prompt).toMatch(/responde SOLO con la pregunta, en una linea/);
-    expect(prompt).toMatch(/Al cotizar, responde SOLO con el formato de cotizacion/);
+    expect(prompt).toMatch(/Al cotizar, responde SOLO con `cotizacion_texto`/);
   });
 
   describe("conducta del catalogo (como-leer-el-catalogo.md §12)", () => {
@@ -116,19 +116,15 @@ describe("reglas inviolables", () => {
 
     test("cotiza la pieza exacta y nombra las `relacionadas` sin precios", () => {
       const p = prompt();
-      expect(p).toMatch(/si trae `relacionadas_texto`, esa linea copiada tal cual y sin precios/i);
+      expect(p).toMatch(/la linea de piezas relacionadas sin precios/i);
       expect(p).toMatch(/sin precios/i);
     });
 
     test("al cotizar da marca, procedencia y precio por opcion, sin rangos ni codigos", () => {
       const p = prompt();
-      expect(p).toMatch(
-        /primero el `encabezado` copiado tal cual, luego UNA linea por opcion con SOLO la `marca`, la `procedencia` y el precio/,
-      );
-      expect(p).toMatch(/sin repetir el IVA/);
-      expect(p).toContain("«MARCA (Procedencia) $precio»");
-      expect(p).toMatch(/no trae `marca`, «PROCEDENCIA \$precio»/);
-      expect(p).toMatch(/no trae `procedencia`, «MARCA \$precio»/);
+      expect(p).toMatch(/copiando `cotizacion_texto` tal cual, sin agregar, quitar ni reescribir/);
+      expect(p).toMatch(/una linea por opcion con su marca, procedencia, lado y precio/);
+      expect(p).toMatch(/Nunca inventes una marca ni una procedencia/);
       expect(p).toMatch(/sin rangos de precio/i);
       expect(p).toMatch(/sin codigos ni especificaciones salvo que los pida/i);
     });

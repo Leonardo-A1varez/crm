@@ -1,3 +1,4 @@
+import { expandirFrase, type IndiceAbreviaturas } from "@/lib/catalogo/abreviaturas";
 import { palabrasDePieza, type ConsultaDePieza } from "@/lib/catalogo/categoria";
 import { plegarTexto } from "@/lib/catalogo/plegar-texto";
 
@@ -29,6 +30,121 @@ const CALIFICADORES_DE_CONJUNTO = new Set([
 /** Palabras en -a que son masculinas; el resto de las terminadas en -a se tratan como femeninas. */
 const MASCULINAS_EN_A = new Set(["sistema", "mapa", "problema", "programa", "diafragma"]);
 
+/**
+ * Sustantivos de repuesto con su género y su forma escrita (con tilde). Una palabra que
+ * no está aquí cae a la terminación; la tabla existe para los que la terminación no
+ * acierta («el rulimán», «la base», «el bocín») y para escribir la tilde.
+ */
+const SUSTANTIVOS: ReadonlyMap<string, { femenino: boolean; texto: string }> = new Map(
+  (
+    [
+      ["base", "f"],
+      ["tapa", "f"],
+      ["polea", "f"],
+      ["empaque", "m"],
+      ["bomba", "f"],
+      ["manguera", "f"],
+      ["rulimán", "m"],
+      ["bocín", "m"],
+      ["chaqueta", "f"],
+      ["sensor", "m"],
+      ["termostato", "m"],
+      ["amortiguador", "m"],
+      ["filtro", "m"],
+      ["radiador", "m"],
+      ["disco", "m"],
+      ["pastilla", "f"],
+      ["banda", "f"],
+      ["correa", "f"],
+      ["cable", "m"],
+      ["bobina", "f"],
+      ["bujía", "f"],
+      ["válvula", "f"],
+      ["junta", "f"],
+      ["sello", "m"],
+      ["retén", "m"],
+      ["soporte", "m"],
+      ["bieleta", "f"],
+      ["rótula", "f"],
+      ["terminal", "m"],
+      ["brazo", "m"],
+      ["maza", "f"],
+      ["balero", "m"],
+      ["cojinete", "m"],
+      ["cremallera", "f"],
+      ["dirección", "f"],
+      ["tensor", "m"],
+      ["ventilador", "m"],
+      ["compresor", "m"],
+      ["alternador", "m"],
+      ["motor", "m"],
+      ["tanque", "m"],
+      ["tubo", "m"],
+      ["inyector", "m"],
+      ["resorte", "m"],
+      ["barra", "f"],
+      ["estabilizador", "m"],
+      ["cadena", "f"],
+      ["corona", "f"],
+      ["culata", "f"],
+      ["rueda", "f"],
+      ["agua", "f"],
+      ["fuelle", "m"],
+      ["tapón", "m"],
+      ["perno", "m"],
+      ["kit", "m"],
+      ["oring", "m"],
+    ] as const
+  ).map(([texto, g]) => [plegarTexto(texto), { femenino: g === "f", texto }]),
+);
+
+/** Abreviaturas del ERP que se leen igual aunque el diccionario del dueño no las traiga. */
+const ABREVIATURAS_DE_RESPALDO: Readonly<Record<string, string>> = {
+  mang: "manguera",
+  rulim: "ruliman",
+  amortig: "amortiguador",
+  post: "posterior",
+  delt: "delantero",
+};
+
+/** Modificadores que van pegados a la pieza sin «de»: «amortiguador posterior», «polea tensora». */
+const MODIFICADORES = new Set([
+  "delantero",
+  "trasero",
+  "posterior",
+  "anterior",
+  "izquierdo",
+  "derecho",
+  "superior",
+  "inferior",
+  "central",
+  "lateral",
+  "interno",
+  "externo",
+  "interior",
+  "exterior",
+  "completo",
+  "armado",
+  "universal",
+  "original",
+  "tensora",
+  "loca",
+  "guia",
+  "doble",
+  "simple",
+  "largo",
+  "corto",
+  "grande",
+  "pequeno",
+]);
+
+function esModificador(palabra: string): boolean {
+  if (/\d/.test(palabra)) return true;
+  const sinS = palabra.endsWith("s") ? palabra.slice(0, -1) : palabra;
+  const sinEs = palabra.endsWith("es") ? palabra.slice(0, -2) : sinS;
+  return MODIFICADORES.has(palabra) || MODIFICADORES.has(sinS) || MODIFICADORES.has(sinEs);
+}
+
 /** Nombre corto (con artículo) de cada subpieza que detecta `etiquetaDePieza`. */
 const SUBPIEZA_CORTA: Readonly<Record<string, string>> = {
   empaque: "el empaque",
@@ -51,7 +167,34 @@ interface Articulado {
 function generoDe(palabra: string): Articulado {
   const plural = palabra.length > 3 && palabra.endsWith("s");
   const raiz = singular(palabra);
-  return { plural, femenino: raiz.endsWith("a") && !MASCULINAS_EN_A.has(raiz) };
+  const conocido =
+    SUSTANTIVOS.get(raiz) ??
+    (palabra.endsWith("es") ? SUSTANTIVOS.get(palabra.slice(0, -2)) : undefined);
+  if (conocido) return { plural, femenino: conocido.femenino };
+  const femenino =
+    (raiz.endsWith("a") && !MASCULINAS_EN_A.has(raiz)) ||
+    /(cion|sion|dad|tad|tud|umbre)$/.test(raiz);
+  return { plural, femenino };
+}
+
+/** La palabra con su tilde si es un sustantivo de la tabla («ruliman» -> «rulimán»). */
+const conTilde = (p: string): string => SUSTANTIVOS.get(p)?.texto ?? p;
+
+/**
+ * «base amortiguador» -> «la base de amortiguador»; «amortiguador posterior» sin «de»
+ * (el modificador va pegado); se corta en el primer conector («termostato armado y tapas»
+ * -> «el termostato armado»). El artículo concuerda con la cabeza.
+ */
+function sintagmaNominal(palabras: readonly string[]): string {
+  const desde = palabras.findIndex((p) => !FILLER.has(p));
+  const util = desde === -1 ? [...palabras] : palabras.slice(desde);
+  const corte = util.findIndex((p, i) => i > 0 && CONECTORES_DE_CORTE.has(p));
+  const sinCola = corte === -1 ? util : util.slice(0, corte);
+  const [cabeza = "", ...resto] = sinCola;
+  const sig = resto[0];
+  const conDe = sig !== undefined && !FILLER.has(sig) && !esModificador(sig);
+  const nombre = [cabeza, ...(conDe ? ["de"] : []), ...resto].map(conTilde).join(" ");
+  return `${articulo(generoDe(cabeza))} ${nombre}`;
 }
 
 const articulo = (g: Articulado): string =>
@@ -76,6 +219,12 @@ function cabezaSinCalificadores(categoria: string): string {
   const corte = palabras.findIndex((p, i) => i > 0 && CONECTORES_DE_CORTE.has(p));
   const cabeza = corte === -1 ? palabras : palabras.slice(0, corte);
   return cabeza.join(" ");
+}
+
+/** Las palabras de una categoría del ERP, con las abreviaturas puestas en palabras del cliente. */
+function palabrasDeCategoria(categoria: string, indice: IndiceAbreviaturas | undefined): string[] {
+  const texto = indice ? expandirFrase(categoria, indice) : categoria;
+  return palabrasPlegadas(texto).map((p) => ABREVIATURAS_DE_RESPALDO[p] ?? p);
 }
 
 /** Texto de una categoría completa en minúscula, sin calificadores de conjunto. */
@@ -110,7 +259,7 @@ export function nombreCortoRelacionada(etiqueta: string, consulta?: ConsultaDePi
   }
 
   const pedidas = new Set((consulta ? palabrasDePieza(consulta) : []).map(singular));
-  const palabras = palabrasPlegadas(categoria);
+  const palabras = palabrasDeCategoria(categoria, consulta?.indice);
   const delaCategoria = new Set(palabras.map(singular));
   const contieneLaPedida = pedidas.size > 0 && [...pedidas].every((p) => delaCategoria.has(p));
 
@@ -125,11 +274,11 @@ export function nombreCortoRelacionada(etiqueta: string, consulta?: ConsultaDePi
       sobrantes.push(p);
     }
   }
+  // Lo que sobra es solo un modificador («posterior» de AMORTIG POST): la pieza es la entera.
+  const usaSobrantes = sobrantes.length > 0 && !esModificador(sobrantes[0] ?? "");
   // Una categoría de una sola palabra viene en plural del ERP («TERMOSTATOS»): se nombra la pieza.
   const entera = palabras.length === 1 ? palabras.map(singular) : palabras;
-  const nombre = sobrantes.length > 0 ? sobrantes.join(" ") : entera.join(" ");
-  const g = generoDe(sobrantes[0] ?? entera.find((p) => !FILLER.has(p)) ?? nombre);
-  return `${articulo(g)} ${nombre}`;
+  return sintagmaNominal(usaSobrantes ? sobrantes : entera);
 }
 
 /**
@@ -251,4 +400,44 @@ export function piezaDeLaConsulta(
     .slice(desde, hasta + 1)
     .join(" ")
     .toLowerCase();
+}
+
+/** Una opción de la cotización: lo que el cliente ve en cada línea. */
+export interface OpcionDeCotizacion {
+  marca?: string | undefined;
+  procedencia?: string | undefined;
+  lado?: string | undefined;
+  precio: number;
+}
+
+/** «$89,55»: coma decimal, dos decimales y punto de miles. */
+export function formatearPrecio(precio: number): string {
+  const [entero = "0", decimales = "00"] = Math.abs(precio).toFixed(2).split(".");
+  const miles = entero.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return `${precio < 0 ? "-" : ""}$${miles},${decimales}`;
+}
+
+/** «MARCA (Procedencia) lado $precio»; sin marca o sin procedencia, solo la que haya. */
+export function lineaDeOpcion(o: OpcionDeCotizacion): string {
+  const marca = o.marca?.trim() ?? "";
+  const procedencia = o.procedencia?.trim() ?? "";
+  const origen =
+    marca !== "" && procedencia !== "" ? `${marca} (${procedencia})` : marca || procedencia;
+  const lado = o.lado?.trim().toLowerCase() ?? "";
+  return [origen, origen === "" ? capitalizar(lado) : lado, formatearPrecio(o.precio)]
+    .filter((p) => p !== "")
+    .join(" ");
+}
+
+/**
+ * La cotización completa, lista para copiar: encabezado, una línea por opción (sin
+ * repetir) y, si hay, la línea de piezas relacionadas.
+ */
+export function textoCotizacion(
+  encabezado: string,
+  opciones: readonly OpcionDeCotizacion[],
+  relacionadasTexto: string | null | undefined,
+): string {
+  const lineas = [...new Set(opciones.map(lineaDeOpcion))];
+  return [encabezado, ...lineas, ...(relacionadasTexto ? [relacionadasTexto] : [])].join("\n");
 }

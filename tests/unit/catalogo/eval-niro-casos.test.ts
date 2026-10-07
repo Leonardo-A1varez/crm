@@ -20,6 +20,11 @@ describe("casos del eval: amortiguadores del Kia Niro", () => {
       ["23869", "derecho", 94.22],
     ]);
     expect(s?.encabezado).toBe("Amortiguadores delanteros Niro 2020 (IVA incluido):");
+    expect(s?.cotizacion_texto?.split("\n").slice(0, 3)).toEqual([
+      "Amortiguadores delanteros Niro 2020 (IVA incluido):",
+      "MANDO (Korea) izquierdo $89,55",
+      "MANDO (Korea) derecho $94,22",
+    ]);
     expect(JSON.stringify(s)).not.toMatch(/emg/i);
   });
 

@@ -68,9 +68,15 @@ describe("conversación real: 'una bomba de agua para el Rio 18'", () => {
     expect(out.relacionadas_texto).toBe(
       "Si necesita la polea, también dispongo. ¿Desea que le cotice?",
     );
-    expect(out.diferencias?.instruccion).toMatch(/`encabezado`/);
-    expect(out.diferencias?.instruccion).toMatch(/`relacionadas_texto`/);
-    expect(out.diferencias?.instruccion).toMatch(/MARCA \(Procedencia\) \$precio/);
+    expect(out.diferencias?.instruccion).toBe(
+      "Responde copiando `cotizacion_texto` tal cual, sin agregar nada.",
+    );
+    const lineas = (out.cotizacion_texto ?? "").split("\n");
+    expect(lineas[0]).toBe("Bomba de agua Rio 2018 (IVA incluido):");
+    expect(lineas.at(-1)).toBe(out.relacionadas_texto);
+    expect(lineas.slice(1, -1).length).toBeGreaterThan(0);
+    // Sin tabla de marcas: la marca viene cruda y sin procedencia; el precio, en formato español.
+    expect(lineas.slice(1, -1).every((l) => /^[A-Z0-9-]+ \$\d+,\d\d$/.test(l))).toBe(true);
     expect(JSON.stringify(out.relacionadas)).not.toMatch(/\d\.\d\d/);
   });
 
@@ -82,7 +88,7 @@ describe("conversación real: 'una bomba de agua para el Rio 18'", () => {
     expect(out.diferencias?.atributos ?? []).not.toContain("pieza");
     expect(out.diferencias?.procedencias).toEqual(["JUNGWOO", "MOBIS"]);
     expect(out.encabezado).toBe("Bomba de agua Rio 2018 (IVA incluido):");
-    expect(out.diferencias?.instruccion).toMatch(/`encabezado`/);
+    expect(out.cotizacion_texto).toContain("Bomba de agua Rio 2018 (IVA incluido):\n");
     expect(out.diferencias?.instruccion).not.toMatch(/Preguntale/);
   });
 

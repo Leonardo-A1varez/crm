@@ -30,6 +30,7 @@ import {
   encabezadoConPieza,
   encabezadoCotizacion,
   piezaDeLaConsulta,
+  textoCotizacion,
   textoRelacionadas,
 } from "@/lib/catalogo/formato-cotizacion";
 import { indexarMarcas, resolverOrigen, type MarcaCatalogo } from "@/lib/catalogo/procedencia";
@@ -66,6 +67,10 @@ export interface CatalogMatcherService {
  * clave y cotice; mil solo queman tokens y lo confunden.
  */
 const TOPE_PARA_EL_AGENTE = 20;
+
+/** Con la cotización ya escrita, lo único que le queda al modelo es copiarla. */
+const INSTRUCCION_COPIAR_COTIZACION =
+  "Responde copiando `cotizacion_texto` tal cual, sin agregar nada.";
 
 /** Un texto vacío o en blanco es "no lo dijo". */
 const textoUtil = (s: string | undefined): string | undefined => {
@@ -293,6 +298,23 @@ export function armarSalida(
       ? textoRelacionadas(relacionadas, consulta)
       : null;
 
+  // OBSERVACION (crm-dev 2026-10-07 21:36 UTC): con los datos sueltos el modelo barato
+  // escribió «Izquierdo $89,55» y perdió la marca y la procedencia. CAUSA RAIZ: la línea
+  // de cada opción la componía él. FIX: la herramienta entrega la cotización completa y
+  // la instrucción es copiarla.
+  const opcionesConPrecio = matches.flatMap((m) =>
+    m.precio === undefined || m.precio === null
+      ? []
+      : [{ marca: m.marca, procedencia: m.procedencia, lado: m.lado, precio: m.precio }],
+  );
+  const cotizacionTexto =
+    encabezado && opcionesConPrecio.length > 0
+      ? textoCotizacion(encabezado, opcionesConPrecio, relacionadasTexto)
+      : undefined;
+  if (cotizacionTexto && diferencias) {
+    diferencias = { ...diferencias, instruccion: INSTRUCCION_COPIAR_COTIZACION };
+  }
+
   // El aviso va primero a propósito: es lo que el modelo tiene que leer antes
   // de mirar precios.
   return {
@@ -302,6 +324,7 @@ export function armarSalida(
     count: matches.length,
     ...(diferencias ? { diferencias } : {}),
     ...(!hayQuePreguntar && !sinExistencia && relacionadas.length > 0 ? { relacionadas } : {}),
+    ...(cotizacionTexto ? { cotizacion_texto: cotizacionTexto } : {}),
     ...(encabezado ? { encabezado } : {}),
     ...(relacionadasTexto ? { relacionadas_texto: relacionadasTexto } : {}),
   };
