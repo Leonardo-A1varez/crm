@@ -4,6 +4,8 @@ import { resolverModelos } from "@/lib/catalogo/compatibilidad";
 import type { Database, Json } from "@/server/db/types.gen";
 import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
 import { SupabaseProductsRepository } from "@/server/repositories/productos.supabase.repo";
+import { armarSalida } from "@/server/services/catalog-matcher.service";
+import { BOMBA_DE_AGUA_RIO_18 } from "../helpers/catalogo-bomba-agua-fixtures";
 import { CONSULTAS, MODELOS, PRODUCTOS } from "../helpers/catalogo-compat-fixtures";
 import {
   CONSULTA_ACCENT_2006,
@@ -390,5 +392,90 @@ describe("buscar_productos ordena por cuánto confirma el vehículo (filas reale
       );
       expect(nivelesSql, JSON.stringify(c)).toEqual(nivelesMem);
     }
+  });
+});
+
+// También reemplaza `productos`: va después del describe de arriba.
+describe("buscar_productos ordena por la categoría de la pieza pedida (bomba de agua del Rio 18)", () => {
+  const CONSULTA = { marca: "Kia", modelo: "Rio", anio: 2018, tope: 50 } as const;
+  const SUELTAS = new Set(["BOMBA DE AGUA", "POLEA BOMBA AGUA E HIDRAU"]);
+
+  beforeAll(async () => {
+    const { error: del } = await service
+      .from("productos")
+      .delete()
+      .neq("id", "00000000-0000-0000-0000-000000000000");
+    if (del) throw new Error(`limpiar productos: ${del.message}`);
+    const { error } = await service.from("productos").insert(
+      BOMBA_DE_AGUA_RIO_18.map((p) => ({
+        codigo_interno: p.codigo,
+        nombre: p.nombre,
+        categoria: p.categoria,
+        descripcion: p.descripcion,
+        precio: p.precio,
+        stock: p.stock,
+        compatibilidad: p.compatibilidad as unknown as Json,
+      })),
+    );
+    if (error) throw new Error(`sembrar bomba de agua: ${error.message}`);
+  });
+
+  async function enMemoria() {
+    const memoria = new InMemoryProductsRepository({ modelos: MODELOS });
+    for (const p of BOMBA_DE_AGUA_RIO_18) {
+      await memoria.create({
+        codigo_interno: p.codigo,
+        sku_proveedor: null,
+        nombre: p.nombre,
+        descripcion: p.descripcion,
+        categoria: p.categoria,
+        compatibilidad: p.compatibilidad as never,
+        precio: p.precio,
+        stock: p.stock,
+        imagen_url: null,
+        activo: true,
+      });
+    }
+    return memoria;
+  }
+
+  test("las categorías que contienen la frase van antes que las que solo comparten una palabra", async () => {
+    const hits = await new SupabaseProductsRepository(service).search({
+      q: "bomba de agua",
+      ...CONSULTA,
+    });
+    expect(hits.filter((h) => SUELTAS.has(h.categoria ?? ""))).toHaveLength(5);
+    expect(hits.slice(0, 5).every((h) => SUELTAS.has(h.categoria ?? ""))).toBe(true);
+  });
+
+  test("Postgres y el repo in-memory ordenan igual por categoría", async () => {
+    const memoria = await enMemoria();
+    const sql = new SupabaseProductsRepository(service);
+    for (const q of ["bomba de agua", "bomba de agua completa", "polea bomba agua"]) {
+      const c = { q, ...CONSULTA };
+      const porCat = (hs: { categoria: string | null }[]) =>
+        hs.map((h) => (SUELTAS.has(h.categoria ?? "") ? 2 : 1));
+      expect(porCat(await sql.search(c)), q).toEqual(porCat(await memoria.search(c)));
+    }
+  });
+
+  test("la salida de la herramienta sobre filas de Postgres: turno 1 pregunta bomba o polea, turno 2 cotiza", async () => {
+    const sql = new SupabaseProductsRepository(service);
+    const t1 = armarSalida(
+      await sql.search({ q: "bomba de agua", ...CONSULTA }),
+      { anio: 2018 },
+      { query: "bomba de agua", marca: "Kia", modelo: "Rio" },
+    );
+    expect([...(t1.diferencias?.valores.pieza ?? [])].sort()).toEqual([
+      "BOMBA DE AGUA",
+      "POLEA BOMBA AGUA E HIDRAU",
+    ]);
+    const t2 = armarSalida(
+      await sql.search({ q: "bomba de agua completa", ...CONSULTA }),
+      { anio: 2018 },
+      { query: "bomba de agua completa", marca: "Kia", modelo: "Rio" },
+    );
+    expect(t2.matches.map((m) => m.codigo_interno).sort()).toEqual(["13973", "21688", "21693"]);
+    expect(t2.diferencias?.atributos ?? []).not.toContain("pieza");
   });
 });

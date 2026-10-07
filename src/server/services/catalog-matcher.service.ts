@@ -9,6 +9,7 @@ import {
   etiquetasDeCompatibilidad,
   normalizarCilindrada,
 } from "@/lib/catalogo/compatibilidad";
+import { filtrarPorCategoria, type ConsultaDePieza } from "@/lib/catalogo/categoria";
 import { procedenciaDe } from "@/lib/catalogo/procedencia";
 import { avisoSobremedida } from "@/lib/catalogo/sobremedida";
 import type { ProductoSearchHit, ProductsRepository } from "@/server/repositories/productos.repo";
@@ -66,7 +67,11 @@ export class DefaultCatalogMatcherService implements CatalogMatcherService {
       tope: TOPE_PARA_EL_AGENTE,
     });
 
-    return armarSalida(hits, { anio, cilindrada });
+    return armarSalida(
+      hits,
+      { anio, cilindrada },
+      { query: input.query, marca: textoUtil(input.marca), modelo: textoUtil(input.modelo) },
+    );
   }
 }
 
@@ -76,12 +81,28 @@ export class DefaultCatalogMatcherService implements CatalogMatcherService {
  * le dé al modelo exactamente la salida de producción.
  */
 export function armarSalida(
-  hits: readonly ProductoSearchHit[],
+  todos: readonly ProductoSearchHit[],
   dado: { anio?: number | undefined; cilindrada?: string | undefined },
+  consulta?: ConsultaDePieza,
 ): BuscarRepuestoOutput {
+  // La búsqueda de texto acepta cualquier palabra: `agua` trae los manguitos y
+  // `bomba` la de combustible. Lo que solo roza la pieza pedida ni se ofrece ni
+  // cuenta como alternativa de pieza (ver `categoria.ts`).
+  const hits = consulta ? filtrarPorCategoria(todos, consulta) : todos;
+  const acotado = hits.length < todos.length;
+
   // En qué se diferencian los mejores candidatos: lo único que el agente tiene
   // que preguntar. Lo que el cliente ya dijo (año, cilindrada) no entra.
-  const diferencias = diferenciasEntre(hits, dado);
+  const dif0 = diferenciasEntre(hits, dado);
+  const diferencias =
+    dif0 && acotado && !dif0.atributos.includes("pieza")
+      ? {
+          ...dif0,
+          instruccion:
+            `${dif0.instruccion} La pieza ya quedó definida por lo que pidió el cliente: ` +
+            "no se la vuelvas a preguntar, cotizala.",
+        }
+      : dif0;
 
   const matches: BuscarRepuestoMatch[] = hits.map((h) => {
     const procedencia = procedenciaDe(h.descripcion);

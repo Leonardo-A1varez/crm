@@ -7,6 +7,7 @@ import type {
   BuscarRepuestoMatch,
   BuscarRepuestoOutput,
 } from "@/lib/validation/ai";
+import { BOMBA_DE_AGUA_RIO_18 } from "../../helpers/catalogo-bomba-agua-fixtures";
 import { ESCALONES_ESPERADOS, TERMOSTATOS_REALES } from "../../helpers/catalogo-ranking-fixtures";
 
 /**
@@ -99,6 +100,10 @@ import {
   noCitaPrecios,
   noDiceOriginal,
   preguntaPieza,
+  preguntaEntre,
+  noMenciona,
+  unaLineaCorta,
+  noRepregunta,
   sinCodigosDeProducto,
   sinRangoDePrecios,
 } from "./verificaciones";
@@ -122,6 +127,16 @@ function prod(
     ...extra,
   };
 }
+
+// En la conversación real la herramienta se llamó con marca Kia y año 2018: el
+// auto ya estaba identificado para el agente. Se reproduce como auto guardado.
+const RIO_2018: AgentVehiculo = {
+  marca: "Kia",
+  modelo: "Rio",
+  anio: 2018,
+  motor: null,
+  actual: true,
+};
 
 const AVEO_2005: AgentVehiculo = {
   marca: "Chevrolet",
@@ -165,6 +180,41 @@ const SALIDA_ACCENT_2006: BuscarRepuestoOutput = armarSalida(HITS_ACCENT_2006, {
   anio: 2006,
   cilindrada: "1.6",
 });
+
+/**
+ * Los candidatos de 'bomba de agua para el Rio 18' que devolvió `buscar_productos`
+ * (filas de crm-dev, tests/helpers/catalogo-bomba-agua-fixtures.ts), pasados por
+ * la función de producción con lo que el agente buscó en cada turno.
+ */
+const PUNTAJE_BOMBA: Record<string, number> = {
+  "BOMBA DE AGUA": 60,
+  "POLEA BOMBA AGUA E HIDRAU": 50,
+};
+const HITS_BOMBA_RIO_18: ProductoSearchHit[] = BOMBA_DE_AGUA_RIO_18.map(
+  (p, i): ProductoSearchHit => ({
+    id: `00000000-0000-4000-a000-${String(i + 1).padStart(12, "0")}`,
+    codigo_interno: p.codigo,
+    codigo_fabrica: null,
+    nombre: p.nombre,
+    categoria: p.categoria,
+    descripcion: p.descripcion,
+    precio: p.precio,
+    stock: p.stock,
+    puntaje: PUNTAJE_BOMBA[p.categoria] ?? 30,
+    nivel_vehiculo: p.compatibilidad.some((c) => c.anio_desde !== null) ? 5 : 4,
+    compatibilidad: p.compatibilidad,
+  }),
+);
+const SALIDA_BOMBA_T1 = armarSalida(
+  HITS_BOMBA_RIO_18,
+  { anio: 2018 },
+  { query: "bomba de agua", marca: "Kia", modelo: "Rio" },
+);
+const SALIDA_BOMBA_T2 = armarSalida(
+  HITS_BOMBA_RIO_18,
+  { anio: 2018 },
+  { query: "bomba de agua completa", marca: "Kia", modelo: "Rio" },
+);
 
 export const CASOS: CasoAgente[] = [
   // ───────────────────────── Derivados de mensajes reales ─────────────────────────
@@ -301,6 +351,59 @@ export const CASOS: CasoAgente[] = [
       sinCotizar(),
       sinRangoDePrecios(),
       noInventaCodigos(),
+    ],
+  },
+  {
+    id: "real-bomba-de-agua-rio-18-pide-bomba-o-polea",
+    origen: "real",
+    proposito:
+      "Regla del dueño 2026-10-07: 'una bomba de agua para el Rio 18' ofrece solo la bomba o la polea (nunca los manguitos ni la bomba de combustible, que entran por una palabra suelta), en una línea corta y sin cotizar.",
+    notaOrigen:
+      "El mensaje del cliente es real (crm-dev, 2026-10-07 04:15 UTC, sin datos personales); el auto guardado Kia Rio 2018 es reconstruido (se deduce de los argumentos reales de la herramienta). La salida de la tool es la de producción (`armarSalida`) sobre filas reales de crm-dev recortadas a las que sirven para un Kia Rio 2018 (tests/helpers/catalogo-bomba-agua-fixtures.ts).",
+    turno: ["lead: Necesito Una bomba de agua para el rio 18"],
+    vehiculos: [RIO_2018],
+    catalogo: SALIDA_BOMBA_T1.matches,
+    salida: SALIDA_BOMBA_T1,
+    verificaciones: [
+      buscaAlgunaVez(),
+      argumento("modelo", "rio"),
+      preguntaEntre(/bomba/, /polea/),
+      noMenciona(
+        /(mangu|manguer|radiador|combustible|inyec|gasolina)/,
+        "ofreció una pieza que no tiene sentido",
+      ),
+      unaLineaCorta(),
+      sinCotizar(),
+      noInventaCodigos(),
+    ],
+  },
+  {
+    id: "real-bomba-de-agua-rio-18-completa-cotiza",
+    origen: "real",
+    proposito:
+      "Después de que el cliente elige 'la bomba de agua completa', cotiza las opciones como PROCEDENCIA $precio con IVA, sin volver a preguntar y sin precios de la polea, los manguitos ni la bomba de combustible.",
+    notaOrigen:
+      "Los dos mensajes del cliente son reales (crm-dev, 2026-10-07 04:15 y 04:18 UTC). La pregunta de la IA del medio es reconstruida, y el auto guardado Kia Rio 2018 también (se deduce de los argumentos reales de la herramienta: marca Kia, año 2018). La salida de la tool es la de producción sobre las filas reales de crm-dev (tests/helpers/catalogo-bomba-agua-fixtures.ts), para la búsqueda 'bomba de agua completa'.",
+    turno: [
+      "lead: Necesito Una bomba de agua para el rio 18",
+      "ia: ¿Necesitás la bomba de agua completa o la polea de la bomba?",
+      "lead: La bomba de agua completa",
+    ],
+    vehiculos: [RIO_2018],
+    catalogo: SALIDA_BOMBA_T2.matches,
+    salida: SALIDA_BOMBA_T2,
+    verificaciones: [
+      buscaAlgunaVez(),
+      citaProcedenciaConPrecio("MOBIS", 96.66),
+      citaProcedenciaConPrecio("JUNGWOO", 21.51),
+      mencionaIva(),
+      noRepregunta(),
+      sinCodigosDeProducto(),
+      noCitaPrecios(
+        [7.72, 41.43, 12.53, 7.18, 10.78, 9.66, 12.98, 48.41, 69.7, 347.03],
+        "la polea, los manguitos o la bomba de combustible",
+      ),
+      noInventaPrecios(),
     ],
   },
   {
