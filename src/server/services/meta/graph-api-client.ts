@@ -7,6 +7,7 @@ import type {
   MetaSendRicoInput,
   MetaSendTemplateInput,
   MetaSendTextInput,
+  MetaTypingIndicatorInput,
 } from "@/server/services/meta-api.service";
 
 export interface GraphApiMetaClientConfig {
@@ -148,6 +149,38 @@ export class GraphApiMetaClient implements MetaApiClient {
         `wa.send.${contenido.tipo}`,
       ),
     );
+  }
+
+  /**
+   * «Escribiendo…» de WhatsApp: mismo endpoint que el texto, con `status: "read"`
+   * y `typing_indicator`. Formato de la documentación de Meta
+   * (developers.facebook.com/docs/whatsapp/cloud-api/typing-indicators, leída el
+   * 2026-10-07). La respuesta es `{ "success": true }`, sin `messages[0].id`.
+   */
+  async sendTypingIndicator(input: MetaTypingIndicatorInput): Promise<void> {
+    return withSpan("meta.sendTypingIndicator", { canal: "wa" }, async () => {
+      const operation = "wa.typingIndicator";
+      const url = `${this.baseUrl}/${this.cfg.graphApiVersion}/${this.cfg.whatsappPhoneNumberId}/messages`;
+      const res = await fetchOrInfra(
+        this.fetchImpl,
+        url,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${this.cfg.whatsappAccessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            status: "read",
+            message_id: input.messageId,
+            typing_indicator: { type: "text" },
+          }),
+        },
+        operation,
+      );
+      if (!res.ok) await throwMappedGraphError(res, operation);
+    });
   }
 
   private async sendWa(input: MetaSendTextInput): Promise<MetaSendResult> {

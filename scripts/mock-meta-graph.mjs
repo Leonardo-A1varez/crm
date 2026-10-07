@@ -25,6 +25,9 @@
  *                         (`type: "interactive"`, `button_reply`/`list_reply`, `context.id`
  *                         = `responde_a`), con la forma del ejemplo de Meta. Firmado igual.
  *
+ * El indicador «escribiendo…» (`status: "read"` + `typing_indicator`) entra por la
+ * misma ruta y queda en el log como `graph.escribiendo`.
+ *
  * Los envíos de botones, lista, imagen y ubicación entran por la misma ruta de
  * `messages` y quedan en el log como `graph.envio.interactive`, `graph.envio.image`
  * y `graph.envio.location`, con el cuerpo tal cual.
@@ -218,6 +221,12 @@ async function manejarGraph(req, res, segmentos, url) {
     } catch {
       registrar({ tipo: "graph.rechazado", ...base, motivo: "json" });
       return errorGraph(res, 400, 100, "Invalid JSON (mock)");
+    }
+    if (cuerpo.messaging_product === "whatsapp" && cuerpo.status === "read") {
+      // «Escribiendo…»: marca el entrante como leído y responde `{ success: true }`
+      // (doc de Meta, typing-indicators). No es un envío: no lleva `to` ni `type`.
+      registrar({ tipo: "graph.escribiendo", ...base, id, cuerpo });
+      return responder(res, 200, { success: true });
     }
     if (cuerpo.messaging_product === "whatsapp") {
       const to = String(cuerpo.to ?? "").replace(/\D/g, "");

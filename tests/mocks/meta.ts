@@ -4,6 +4,7 @@ import type {
   MetaSendTextInput,
   MetaSendResult,
   MetaSendRicoInput,
+  MetaTypingIndicatorInput,
 } from "@/server/services/meta-api.service";
 
 export class FakeMetaApiClient implements MetaApiClient {
@@ -36,6 +37,16 @@ export class FakeMetaApiClient implements MetaApiClient {
     this.templateCalls.push(input);
     if (this.failWith) throw this.failWith;
     return { meta_message_id: `${this.nextMidPrefix}${this.nextId++}` };
+  }
+
+  /** Los "escribiendo…" pedidos a Meta (solo WhatsApp). */
+  public readonly typingCalls: MetaTypingIndicatorInput[] = [];
+  /** Si está seteado, `sendTypingIndicator` rechaza con este error tras registrar la llamada. */
+  typingFailWith: Error | null = null;
+
+  async sendTypingIndicator(input: MetaTypingIndicatorInput): Promise<void> {
+    this.typingCalls.push(input);
+    if (this.typingFailWith) throw this.typingFailWith;
   }
 
   async sendRico(input: MetaSendRicoInput): Promise<MetaSendResult> {
