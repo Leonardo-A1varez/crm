@@ -63,7 +63,7 @@ Además, cada fila cargada queda con `activo = true` (recargar reactiva lo dado 
 
 ### 3.1 Precio que cotiza el agente
 
-`productos.precio` = el **más barato distinto de cero** de los cuatro. Si ninguno es mayor que cero, queda `null` y se lee "a consultar". Los cuatro se guardan tal cual, ceros incluidos.
+`productos.precio` = el de **SAS Repuestos** (empresa 6) si es mayor que cero; si no, el de **Matriz** (empresa 1); si no, el primero mayor que cero entre Koreanos y Magdalena. Si ninguno es mayor que cero, queda `null` y se lee "a consultar". Los cuatro se guardan tal cual, ceros incluidos.
 
 | Fila real (2026-10-05) | matriz | magdalena | koreanos | sas  | → `precio` |
 | ---------------------- | ------ | --------- | -------- | ---- | ---------- |

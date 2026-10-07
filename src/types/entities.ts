@@ -259,8 +259,8 @@ export interface Producto {
   categoria: string | null;
   compatibilidad: CompatibilidadEntry[];
   /**
-   * El precio que cotiza el agente. Para lo cargado del ERP, el más barato
-   * distinto de cero de los cuatro por empresa. `null` = "a consultar".
+   * El precio que cotiza el agente. Para lo cargado del ERP: SAS Repuestos si es
+   * > 0, si no Matriz, si no Koreanos y después Magdalena. `null` = "a consultar".
    */
   precio: number | null;
   /** PVP lista 1 por empresa del ERP: 1 Matriz, 3 Magdalena, 5 Koreanos SAS, 6 SAS Repuestos. */

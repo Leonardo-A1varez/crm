@@ -297,7 +297,44 @@ describe("carga de productos", () => {
     });
   });
 
-  test("precio = el más barato distinto de cero de los cuatro", async () => {
+  test("precio = SAS si es > 0, si no Matriz, si no Koreanos y después Magdalena", async () => {
+    await cargar([
+      fila({
+        no_item: "20",
+        precio_matriz: 9,
+        precio_magdalena: 3,
+        precio_koreanos: 4,
+        precio_sas_repuestos: 0,
+      }),
+      fila({
+        no_item: "21",
+        precio_matriz: null,
+        precio_magdalena: 3,
+        precio_koreanos: 4,
+        precio_sas_repuestos: null,
+      }),
+      fila({
+        no_item: "22",
+        precio_matriz: 0,
+        precio_magdalena: 3,
+        precio_koreanos: 0,
+        precio_sas_repuestos: null,
+      }),
+      fila({
+        no_item: "23",
+        precio_matriz: 9,
+        precio_magdalena: 3,
+        precio_koreanos: 4,
+        precio_sas_repuestos: 7.5,
+      }),
+    ]);
+    expect((await producto("20"))?.precio).toBe(9);
+    expect((await producto("21"))?.precio).toBe(4);
+    expect((await producto("22"))?.precio).toBe(3);
+    expect((await producto("23"))?.precio).toBe(7.5);
+  });
+
+  test("precio: con SAS gana SAS; sin ningún precio > 0 queda null", async () => {
     await cargar([
       fila({
         no_item: "1",
@@ -336,7 +373,7 @@ describe("carga de productos", () => {
       }),
     ]);
     expect((await producto("1"))?.precio).toBe(2.61);
-    expect((await producto("12"))?.precio).toBe(5.04);
+    expect((await producto("12"))?.precio).toBe(6);
     expect((await producto("13"))?.precio).toBeNull();
     expect((await producto("14"))?.precio).toBeNull();
     expect((await producto("6"))?.precio).toBe(15.29);
@@ -648,5 +685,42 @@ describe("usuarios.empresa_erp", () => {
     expect(r.error).not.toBeNull();
     const { data } = await service.from("usuarios").select("rol").eq("id", vendedorId).single();
     expect(data?.rol).toBe("vendedor");
+  });
+});
+
+describe("XELIM: los items marcados para eliminar quedan inactivos", () => {
+  test("una descripcion_auxiliar que empieza con XELIM carga inactiva", async () => {
+    const r = await cargar([
+      fila({ no_item: "1", descripcion_auxiliar: "XELIM" }),
+      fila({ no_item: "2", descripcion_auxiliar: "  xelim delphi" }),
+      fila({ no_item: "3", descripcion_auxiliar: "MOBIS" }),
+    ]);
+    expect(r.error).toBeNull();
+    expect((await producto("1"))?.activo).toBe(false);
+    expect((await producto("2"))?.activo).toBe(false);
+    expect((await producto("3"))?.activo).toBe(true);
+  });
+
+  test("recargar un XELIM lo mantiene inactivo", async () => {
+    await cargar([fila({ no_item: "1", descripcion_auxiliar: "XELIM" })]);
+    const r = await cargar([
+      fila({ no_item: "1", descripcion_auxiliar: "XELIM", existencias_total: 5 }),
+    ]);
+    expect(r.error).toBeNull();
+    expect(await producto("1")).toMatchObject({ activo: false, stock: 5 });
+  });
+
+  test("un item normal dado de baja se reactiva al recargar, como antes", async () => {
+    await cargar([fila({ no_item: "1" })]);
+    await borrar([{ no_item: "1" }]);
+    expect((await producto("1"))?.activo).toBe(false);
+    await cargar([fila({ no_item: "1" })]);
+    expect((await producto("1"))?.activo).toBe(true);
+  });
+
+  test("si el ERP le quita el XELIM, vuelve a activo", async () => {
+    await cargar([fila({ no_item: "1", descripcion_auxiliar: "XELIM" })]);
+    await cargar([fila({ no_item: "1", descripcion_auxiliar: "MOBIS" })]);
+    expect((await producto("1"))?.activo).toBe(true);
   });
 });

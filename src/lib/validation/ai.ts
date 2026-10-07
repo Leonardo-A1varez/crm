@@ -79,7 +79,8 @@ export const BuscarRepuestoMatchSchema = z.object({
   codigo_interno: z.string(),
   nombre: z.string(),
   // null = a consultar: ninguno de los precios del ERP es mayor que cero.
-  precio: z.number().nonnegative().nullable(),
+  // Ausente cuando todavía hay algo que preguntar (pieza, año, cilindrada…): sin precio no hay con qué listar.
+  precio: z.number().nonnegative().nullable().optional(),
   stock: z.number().int().nonnegative(),
   // La marca de la pieza (MOBIS, JUNGWOO, GM…). Ausente si el catálogo es un país o
   // trae basura en ese campo.
@@ -120,6 +121,8 @@ export const BuscarRepuestoOutputSchema = z.object({
   diferencias: DiferenciasCandidatosSchema.optional(),
   /** Una advertencia que el agente tiene que respetar antes de cotizar (p. ej. la sobremedida). */
   aviso: z.string().optional(),
+  /** Nombres de otras piezas (empaque, polea…) que también hay para este vehículo: se ofrecen sin precio. */
+  relacionadas: z.array(z.string()).optional(),
 });
 export type BuscarRepuestoOutput = z.infer<typeof BuscarRepuestoOutputSchema>;
 

@@ -7,6 +7,7 @@ import type {
   BuscarRepuestoMatch,
   BuscarRepuestoOutput,
 } from "@/lib/validation/ai";
+import { BOMBA_DE_AGUA_ACCENT_2006 } from "../../helpers/catalogo-bomba-agua-accent-fixtures";
 import { BOMBA_DE_AGUA_RIO_18 } from "../../helpers/catalogo-bomba-agua-fixtures";
 import { MARCAS } from "../../helpers/catalogo-marcas-fixtures";
 import { ESCALONES_ESPERADOS, TERMOSTATOS_REALES } from "../../helpers/catalogo-ranking-fixtures";
@@ -101,9 +102,7 @@ import {
   citaProcedenciaConPrecio,
   noCitaPrecios,
   preguntaPieza,
-  preguntaEntre,
   noMenciona,
-  unaLineaCorta,
   noRepregunta,
   sinCodigosDeProducto,
   sinRangoDePrecios,
@@ -177,12 +176,64 @@ const HITS_ACCENT_2006: ProductoSearchHit[] = ESCALONES_ESPERADOS.flatMap((codig
     };
   }),
 );
+const DADO_ACCENT_2006 = { anio: 2006, cilindrada: "1.6" };
+const VEHICULO_ACCENT = { marca: "Hyundai", modelo: "Accent" };
+// «termostato» es exactamente la categoría TERMOSTATOS: se cotiza sola y la base,
+// la tapa y el conjunto se nombran sin precio.
 const SALIDA_ACCENT_2006: BuscarRepuestoOutput = armarSalida(
   HITS_ACCENT_2006,
-  { anio: 2006, cilindrada: "1.6" },
-  undefined,
+  DADO_ACCENT_2006,
+  { query: "termostato", ...VEHICULO_ACCENT },
   MARCAS,
 );
+// Después de «la base nomás» el agente busca la base: ahora la exacta es esa.
+const SALIDA_ACCENT_2006_BASE: BuscarRepuestoOutput = armarSalida(
+  HITS_ACCENT_2006,
+  DADO_ACCENT_2006,
+  { query: "base de termostato", ...VEHICULO_ACCENT },
+  MARCAS,
+);
+// «termostato completo» pide a la vez el termostato y el conjunto: hay que elegir.
+const SALIDA_ACCENT_2006_COMPLETO: BuscarRepuestoOutput = armarSalida(
+  HITS_ACCENT_2006,
+  DADO_ACCENT_2006,
+  { query: "termostato completo", ...VEHICULO_ACCENT },
+  MARCAS,
+);
+
+/**
+ * Los candidatos de 'bomba de agua para el accent 2006' (SELECT de solo lectura de
+ * crm-dev, tests/helpers/catalogo-bomba-agua-accent-fixtures.ts) pasados por la
+ * función de producción.
+ */
+const HITS_BOMBA_ACCENT_2006: ProductoSearchHit[] = BOMBA_DE_AGUA_ACCENT_2006.map(
+  (p, i): ProductoSearchHit => ({
+    id: `00000000-0000-4000-b000-${String(i + 1).padStart(12, "0")}`,
+    codigo_interno: p.codigo,
+    codigo_fabrica: null,
+    nombre: p.nombre,
+    categoria: p.categoria,
+    descripcion: p.descripcion,
+    precio: p.precio,
+    stock: p.stock,
+    puntaje: p.puntaje,
+    nivel_vehiculo: p.nivel_vehiculo,
+    compatibilidad: p.compatibilidad,
+  }),
+);
+const SALIDA_BOMBA_ACCENT_2006: BuscarRepuestoOutput = armarSalida(
+  HITS_BOMBA_ACCENT_2006,
+  { anio: 2006 },
+  { query: "bomba de agua", ...VEHICULO_ACCENT },
+  MARCAS,
+);
+
+/**
+ * Lo que la herramienta devuelve cuando todavía hay algo que preguntar (año,
+ * cilindrada, combustible): sin precio, como en producción.
+ */
+const sinPrecios = (matches: BuscarRepuestoMatch[]): BuscarRepuestoMatch[] =>
+  matches.map(({ precio: _precio, marca: _marca, procedencia: _procedencia, ...resto }) => resto);
 
 /**
  * Los candidatos de 'bomba de agua para el Rio 18' que devolvió `buscar_productos`
@@ -336,10 +387,10 @@ export const CASOS: CasoAgente[] = [
     verificaciones: [noBusca(), sinCotizar(), pideAclaracion()],
   },
   {
-    id: "real-termostato-accent-pide-la-pieza",
+    id: "real-termostato-accent-cotiza-el-termostato",
     origen: "real",
     proposito:
-      "Regla del dueño 2026-10-07: 'termostato para el Accent 1.6' + año devuelve piezas distintas (termostato suelto, base, tapa, conjunto): pregunta cuál quiere y NO cotiza un rango (regresión: cotizó el rango del conjunto armado y nunca ofreció el termostato suelto).",
+      "Regla del dueño 2026-10-07: 'termostato para el Accent 1.6' + año. La categoría TERMOSTATOS es exactamente lo pedido: cotiza solo esas opciones (MOBIS (Original) $12,96 · KOREA $6,93), sin rangos, y ofrece la base y el conjunto por su nombre, sin precios (regresión: cotizó el rango del conjunto armado y nunca ofreció el termostato suelto).",
     notaOrigen:
       "Primer mensaje y año ('2006') reales de crm-dev, 2026-10-06. La pregunta del medio es reconstruida. La salida de la tool es la de producción (`armarSalida`) sobre las filas reales del catálogo del ERP que devolvió la búsqueda de esa conversación (tests/helpers/catalogo-ranking-fixtures.ts).",
     turno: [
@@ -352,17 +403,43 @@ export const CASOS: CasoAgente[] = [
     verificaciones: [
       buscaAlgunaVez(),
       argumento("modelo", "accent"),
-      preguntaPieza(),
-      sinCotizar(),
+      citaOpcion("MOBIS", "Original", 12.96),
+      citaProcedenciaConPrecio("KOREA", 6.93),
+      mencionaIva(),
+      dice(/(base|conjunto)/, "debería ofrecer la base o el conjunto por su nombre"),
+      noCitaPrecios([40.53, 16.12, 24.82, 8.02, 9.95, 5.77], "la base, la tapa o el conjunto"),
       sinRangoDePrecios(),
+      sinCodigosDeProducto(),
+      noInventaPrecios(),
+    ],
+  },
+  {
+    id: "inv-termostato-completo-sigue-pidiendo-la-pieza",
+    origen: "inventado",
+    proposito:
+      "'Termostato completo' pide a la vez el termostato suelto y el conjunto armado: no hay una sola pieza exacta, así que pregunta cuál y la herramienta no le da precios (no puede listarlos).",
+    notaOrigen:
+      "El turno del cliente es inventado. Catálogo: las filas reales del caso 'real-termostato-accent-cotiza-el-termostato', con la consulta 'termostato completo'.",
+    turno: [
+      "lead: Necesito un termostato completo para el Accent 1.6",
+      "ia: ¿De qué año es tu Accent?",
+      "lead: 2006",
+    ],
+    catalogo: SALIDA_ACCENT_2006_COMPLETO.matches,
+    salida: SALIDA_ACCENT_2006_COMPLETO,
+    verificaciones: [
+      buscaAlgunaVez(),
+      preguntaPieza(),
+      noMenciona(/\$|\d+[.,]\d{2}/, "dio un precio sin que la herramienta se los diera"),
+      sinCotizar(),
       noInventaCodigos(),
     ],
   },
   {
-    id: "real-bomba-de-agua-rio-18-pide-bomba-o-polea",
+    id: "real-bomba-de-agua-rio-18-cotiza-y-ofrece-polea",
     origen: "real",
     proposito:
-      "Regla del dueño 2026-10-07: 'una bomba de agua para el Rio 18' ofrece solo la bomba o la polea (nunca los manguitos ni la bomba de combustible, que entran por una palabra suelta), en una línea corta y sin cotizar.",
+      "Regla del dueño 2026-10-07: 'una bomba de agua para el Rio 18' cotiza solo la bomba (MOBIS (Original) $96,66 · JUNGWOO (Korea) $21,51) y nombra la polea sin precio; nunca los manguitos ni la bomba de combustible, que entran por una palabra suelta.",
     notaOrigen:
       "El mensaje del cliente es real (crm-dev, 2026-10-07 04:15 UTC, sin datos personales); el auto guardado Kia Rio 2018 es reconstruido (se deduce de los argumentos reales de la herramienta). La salida de la tool es la de producción (`armarSalida`) sobre filas reales de crm-dev recortadas a las que sirven para un Kia Rio 2018 (tests/helpers/catalogo-bomba-agua-fixtures.ts).",
     turno: ["lead: Necesito Una bomba de agua para el rio 18"],
@@ -372,14 +449,42 @@ export const CASOS: CasoAgente[] = [
     verificaciones: [
       buscaAlgunaVez(),
       argumento("modelo", "rio"),
-      preguntaEntre(/bomba/, /polea/),
+      citaOpcion("MOBIS", "Original", 96.66),
+      citaOpcion("JUNGWOO", "Korea", 21.51),
+      mencionaIva(),
+      dice(/polea/, "debería ofrecer la polea por su nombre"),
+      noCitaPrecios([7.72, 41.43], "la polea"),
       noMenciona(
         /(mangu|manguer|radiador|combustible|inyec|gasolina)/,
         "ofreció una pieza que no tiene sentido",
       ),
-      unaLineaCorta(),
-      sinCotizar(),
-      noInventaCodigos(),
+      sinCodigosDeProducto(),
+      noInventaPrecios(),
+    ],
+  },
+  {
+    id: "real-bomba-de-agua-accent-2006-cotiza-solo-la-bomba",
+    origen: "real",
+    proposito:
+      "Falla real 2026-10-07 16:52 UTC: 'bomba de agua para el accent 2006' devolvió bombas, poleas y empaques, y el agente cotizó 4 precios mezclados sin decir qué pieza (JUNGWOO $22,01 · MOBIS $66,18 eran las bombas; $0,64 y $3,19 eran empaques). Ahora cotiza solo las bombas (JUNGWOO (Korea) $22,01 · MOBIS (Original) $66,18) y nombra la polea y el empaque sin precio.",
+    notaOrigen:
+      "El mensaje del cliente es real (crm-dev, sin datos personales). La salida de la tool es la de producción (`armarSalida`) sobre filas reales de crm-dev leídas con SELECT de solo lectura (tests/helpers/catalogo-bomba-agua-accent-fixtures.ts).",
+    turno: ["lead: Necesito Una bomba de agua para el accent 2006"],
+    catalogo: SALIDA_BOMBA_ACCENT_2006.matches,
+    salida: SALIDA_BOMBA_ACCENT_2006,
+    verificaciones: [
+      buscaAlgunaVez(),
+      argumento("modelo", "accent"),
+      citaOpcion("JUNGWOO", "Korea", 22.01),
+      citaOpcion("MOBIS", "Original", 66.18),
+      mencionaIva(),
+      noCitaPrecios(
+        [0.64, 3.19, 7.16, 5.38, 10.02, 19.58, 21.32, 110],
+        "los empaques, la polea u otra bomba",
+      ),
+      sinRangoDePrecios(),
+      sinCodigosDeProducto(),
+      noInventaPrecios(),
     ],
   },
   {
@@ -452,8 +557,8 @@ export const CASOS: CasoAgente[] = [
       "ia: ¿Necesitás solo el termostato, la base/tapa o el conjunto completo?",
       "lead: la base nomás",
     ],
-    catalogo: SALIDA_ACCENT_2006.matches,
-    salida: SALIDA_ACCENT_2006,
+    catalogo: SALIDA_ACCENT_2006_BASE.matches,
+    salida: SALIDA_ACCENT_2006_BASE,
     verificaciones: [
       buscaAlgunaVez(),
       citaOpcion("MOBIS", "Original", 24.82),
@@ -701,10 +806,10 @@ export const CASOS: CasoAgente[] = [
     proposito:
       "§12.2: un Accent viene en 1.4 y 1.6; sin cilindrada ni año, pregunta en vez de elegir una variante. Puede buscar antes de preguntar, pero no cotiza.",
     turno: ["lead: Necesito un termostato para mi Accent"],
-    catalogo: [
+    catalogo: sinPrecios([
       prod("TER-14", "TERMOSTATO HY ACCENT 1.4", 12, 6, { cilindradas: ["1.4"] }),
       prod("TER-16", "TERMOSTATO HY ACCENT 1.6", 14, 6, { cilindradas: ["1.6"] }),
-    ],
+    ]),
     diferencias: construirDiferencias(["cilindrada"], { cilindrada: ["1.4", "1.6"] }),
     verificaciones: [
       pideDato(/(cilindrada|motor|1\.4|1\.6|\bcc\b|litros|\bano\b)/, "la cilindrada o el año"),
@@ -717,10 +822,10 @@ export const CASOS: CasoAgente[] = [
     proposito:
       "§12.3: si los candidatos difieren solo en un atributo (acá, el año), pregunta por ese atributo.",
     turno: ["lead: Termostato para el Accent 1.6"],
-    catalogo: [
+    catalogo: sinPrecios([
       prod("TER-16A", "TERMOSTATO HY ACCENT 1.6 00-05", 13, 3, { anios: ["2000-2005"] }),
       prod("TER-16B", "TERMOSTATO HY ACCENT 1.6 10-14", 15, 3, { anios: ["2010-2014"] }),
-    ],
+    ]),
     diferencias: construirDiferencias(["anio"], { anio: ["2000-2005", "2010-2014"] }),
     verificaciones: [pideDato(/\bano\b|generacion|modelo del/, "el año"), sinCotizar()],
   },
@@ -730,10 +835,10 @@ export const CASOS: CasoAgente[] = [
     proposito:
       "La tool avisa que los candidatos difieren en combustible (diesel y gasolina): pregunta por el combustible en vez de elegir uno, y no cotiza.",
     turno: ["lead: Necesito un filtro de combustible para la Hyundai Santa Fe 2012"],
-    catalogo: [
+    catalogo: sinPrecios([
       prod("FC-DSL", "FILTRO COMBUSTIBLE HY STA FE 2.2 DSL", 18, 4, { combustibles: ["DSL"] }),
       prod("FC-GAS", "FILTRO COMBUSTIBLE HY STA FE 2.4", 9, 4, { combustibles: ["GAS"] }),
-    ],
+    ]),
     diferencias: construirDiferencias(["combustible"], { combustible: ["DSL", "GAS"] }),
     verificaciones: [
       buscaAlgunaVez(),

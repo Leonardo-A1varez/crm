@@ -4,12 +4,15 @@ import type {
   BuscarRepuestoOutput,
 } from "@/lib/validation/ai";
 import {
+  construirDiferencias,
   diferenciasEntre,
+  TOLERANCIA_NIVEL,
+  type Diferencias,
   etiquetaDePieza,
   etiquetasDeCompatibilidad,
   normalizarCilindrada,
 } from "@/lib/catalogo/compatibilidad";
-import { filtrarPorCategoria, type ConsultaDePieza } from "@/lib/catalogo/categoria";
+import { filtrarPorCategoria, piezaPedida, type ConsultaDePieza } from "@/lib/catalogo/categoria";
 import { indexarMarcas, resolverOrigen, type MarcaCatalogo } from "@/lib/catalogo/procedencia";
 import { avisoSobremedida } from "@/lib/catalogo/sobremedida";
 import type { Logger } from "@/lib/observability/logger";
@@ -123,35 +126,65 @@ export function armarSalida(
   // En qué se diferencian los mejores candidatos: lo único que el agente tiene
   // que preguntar. Lo que el cliente ya dijo (año, cilindrada) no entra.
   const dif0 = diferenciasEntre(hits, dado, indice);
-  const diferencias =
-    dif0 && acotado && !dif0.atributos.includes("pieza")
-      ? {
-          ...dif0,
-          instruccion:
-            `${dif0.instruccion} La pieza ya quedó definida por lo que pidió el cliente: ` +
-            "no se la vuelvas a preguntar, cotizala.",
-        }
-      : dif0;
 
-  const matches: BuscarRepuestoMatch[] = hits.map((h) => {
+  // La pieza pedida EXACTA (la categoría es lo que dijo el cliente, y el nombre no
+  // la declara empaque, oring, base…): se cotiza sola y las demás piezas del
+  // vehículo (polea, empaque, base) se nombran sin precio. Sin pieza exacta y con
+  // piezas distintas, se pregunta cuál.
+  // Solo las que confirman el vehículo tan bien como la mejor: una bomba de agua
+  // de otro auto (sin compatibilidad cargada) comparte la categoría pero no se cotiza.
+  const pedidas = consulta ? hits.filter((h) => piezaPedida(h, consulta)) : [];
+  const mejorNivel = Math.max(...pedidas.map((h) => h.nivel_vehiculo ?? 0));
+  const exactos = pedidas.filter((h) => (h.nivel_vehiculo ?? 0) >= mejorNivel - TOLERANCIA_NIVEL);
+  const hayExacta = exactos.length > 0 && exactos.length < hits.length;
+  const visibles = hayExacta ? exactos : hits;
+  let relacionadas: string[] = [];
+  let diferencias: Diferencias | null = dif0;
+  if (hayExacta) {
+    const delExacto = new Set(exactos.map((h) => etiquetaDePieza(h.categoria, h.nombre)));
+    relacionadas = (dif0?.valores.pieza ?? []).filter((p) => !delExacto.has(p));
+    diferencias = diferenciasEntre(exactos, dado, indice);
+  } else if (dif0 && acotado && dif0.atributos.length > 0 && !dif0.atributos.includes("pieza")) {
+    diferencias = {
+      ...dif0,
+      instruccion: `${dif0.instruccion} La pieza ya quedó definida por lo que pidió el cliente: no se la vuelvas a preguntar.`,
+    };
+  }
+
+  // Con algo por preguntar no se expone ningún precio.
+  const hayQuePreguntar = diferencias !== null && diferencias.atributos.length > 0;
+  if (!hayQuePreguntar && relacionadas.length > 0) {
+    diferencias = construirDiferencias(
+      diferencias?.atributos ?? [],
+      diferencias?.valores ?? {},
+      diferencias?.procedencias ?? [],
+      relacionadas,
+    );
+  }
+
+  const matches: BuscarRepuestoMatch[] = visibles.map((h) => {
     const { marca, procedencia } = resolverOrigen(h.descripcion, h.codigo_fabrica, indice);
+    const pieza = etiquetaDePieza(h.categoria, h.nombre);
     const base: BuscarRepuestoMatch = {
       id: h.id,
       codigo_interno: h.codigo_interno,
       nombre: h.nombre,
-      precio: h.precio,
       stock: h.stock,
-      ...(marca !== null ? { marca } : {}),
-      ...(procedencia !== null ? { procedencia } : {}),
+      ...(pieza !== null ? { pieza } : {}),
     };
-    if (!diferencias) return base;
+    if (!hayQuePreguntar) {
+      return {
+        ...base,
+        precio: h.precio,
+        ...(marca !== null ? { marca } : {}),
+        ...(procedencia !== null ? { procedencia } : {}),
+      };
+    }
     // A cada candidato, solo los atributos que lo distinguen de los otros.
     const e = etiquetasDeCompatibilidad(h.compatibilidad);
-    const dif = diferencias.atributos;
-    const pieza = dif.includes("pieza") ? etiquetaDePieza(h.categoria, h.nombre) : null;
+    const dif = diferencias?.atributos ?? [];
     return {
       ...base,
-      ...(pieza !== null ? { pieza } : {}),
       ...(dif.includes("anio") && e.anio.length > 0 ? { anios: e.anio } : {}),
       ...(dif.includes("cilindrada") && e.cilindrada.length > 0
         ? { cilindradas: e.cilindrada }
@@ -162,7 +195,7 @@ export function armarSalida(
     };
   });
 
-  const aviso = avisoSobremedida(hits);
+  const aviso = avisoSobremedida(visibles);
 
   // El aviso va primero a propósito: es lo que el modelo tiene que leer antes
   // de mirar precios.
@@ -171,5 +204,6 @@ export function armarSalida(
     matches,
     count: matches.length,
     ...(diferencias ? { diferencias } : {}),
+    ...(!hayQuePreguntar && relacionadas.length > 0 ? { relacionadas } : {}),
   };
 }

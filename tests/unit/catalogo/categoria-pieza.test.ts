@@ -55,21 +55,24 @@ describe("nivelDeCategoria", () => {
 });
 
 describe("conversación real: 'una bomba de agua para el Rio 18'", () => {
-  test("turno 1: ofrece solo la bomba y la polea, sin mangueras ni bomba de combustible", async () => {
+  test("turno 1: cotiza solo la bomba y nombra la polea sin precio; sin mangueras ni bomba de combustible", async () => {
     const { hits, consulta } = await buscar("bomba de agua");
     const out = armarSalida(hits, { anio: 2018 }, consulta);
-    expect(out.diferencias?.atributos).toContain("pieza");
-    expect([...(out.diferencias?.valores.pieza ?? [])].sort()).toEqual([
-      "BOMBA DE AGUA",
-      "POLEA BOMBA AGUA E HIDRAU",
-    ]);
-    expect(out.count).toBe(5);
+    expect(out.matches.map((m) => m.codigo_interno).sort()).toEqual(["13973", "21688", "21693"]);
+    expect(out.matches.every((m) => m.pieza === "BOMBA DE AGUA" && m.precio !== undefined)).toBe(
+      true,
+    );
+    expect(out.diferencias?.atributos).toEqual([]);
+    expect(out.relacionadas).toEqual(["POLEA BOMBA AGUA E HIDRAU"]);
+    expect(out.diferencias?.instruccion).toMatch(/También tengo/);
+    expect(out.diferencias?.instruccion).toMatch(/MARCA \(Procedencia\) \$precio/);
+    expect(JSON.stringify(out.relacionadas)).not.toMatch(/\d\.\d\d/);
   });
 
   test("turno 2: 'bomba de agua completa' queda en una sola pieza, sin repreguntar", async () => {
     const { hits, consulta } = await buscar("bomba de agua completa");
     const out = armarSalida(hits, { anio: 2018 }, consulta);
-    expect(out.matches.every((m) => m.pieza === undefined)).toBe(true);
+    expect(out.matches.every((m) => m.pieza === "BOMBA DE AGUA")).toBe(true);
     expect(out.matches.map((m) => m.codigo_interno).sort()).toEqual(["13973", "21688", "21693"]);
     expect(out.diferencias?.atributos ?? []).not.toContain("pieza");
     expect(out.diferencias?.procedencias).toEqual(["JUNGWOO", "MOBIS"]);
@@ -77,6 +80,19 @@ describe("conversación real: 'una bomba de agua para el Rio 18'", () => {
     expect(out.diferencias?.instruccion).not.toMatch(/Preguntale/);
   });
 
+  test("sin pieza exacta y con piezas distintas: pregunta cuál y no expone ningún precio", async () => {
+    const { hits } = await buscar("bomba de agua");
+    // Sin consulta no hay pieza pedida que reconocer.
+    const out = armarSalida(hits, { anio: 2018 });
+    expect(out.diferencias?.atributos).toContain("pieza");
+    expect(out.matches.every((m) => m.precio === undefined)).toBe(true);
+    expect(out.matches.every((m) => m.marca === undefined && m.procedencia === undefined)).toBe(
+      true,
+    );
+    expect(out.diferencias?.procedencias).toBeUndefined();
+    expect(JSON.stringify(out)).not.toMatch(/"precio"|96\.66|7\.72/);
+    expect(out.diferencias?.instruccion).toMatch(/no trae precios/i);
+  });
   test("el ranking pone la categoría completa antes que la que solo roza una palabra", async () => {
     const { hits } = await buscar("bomba de agua");
     const primeras = hits.slice(0, 5).map((h) => h.categoria);

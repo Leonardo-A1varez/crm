@@ -279,6 +279,8 @@ Cierra el lazo entero —Inngest, Next, OpenAI, Postgres— sin tocar Meta. **`m
 | El agente dice "no tenemos" de todo                        | El catálogo está vacío a propósito hasta que exista el documento de macheo.                                                 |
 | Las pantallas quedan en el esqueleto de carga              | Corriste `npm run build` con el dev server vivo y se corrompió `.next/`. Matá el proceso, borrá `.next` y arrancá de nuevo. |
 
+**Producción: el registro de Inngest es automático.** `.github/workflows/inngest-sync.yml` hace `PUT /api/webhooks/inngest` después de cada deploy exitoso a Production (3 intentos, 10 s entre uno y otro) y falla si la respuesta no es 200 con "Successfully registered". Ya no hace falta el `curl` a mano. Usa la URL del deploy o, si falta, la variable de repo `PRODUCTION_URL` (por defecto `https://crm-wine-one-38.vercel.app`). Si el job queda rojo, repetí el `curl -X PUT` a mano y mirá el log del job.
+
 ---
 
 ## 7. Antes de dar algo por terminado

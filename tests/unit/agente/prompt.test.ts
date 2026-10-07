@@ -98,12 +98,18 @@ describe("reglas inviolables", () => {
       expect(p).toMatch(/solo (ese|lo que difiere)/i);
     });
 
-    test("antes de cotizar confirma la pieza exacta y no cotiza con la pieza ambigua", () => {
+    test("identifica la pieza por el nombre completo y no cotiza sin precios de la herramienta", () => {
       const p = prompt();
-      expect(p).toMatch(/confirma que pieza exacta quiere/i);
-      expect(p).toMatch(/`pieza`/);
-      expect(p).toMatch(/solo la pieza, la base\/tapa o el conjunto completo/i);
-      expect(p).toMatch(/nunca cotices con la pieza ambigua/i);
+      expect(p).toMatch(/`nombre` COMPLETO y su campo `pieza`, nunca solo por la categoria/i);
+      expect(p).toMatch(/EMPAQ, ORING, TAPA, BASE/);
+      expect(p).toMatch(/NO trae precios, trae `diferencias`/);
+      expect(p).toMatch(/no inventes ni estimes ningun precio/i);
+    });
+
+    test("cotiza la pieza exacta y nombra las `relacionadas` sin precios", () => {
+      const p = prompt();
+      expect(p).toMatch(/si trae `relacionadas`, cierra con UNA linea/i);
+      expect(p).toMatch(/sin precios/i);
     });
 
     test("al cotizar da marca, procedencia y precio por opcion, sin rangos ni codigos", () => {
