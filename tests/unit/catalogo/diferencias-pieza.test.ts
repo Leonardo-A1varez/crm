@@ -130,8 +130,10 @@ describe("armarSalida: conversación real del termostato para el Accent 1.6 (200
     );
     expect(salida.relacionadas).not.toContain("TERMOSTATOS");
     expect(salida.encabezado).toBe("Termostato Accent 2006 1.6 (IVA incluido):");
+    // El orden es el del ranking: `BASE TERMOST` ahora puntúa por el prefijo
+    // (`termost` es prefijo de «termostato»), así que la base va antes que la tapa.
     expect(salida.relacionadas_texto).toBe(
-      "Si necesita la tapa, la base o el termostato completo, también dispongo. ¿Desea que le cotice?",
+      "Si necesita la base, la tapa o el termostato completo, también dispongo. ¿Desea que le cotice?",
     );
     expect(salida.diferencias?.instruccion).toMatch(/`relacionadas_texto`/);
     expect(salida.diferencias?.instruccion).toMatch(/sin precios/i);

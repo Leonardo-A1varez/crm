@@ -251,7 +251,12 @@ function evaluarElementos(
         (r) => r.exacto && r.marca === marcaE && (r.sigla === modeloE || r.nombre === nombreE),
       );
     } else {
-      const mismoModelo = modeloE === modelo || nombreE === modelo;
+      // `modelo_nombre` lleva la marca delante («kia niro»): el modelo que dijo el cliente
+      // aparece al final aunque el diccionario no lo conozca.
+      const mismoModelo =
+        modeloE === modelo ||
+        nombreE === modelo ||
+        (nombreE !== null && nombreE.endsWith(` ${modelo}`));
       vehiculoOk =
         (marca === null || marcaE === marca) &&
         (mismoModelo || (marca !== null && esTodos) || textoProducto.includes(modelo));

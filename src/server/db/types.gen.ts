@@ -289,6 +289,65 @@ export type Database = {
         }
         Relationships: []
       }
+      catalogo_abreviaturas: {
+        Row: {
+          abrev: string
+          activo: boolean | null
+          ambito: string
+          clave: string | null
+          confianza: string
+          confirmado: boolean
+          created_at: string
+          exp_raiz: string | null
+          expansion: string
+          lado: string | null
+          tipo: string
+          updated_at: string
+        }
+        Insert: {
+          abrev: string
+          ambito: string
+          confianza: string
+          confirmado?: boolean
+          created_at?: string
+          expansion: string
+          tipo: string
+          updated_at?: string
+        }
+        Update: {
+          abrev?: string
+          ambito?: string
+          confianza?: string
+          confirmado?: boolean
+          created_at?: string
+          expansion?: string
+          tipo?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      catalogo_grupos_excluidos: {
+        Row: {
+          clave: string | null
+          created_at: string
+          grupo: string
+          inactivar: boolean
+          motivo: string | null
+        }
+        Insert: {
+          created_at?: string
+          grupo: string
+          inactivar?: boolean
+          motivo?: string | null
+        }
+        Update: {
+          created_at?: string
+          grupo?: string
+          inactivar?: boolean
+          motivo?: string | null
+        }
+        Relationships: []
+      }
       catalogo_marcas: {
         Row: {
           activa: boolean
