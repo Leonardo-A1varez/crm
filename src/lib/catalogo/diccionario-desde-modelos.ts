@@ -18,6 +18,7 @@ export const SIGLAS_DE_MARCA: Readonly<Record<string, string>> = {
   Daewoo: "DW",
   Renault: "REN",
   Mitsubishi: "MT",
+  Ford: "FORD",
 };
 
 /**

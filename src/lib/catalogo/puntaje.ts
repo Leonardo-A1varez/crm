@@ -1,5 +1,15 @@
 import { plegar } from "@/lib/ui/busqueda-hilo";
+import {
+  analizarConsulta,
+  INDICE_VACIO,
+  terminoAcierta,
+  terminosDe,
+  tokensDeFila,
+  valeEn,
+  type IndiceAbreviaturas,
+} from "@/lib/catalogo/abreviaturas";
 import { plegarCodigo } from "@/lib/catalogo/normalizar-codigo";
+import { plegarTexto } from "@/lib/catalogo/plegar-texto";
 
 /**
  * Cuánto se parece un producto a lo que preguntó el cliente.
@@ -143,11 +153,20 @@ export function puntajeDeCodigo(p: ProductoPuntuable, consulta: string): number 
  * cuando el producto acierta TODAS las palabras de la consulta. Un producto
  * puede sumar las dos: quien dicta un código que además aparece en el nombre
  * queda arriba de quien solo machea el código.
+ *
+ * Las palabras que son una posición («delanteros», «izquierdo») o un atributo no
+ * puntúan ni cuentan para "todas": son filtros (ver `nivelDeLado`). Y una palabra
+ * larga también acierta por la abreviatura del catálogo a la que se pliega o por
+ * un prefijo suyo (`amortiguadores` ~ `AMORTIG`).
  */
-export function puntaje(p: ProductoPuntuable, consulta: string): number {
+export function puntaje(
+  p: ProductoPuntuable,
+  consulta: string,
+  indice: IndiceAbreviaturas = INDICE_VACIO,
+): number {
   const exacto = puntajeDeCodigo(p, consulta);
 
-  const palabras = palabrasDe(consulta);
+  const palabras = analizarConsulta(consulta, indice).requeridas;
   if (palabras.length === 0) return exacto;
 
   const cod = plegar(p.codigo_interno);
@@ -155,19 +174,32 @@ export function puntaje(p: ProductoPuntuable, consulta: string): number {
   const cat = plegar(p.categoria ?? "");
   const desc = plegar(p.descripcion ?? "");
   const blob = blobDeBusqueda(p);
+  const f = tokensDeFila(p);
+  const catPlegada = plegarTexto(p.categoria ?? "");
 
   let suma = 0;
-  for (const palabra of palabras) {
-    if (cod.includes(palabra)) suma += PESO.codigo;
-    else if (cat === palabra) suma += PESO.categoriaExacta;
-    else if (nom.includes(palabra)) suma += PESO.nombre;
-    else if (cat.includes(palabra)) suma += PESO.categoria;
-    else if (desc.includes(palabra)) suma += PESO.descripcion;
+  for (const w of palabras) {
+    let peso = 0;
+    if (cod.includes(w.palabra)) peso = PESO.codigo;
+    else if (cat === w.palabra) peso = PESO.categoriaExacta;
+    else if (nom.includes(w.palabra)) peso = PESO.nombre;
+    else if (cat.includes(w.palabra)) peso = PESO.categoria;
+    else if (desc.includes(w.palabra)) peso = PESO.descripcion;
+
+    // Lo mismo contra las abreviaturas y prefijos: se queda con lo mejor.
+    for (const t of terminosDe(w)) {
+      let v = 0;
+      if (valeEn(t.ambito, "categoria") && catPlegada === t.token) v = PESO.categoriaExacta;
+      else if (valeEn(t.ambito, "nombre") && f.nombre.includes(t.token)) v = PESO.nombre;
+      else if (valeEn(t.ambito, "categoria") && f.categoria.includes(t.token)) v = PESO.categoria;
+      if (v > peso) peso = v;
+    }
+    suma += peso;
   }
 
   // `aciertos` se cuenta sobre el blob entero y no sobre las columnas
   // puntuadas: es lo que hace `buscar_productos` con la columna `busqueda`.
-  const aciertos = palabras.filter((w) => blob.includes(w)).length;
+  const aciertos = palabras.filter((w) => blob.includes(w.palabra) || terminoAcierta(w, f)).length;
   const bonificada = aciertos === palabras.length ? suma * 2 : suma;
 
   return exacto + bonificada;

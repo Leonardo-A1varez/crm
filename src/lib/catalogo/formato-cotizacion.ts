@@ -182,6 +182,11 @@ export function encabezadoCotizacion(etiqueta: string, vehiculo: VehiculoDeCotiz
     pieza = corto ? `${corto.replace(/^(el|la) /, "")} de ${base}` : base;
   }
 
+  return encabezadoConPieza(pieza, vehiculo);
+}
+
+/** «Bomba de agua Accent 2006 (IVA incluido):» con la pieza ya escrita. */
+export function encabezadoConPieza(pieza: string, vehiculo: VehiculoDeCotizacion): string {
   const partes = [
     capitalizar(pieza),
     vehiculo.modelo?.trim() || vehiculo.marca?.trim() || "",
@@ -189,4 +194,61 @@ export function encabezadoCotizacion(etiqueta: string, vehiculo: VehiculoDeCotiz
     vehiculo.cilindrada?.trim() ?? "",
   ].filter((p) => p !== "");
   return `${partes.join(" ")} (IVA incluido):`;
+}
+
+const AFUERA_DE_LA_PIEZA = new Set([
+  ...FILLER,
+  "necesito",
+  "quiero",
+  "busco",
+  "tiene",
+  "tienen",
+  "tienes",
+  "tenes",
+  "hay",
+  "precio",
+  "cuanto",
+  "cuesta",
+  "un",
+  "una",
+  "los",
+  "las",
+  "mi",
+  "me",
+  "por",
+  "que",
+]);
+
+/**
+ * El nombre de la pieza tal como la pidió el cliente: lo que queda de la consulta sin
+ * relleno en los extremos, ni el vehículo, ni el año ni la cilindrada. «amortiguadores
+ * delanteros» -> «amortiguadores delanteros»; «bomba de agua» se conserva con su «de».
+ * `null` si no queda nada. Se usa para el encabezado cuando el grupo del ERP no sirve
+ * (una abreviatura como `AMORTIG DELT`, o un grupo basura como `REPUESTO EMG`).
+ */
+export function piezaDeLaConsulta(
+  query: string,
+  vehiculo: VehiculoDeCotizacion = {},
+): string | null {
+  const vehiculoPlegado = new Set(
+    [
+      vehiculo.marca,
+      vehiculo.modelo,
+      vehiculo.anio ? String(vehiculo.anio) : undefined,
+      vehiculo.cilindrada,
+    ].flatMap((t) => palabrasPlegadas(t ?? "")),
+  );
+  const palabras = query
+    .trim()
+    .split(/\s+/)
+    .filter((p) => p !== "")
+    .filter((p) => !vehiculoPlegado.has(plegarTexto(p).replace(/[^0-9a-z/.*-]/g, "")));
+  const util = (p: string): boolean => !AFUERA_DE_LA_PIEZA.has(plegarTexto(p));
+  const desde = palabras.findIndex(util);
+  if (desde === -1) return null;
+  const hasta = palabras.findLastIndex(util);
+  return palabras
+    .slice(desde, hasta + 1)
+    .join(" ")
+    .toLowerCase();
 }

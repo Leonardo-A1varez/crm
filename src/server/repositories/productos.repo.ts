@@ -16,6 +16,18 @@ import {
   type ElementoCompatibilidad,
   type ModeloCatalogo,
 } from "@/lib/catalogo/compatibilidad";
+import {
+  abreviaturaActiva,
+  analizarConsulta,
+  claveDeGrupo,
+  esDeGrupoExcluido,
+  esRuido,
+  indexarAbreviaturas,
+  nivelDeLado,
+  type Abreviatura,
+  type GrupoExcluido,
+  type IndiceAbreviaturas,
+} from "@/lib/catalogo/abreviaturas";
 import { nivelDeCategoria } from "@/lib/catalogo/categoria";
 import { blobDeBusqueda, puntaje, puntajeDeCodigo } from "@/lib/catalogo/puntaje";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
@@ -192,14 +204,31 @@ function cloneProducto(p: Producto): Producto {
 export class InMemoryProductsRepository implements ProductsRepository {
   private readonly store = new Map<UUID, Producto>();
   private readonly modelos: readonly ModeloCatalogo[];
+  private readonly indiceAbreviaturas: IndiceAbreviaturas;
+  private readonly gruposExcluidos: ReadonlySet<string>;
 
   /**
    * `modelos` es el espejo en memoria de `catalogo_modelos`: sin él, "Accent" no
    * se resuelve a la sigla `ACC` y la búsqueda cae al texto, igual que en la base
-   * con el diccionario vacío.
+   * con el diccionario vacío. `abreviaturas` y `gruposExcluidos`, lo mismo con
+   * `catalogo_abreviaturas` y `catalogo_grupos_excluidos`.
    */
-  constructor(opciones: { modelos?: readonly ModeloCatalogo[] } = {}) {
+  constructor(
+    opciones: {
+      modelos?: readonly ModeloCatalogo[];
+      abreviaturas?: readonly Abreviatura[];
+      gruposExcluidos?: readonly (string | GrupoExcluido)[];
+    } = {},
+  ) {
+    this.gruposExcluidos = new Set(
+      (opciones.gruposExcluidos ?? []).map((g) =>
+        claveDeGrupo(typeof g === "string" ? g : g.grupo),
+      ),
+    );
     this.modelos = opciones.modelos ?? [];
+    this.indiceAbreviaturas = indexarAbreviaturas(
+      (opciones.abreviaturas ?? []).filter(abreviaturaActiva),
+    );
   }
 
   async create(input: ProductoInsert): Promise<Producto> {
@@ -297,13 +326,24 @@ export class InMemoryProductsRepository implements ProductsRepository {
     // Cuánto se parece la categoría a la pieza pedida (0..2; 2 si no hay con qué comparar).
     const nivelCat = new Map<UUID, number>();
     const resueltos = resolverModelos(this.modelos, input.marca, input.modelo);
+    const indice = this.indiceAbreviaturas;
+    const lados = analizarConsulta(input.q, indice).lados;
+    // Los grupos basura del ERP (REPUESTO EMG) van después de todo lo demás.
+    const ruido = new Map<UUID, boolean>();
+    // Cuánto se lleva el producto con "delanteros" / "izquierdo": 2 lo dice, 1 no dice.
+    const nivelLado = new Map<UUID, number>();
 
     for (const p of this.store.values()) {
-      if (!p.activo) continue;
+      if (!p.activo || esDeGrupoExcluido(p, this.gruposExcluidos)) continue;
       const compat = evaluarCompatibilidad(p.compatibilidad, input, resueltos, blobDeBusqueda(p));
       if (compat === null) continue;
-      const score = puntaje(p, input.q);
+      const score = puntaje(p, input.q, indice);
       if (score <= 0) continue;
+      // Pidió delanteros y el producto es POST: no se ofrece.
+      const nl = nivelDeLado(p, lados, indice);
+      if (nl === 0) continue;
+      ruido.set(p.id, esRuido(p, indice));
+      nivelLado.set(p.id, nl);
       hits.push({
         id: p.id,
         codigo_interno: p.codigo_interno,
@@ -322,6 +362,7 @@ export class InMemoryProductsRepository implements ProductsRepository {
         query: input.q,
         marca: input.marca,
         modelo: input.modelo,
+        indice,
       });
       nivelCat.set(p.id, nc === null ? 2 : Math.min(2, nc));
     }
@@ -332,7 +373,9 @@ export class InMemoryProductsRepository implements ProductsRepository {
     hits.sort(
       (a, b) =>
         Number(porCodigo.get(b.id)) - Number(porCodigo.get(a.id)) ||
+        Number(ruido.get(a.id)) - Number(ruido.get(b.id)) ||
         (nivelCat.get(b.id) ?? 2) - (nivelCat.get(a.id) ?? 2) ||
+        (nivelLado.get(b.id) ?? 1) - (nivelLado.get(a.id) ?? 1) ||
         b.nivel_vehiculo - a.nivel_vehiculo ||
         b.puntaje - a.puntaje ||
         b.stock - a.stock ||

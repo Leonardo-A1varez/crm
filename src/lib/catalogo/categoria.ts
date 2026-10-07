@@ -1,3 +1,14 @@
+import {
+  analizarConsulta,
+  INDICE_VACIO,
+  raizDe,
+  terminosDe,
+  tokenDiceLaPalabra,
+  tokensDe,
+  valeEn,
+  type IndiceAbreviaturas,
+  type PalabraAnalizada,
+} from "@/lib/catalogo/abreviaturas";
 import { palabrasDe } from "@/lib/catalogo/puntaje";
 import { plegarTexto } from "@/lib/catalogo/plegar-texto";
 import { etiquetaDePieza } from "@/lib/catalogo/compatibilidad";
@@ -51,6 +62,11 @@ export interface ConsultaDePieza {
   query: string;
   marca?: string | undefined;
   modelo?: string | undefined;
+  /**
+   * Las abreviaturas del inventario. Sin ellas, «amortiguadores delanteros» no se
+   * reconoce en `AMORTIG DELT` y solo queda el prefijo.
+   */
+  indice?: IndiceAbreviaturas | undefined;
 }
 
 const palabrasPlegadas = (t: string | undefined): string[] =>
@@ -58,13 +74,53 @@ const palabrasPlegadas = (t: string | undefined): string[] =>
     .split(/[^0-9a-z/.*-]+/)
     .filter((p) => p.length > 0);
 
-/** Las palabras de la consulta que dicen QUÉ pieza es: sin relleno, calificadores ni vehículo. */
-export function palabrasDePieza(c: ConsultaDePieza): string[] {
+/**
+ * Las palabras de la consulta que dicen QUÉ pieza es: sin relleno, calificadores,
+ * vehículo ni filtros (una posición como «delanteros» no es parte del nombre de la pieza).
+ */
+export function palabrasAnalizadasDePieza(c: ConsultaDePieza): PalabraAnalizada[] {
   const vehiculo = new Set([...palabrasPlegadas(c.marca), ...palabrasPlegadas(c.modelo)]);
-  return [...new Set(palabrasDe(c.query))].filter((p) => !CALIFICADORES.has(p) && !vehiculo.has(p));
+  return analizarConsulta(c.query, c.indice ?? INDICE_VACIO).requeridas.filter(
+    (w) => !CALIFICADORES.has(w.palabra) && !vehiculo.has(w.palabra),
+  );
+}
+
+export function palabrasDePieza(c: ConsultaDePieza): string[] {
+  return palabrasAnalizadasDePieza(c).map((w) => w.palabra);
+}
+
+/**
+ * ¿La categoría contiene a esta palabra? Como texto, o por una abreviatura del
+ * catálogo a la que se pliega, o por un prefijo suyo.
+ */
+function categoriaTienePalabra(cat: string, w: PalabraAnalizada): boolean {
+  if (cat.includes(w.palabra)) return true;
+  const tokens = tokensDe(cat);
+  return terminosDe(w).some((t) => valeEn(t.ambito, "categoria") && tokens.includes(t.token));
+}
+
+/** ¿Alguna palabra de la consulta dice este token de la categoría? */
+function laConsultaDice(token: string, consulta: readonly string[], c: ConsultaDePieza): boolean {
+  const indice = c.indice ?? INDICE_VACIO;
+  return consulta.some((q) => token === q || tokenDiceLaPalabra(token, q, indice));
 }
 
 /** ¿El cliente pidió el conjunto entero ("completa", "conjunto", "kit")? */
+/**
+ * ¿Las palabras de la categoría son, una por una, palabras que dijo el cliente (por
+ * raíz: singular, plural, género)? No cuenta abreviaturas ni prefijos: `AMORTIG DELT`
+ * no es «amortiguadores delanteros» dicho tal cual.
+ */
+export function categoriaDichaTalCual(
+  categoria: string | null | undefined,
+  c: ConsultaDePieza,
+): boolean {
+  const deLaCategoria = palabrasDe(plegarTexto((categoria ?? "").trim()));
+  if (deLaCategoria.length === 0) return false;
+  const dichas = palabrasDe(c.query).map(raizDe);
+  return deLaCategoria.every((t) => dichas.includes(raizDe(t)));
+}
+
 export function pideConjunto(c: ConsultaDePieza): boolean {
   return palabrasDe(c.query).some((p) => PIDEN_CONJUNTO.has(p));
 }
@@ -81,16 +137,16 @@ export function nivelDeCategoria(
 ): 0 | 1 | 2 | 3 | null {
   const cat = plegarTexto((categoria ?? "").trim());
   if (cat === "") return null;
-  const palabras = palabrasDePieza(c);
+  const palabras = palabrasAnalizadasDePieza(c);
   if (palabras.length < 2) return null;
 
-  const coinciden = palabras.filter((p) => cat.includes(p)).length;
+  const coinciden = palabras.filter((w) => categoriaTienePalabra(cat, w)).length;
   if (coinciden === 0) return 0;
   if (coinciden < palabras.length) return 1;
 
-  const dichas = new Set(palabrasDe(c.query));
+  const dichas = palabrasDe(c.query);
   const deLaCategoria = palabrasDe(cat);
-  return deLaCategoria.every((p) => dichas.has(p)) ? 3 : 2;
+  return deLaCategoria.every((p) => laConsultaDice(p, dichas, c)) ? 3 : 2;
 }
 
 /**
@@ -152,7 +208,9 @@ export function piezaPedida(
   if (cat === "") return false;
   const dichas = new Set(palabrasDe(c.query).map(singular));
   const deLaCategoria = palabrasDe(cat).map(singular);
-  const categoriaDicha = deLaCategoria.length > 0 && deLaCategoria.every((p) => dichas.has(p));
+  const consulta = palabrasDe(c.query);
+  const categoriaDicha =
+    deLaCategoria.length > 0 && deLaCategoria.every((p) => laConsultaDice(p, consulta, c));
 
   const etiqueta = etiquetaDePieza(h.categoria, h.nombre) ?? "";
   const sub = /\(([^()]+)\)$/.exec(etiqueta)?.[1];
@@ -165,6 +223,8 @@ export function piezaPedida(
   }
 
   const cabeza = deLaCategoria[0];
-  if (!categoriaDicha && (cabeza === undefined || !dichas.has(cabeza))) return false;
+  if (!categoriaDicha && (cabeza === undefined || !laConsultaDice(cabeza, consulta, c))) {
+    return false;
+  }
   return (PALABRAS_DE_SUBPIEZA[sub] ?? []).some((p) => dichas.has(p));
 }
