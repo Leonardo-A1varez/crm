@@ -150,6 +150,7 @@ describe("CatalogMatcherService.buscar", () => {
       "codigo_interno",
       "id",
       "nombre",
+      "pieza",
       "precio",
       "stock",
     ]);

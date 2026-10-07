@@ -404,29 +404,37 @@ export function construirDiferencias(
   atributos: AtributoQueDifiere[],
   valores: Partial<Record<AtributoQueDifiere, string[]>>,
   procedencias: readonly string[] = [],
+  relacionadas: readonly string[] = [],
 ): Diferencias {
-  const partes: string[] = [];
   if (atributos.length > 0) {
+    // Con algo por preguntar, la salida no trae precios (ni las procedencias que
+    // se cotizarían con ellos): un modelo que ve precios los lista igual.
     const que = atributos.map((a) => NOMBRE_ATRIBUTO[a]).join(" y ");
-    partes.push(
-      `Hay más de una versión y se diferencian en: ${que}. ` +
-        `Preguntale al cliente ${que} antes de dar precios: no listes ni cotices los candidatos todavía.`,
-    );
-    if (atributos.includes("pieza")) {
-      partes.push(
-        "Para la pieza, usá el campo `pieza` de cada candidato y ofrecé las opciones " +
-          "(p. ej. «¿Solo el termostato, la base/tapa o el conjunto completo?»). " +
-          "Si el cliente ya la eligió, no la repitas: cotizá solo los candidatos de esa pieza.",
-      );
-    }
+    return {
+      atributos,
+      valores,
+      instruccion:
+        `Hay más de una versión y se diferencian en: ${que}. ` +
+        "Preguntale solo eso, en una línea, ofreciendo las opciones de `valores`. " +
+        "Esta respuesta no trae precios: no los des ni los estimes. " +
+        (atributos.includes("pieza")
+          ? "Si el cliente ya eligió la pieza, no la repitas: buscá de nuevo con esa pieza."
+          : ""),
+    };
   }
+  const partes: string[] = [];
   if (procedencias.length > 0) {
-    const lista = procedencias.join(", ");
     partes.push(
-      `${atributos.length > 0 ? "Después, la" : "La"} misma pieza viene en distintas opciones (${lista}): ` +
+      `La misma pieza viene en distintas opciones (${procedencias.join(", ")}): ` +
         "no las preguntes, cotizá cada una como «MARCA (Procedencia) $precio» (IVA incluido), " +
         "con la `marca` y la `procedencia` de cada candidato; si no trae `marca`, «PROCEDENCIA $precio»; " +
         "si no trae `procedencia`, «MARCA $precio». Sin rangos.",
+    );
+  }
+  if (relacionadas.length > 0) {
+    partes.push(
+      `Después de cotizar, UNA línea corta ofreciendo las piezas relacionadas por su nombre, sin precios ` +
+        `(${relacionadas.join(", ")}): «También tengo …, ¿te las cotizo?». Los precios solo si el cliente las pide.`,
     );
   }
   return {
@@ -488,24 +496,35 @@ export function etiquetasDeCompatibilidad(
 
 /**
  * Un grupo del ERP que junta piezas armadas con sus partes (`TERMOSTATO ARMADO Y
- * TAPAS`): ahí el nombre dice si el producto es el conjunto, la base o la tapa, y
- * esas son piezas que el cliente no confunde pero el catálogo mezcla. En otros
- * grupos `BASE` o `COMPL` pueden ser parte del nombre de la pieza misma
- * (`BASE MOTOR`) y partirlos haría preguntar de más.
+ * TAPAS`). Ahí las palabras clave de subpieza cuentan siempre. En cualquier otro
+ * grupo cuentan también (la categoría `BOMBA DE AGUA` trae empaques), salvo que la
+ * palabra sea parte de la categoría misma (`BASE MOTOR`).
  */
 const GRUPO_ARMADO = /\b(armad[oa]s?|conjuntos?|kits?|tapas?)\b/;
 
-/** Primera palabra clave que gana: `COMPL` antes que `BASE` y `TAPA` si el nombre trae varias. */
+/**
+ * Palabras del nombre que dicen que el producto NO es la pieza principal del
+ * grupo sino una parte o accesorio suyo. La primera que coincide gana: `EMPAQ` y
+ * `ORING` antes que `COMPL`, y `COMPL` antes que `BASE`, `TAPA` y `KIT`.
+ */
 const SUBPIEZAS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\bempaq[a-z]*/, "empaque"],
+  [/\bo[- ]?rings?\b/, "oring"],
+  [/\bsellos?\b/, "sello"],
+  [/\breten(?:es)?\b/, "reten"],
+  [/\bpernos?\b/, "perno"],
   [/\bcompl(?:eto|etos|\.)?(?![a-z])/, "conjunto completo"],
   [/\bbase\b/, "base"],
   [/\btapa\b/, "tapa"],
+  [/\bkits?\b/, "kit"],
 ];
 
 /**
  * Qué pieza es un producto, como texto legible para el agente: su grupo del ERP
- * (`categoria`) y, en un grupo de piezas armadas, qué parte es (conjunto
- * completo, base o tapa). `null` si el producto no tiene categoría.
+ * (`categoria`) y, si el NOMBRE completo dice que es una parte (empaque, oring,
+ * sello, retén, perno, conjunto completo, base, tapa, kit), cuál. La categoría
+ * sola no alcanza: la bomba de agua y su empaque comparten grupo. `null` si el
+ * producto no tiene categoría.
  */
 export function etiquetaDePieza(
   categoria: string | null | undefined,
@@ -513,9 +532,10 @@ export function etiquetaDePieza(
 ): string | null {
   const cat = (categoria ?? "").trim();
   if (cat === "") return null;
-  if (!GRUPO_ARMADO.test(plegarTexto(cat))) return cat;
+  const catPlegada = plegarTexto(cat);
+  const armado = GRUPO_ARMADO.test(catPlegada);
   const n = plegarTexto(nombre ?? "");
-  const sub = SUBPIEZAS.find(([re]) => re.test(n));
+  const sub = SUBPIEZAS.find(([re]) => re.test(n) && (armado || !re.test(catPlegada)));
   return sub ? `${cat} (${sub[1]})` : cat;
 }
 

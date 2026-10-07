@@ -1,5 +1,6 @@
 import { palabrasDe } from "@/lib/catalogo/puntaje";
 import { plegarTexto } from "@/lib/catalogo/plegar-texto";
+import { etiquetaDePieza } from "@/lib/catalogo/compatibilidad";
 
 /**
  * Cuánto se parece la categoría del ERP (`BOMBA DE AGUA`) a lo que pidió el
@@ -112,4 +113,58 @@ export function filtrarPorCategoria<T extends { categoria?: string | null | unde
     const n = niveles[i] ?? null;
     return n === null || n >= minimo;
   });
+}
+
+const singular = (p: string): string => (p.length > 3 && p.endsWith("s") ? p.slice(0, -1) : p);
+
+/** Qué dice el cliente cuando pide una parte o accesorio de una pieza. */
+const PALABRAS_DE_SUBPIEZA: Readonly<Record<string, readonly string[]>> = {
+  empaque: ["empaque", "empaquetadura", "empaq"],
+  oring: ["oring", "o-ring", "anillo"],
+  sello: ["sello"],
+  reten: ["reten"],
+  perno: ["perno"],
+  base: ["base"],
+  tapa: ["tapa"],
+  kit: ["kit"],
+  "conjunto completo": ["completo", "completa", "conjunto", "kit", "armado", "armada"],
+};
+
+/** Las partes que, nombradas en la consulta, descartan a la pieza principal. */
+const PARTES_PEDIBLES = ["empaque", "oring", "sello", "reten", "perno", "base", "tapa"];
+
+/**
+ * ¿Este producto ES la pieza que pidió el cliente? Se mira la etiqueta de pieza
+ * completa (categoría + lo que dice el NOMBRE: empaque, oring, base, tapa…):
+ * - Sin subpieza: es la pieza si todas las palabras de su categoría están en la
+ *   consulta (`TERMOSTATOS` para «termostato», `BOMBA DE AGUA` para «bomba de agua»).
+ * - Con subpieza (`BOMBA DE AGUA (empaque)`): solo si la consulta la nombra
+ *   («empaque de la bomba de agua») y nombra la pieza. Quien pide «bomba de agua»
+ *   no pidió su empaque.
+ * Una categoría que solo roza (`POLEA BOMBA AGUA E HIDRAU`) no es la pieza pedida:
+ * es una pieza relacionada.
+ */
+export function piezaPedida(
+  h: { categoria?: string | null | undefined; nombre?: string | null | undefined },
+  c: ConsultaDePieza,
+): boolean {
+  const cat = plegarTexto((h.categoria ?? "").trim());
+  if (cat === "") return false;
+  const dichas = new Set(palabrasDe(c.query).map(singular));
+  const deLaCategoria = palabrasDe(cat).map(singular);
+  const categoriaDicha = deLaCategoria.length > 0 && deLaCategoria.every((p) => dichas.has(p));
+
+  const etiqueta = etiquetaDePieza(h.categoria, h.nombre) ?? "";
+  const sub = /\(([^()]+)\)$/.exec(etiqueta)?.[1];
+  if (sub === undefined) {
+    // Quien pide «el empaque de la bomba» no pidió la bomba.
+    const pideUnaParte = PARTES_PEDIBLES.some((s) =>
+      (PALABRAS_DE_SUBPIEZA[s] ?? []).some((p) => dichas.has(p)),
+    );
+    return categoriaDicha && !pideUnaParte;
+  }
+
+  const cabeza = deLaCategoria[0];
+  if (!categoriaDicha && (cabeza === undefined || !dichas.has(cabeza))) return false;
+  return (PALABRAS_DE_SUBPIEZA[sub] ?? []).some((p) => dichas.has(p));
 }

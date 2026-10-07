@@ -466,10 +466,9 @@ describe("buscar_productos ordena por la categoría de la pieza pedida (bomba de
       { anio: 2018 },
       { query: "bomba de agua", marca: "Kia", modelo: "Rio" },
     );
-    expect([...(t1.diferencias?.valores.pieza ?? [])].sort()).toEqual([
-      "BOMBA DE AGUA",
-      "POLEA BOMBA AGUA E HIDRAU",
-    ]);
+    // La bomba es exactamente lo pedido: se cotiza sola y la polea se nombra sin precio.
+    expect(t1.matches.every((m) => m.pieza === "BOMBA DE AGUA")).toBe(true);
+    expect(t1.relacionadas).toEqual(["POLEA BOMBA AGUA E HIDRAU"]);
     const t2 = armarSalida(
       await sql.search({ q: "bomba de agua completa", ...CONSULTA }),
       { anio: 2018 },

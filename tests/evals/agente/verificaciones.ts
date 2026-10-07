@@ -122,7 +122,9 @@ export function mencionaIva(): Verificacion {
 export function noInventaPrecios(opciones: { permitirMultiplos?: boolean } = {}): Verificacion {
   return (r) => {
     // Un producto "a consultar" (precio null) no habilita ningún monto.
-    const validos = r.catalogo.flatMap((p) => (p.precio === null ? [] : [p.precio]));
+    const validos = r.catalogo.flatMap((p) =>
+      p.precio === null || p.precio === undefined ? [] : [p.precio],
+    );
     for (const monto of montosCotizados(r.texto)) {
       const ok = validos.some(
         (v) =>

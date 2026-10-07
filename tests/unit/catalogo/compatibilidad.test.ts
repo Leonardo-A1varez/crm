@@ -285,9 +285,9 @@ describe("diferenciasEntre", () => {
       [hit("A", 10, [e(2006, 2011, "1.4", "GAS")]), hit("B", 10, [e(2012, null, "1.6", "GAS")])],
       {},
     );
-    expect(d?.instruccion).toMatch(/preguntale al cliente el año y la cilindrada/i);
-    expect(d?.instruccion).toMatch(/antes de dar precios/i);
-    expect(d?.instruccion).toMatch(/no listes ni cotices/i);
+    expect(d?.instruccion).toMatch(/se diferencian en: el año y la cilindrada/i);
+    expect(d?.instruccion).toMatch(/preguntale solo eso, en una línea/i);
+    expect(d?.instruccion).toMatch(/no trae precios/i);
   });
 
   test("la instrucción nombra solo el atributo que difiere", () => {
