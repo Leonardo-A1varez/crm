@@ -36,8 +36,14 @@ describe("orden de los bloques", () => {
 });
 
 describe("reglas inviolables", () => {
-  test("son las 4 del handoff, la del vehiculo guardado y las 6 de conducta del catalogo", () => {
-    expect(REGLAS_INVIOLABLES).toHaveLength(11);
+  test("son las 4 del handoff, la del vehiculo guardado, las 6 de conducta del catalogo y la de respuestas minimas", () => {
+    expect(REGLAS_INVIOLABLES).toHaveLength(12);
+  });
+
+  test("pide respuestas minimas: solo la pregunta, y al cotizar solo las opciones", () => {
+    const prompt = componerSystemPrompt(config());
+    expect(prompt).toMatch(/responde SOLO con la pregunta, en una linea/);
+    expect(prompt).toMatch(/Al cotizar, responde SOLO con las opciones/);
   });
 
   describe("conducta del catalogo (como-leer-el-catalogo.md §12)", () => {
