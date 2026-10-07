@@ -23,6 +23,7 @@ import {
   DefaultAgentePreviewSessionsService,
   type AgentePreviewSessionsService,
 } from "@/server/services/agente/preview-sessions.service";
+import { SupabaseCatalogoMarcasRepository } from "@/server/repositories/catalogo-marcas.supabase.repo";
 import { DefaultCatalogMatcherService } from "@/server/services/catalog-matcher.service";
 import { OpenAiAgentLLM } from "@/server/services/llm/openai-ai-agent";
 import { PersistingCostTracker } from "@/server/services/llm/persisting-cost-tracker";
@@ -112,7 +113,11 @@ export async function getAgentePreviewServiceForRequest(): Promise<AgentePreview
   return new DefaultAgentePreviewService(
     new SupabaseLeadSessionRepository(db),
     new SupabaseMessagesRepository(db),
-    new DefaultCatalogMatcherService(new SupabaseProductsRepository(db)),
+    new DefaultCatalogMatcherService(
+      new SupabaseProductsRepository(db),
+      new SupabaseCatalogoMarcasRepository(db),
+      logger,
+    ),
     (configProvider: AgentConfigProvider) =>
       new OpenAiAgentLLM({
         provider: openaiProvider,

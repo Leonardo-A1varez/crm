@@ -1,5 +1,5 @@
 import { plegarTexto } from "@/lib/catalogo/plegar-texto";
-import { procedenciaDe } from "@/lib/catalogo/procedencia";
+import { etiquetaDeOrigen, resolverOrigen, type IndiceMarcas } from "@/lib/catalogo/procedencia";
 import type { CompatibilidadEntry } from "@/types/entities";
 
 /**
@@ -379,8 +379,9 @@ export interface Diferencias {
   /** Los valores que aparecen, solo de los atributos que difieren. */
   valores: Partial<Record<AtributoQueDifiere, string[]>>;
   /**
-   * Las procedencias (MOBIS, KOREA…) de una misma pieza. No se pregunta: se
-   * ofrecen, cada una con su precio. Ausente si cada pieza tiene una sola.
+   * Las opciones de una misma pieza por marca y procedencia («MOBIS (Original)»,
+   * «JUNGWOO (Korea)», «China»). No se preguntan: se ofrecen, cada una con su
+   * precio. Ausente si cada pieza tiene una sola.
    */
   procedencias?: string[];
   /**
@@ -422,11 +423,10 @@ export function construirDiferencias(
   if (procedencias.length > 0) {
     const lista = procedencias.join(", ");
     partes.push(
-      atributos.length > 0
-        ? `Después, la misma pieza viene con distinta procedencia (${lista}): no la preguntes, ` +
-            "cotizá cada una como «PROCEDENCIA $precio» (IVA incluido), sin rangos."
-        : `Una misma pieza viene con distinta procedencia (${lista}): no la preguntes, ` +
-            "cotizá cada una como «PROCEDENCIA $precio» (IVA incluido), sin rangos.",
+      `${atributos.length > 0 ? "Después, la" : "La"} misma pieza viene en distintas opciones (${lista}): ` +
+        "no las preguntes, cotizá cada una como «MARCA (Procedencia) $precio» (IVA incluido), " +
+        "con la `marca` y la `procedencia` de cada candidato; si no trae `marca`, «PROCEDENCIA $precio»; " +
+        "si no trae `procedencia`, «MARCA $precio». Sin rangos.",
     );
   }
   return {
@@ -526,8 +526,10 @@ export interface CandidatoParaDiferencias {
   nivel_vehiculo?: number | undefined;
   categoria?: string | null | undefined;
   nombre?: string | null | undefined;
-  /** `productos.descripcion`: de ahí sale la procedencia. */
+  /** `productos.descripcion`: de ahí salen la marca y la procedencia. */
   descripcion?: string | null | undefined;
+  /** Su sufijo (`/K`, `/JP`…) da la procedencia cuando la marca no la dice. */
+  codigo_fabrica?: string | null | undefined;
 }
 
 const nivelDe = (h: CandidatoParaDiferencias): number => h.nivel_vehiculo ?? 0;
@@ -554,13 +556,14 @@ const nivelDe = (h: CandidatoParaDiferencias): number => h.nivel_vehiculo ?? 0;
 export function diferenciasEntre(
   hits: readonly CandidatoParaDiferencias[],
   dado: { anio?: number | undefined; cilindrada?: string | undefined },
+  marcas?: IndiceMarcas,
 ): Diferencias | null {
   if (hits.length < 2) return null;
 
   const atributos: AtributoQueDifiere[] = [];
   const valores: Partial<Record<AtributoQueDifiere, string[]>> = {};
 
-  const { piezas, procedencias } = piezasYProcedencias(hits);
+  const { piezas, procedencias } = piezasYProcedencias(hits, marcas);
   if (piezas.length > 1) {
     atributos.push("pieza");
     valores.pieza = piezas;
@@ -601,7 +604,10 @@ export function diferenciasEntre(
  * evidencia de vehículo comparable a la del mejor. Los dos en el orden en que
  * aparecen, que es el del ranking.
  */
-function piezasYProcedencias(hits: readonly CandidatoParaDiferencias[]): {
+function piezasYProcedencias(
+  hits: readonly CandidatoParaDiferencias[],
+  marcas: IndiceMarcas | undefined,
+): {
   piezas: string[];
   procedencias: string[];
 } {
@@ -618,7 +624,7 @@ function piezasYProcedencias(hits: readonly CandidatoParaDiferencias[]): {
   for (const h of relevantes) {
     const pieza = etiquetaDePieza(h.categoria, h.nombre);
     if (pieza !== null && !piezas.includes(pieza)) piezas.push(pieza);
-    const procedencia = procedenciaDe(h.descripcion);
+    const procedencia = etiquetaDeOrigen(resolverOrigen(h.descripcion, h.codigo_fabrica, marcas));
     if (procedencia === null) continue;
     const clave = pieza ?? "";
     const vistas = porPieza.get(clave) ?? [];

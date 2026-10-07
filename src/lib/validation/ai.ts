@@ -81,8 +81,11 @@ export const BuscarRepuestoMatchSchema = z.object({
   // null = a consultar: ninguno de los precios del ERP es mayor que cero.
   precio: z.number().nonnegative().nullable(),
   stock: z.number().int().nonnegative(),
-  // De dónde viene la pieza (MOBIS, KOREA, CHINA, GM…). Ausente si el catálogo no la
-  // tiene o trae basura en ese campo.
+  // La marca de la pieza (MOBIS, JUNGWOO, GM…). Ausente si el catálogo es un país o
+  // trae basura en ese campo.
+  marca: z.string().optional(),
+  // De dónde viene (Original, Korea, Japón, China…). Ausente si no se sabe: nunca se
+  // supone.
   procedencia: z.string().optional(),
   // Qué pieza es (su grupo y, si es un conjunto armado, qué parte). Solo cuando los
   // candidatos son de piezas distintas (ver `diferencias`).
@@ -102,7 +105,7 @@ export const DiferenciasCandidatosSchema = z.object({
     cilindrada: z.array(z.string()).optional(),
     combustible: z.array(z.string()).optional(),
   }),
-  // Procedencias de una misma pieza: se ofrecen con su precio, no se preguntan.
+  // Opciones («MARCA (Procedencia)») de una misma pieza: se ofrecen con su precio, no se preguntan.
   procedencias: z.array(z.string()).optional(),
   instruccion: z.string(),
 });

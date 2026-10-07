@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { BuscarRepuestoMatch } from "@/lib/validation/ai";
 import type { ResultadoTurno } from "../evals/agente/casos";
 import {
+  citaOpcion,
   citaProcedenciaConPrecio,
   noCitaPrecios,
   noDiceOriginal,
@@ -87,5 +88,26 @@ describe("noCitaPrecios, sinCodigosDeProducto, noDiceOriginal", () => {
   test("noDiceOriginal", () => {
     expect(noDiceOriginal()(turno("MOBIS (original) $12,96"))).not.toBeNull();
     expect(noDiceOriginal()(turno("MOBIS $12,96"))).toBeNull();
+  });
+});
+
+describe("citaOpcion: «MARCA (Procedencia) $precio»", () => {
+  test.each([
+    "Bomba de agua Kia Rio 2018: MOBIS (Original) $96,66 · JUNGWOO (Korea) $21,51 (IVA incluido)",
+    "mobis (original) $96,66",
+    "MOBIS (Original) 96.66",
+    "MOBIS ( Original ) $96,66",
+  ])("pasa con %j", (t) => {
+    expect(citaOpcion("MOBIS", "Original", 96.66)(turno(t))).toBeNull();
+  });
+
+  test.each([
+    ["sin los paréntesis", "MOBIS Original $96,66"],
+    ["sin la procedencia", "MOBIS $96,66"],
+    ["con otra procedencia", "MOBIS (Korea) $96,66"],
+    ["con el precio de otra opción", "MOBIS (Original) $21,51 · JUNGWOO (Korea) $96,66"],
+    ["sin el precio", "MOBIS (Original) con IVA"],
+  ])("falla %s", (_n, t) => {
+    expect(citaOpcion("MOBIS", "Original", 96.66)(turno(t))).not.toBeNull();
   });
 });

@@ -106,13 +106,20 @@ describe("reglas inviolables", () => {
       expect(p).toMatch(/nunca cotices con la pieza ambigua/i);
     });
 
-    test("al cotizar da solo precio y procedencia por opcion, sin rangos ni codigos ni 'original'", () => {
+    test("al cotizar da marca, procedencia y precio por opcion, sin rangos ni codigos", () => {
       const p = prompt();
-      expect(p).toMatch(/SOLO el precio \(IVA incluido\) y la `procedencia`/);
-      expect(p).toMatch(/MOBIS, KOREA, CHINA, GM/);
+      expect(p).toMatch(/SOLO la `marca`, la `procedencia` y el precio \(IVA incluido\)/);
+      expect(p).toContain("«MARCA (Procedencia) $precio»");
+      expect(p).toContain("MOBIS (Original) $96,66 · JUNGWOO (Korea) $21,51");
+      expect(p).toMatch(/no trae `marca`, «PROCEDENCIA \$precio»/);
+      expect(p).toMatch(/no trae `procedencia`, «MARCA \$precio»/);
       expect(p).toMatch(/sin rangos de precio/i);
       expect(p).toMatch(/sin codigos ni especificaciones salvo que los pida/i);
-      expect(p).toMatch(/«original»/);
+    });
+
+    test("nunca inventa una marca ni una procedencia que la herramienta no trae", () => {
+      const p = prompt();
+      expect(p).toMatch(/nunca inventes una marca ni una procedencia/i);
     });
 
     test("precio vacio o cero es 'a consultar', nunca $0; stock 0 se dice", () => {
