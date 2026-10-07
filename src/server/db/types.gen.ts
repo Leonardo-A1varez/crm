@@ -289,6 +289,33 @@ export type Database = {
         }
         Relationships: []
       }
+      catalogo_marcas: {
+        Row: {
+          activa: boolean
+          alias: string[]
+          erp_actualizado_at: string | null
+          nombre: string
+          procedencia: string | null
+          tipo: string | null
+        }
+        Insert: {
+          activa?: boolean
+          alias?: string[]
+          erp_actualizado_at?: string | null
+          nombre: string
+          procedencia?: string | null
+          tipo?: string | null
+        }
+        Update: {
+          activa?: boolean
+          alias?: string[]
+          erp_actualizado_at?: string | null
+          nombre?: string
+          procedencia?: string | null
+          tipo?: string | null
+        }
+        Relationships: []
+      }
       catalogo_modelos: {
         Row: {
           activo: boolean | null

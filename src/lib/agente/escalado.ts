@@ -78,6 +78,32 @@ export function textoDelCliente(conversationTurn: string[]): string | null {
   return ultima.slice(PREFIJO_CLIENTE.length);
 }
 
+/**
+ * ¿La llamada a una herramienta es una búsqueda en el catálogo que encontró algo?
+ *
+ * Es lo que hace que un turno sin intent clasificado cuente como atendido para el
+ * auto-handoff: el agente entendió al cliente, buscó y devolvió candidatos. Sin
+ * esto, con pocos intents activos, una cotización normal dejaba `intent = null`
+ * en cada mensaje y la IA se pausaba a media venta («5 intents desconocidos
+ * consecutivos»). Sirve para las dos formas en que se ve la llamada: la que
+ * devuelve el agente en memoria (`ToolCallRecord`) y la fila de `tool_executions`.
+ *
+ * Una búsqueda que falló, o cuyo resultado no tiene la forma de `buscar_repuesto`
+ * (`count` o `matches`), no cuenta: en la duda el turno sigue siendo «desconocido»,
+ * que es el comportamiento de siempre.
+ */
+export function busquedaConResultados(
+  herramienta: string,
+  resultado: unknown,
+  error: string | null | undefined,
+): boolean {
+  if (herramienta !== "buscar_repuesto" || (error !== null && error !== undefined)) return false;
+  if (typeof resultado !== "object" || resultado === null) return false;
+  const r = resultado as { count?: unknown; matches?: unknown };
+  if (Array.isArray(r.matches)) return r.matches.length > 0;
+  return typeof r.count === "number" && r.count > 0;
+}
+
 /** Los metacaracteres de una palabra escrita por un admin son literales, no un patrón. */
 function escaparRegex(valor: string): string {
   return valor.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

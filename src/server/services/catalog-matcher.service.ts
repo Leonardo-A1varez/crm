@@ -10,8 +10,10 @@ import {
   normalizarCilindrada,
 } from "@/lib/catalogo/compatibilidad";
 import { filtrarPorCategoria, type ConsultaDePieza } from "@/lib/catalogo/categoria";
-import { procedenciaDe } from "@/lib/catalogo/procedencia";
+import { indexarMarcas, resolverOrigen, type MarcaCatalogo } from "@/lib/catalogo/procedencia";
 import { avisoSobremedida } from "@/lib/catalogo/sobremedida";
+import type { Logger } from "@/lib/observability/logger";
+import type { CatalogoMarcasRepository } from "@/server/repositories/catalogo-marcas.repo";
 import type { ProductoSearchHit, ProductsRepository } from "@/server/repositories/productos.repo";
 
 /**
@@ -49,7 +51,28 @@ const textoUtil = (s: string | undefined): string | undefined => {
 };
 
 export class DefaultCatalogMatcherService implements CatalogMatcherService {
-  constructor(private readonly productos: ProductsRepository) {}
+  constructor(
+    private readonly productos: ProductsRepository,
+    private readonly marcas?: CatalogoMarcasRepository,
+    private readonly logger?: Logger,
+  ) {}
+
+  /**
+   * Las marcas con su procedencia. Si no se pueden leer (la tabla todavía no está
+   * en esa base, un corte) el agente sigue cotizando: sin la tabla cada pieza
+   * queda con su marca y sin procedencia, que es lo único que no inventa nada.
+   */
+  private async leerMarcas(): Promise<readonly MarcaCatalogo[]> {
+    if (!this.marcas) return [];
+    try {
+      return await this.marcas.listarActivas();
+    } catch (err) {
+      this.logger?.warn("catalog-matcher: no se pudieron leer las marcas", {
+        error: err instanceof Error ? err.message : "desconocido",
+      });
+      return [];
+    }
+  }
 
   async buscar(input: BuscarRepuestoInput): Promise<BuscarRepuestoOutput> {
     // Los modelos de lenguaje mandan `0` cuando no saben el año aunque el schema
@@ -58,19 +81,23 @@ export class DefaultCatalogMatcherService implements CatalogMatcherService {
     const anio = input.anio !== undefined && input.anio > 0 ? input.anio : undefined;
     const cilindrada = normalizarCilindrada(input.cilindrada);
 
-    const hits = await this.productos.search({
-      q: input.query,
-      marca: textoUtil(input.marca),
-      modelo: textoUtil(input.modelo),
-      anio,
-      cilindrada,
-      tope: TOPE_PARA_EL_AGENTE,
-    });
+    const [hits, marcas] = await Promise.all([
+      this.productos.search({
+        q: input.query,
+        marca: textoUtil(input.marca),
+        modelo: textoUtil(input.modelo),
+        anio,
+        cilindrada,
+        tope: TOPE_PARA_EL_AGENTE,
+      }),
+      this.leerMarcas(),
+    ]);
 
     return armarSalida(
       hits,
       { anio, cilindrada },
       { query: input.query, marca: textoUtil(input.marca), modelo: textoUtil(input.modelo) },
+      marcas,
     );
   }
 }
@@ -84,7 +111,9 @@ export function armarSalida(
   todos: readonly ProductoSearchHit[],
   dado: { anio?: number | undefined; cilindrada?: string | undefined },
   consulta?: ConsultaDePieza,
+  marcas: readonly MarcaCatalogo[] = [],
 ): BuscarRepuestoOutput {
+  const indice = indexarMarcas(marcas);
   // La búsqueda de texto acepta cualquier palabra: `agua` trae los manguitos y
   // `bomba` la de combustible. Lo que solo roza la pieza pedida ni se ofrece ni
   // cuenta como alternativa de pieza (ver `categoria.ts`).
@@ -93,7 +122,7 @@ export function armarSalida(
 
   // En qué se diferencian los mejores candidatos: lo único que el agente tiene
   // que preguntar. Lo que el cliente ya dijo (año, cilindrada) no entra.
-  const dif0 = diferenciasEntre(hits, dado);
+  const dif0 = diferenciasEntre(hits, dado, indice);
   const diferencias =
     dif0 && acotado && !dif0.atributos.includes("pieza")
       ? {
@@ -105,13 +134,14 @@ export function armarSalida(
       : dif0;
 
   const matches: BuscarRepuestoMatch[] = hits.map((h) => {
-    const procedencia = procedenciaDe(h.descripcion);
+    const { marca, procedencia } = resolverOrigen(h.descripcion, h.codigo_fabrica, indice);
     const base: BuscarRepuestoMatch = {
       id: h.id,
       codigo_interno: h.codigo_interno,
       nombre: h.nombre,
       precio: h.precio,
       stock: h.stock,
+      ...(marca !== null ? { marca } : {}),
       ...(procedencia !== null ? { procedencia } : {}),
     };
     if (!diferencias) return base;

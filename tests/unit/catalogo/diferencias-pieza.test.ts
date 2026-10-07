@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { diferenciasEntre, etiquetaDePieza } from "@/lib/catalogo/compatibilidad";
+import { indexarMarcas } from "@/lib/catalogo/procedencia";
 import { armarSalida } from "@/server/services/catalog-matcher.service";
+import { MARCAS } from "../../helpers/catalogo-marcas-fixtures";
 import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
 import { MODELOS } from "../../helpers/catalogo-compat-fixtures";
 import {
@@ -101,27 +103,38 @@ describe("armarSalida: conversación real del termostato para el Accent 1.6 (200
     const salida = armarSalida(hits, dadoReal);
     const por = (c: string) => salida.matches.find((m) => m.codigo_interno === c);
 
-    expect(por("9028")).toMatchObject({
-      procedencia: "MOBIS",
-      pieza: "TERMOSTATOS",
-      precio: 12.96,
-    });
-    expect(por("9015")).toMatchObject({ procedencia: "KOREA", pieza: "TERMOSTATOS", precio: 6.93 });
+    // Sin tabla de marcas, MOBIS es solo la marca (su origen no se sabe); KOREA es un país.
+    expect(por("9028")).toMatchObject({ marca: "MOBIS", pieza: "TERMOSTATOS", precio: 12.96 });
+    expect(por("9028")?.procedencia).toBeUndefined();
+    expect(por("9015")).toMatchObject({ procedencia: "Korea", pieza: "TERMOSTATOS", precio: 6.93 });
+    expect(por("9015")?.marca).toBeUndefined();
     expect(por("19309")).toMatchObject({
-      procedencia: "MOBIS",
+      marca: "MOBIS",
       pieza: "TERMOSTATO ARMADO Y TAPAS (conjunto completo)",
     });
-    // `52*88C` es una medida, no una procedencia.
+    // `52*88C` es una medida, no una marca ni una procedencia.
+    expect(por("14566")?.marca).toBeUndefined();
     expect(por("14566")?.procedencia).toBeUndefined();
-    // Sin descripción tampoco hay procedencia.
+    // Sin descripción tampoco hay nada.
+    expect(por("11068")?.marca).toBeUndefined();
     expect(por("11068")?.procedencia).toBeUndefined();
   });
 
-  test("la procedencia que difiere dentro de una misma pieza se informa para presentarla, no para preguntarla", async () => {
+  test("con la tabla de marcas, MOBIS es Original y GM también", async () => {
     const hits = await buscar(TERMOSTATOS_REALES, { ...CONSULTA_ACCENT_2006 });
-    const salida = armarSalida(hits, dadoReal);
+    const salida = armarSalida(hits, dadoReal, undefined, MARCAS);
+    const por = (c: string) => salida.matches.find((m) => m.codigo_interno === c);
+    expect(por("9028")).toMatchObject({ marca: "MOBIS", procedencia: "Original" });
+    expect(por("9015")).toMatchObject({ procedencia: "Korea" });
+    expect(por("9015")?.marca).toBeUndefined();
+    expect(por("13671")?.procedencia).toBe("China");
+  });
+
+  test("la opción que difiere dentro de una misma pieza se informa para presentarla, no para preguntarla", async () => {
+    const hits = await buscar(TERMOSTATOS_REALES, { ...CONSULTA_ACCENT_2006 });
+    const salida = armarSalida(hits, dadoReal, undefined, MARCAS);
     expect(salida.diferencias?.procedencias).toEqual(
-      expect.arrayContaining(["MOBIS", "KOREA", "CHINA"]),
+      expect.arrayContaining(["MOBIS (Original)", "Korea", "China"]),
     );
     expect(salida.diferencias?.atributos).not.toContain("procedencia" as never);
   });
@@ -129,16 +142,18 @@ describe("armarSalida: conversación real del termostato para el Accent 1.6 (200
   test("ya elegida la pieza suelta, solo queda la procedencia: se presenta, no se pregunta", async () => {
     const sueltos = TERMOSTATOS_REALES.filter((p) => p.codigo === "9028" || p.codigo === "9015");
     const hits = await buscar(sueltos, { ...CONSULTA_ACCENT_2006 });
-    const salida = armarSalida(hits, dadoReal);
+    const salida = armarSalida(hits, dadoReal, undefined, MARCAS);
 
     expect(salida.diferencias?.atributos).toEqual([]);
-    expect(salida.diferencias?.procedencias).toEqual(["MOBIS", "KOREA"]);
-    expect(salida.diferencias?.instruccion).toMatch(/no la preguntes/i);
-    expect(salida.diferencias?.instruccion).toMatch(/MOBIS, KOREA/);
+    expect(salida.diferencias?.procedencias).toEqual(["MOBIS (Original)", "Korea"]);
+    expect(salida.diferencias?.instruccion).toMatch(/no las preguntes/i);
+    expect(salida.diferencias?.instruccion).toMatch(/MOBIS \(Original\), Korea/);
+    expect(salida.diferencias?.instruccion).toMatch(/MARCA \(Procedencia\) \$precio/);
     expect(salida.diferencias?.instruccion).toMatch(/sin rangos/i);
     // Una sola pieza: no hace falta etiquetarla en cada candidato.
     expect(salida.matches.every((m) => m.pieza === undefined)).toBe(true);
-    expect(salida.matches.map((m) => m.procedencia)).toEqual(["MOBIS", "KOREA"]);
+    expect(salida.matches.map((m) => m.marca)).toEqual(["MOBIS", undefined]);
+    expect(salida.matches.map((m) => m.procedencia)).toEqual(["Original", "Korea"]);
   });
 
   test("un único candidato no tiene diferencias", async () => {
@@ -146,7 +161,7 @@ describe("armarSalida: conversación real del termostato para el Accent 1.6 (200
     const hits = await buscar(uno, { ...CONSULTA_ACCENT_2006 });
     const salida = armarSalida(hits, dadoReal);
     expect(salida.diferencias).toBeUndefined();
-    expect(salida.matches[0]?.procedencia).toBe("MOBIS");
+    expect(salida.matches[0]?.marca).toBe("MOBIS");
   });
 
   test("las filas sin compatibilidad y las que contradicen la cilindrada no cuentan para decidir la pieza", async () => {
@@ -192,7 +207,28 @@ describe("diferenciasEntre con pieza y procedencia", () => {
       {},
     );
     expect(d?.atributos).toEqual([]);
-    expect(d?.procedencias).toEqual(["MOBIS", "KOREA"]);
+    expect(d?.procedencias).toEqual(["MOBIS", "Korea"]);
+  });
+
+  test("marca y procedencia de la tabla: dos marcas distintas con el mismo país son dos opciones", () => {
+    const d = diferenciasEntre(
+      [hit("BOMBA DE AGUA", "A", "MOBIS"), hit("BOMBA DE AGUA", "B", "JUNGWOO")],
+      {},
+      indexarMarcas(MARCAS),
+    );
+    expect(d?.atributos).toEqual([]);
+    expect(d?.procedencias).toEqual(["MOBIS (Original)", "JUNGWOO (Korea)"]);
+  });
+
+  test("el sufijo del código da la procedencia cuando la descripción no la dice", () => {
+    const d = diferenciasEntre(
+      [
+        { ...hit("BOMBA DE AGUA", "A", "52*88C"), codigo_fabrica: "25100-2X000/K" },
+        { ...hit("BOMBA DE AGUA", "B", "52*88C"), codigo_fabrica: "25100-2X000/JP" },
+      ],
+      {},
+    );
+    expect(d?.procedencias).toEqual(["Korea", "Japón"]);
   });
 
   test("una procedencia basura no cuenta como procedencia distinta", () => {
@@ -211,7 +247,7 @@ describe("diferenciasEntre con pieza y procedencia", () => {
       {},
     );
     expect(d?.atributos).toEqual(["pieza"]);
-    expect(d?.procedencias).toEqual(["MOBIS", "KOREA"]);
+    expect(d?.procedencias).toEqual(["MOBIS", "Korea"]);
     expect(d?.instruccion).toMatch(/despu[eé]s/i);
   });
 

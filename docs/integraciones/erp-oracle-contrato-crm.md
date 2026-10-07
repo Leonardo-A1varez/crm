@@ -2,7 +2,7 @@
 
 Para el extractor de Bodega Web (`sync-oracle`), que agrega el CRM como **segundo destino**. El CRM nunca se conecta a Oracle: recibe filas JSON por tres funciones RPC de su Supabase.
 
-Fuente de verdad: `supabase/migrations/20261006130100_erp_sync.sql` (las RPC) y `20261006130000_productos_erp.sql` (las columnas). Probado en `tests/integration/erp-sync.supabase.test.ts`. Ejemplo ejecutable: `scripts/erp/cargar-csv-local.mjs` + `scripts/erp/filas-desde-csv.mjs`.
+Fuente de verdad: `supabase/migrations/20261006130100_erp_sync.sql` (las RPC), `20261006130000_productos_erp.sql` (las columnas de `productos`) y `20261007160000_catalogo_marcas.sql` (la tabla `marcas`, §3.4). Probado en `tests/integration/erp-sync.supabase.test.ts` y `tests/integration/erp-sync-marcas.supabase.test.ts`. Ejemplo ejecutable: `scripts/erp/cargar-csv-local.mjs` + `scripts/erp/filas-desde-csv.mjs`.
 
 ---
 
@@ -30,7 +30,7 @@ Con `supabase-js`: `createClient(url, anonKey).rpc("erp_sync_cargar", { p_clave,
 
 Upsert por `no_item`. Devuelve cuántas filas **insertó o cambió**. Una fila idéntica a la guardada no se escribe. Recargar el catálogo entero sin cambios devuelve 0 en cada lote y no toca `updated_at`.
 
-- `p_tabla`: siempre `"productos"`. Otro valor → `22023`.
+- `p_tabla`: `"productos"` o `"marcas"` (lista cerrada; la forma de la fila de `marcas` está en §3.4). Otro valor → `22023`. Es sensible a mayúsculas.
 - `p_filas`: arreglo JSON de **0 a 5000** objetos. Más → `54000`. Vacío → `0`.
 - **Todo o nada:** la primera fila que no cumple el contrato rechaza el lote entero (`22023`, mensaje `fila N: <motivo>`). No se escribe nada.
 - Un `no_item` repetido dentro del mismo lote → `22023` (`fila N: no_item X repetido en el lote`).
@@ -101,11 +101,51 @@ Además, cada fila cargada queda con `activo = true` (recargar reactiva lo dado 
 
 Queda así: `codigo_interno "7"`, `codigo_fabrica "AU0826-1LL"`, `otros_codigos {43210-8H300}`, `categoria "RULIMANES RD/RP"`, `nombre "NS XTRAIL 2.0 4*2 T30 QR20 RP"`, `descripcion "38*79*45 NTN"`, `stock 0`, `precio 12.29`, `codigo_difiere true`.
 
+### 3.4 Tabla `marcas`: de qué marca es la pieza y de dónde viene
+
+**Para qué.** El ERP no tiene una columna de procedencia. `productos.descripcion` (DESCRIP_AUX) mezcla **marcas** (MOBIS, GM, MANDO, CTR, JUNGWOO…) con **países** (CHINA, KOREA…). Lo único que sabe de qué país es cada marca es la base de Bodega Web (`public.marcas` + `marca_alias`). El CRM guarda una copia de solo lectura (`public.catalogo_marcas`) para que el agente cotice «MOBIS (Original) $96,66 · JUNGWOO (Korea) $21,51 (IVA incluido)».
+
+**Cómo la usa el CRM.** Dada `productos.descripcion` de una pieza: (1) si es un país (CHINA, KOREA, JAPON, COLOMBIA, HY INDIA…) esa es la procedencia y no hay marca; (2) si coincide con el `nombre` o con un `alias` de una marca (sin mayúsculas ni tildes) la marca es el `nombre` y la procedencia, la de la fila; (3) si no, el sufijo del código de fábrica (`/K` Korea, `/JP` Japón, `/FR` Francia, `/DE` Alemania, `/CH` China, `/ORG` Original); (4) si no, solo la marca (el texto tal cual, si parece una marca) y **sin procedencia**: nunca se supone. Una marca con `procedencia: null` queda sin procedencia (salvo que el código traiga el sufijo). Las filas con `activa = false` se ignoran.
+
+**Llamada.** Las mismas dos RPC, con `p_tabla = "marcas"`: `erp_sync_cargar` (upsert por `nombre`) y `erp_sync_borrar` (da de baja). Misma clave, mismos límites (0 a 5000 por lote, `statement_timeout` de 60 s), mismos errores (§7). Mandá primero las marcas y después los productos, o al revés: no dependen entre sí.
+
+**Forma de cada fila de `erp_sync_cargar`.** Lista cerrada de claves; una que no esté acá → `22023 campo desconocido`. Todo o nada, igual que `productos`. Los textos se recortan (`btrim`).
+
+| Campo         | Tipo JSON                         | Obligatorio | Regla                                                                                                                                |
+| ------------- | --------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `nombre`      | string, 1–100                     | sí          | Nombre canónico (`nombre_canonico` de Bodega Web). Clave del upsert. Dos nombres que difieren solo en mayúsculas son la misma marca  |
+| `tipo`        | string, 1–50 \| null              | no          | Se guarda tal cual (`original`, `alterna`…). El CRM no decide nada con él                                                            |
+| `procedencia` | string, 1–50 \| null              | no          | Un país o `ORIGINAL`, como lo escribe Bodega Web (`KOREA`, `JAPON`, `FRANCIA`, `ALEMANIA`, `CHINA`, `ORIGINAL`). `null` = no se sabe |
+| `activa`      | boolean \| null                   | no          | `null` o ausente = `true`. `false` = el agente la ignora                                                                             |
+| `alias`       | arreglo de strings (0–50) \| null | no          | Las abreviaturas de `marca_alias`. Cada una: texto de 1–100 caracteres. `null` o ausente = `[]`                                      |
+
+Una fila idéntica a la guardada no se escribe: recargar todo sin cambios devuelve `0`. Un nombre repetido dentro del lote (comparado sin mayúsculas) → `22023 fila N: nombre X repetido en el lote`. Un nombre que difiere solo en mayúsculas de uno ya guardado → error de índice único y no se escribe nada: el extractor tiene que mandar siempre el mismo `nombre` para la misma marca.
+
+```json
+[
+  {
+    "nombre": "MOBIS",
+    "tipo": "original",
+    "procedencia": "ORIGINAL",
+    "activa": true,
+    "alias": ["HYUNDAI MOBIS"]
+  },
+  { "nombre": "JUNGWOO", "tipo": "alterna", "procedencia": "KOREA", "activa": true, "alias": [] },
+  { "nombre": "TAIHO", "tipo": null, "procedencia": null, "activa": true, "alias": [] }
+]
+```
+
+(Ejemplo con la forma del contrato: los valores de MOBIS y JUNGWOO son los que el dueño confirmó el 2026-10-07; `TAIHO` y el alias `HYUNDAI MOBIS` son inventados para ilustrar la forma, no salen de la base de Bodega Web.)
+
+**Baja.** `erp_sync_borrar` con `p_tabla = "marcas"` y `p_claves` = arreglo de 0 a 5000 objetos `{"nombre": "<texto>"}`, sin otras claves (otra forma → `22023 clave N: ...`). Pone `activa = false`; **nunca borra**. Devuelve cuántas desactivó (una ya inactiva o inexistente no cuenta). Recargar la marca con `activa: true` la reactiva. La comparación del `nombre` es exacta (sin mayúsculas distintas).
+
+**Permisos.** `catalogo_marcas`: el CRM la lee con la service role y un vendedor o admin autenticado puede leerla; **nadie la escribe directo**, solo estas RPC con la clave. Una carga de `marcas` no toca `productos`.
+
 ## 4. `erp_sync_borrar(p_clave text, p_tabla text, p_claves jsonb) → integer`
 
 Da de baja lo que ya no está en el ERP: `activo = false`. **Nunca borra**, porque un producto puede estar cotizado en una sesión. Devuelve cuántas filas desactivó. Una que ya estaba inactiva no cuenta, y un `no_item` que no existe tampoco.
 
-- `p_tabla`: `"productos"`.
+- `p_tabla`: `"productos"` o `"marcas"`. Con `"marcas"` las claves son `{"nombre": "..."}` (§3.4).
 - `p_claves`: arreglo de 0 a 5000 objetos `{"no_item": "<texto>"}`, sin otras claves. Otra forma → `22023 clave N: ...`. Más de 5000 → `54000`.
 
 Mandá solo los `no_item` que el extractor **vio desaparecer** del ERP. El CRM tiene productos que no vinieron del ERP, y esos no se tocan si no se los nombra.
@@ -126,17 +166,18 @@ Las horas las pone la base. La pantalla del CRM lee `public.erp_sync_estado`, un
 1. `erp_sync_estado_fijar(clave, 'inicio')`.
 2. `erp_sync_cargar` con todo el catálogo en lotes de **hasta 5000**, en serie. Se puede mandar todo cada vez: lo que no cambió no se escribe.
 3. `erp_sync_borrar` con los `no_item` que desaparecieron del ERP, si hay.
+   Las marcas (`p_tabla = "marcas"`, §3.4) se cargan igual, en el mismo ciclo, antes del paso 4. No cuentan en `p_filas_cargadas`, que es solo de `productos`.
 4. `erp_sync_estado_fijar(clave, 'fin', p_ok => true, p_filas_cargadas => <suma>)`. Si algo falló: `p_ok => false, p_error => <mensaje sin la clave>`.
 
 ## 7. Errores
 
-| SQLSTATE   | Cuándo                                                                                                                  | Qué hacer                                                                              |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `42501`    | Clave nula, de menos de 32 caracteres, equivocada, o el hash no está configurado. Se valida **antes** que todo lo demás | No reintentar. Revisar la clave                                                        |
-| `22023`    | Tabla distinta de `productos`, lote que no es arreglo, fila o clave mal formada, `no_item` repetido, fase inválida      | No reintentar. El mensaje dice qué fila y qué campo. El lote entero quedó sin escribir |
-| `54000`    | Más de 5000 filas o claves en un lote                                                                                   | Partir el lote                                                                         |
-| `57014`    | El lote superó el `statement_timeout` (60 s, propio de `erp_sync_cargar`/`erp_sync_borrar`)                             | Reintentar con lotes más chicos (2000)                                                 |
-| `PGRST202` | La función no existe                                                                                                    | Las migraciones del CRM no están aplicadas en ese proyecto                             |
+| SQLSTATE   | Cuándo                                                                                                                                 | Qué hacer                                                                              |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `42501`    | Clave nula, de menos de 32 caracteres, equivocada, o el hash no está configurado. Se valida **antes** que todo lo demás                | No reintentar. Revisar la clave                                                        |
+| `22023`    | Tabla distinta de `productos`/`marcas`, lote que no es arreglo, fila o clave mal formada, `no_item` o `nombre` repetido, fase inválida | No reintentar. El mensaje dice qué fila y qué campo. El lote entero quedó sin escribir |
+| `54000`    | Más de 5000 filas o claves en un lote                                                                                                  | Partir el lote                                                                         |
+| `57014`    | El lote superó el `statement_timeout` (60 s, propio de `erp_sync_cargar`/`erp_sync_borrar`)                                            | Reintentar con lotes más chicos (2000)                                                 |
+| `PGRST202` | La función no existe                                                                                                                   | Las migraciones del CRM no están aplicadas en ese proyecto                             |
 
 Ningún mensaje de error incluye la clave.
 

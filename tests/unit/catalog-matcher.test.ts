@@ -157,7 +157,7 @@ describe("CatalogMatcherService.buscar", () => {
     expect(match.stock).toBe(5);
   });
 
-  test("expone la procedencia cuando la descripcion es una", async () => {
+  test("expone la marca cuando la descripcion es una", async () => {
     await repo.create(
       productoFixture({
         codigo_interno: "P-2",
@@ -169,7 +169,7 @@ describe("CatalogMatcherService.buscar", () => {
 
     const result = await svc.buscar({ query: "pastilla" });
 
-    expect(result.matches[0]?.procedencia).toBe("MOBIS");
+    expect(result.matches[0]?.marca).toBe("MOBIS");
   });
 
   test("scoring: codigo exacto > prefix nombre > contains nombre", async () => {

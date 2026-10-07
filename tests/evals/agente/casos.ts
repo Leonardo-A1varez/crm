@@ -8,6 +8,7 @@ import type {
   BuscarRepuestoOutput,
 } from "@/lib/validation/ai";
 import { BOMBA_DE_AGUA_RIO_18 } from "../../helpers/catalogo-bomba-agua-fixtures";
+import { MARCAS } from "../../helpers/catalogo-marcas-fixtures";
 import { ESCALONES_ESPERADOS, TERMOSTATOS_REALES } from "../../helpers/catalogo-ranking-fixtures";
 
 /**
@@ -96,9 +97,9 @@ import {
   sinCotizar,
   citaPrecio,
   dice,
+  citaOpcion,
   citaProcedenciaConPrecio,
   noCitaPrecios,
-  noDiceOriginal,
   preguntaPieza,
   preguntaEntre,
   noMenciona,
@@ -176,10 +177,12 @@ const HITS_ACCENT_2006: ProductoSearchHit[] = ESCALONES_ESPERADOS.flatMap((codig
     };
   }),
 );
-const SALIDA_ACCENT_2006: BuscarRepuestoOutput = armarSalida(HITS_ACCENT_2006, {
-  anio: 2006,
-  cilindrada: "1.6",
-});
+const SALIDA_ACCENT_2006: BuscarRepuestoOutput = armarSalida(
+  HITS_ACCENT_2006,
+  { anio: 2006, cilindrada: "1.6" },
+  undefined,
+  MARCAS,
+);
 
 /**
  * Los candidatos de 'bomba de agua para el Rio 18' que devolvió `buscar_productos`
@@ -209,11 +212,13 @@ const SALIDA_BOMBA_T1 = armarSalida(
   HITS_BOMBA_RIO_18,
   { anio: 2018 },
   { query: "bomba de agua", marca: "Kia", modelo: "Rio" },
+  MARCAS,
 );
 const SALIDA_BOMBA_T2 = armarSalida(
   HITS_BOMBA_RIO_18,
   { anio: 2018 },
   { query: "bomba de agua completa", marca: "Kia", modelo: "Rio" },
+  MARCAS,
 );
 
 export const CASOS: CasoAgente[] = [
@@ -381,7 +386,7 @@ export const CASOS: CasoAgente[] = [
     id: "real-bomba-de-agua-rio-18-completa-cotiza",
     origen: "real",
     proposito:
-      "Después de que el cliente elige 'la bomba de agua completa', cotiza las opciones como PROCEDENCIA $precio con IVA, sin volver a preguntar y sin precios de la polea, los manguitos ni la bomba de combustible.",
+      "Después de que el cliente elige 'la bomba de agua completa', cotiza las opciones como MARCA (Procedencia) $precio con IVA (MOBIS (Original) $96,66 · JUNGWOO (Korea) $21,51), sin volver a preguntar y sin precios de la polea, los manguitos ni la bomba de combustible.",
     notaOrigen:
       "Los dos mensajes del cliente son reales (crm-dev, 2026-10-07 04:15 y 04:18 UTC). La pregunta de la IA del medio es reconstruida, y el auto guardado Kia Rio 2018 también (se deduce de los argumentos reales de la herramienta: marca Kia, año 2018). La salida de la tool es la de producción sobre las filas reales de crm-dev (tests/helpers/catalogo-bomba-agua-fixtures.ts), para la búsqueda 'bomba de agua completa'.",
     turno: [
@@ -394,8 +399,8 @@ export const CASOS: CasoAgente[] = [
     salida: SALIDA_BOMBA_T2,
     verificaciones: [
       buscaAlgunaVez(),
-      citaProcedenciaConPrecio("MOBIS", 96.66),
-      citaProcedenciaConPrecio("JUNGWOO", 21.51),
+      citaOpcion("MOBIS", "Original", 96.66),
+      citaOpcion("JUNGWOO", "Korea", 21.51),
       mencionaIva(),
       noRepregunta(),
       sinCodigosDeProducto(),
@@ -410,7 +415,7 @@ export const CASOS: CasoAgente[] = [
     id: "inv-termostato-accent-solo-el-termostato",
     origen: "inventado",
     proposito:
-      "Después de preguntar la pieza, el cliente dice 'solo el termostato': cotiza el termostato suelto, uno por procedencia con su precio (MOBIS $12,96 · KOREA $6,93), con IVA, sin rangos, sin códigos, sin la etiqueta 'original' y sin precios del conjunto, la base ni la tapa.",
+      "Después de preguntar la pieza, el cliente dice 'solo el termostato': cotiza el termostato suelto, una opción por marca y procedencia con su precio (MOBIS (Original) $12,96 · KOREA $6,93: la segunda es solo un país, sin marca), con IVA, sin rangos, sin códigos y sin precios del conjunto, la base ni la tapa.",
     notaOrigen:
       "El turno del cliente es inventado (así lo espera el dueño). Catálogo: las filas reales del caso 'real-termostato-accent-pide-la-pieza'.",
     turno: [
@@ -424,13 +429,12 @@ export const CASOS: CasoAgente[] = [
     salida: SALIDA_ACCENT_2006,
     verificaciones: [
       buscaAlgunaVez(),
-      citaProcedenciaConPrecio("MOBIS", 12.96),
+      citaOpcion("MOBIS", "Original", 12.96),
       citaProcedenciaConPrecio("KOREA", 6.93),
       mencionaIva(),
       sinRangoDePrecios(),
       noCitaPrecios([40.53, 16.12, 24.82, 8.02, 9.95, 5.77], "el conjunto, la base o la tapa"),
       sinCodigosDeProducto(),
-      noDiceOriginal(),
       noInventaPrecios(),
     ],
   },
@@ -438,7 +442,7 @@ export const CASOS: CasoAgente[] = [
     id: "inv-termostato-accent-solo-la-base",
     origen: "inventado",
     proposito:
-      "El cliente elige la base: presenta la diferencia de procedencia de esa pieza (MOBIS $24,82 · KOREA $8,02), sin rangos ni códigos ni 'original' y sin los precios de otras piezas.",
+      "El cliente elige la base: presenta las opciones de esa pieza (MOBIS (Original) $24,82 · KOREA $8,02), sin rangos ni códigos y sin los precios de otras piezas.",
     notaOrigen:
       "El turno del cliente es inventado. Catálogo: las filas reales del caso 'real-termostato-accent-pide-la-pieza'.",
     turno: [
@@ -452,13 +456,42 @@ export const CASOS: CasoAgente[] = [
     salida: SALIDA_ACCENT_2006,
     verificaciones: [
       buscaAlgunaVez(),
-      citaProcedenciaConPrecio("MOBIS", 24.82),
+      citaOpcion("MOBIS", "Original", 24.82),
       citaProcedenciaConPrecio("KOREA", 8.02),
       mencionaIva(),
       sinRangoDePrecios(),
       noCitaPrecios([40.53, 16.12, 12.96, 6.93, 9.95, 5.77], "otra pieza"),
       sinCodigosDeProducto(),
-      noDiceOriginal(),
+      noInventaPrecios(),
+    ],
+  },
+
+  {
+    id: "inv-bomba-marca-sin-procedencia-y-pais-sin-marca",
+    origen: "inventado",
+    proposito:
+      "Regla del dueño 2026-10-07: «MARCA (Procedencia) $precio» solo con lo que trae la herramienta. Una opción con marca y sin procedencia se dice «TAIHO $30,40» (sin paréntesis ni país inventado) y una opción que es solo un país se dice «China $25,90».",
+    notaOrigen:
+      "Inventado: la herramienta devuelve dos opciones de la misma pieza, una con `marca` TAIHO sin `procedencia` (marca de origen desconocido) y otra con `procedencia` China sin `marca`. Nombres de pieza y precios no son reales.",
+    turno: ["lead: Necesito una bomba de agua para el Rio 2018", "ia: ¿Completa?", "lead: sí"],
+    vehiculos: [RIO_2018],
+    catalogo: [
+      prod("BA-INV-1", "BOMBA DE AGUA KIA RIO 18-", 30.4, 5, { marca: "TAIHO" }),
+      prod("BA-INV-2", "BOMBA DE AGUA KIA RIO 18-", 25.9, 3, { procedencia: "China" }),
+    ],
+    diferencias: construirDiferencias([], {}, ["TAIHO", "China"]),
+    verificaciones: [
+      buscaAlgunaVez(),
+      citaProcedenciaConPrecio("TAIHO", 30.4),
+      citaProcedenciaConPrecio("China", 25.9),
+      noMenciona(/taiho\s*\(/, "le inventó una procedencia a TAIHO"),
+      noMenciona(
+        /(korea|japon|original|alemania|francia|india|taiwan)/,
+        "inventó una procedencia que la herramienta no trajo",
+      ),
+      mencionaIva(),
+      sinRangoDePrecios(),
+      sinCodigosDeProducto(),
       noInventaPrecios(),
     ],
   },

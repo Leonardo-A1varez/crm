@@ -329,6 +329,16 @@ export function citaProcedenciaConPrecio(procedencia: string, precio: number): V
       : `no presenta «${procedencia} $${precio}» junto. Respuesta: «${r.texto}»`;
 }
 
+/** La opción completa: «MOBIS (Original) $96,66». Marca, procedencia entre paréntesis y precio. */
+export function citaOpcion(marca: string, procedencia: string, precio: number): Verificacion {
+  const num = precio.toFixed(2).replace(".", "[.,]");
+  const re = new RegExp(String.raw`${marca}\s*\(\s*${procedencia}\s*\)[^0-9]{0,15}${num}`, "i");
+  return (r) =>
+    re.test(r.texto)
+      ? null
+      : `no presenta «${marca} (${procedencia}) $${precio}» con ese formato. Respuesta: «${r.texto}»`;
+}
+
 /** Ninguno de estos precios aparece (son de otras piezas que el cliente no pidió). */
 export function noCitaPrecios(precios: readonly number[], de: string): Verificacion {
   return (r) => {

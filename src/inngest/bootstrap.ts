@@ -39,6 +39,7 @@ import { SupabaseReglasEtiquetaRepository } from "@/server/repositories/reglas-e
 import { SupabaseTagsRepository } from "@/server/repositories/tags.supabase.repo";
 import { SupabaseMergeCandidatesRepository } from "@/server/repositories/merge-candidates.supabase.repo";
 import { SupabaseMessagesRepository } from "@/server/repositories/messages.supabase.repo";
+import { SupabaseCatalogoMarcasRepository } from "@/server/repositories/catalogo-marcas.supabase.repo";
 import { SupabaseCatalogoModelosRepository } from "@/server/repositories/catalogo-modelos.supabase.repo";
 import { SupabaseProductsRepository } from "@/server/repositories/productos.supabase.repo";
 import { SupabaseReactivationDispatchesRepository } from "@/server/repositories/reactivation-dispatches.supabase.repo";
@@ -220,7 +221,11 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   });
 
   // ===== Services Default impls (DI repos + LLMs) =====
-  const catalog = new DefaultCatalogMatcherService(productos);
+  const catalog = new DefaultCatalogMatcherService(
+    productos,
+    new SupabaseCatalogoMarcasRepository(db),
+    logger,
+  );
   const ruleEngine = new DefaultRuleEngineService(intents, rules, reglasEtiqueta);
   const intentClassifier = new DefaultIntentClassifierService(intents, llmBundle.intentClassifier);
   const twinExtractor = new DefaultTwinExtractorService(
@@ -430,6 +435,9 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       configProvider: agenteConfigProvider,
       ruleExecutions,
       turnClassifications,
+      // Misma auditoría que escribe el agente: el auto-handoff la lee para no
+      // contar como desconocido un turno atendido con una búsqueda.
+      toolExecutions,
       borradores,
       // Mismo motor que elige la respuesta enlatada: acá se le pide el otro
       // método, el que dice qué etiquetas corresponden al turno.
