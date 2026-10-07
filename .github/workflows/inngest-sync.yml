@@ -18,13 +18,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      DEPLOY_URL: ${{ github.event.deployment_status.environment_url }}
-      FALLBACK_URL: ${{ vars.PRODUCTION_URL || 'https://crm-wine-one-38.vercel.app' }}
+      # Siempre el dominio público de producción: la URL propia de cada deploy
+      # (environment_url) está detrás de Vercel Authentication y devuelve 302.
+      PROD_URL: ${{ vars.PRODUCTION_URL || 'https://crm-wine-one-38.vercel.app' }}
     steps:
       - name: PUT /api/webhooks/inngest
         run: |
-          base="${DEPLOY_URL:-$FALLBACK_URL}"
-          url="${base%/}/api/webhooks/inngest"
+          url="${PROD_URL%/}/api/webhooks/inngest"
+          # Margen para que el dominio de producción apunte al deploy nuevo.
+          sleep 20
           for i in 1 2 3; do
             echo "intento $i: PUT $url"
             code=$(curl -sS -X PUT -o resp.txt -w '%{http_code}' "$url" || echo 000)
