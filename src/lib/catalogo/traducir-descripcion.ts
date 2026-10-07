@@ -157,6 +157,22 @@ interface Indice {
 
 const cacheIndices = new WeakMap<ModeloDiccionario[], Indice>();
 
+/**
+ * Siglas de marca confirmadas por el dueño (2026-10-08) que el diccionario de modelos
+ * todavía no cubre con modelos: aun así la sigla corta el vehículo en curso. DH y DM
+ * (dirección hidráulica / mecánica) son piezas y no están acá; CN (Changan, «creo») espera
+ * su confirmación.
+ */
+const MARCAS_ADICIONALES: Readonly<Record<string, string>> = {
+  DT: "Datsun",
+  VW: "Volkswagen",
+  FORD: "Ford",
+  MIT: "Mitsubishi",
+};
+
+/** Siglas que son otra escritura de una sigla del diccionario (`MIT` es la `MT` explícita). */
+const ALIAS_DE_SIGLA: Readonly<Record<string, string>> = { MIT: "MT" };
+
 function construirIndice(diccionario: ModeloDiccionario[]): Indice {
   const enCache = cacheIndices.get(diccionario);
   if (enCache) return enCache;
@@ -173,6 +189,9 @@ function construirIndice(diccionario: ModeloDiccionario[]): Indice {
     if (lista) lista.push(m);
     else porClave.set(clave, [m]);
     maxPalabras = Math.max(maxPalabras, clave.split(" ").length);
+  }
+  for (const [sigla, nombre] of Object.entries(MARCAS_ADICIONALES)) {
+    if (!marcas.has(sigla)) marcas.set(sigla, nombre);
   }
   const indice = { marcas, porClave, maxPalabras };
   cacheIndices.set(diccionario, indice);
@@ -447,12 +466,13 @@ export function traducirDescripcion(
     const veniaDeMarca = trasMarca;
     trasMarca = false;
 
-    // Sigla de marca.
+    // Sigla de marca. `MIT` es Mitsubishi escrita completa: vale como `MT` sin su salvedad.
     if (indice.marcas.has(atomo)) {
+      const sigla = ALIAS_DE_SIGLA[atomo] ?? atomo;
       if (i === 0) {
-        contexto = atomo;
+        contexto = sigla;
         trasMarca = true;
-      } else if (atomo !== contexto) {
+      } else if (sigla !== contexto) {
         // `MT` a mitad de texto es transmisión manual salvo que abra un modelo Mitsubishi.
         let cambia = true;
         if (atomo === "MT") {
@@ -461,7 +481,7 @@ export function traducirDescripcion(
         }
         if (cambia) {
           cerrar();
-          contexto = atomo;
+          contexto = sigla;
           trasMarca = true;
         }
       }
