@@ -39,6 +39,7 @@ import { SupabaseReglasEtiquetaRepository } from "@/server/repositories/reglas-e
 import { SupabaseTagsRepository } from "@/server/repositories/tags.supabase.repo";
 import { SupabaseMergeCandidatesRepository } from "@/server/repositories/merge-candidates.supabase.repo";
 import { SupabaseMessagesRepository } from "@/server/repositories/messages.supabase.repo";
+import { SupabaseCatalogoAbreviaturasRepository } from "@/server/repositories/catalogo-abreviaturas.supabase.repo";
 import { SupabaseCatalogoMarcasRepository } from "@/server/repositories/catalogo-marcas.supabase.repo";
 import { SupabaseCatalogoModelosRepository } from "@/server/repositories/catalogo-modelos.supabase.repo";
 import { SupabaseProductsRepository } from "@/server/repositories/productos.supabase.repo";
@@ -225,6 +226,7 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     productos,
     new SupabaseCatalogoMarcasRepository(db),
     logger,
+    new SupabaseCatalogoAbreviaturasRepository(db),
   );
   const ruleEngine = new DefaultRuleEngineService(intents, rules, reglasEtiqueta);
   const intentClassifier = new DefaultIntentClassifierService(intents, llmBundle.intentClassifier);

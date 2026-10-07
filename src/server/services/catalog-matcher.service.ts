@@ -12,11 +12,30 @@ import {
   etiquetasDeCompatibilidad,
   normalizarCilindrada,
 } from "@/lib/catalogo/compatibilidad";
-import { filtrarPorCategoria, piezaPedida, type ConsultaDePieza } from "@/lib/catalogo/categoria";
-import { encabezadoCotizacion, textoRelacionadas } from "@/lib/catalogo/formato-cotizacion";
+import {
+  abreviaturaActiva,
+  esRuido,
+  indexarAbreviaturas,
+  INDICE_VACIO,
+  ladosDeFila,
+  type IndiceAbreviaturas,
+} from "@/lib/catalogo/abreviaturas";
+import {
+  categoriaDichaTalCual,
+  filtrarPorCategoria,
+  piezaPedida,
+  type ConsultaDePieza,
+} from "@/lib/catalogo/categoria";
+import {
+  encabezadoConPieza,
+  encabezadoCotizacion,
+  piezaDeLaConsulta,
+  textoRelacionadas,
+} from "@/lib/catalogo/formato-cotizacion";
 import { indexarMarcas, resolverOrigen, type MarcaCatalogo } from "@/lib/catalogo/procedencia";
 import { avisoSobremedida } from "@/lib/catalogo/sobremedida";
 import type { Logger } from "@/lib/observability/logger";
+import type { CatalogoAbreviaturasRepository } from "@/server/repositories/catalogo-abreviaturas.repo";
 import type { CatalogoMarcasRepository } from "@/server/repositories/catalogo-marcas.repo";
 import type { ProductoSearchHit, ProductsRepository } from "@/server/repositories/productos.repo";
 
@@ -59,7 +78,26 @@ export class DefaultCatalogMatcherService implements CatalogMatcherService {
     private readonly productos: ProductsRepository,
     private readonly marcas?: CatalogoMarcasRepository,
     private readonly logger?: Logger,
+    private readonly abreviaturas?: CatalogoAbreviaturasRepository,
   ) {}
+
+  /**
+   * Las abreviaturas del inventario. Si no se pueden leer, el agente sigue cotizando:
+   * sin la tabla la búsqueda cae al prefijo y el encabezado a lo que pidió el cliente.
+   */
+  private async leerAbreviaturas(): Promise<IndiceAbreviaturas> {
+    if (!this.abreviaturas) return INDICE_VACIO;
+    try {
+      return indexarAbreviaturas(
+        (await this.abreviaturas.listarActivas()).filter(abreviaturaActiva),
+      );
+    } catch (err) {
+      this.logger?.warn("catalog-matcher: no se pudieron leer las abreviaturas", {
+        error: err instanceof Error ? err.message : "desconocido",
+      });
+      return INDICE_VACIO;
+    }
+  }
 
   /**
    * Las marcas con su procedencia. Si no se pueden leer (la tabla todavía no está
@@ -85,7 +123,7 @@ export class DefaultCatalogMatcherService implements CatalogMatcherService {
     const anio = input.anio !== undefined && input.anio > 0 ? input.anio : undefined;
     const cilindrada = normalizarCilindrada(input.cilindrada);
 
-    const [hits, marcas] = await Promise.all([
+    const [hits, marcas, indice] = await Promise.all([
       this.productos.search({
         q: input.query,
         marca: textoUtil(input.marca),
@@ -95,6 +133,7 @@ export class DefaultCatalogMatcherService implements CatalogMatcherService {
         tope: TOPE_PARA_EL_AGENTE,
       }),
       this.leerMarcas(),
+      this.leerAbreviaturas(),
     ]);
 
     return armarSalida(
@@ -102,6 +141,7 @@ export class DefaultCatalogMatcherService implements CatalogMatcherService {
       { anio, cilindrada },
       { query: input.query, marca: textoUtil(input.marca), modelo: textoUtil(input.modelo) },
       marcas,
+      indice,
     );
   }
 }
@@ -114,10 +154,16 @@ export class DefaultCatalogMatcherService implements CatalogMatcherService {
 export function armarSalida(
   todos: readonly ProductoSearchHit[],
   dado: { anio?: number | undefined; cilindrada?: string | undefined },
-  consulta?: ConsultaDePieza,
+  consultaDada?: ConsultaDePieza,
   marcas: readonly MarcaCatalogo[] = [],
+  abreviaturas: IndiceAbreviaturas = INDICE_VACIO,
 ): BuscarRepuestoOutput {
   const indice = indexarMarcas(marcas);
+  // La consulta con las abreviaturas del inventario: «amortiguadores delanteros» se
+  // reconoce en `AMORTIG DELT`.
+  const consulta: ConsultaDePieza | undefined = consultaDada
+    ? { ...consultaDada, indice: abreviaturas }
+    : undefined;
   // La búsqueda de texto acepta cualquier palabra: `agua` trae los manguitos y
   // `bomba` la de combustible. Lo que solo roza la pieza pedida ni se ofrece ni
   // cuenta como alternativa de pieza (ver `categoria.ts`).
@@ -166,17 +212,21 @@ export function armarSalida(
   const matches: BuscarRepuestoMatch[] = visibles.map((h) => {
     const { marca, procedencia } = resolverOrigen(h.descripcion, h.codigo_fabrica, indice);
     const pieza = etiquetaDePieza(h.categoria, h.nombre);
+    const lados = ladosDeFila(h, abreviaturas).filter((l) => l === "izquierdo" || l === "derecho");
+    const lado = lados.length === 1 ? (lados[0] as "izquierdo" | "derecho") : undefined;
     const base: BuscarRepuestoMatch = {
       id: h.id,
       codigo_interno: h.codigo_interno,
       nombre: h.nombre,
       stock: h.stock,
       ...(pieza !== null ? { pieza } : {}),
+      ...(lado !== undefined ? { lado } : {}),
     };
     if (!hayQuePreguntar) {
       return {
         ...base,
-        precio: h.precio,
+        // Sin existencia no se cotiza: ni el precio asoma.
+        ...(h.stock > 0 ? { precio: h.precio } : { disponible: false as const }),
         ...(marca !== null ? { marca } : {}),
         ...(procedencia !== null ? { procedencia } : {}),
       };
@@ -196,33 +246,88 @@ export function armarSalida(
     };
   });
 
-  const aviso = avisoSobremedida(visibles);
+  // Existencia: lo que no hay no se cotiza. Si no hay NADA, la respuesta es «no disponible».
+  const conExistencia = matches.filter((m) => m.disponible === undefined).length;
+  const sinExistencia = !hayQuePreguntar && matches.length > 0 && conExistencia === 0;
+  const algunoSinExistencia = !hayQuePreguntar && matches.some((m) => m.disponible === false);
+  const avisoExistencia = sinExistencia
+    ? "Ninguna de estas piezas está disponible hoy (existencia 0): responde que no está disponible, sin precio ni estimado de llegada, y ofrece consultar con un vendedor."
+    : algunoSinExistencia
+      ? "Las piezas con `disponible: false` no están disponibles hoy (existencia 0): di que no está disponible, sin precio ni estimado. Cotiza solo las demás."
+      : null;
+  const aviso = [avisoSobremedida(visibles), avisoExistencia].filter((a) => a).join(" ") || null;
+
+  // Dos lados de la misma pieza (los amortiguadores LH y RH): una línea por lado, sin preguntar.
+  const ladosVisibles = new Set(matches.map((m) => m.lado).filter((l) => l !== undefined));
+  if (!hayQuePreguntar && !sinExistencia && ladosVisibles.size > 1) {
+    const base = diferencias ?? construirDiferencias([], {});
+    diferencias = {
+      ...base,
+      instruccion: [
+        base.instruccion,
+        "Los candidatos son de lados distintos: pon una línea por candidato con su `lado` " +
+          "(«Izquierdo $precio», «Derecho $precio»), sin preguntar el lado.",
+      ]
+        .filter((t) => t !== "")
+        .join(" "),
+    };
+  }
 
   // La cotización ya escrita (encabezado y cierre, de usted): el modelo solo la copia.
   // Solo con precios a la vista y una única pieza; con algo por preguntar no hay nada que cotizar.
   const piezasVisibles = [...new Set(matches.map((m) => m.pieza ?? ""))];
   const piezaUnica = piezasVisibles.length === 1 ? piezasVisibles[0] : undefined;
+  const vehiculoDeCotizacion = {
+    marca: consulta?.marca,
+    modelo: consulta?.modelo,
+    anio: dado.anio,
+    cilindrada: dado.cilindrada,
+  };
   const encabezado =
-    !hayQuePreguntar && matches.length > 0 && piezaUnica
-      ? encabezadoCotizacion(piezaUnica, {
-          marca: consulta?.marca,
-          modelo: consulta?.modelo,
-          anio: dado.anio,
-          cilindrada: dado.cilindrada,
-        })
+    !hayQuePreguntar && !sinExistencia && matches.length > 0 && piezaUnica
+      ? (encabezadoDeLaConsulta(visibles[0], consulta, abreviaturas, vehiculoDeCotizacion) ??
+        encabezadoCotizacion(piezaUnica, vehiculoDeCotizacion))
       : undefined;
   const relacionadasTexto =
-    !hayQuePreguntar && relacionadas.length > 0 ? textoRelacionadas(relacionadas, consulta) : null;
+    !hayQuePreguntar && !sinExistencia && relacionadas.length > 0
+      ? textoRelacionadas(relacionadas, consulta)
+      : null;
 
   // El aviso va primero a propósito: es lo que el modelo tiene que leer antes
   // de mirar precios.
   return {
     ...(aviso ? { aviso } : {}),
+    ...(sinExistencia ? { sin_existencia: true as const } : {}),
     matches,
     count: matches.length,
     ...(diferencias ? { diferencias } : {}),
-    ...(!hayQuePreguntar && relacionadas.length > 0 ? { relacionadas } : {}),
+    ...(!hayQuePreguntar && !sinExistencia && relacionadas.length > 0 ? { relacionadas } : {}),
     ...(encabezado ? { encabezado } : {}),
     ...(relacionadasTexto ? { relacionadas_texto: relacionadasTexto } : {}),
   };
+}
+
+/**
+ * El encabezado a partir de lo que pidió el cliente, cuando el grupo del ERP no sirve para
+ * escribirlo: un grupo basura (`REPUESTO EMG`) o una abreviatura que el cliente no diría
+ * (`AMORTIG DELT`). `null` si el grupo se entiende tal cual (el caso de siempre: se arma
+ * del grupo) o si no queda nada de la consulta.
+ */
+function encabezadoDeLaConsulta(
+  primero: ProductoSearchHit | undefined,
+  consulta: ConsultaDePieza | undefined,
+  abreviaturas: IndiceAbreviaturas,
+  vehiculo: {
+    marca?: string | undefined;
+    modelo?: string | undefined;
+    anio?: number | undefined;
+    cilindrada?: string | undefined;
+  },
+): string | null {
+  if (!primero || !consulta) return null;
+  if (categoriaDichaTalCual(primero.categoria, consulta) && !esRuido(primero, abreviaturas)) {
+    return null;
+  }
+  const pieza = piezaDeLaConsulta(consulta.query, vehiculo);
+  return pieza === null ? null : encabezadoConPieza(pieza, vehiculo);
 }

@@ -91,6 +91,12 @@ export const BuscarRepuestoMatchSchema = z.object({
   // Qué pieza es (su grupo y, si es un conjunto armado, qué parte). Solo cuando los
   // candidatos son de piezas distintas (ver `diferencias`).
   pieza: z.string().optional(),
+  // De qué lado es (los amortiguadores LH/RH). Ausente si el producto no dice lado o sirve
+  // para los dos. Se cotiza una línea por lado, no se pregunta.
+  lado: z.enum(["izquierdo", "derecho"]).optional(),
+  // false cuando la existencia es 0: no se trae precio y se dice «no disponible».
+  // Ausente si hay existencia.
+  disponible: z.literal(false).optional(),
   // Solo los atributos en los que los candidatos se diferencian (ver `diferencias`).
   anios: z.array(z.string()).optional(),
   cilindradas: z.array(z.string()).optional(),
@@ -121,6 +127,8 @@ export const BuscarRepuestoOutputSchema = z.object({
   diferencias: DiferenciasCandidatosSchema.optional(),
   /** Una advertencia que el agente tiene que respetar antes de cotizar (p. ej. la sobremedida). */
   aviso: z.string().optional(),
+  /** true si NINGUNA de las piezas tiene existencia: la respuesta es «no disponible», sin precios. */
+  sin_existencia: z.literal(true).optional(),
   /** Nombres de otras piezas (empaque, polea…) que también hay para este vehículo: se ofrecen sin precio. */
   relacionadas: z.array(z.string()).optional(),
   /** Primera línea de la cotización, ya escrita: pieza + vehículo + «(IVA incluido):». Solo cuando hay precios. */

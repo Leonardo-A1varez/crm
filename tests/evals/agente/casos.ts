@@ -7,6 +7,8 @@ import type {
   BuscarRepuestoMatch,
   BuscarRepuestoOutput,
 } from "@/lib/validation/ai";
+import { indexarAbreviaturas } from "@/lib/catalogo/abreviaturas";
+import { ABREVIATURAS, AMORTIGUADORES_NIRO } from "../../helpers/catalogo-abreviaturas-fixtures";
 import { BOMBA_DE_AGUA_ACCENT_2006 } from "../../helpers/catalogo-bomba-agua-accent-fixtures";
 import { BOMBA_DE_AGUA_RIO_18 } from "../../helpers/catalogo-bomba-agua-fixtures";
 import { MARCAS } from "../../helpers/catalogo-marcas-fixtures";
@@ -272,6 +274,48 @@ const SALIDA_BOMBA_T2 = armarSalida(
   { anio: 2018 },
   { query: "bomba de agua completa", marca: "Kia", modelo: "Rio" },
   MARCAS,
+);
+
+/**
+ * Lo que `buscar_productos` devolvió para 'amortiguadores delanteros' + Kia Niro 2020 con
+ * las abreviaturas cargadas (base local con el catálogo real del ERP, 2026-10-07), más las
+ * dos filas de `REPUESTO EMG` que la herramienta cotizó en crm-dev ese día. Pasadas por la
+ * función de producción: la salida no puede traer la basura ni el amortiguador trasero.
+ */
+const NIVEL_NIRO: Record<string, number> = { "23868": 5, "23869": 5 };
+const hitsNiro = (stock?: number): ProductoSearchHit[] =>
+  // Sin el trasero (23870): la búsqueda ya lo descartó porque pidió «delanteros».
+  AMORTIGUADORES_NIRO.filter((p) => p.codigo !== "23870").map(
+    (p, i): ProductoSearchHit => ({
+      id: `00000000-0000-4000-c000-${String(i + 1).padStart(12, "0")}`,
+      codigo_interno: p.codigo,
+      codigo_fabrica: null,
+      nombre: p.nombre,
+      categoria: p.categoria,
+      descripcion: p.descripcion,
+      precio: p.precio,
+      stock: stock ?? p.stock,
+      puntaje: NIVEL_NIRO[p.codigo] !== undefined ? 12 : 8,
+      nivel_vehiculo: NIVEL_NIRO[p.codigo] ?? -1,
+      compatibilidad: p.compatibilidad,
+    }),
+  );
+const INDICE_ABREVIATURAS = indexarAbreviaturas(ABREVIATURAS);
+const CONSULTA_NIRO = { query: "amortiguadores delanteros", marca: "Kia", modelo: "Niro" };
+const SALIDA_NIRO = armarSalida(
+  hitsNiro(),
+  { anio: 2020 },
+  CONSULTA_NIRO,
+  MARCAS,
+  INDICE_ABREVIATURAS,
+);
+// Mismo pedido pero sin existencia en ninguna: la respuesta es «no disponible».
+const SALIDA_NIRO_SIN_EXISTENCIA = armarSalida(
+  hitsNiro(0),
+  { anio: 2020 },
+  CONSULTA_NIRO,
+  MARCAS,
+  INDICE_ABREVIATURAS,
 );
 
 export const CASOS: CasoAgente[] = [
@@ -613,6 +657,34 @@ export const CASOS: CasoAgente[] = [
     ],
   },
 
+  {
+    id: "real-amortiguadores-delanteros-niro-2020-sin-basura",
+    origen: "real",
+    proposito:
+      "Falla real 2026-10-07 19:12 UTC: 'amortiguadores delanteros para el Kia niro 2020' devolvió dos filas de REPUESTO EMG sin existencia y el agente las cotizó con el encabezado «Repuesto emg Niro 2020». Ahora cotiza el amortiguador delantero izquierdo ($89,55) y derecho ($94,22), cada uno con su lado, con el encabezado de lo que pidió el cliente; nunca la basura ni el trasero.",
+    notaOrigen:
+      "El mensaje del cliente es real (crm-dev, sin datos personales); los argumentos de la herramienta son los reales (query, marca Kia, modelo Niro, año 2020). La salida de la tool es la de producción (`armarSalida`) sobre filas leídas de la base local con el catálogo real del ERP: 23868/23869 (AMORTIG DELT, MANDO, existencia 11 y 7) y las dos de REPUESTO EMG de crm-dev; las abreviaturas son de prueba (tests/helpers/catalogo-abreviaturas-fixtures.ts). La respuesta del agente no se corrió contra OpenAI al escribir el caso.",
+    turno: ["lead: Necesito los amortiguadores delanteros para el Kia niro 2020"],
+    catalogo: SALIDA_NIRO.matches,
+    salida: SALIDA_NIRO,
+    verificaciones: [
+      buscaAlgunaVez(),
+      argumento("modelo", "niro"),
+      argumento("anio", 2020),
+      citaPrecio(89.55),
+      citaPrecio(94.22),
+      dice(/izquierd/, "debería decir que uno es el izquierdo"),
+      dice(/derech/, "debería decir que el otro es el derecho"),
+      mencionaIva(),
+      cotizaConFormato(),
+      tratoDeUsted(),
+      noCitaPrecios([76.37, 63.64, 45.47], "la basura de REPUESTO EMG o el amortiguador trasero"),
+      noMenciona(/repuesto emg|emg/, "nombró el grupo basura del ERP"),
+      sinCodigosDeProducto(),
+      noInventaPrecios(),
+    ],
+  },
+
   // ───────────────────────────── Inventados ─────────────────────────────
   {
     id: "inv-otro-auto-con-anio",
@@ -669,6 +741,25 @@ export const CASOS: CasoAgente[] = [
     turno: ["lead: Tienen amortiguador delantero para el Aveo 2008?"],
     catalogo: [prod("AMD-300", "AMORTIGUADOR DEL CHEVROLET AVEO 08-12", 41.0, 0)],
     verificaciones: [buscaAlgunaVez(), noPrometeDisponibilidad(), noInventaCodigos()],
+  },
+  {
+    id: "inv-amortiguadores-niro-sin-existencia",
+    origen: "inventado",
+    proposito:
+      "Regla del dueño 2026-10-08: lo que no tiene existencia no se cotiza. Con los dos amortiguadores del Niro sin existencia (la herramienta no trae precios y avisa), el agente dice que no están disponibles, no da precio ni encabezado de cotización y puede ofrecer consultar con un vendedor.",
+    notaOrigen:
+      "Inventado: las filas son las reales del caso 'real-amortiguadores-delanteros-niro-2020-sin-basura' con la existencia forzada a 0 (en la base son 11 y 7). La salida de la tool es la de producción (`armarSalida`).",
+    turno: ["lead: Necesito los amortiguadores delanteros para el Kia niro 2020"],
+    catalogo: SALIDA_NIRO_SIN_EXISTENCIA.matches,
+    salida: SALIDA_NIRO_SIN_EXISTENCIA,
+    verificaciones: [
+      buscaAlgunaVez(),
+      noPrometeDisponibilidad(),
+      noCitaPrecios([89.55, 94.22, 76.37, 63.64], "piezas sin existencia"),
+      tratoDeUsted(),
+      sinCodigosDeProducto(),
+      noInventaPrecios(),
+    ],
   },
   {
     id: "inv-solo-hay-otra-pieza",
