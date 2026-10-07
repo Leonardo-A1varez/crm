@@ -42,6 +42,8 @@ import {
   type SessionRecordatoriosRepository,
 } from "@/server/repositories/session-recordatorios.repo";
 import type { TagsRepository } from "@/server/repositories/tags.repo";
+import { busquedaConResultados } from "@/lib/agente/escalado";
+import type { ToolExecutionsRepository } from "@/server/repositories/tool-executions.repo";
 import type { TurnClassificationsRepository } from "@/server/repositories/turn-classifications.repo";
 import type { AgentConfigProvider } from "@/server/services/agente/config-provider";
 import {
@@ -124,6 +126,12 @@ export interface OnMessageReceivedDeps {
   handoff?: HandoffService;
   ruleExecutions: RuleExecutionsRepository;
   turnClassifications: TurnClassificationsRepository;
+  /**
+   * Las herramientas que el agente llamó en cada turno previo. El auto-handoff las
+   * lee para no contar como «desconocido» un turno que el agente atendió con una
+   * búsqueda con resultados. Sin él solo se mira el turno actual.
+   */
+  toolExecutions?: Pick<ToolExecutionsRepository, "listByMensajeIds">;
   /**
    * Qué etiquetas manda colgar el intent de este turno. Es el mismo motor que
    * elige la respuesta enlatada, con su otro método.
@@ -1216,17 +1224,25 @@ export async function onMessageReceivedHandler(
     // turno actual va en memoria —su auditoría puede no estar escrita todavía—
     // y el umbral viaja con el evento para que las dos puntas usen la misma
     // config aunque el admin la cambie en el medio.
+    //
+    // Un turno que el agente atendió buscando en el catálogo y encontrando
+    // candidatos no es «desconocido» aunque el clasificador no haya reconocido
+    // intent (con pocos intents activos pasa en cada mensaje de una cotización
+    // normal): ese turno corta la racha en vez de alargarla.
     await step.run("emit-handoff-eval", async () => {
       const umbral = config.escalar_umbral_intents;
+      const atendido = (agentResult.tool_calls ?? []).some((c) =>
+        busquedaConResultados(c.name, c.result, null),
+      );
       const previos =
-        classification.intent_nombre === null
+        classification.intent_nombre === null && !atendido
           ? await turnosPreviosSinIntent(session.id, inbound.id, umbral - 1, deps)
           : [];
       await deps.emit({
         name: "lead-session/auto-handoff.evaluate",
         data: {
           leadSessionId: session.id,
-          recentClassifications: [...previos, classification],
+          recentClassifications: atendido ? [] : [...previos, classification],
           threshold: umbral,
         },
       });
@@ -1281,7 +1297,7 @@ async function turnosPreviosSinIntent(
   sessionId: UUID,
   mensajeActualId: UUID,
   max: number,
-  deps: Pick<OnMessageReceivedDeps, "messages" | "turnClassifications">,
+  deps: Pick<OnMessageReceivedDeps, "messages" | "turnClassifications" | "toolExecutions">,
 ): Promise<IntentClassification[]> {
   if (max <= 0) return [];
   const entrantes = await deps.messages.listBySessionId(sessionId, {
@@ -1292,10 +1308,25 @@ async function turnosPreviosSinIntent(
     .filter((m) => m.id !== mensajeActualId)
     .reverse()
     .slice(0, max);
+  // Los turnos previos que el agente atendió con una búsqueda con resultados.
+  // Se leen de la auditoría de herramientas (`mensaje_id` = el entrante del turno)
+  // en una sola consulta. Sin el repositorio, ninguno cuenta como atendido.
+  const atendidos = new Set<UUID>();
+  if (deps.toolExecutions && previos.length > 0) {
+    const llamadas = await deps.toolExecutions.listByMensajeIds(
+      sessionId,
+      previos.map((m) => m.id),
+    );
+    for (const l of llamadas) {
+      if (l.mensaje_id !== null && busquedaConResultados(l.tool_name, l.result, l.error)) {
+        atendidos.add(l.mensaje_id);
+      }
+    }
+  }
   const racha: IntentClassification[] = [];
   for (const m of previos) {
     const turno = await deps.turnClassifications.findByMensajeId(m.id);
-    if (turno === null || turno.intent_nombre !== null) break;
+    if (turno === null || turno.intent_nombre !== null || atendidos.has(m.id)) break;
     racha.push({ intent_nombre: null, confidence: turno.confidence });
   }
   return racha.reverse();

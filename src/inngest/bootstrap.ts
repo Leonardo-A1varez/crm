@@ -435,6 +435,9 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       configProvider: agenteConfigProvider,
       ruleExecutions,
       turnClassifications,
+      // Misma auditoría que escribe el agente: el auto-handoff la lee para no
+      // contar como desconocido un turno atendido con una búsqueda.
+      toolExecutions,
       borradores,
       // Mismo motor que elige la respuesta enlatada: acá se le pide el otro
       // método, el que dice qué etiquetas corresponden al turno.

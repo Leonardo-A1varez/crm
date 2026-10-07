@@ -25,6 +25,14 @@ export interface ToolExecutionsRepository {
    * granularidad y un turno rápido puede empatar contra el entrante.
    */
   listBySessionEntre(sessionId: UUID, desde: Date, hasta: Date): Promise<ToolExecution[]>;
+  /**
+   * Las herramientas que se llamaron en los turnos de estos entrantes (por
+   * `mensaje_id`), de una sesión. Solo ve las filas ancladas: las viejas, con
+   * `mensaje_id: null`, no aparecen (ver `listBySessionEntre`). Lo usa el
+   * auto-handoff para saber si un turno previo sin intent fue atendido con una
+   * búsqueda. Lista vacía si no hay ids.
+   */
+  listByMensajeIds(sessionId: UUID, mensajeIds: readonly UUID[]): Promise<ToolExecution[]>;
 }
 
 // Default cuando audit no se requiere (tests rapidos). Operaciones no-op.
@@ -45,6 +53,9 @@ export class NoopToolExecutionsRepository implements ToolExecutionsRepository {
     return null;
   }
   async listBySessionEntre(_sessionId: UUID, _desde: Date, _hasta: Date): Promise<ToolExecution[]> {
+    return [];
+  }
+  async listByMensajeIds(_sessionId: UUID, _mensajeIds: readonly UUID[]): Promise<ToolExecution[]> {
     return [];
   }
 }
@@ -92,6 +103,16 @@ export class InMemoryToolExecutionsRepository implements ToolExecutionsRepositor
           t.lead_session_id === sessionId &&
           t.created_at.getTime() >= desde.getTime() &&
           t.created_at.getTime() <= hasta.getTime(),
+      )
+      .sort((a, b) => a.created_at.getTime() - b.created_at.getTime())
+      .map(cloneToolExecution);
+  }
+
+  async listByMensajeIds(sessionId: UUID, mensajeIds: readonly UUID[]): Promise<ToolExecution[]> {
+    const ids = new Set(mensajeIds);
+    return Array.from(this.store.values())
+      .filter(
+        (t) => t.lead_session_id === sessionId && t.mensaje_id !== null && ids.has(t.mensaje_id),
       )
       .sort((a, b) => a.created_at.getTime() - b.created_at.getTime())
       .map(cloneToolExecution);

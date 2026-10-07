@@ -8,6 +8,7 @@ import { InMemoryMessagesRepository } from "@/server/repositories/messages.repo"
 import { InMemoryIntentsRepository } from "@/server/repositories/intents.repo";
 import { InMemoryRulesRepository } from "@/server/repositories/rules.repo";
 import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
+import { InMemoryToolExecutionsRepository } from "@/server/repositories/tool-executions.repo";
 import { InMemoryLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
 import { InMemoryDifusionSupresionesRepository } from "@/server/repositories/difusion-supresiones.repo";
 import { InMemoryReglasEtiquetaRepository } from "@/server/repositories/reglas-etiqueta.repo";
@@ -74,6 +75,8 @@ function makeCtx(config: Partial<AgenteConfig> = {}) {
     new InMemoryReglasEtiquetaRepository(),
   );
   const configProvider = new StaticAgentConfigProvider({ ...CONFIG_DE_FABRICA, ...config });
+  const productos = new InMemoryProductsRepository();
+  const toolExecutions = new InMemoryToolExecutionsRepository();
   const emitted: EmittedEvent[] = [];
   /** Qué mensajes (por contenido) intercepta un flujo. */
   const interceptados = new Set<string>();
@@ -95,9 +98,12 @@ function makeCtx(config: Partial<AgenteConfig> = {}) {
     aiAgent: new DefaultAiAgentService(
       sessions,
       ruleEngine,
-      new DefaultCatalogMatcherService(new InMemoryProductsRepository()),
+      new DefaultCatalogMatcherService(productos),
       agentLLM,
+      undefined,
+      toolExecutions,
     ),
+    toolExecutions,
     ruleExecutions: new InMemoryRuleExecutionsRepository(),
     turnClassifications: new InMemoryTurnClassificationsRepository(),
     ruleEngine,
@@ -122,6 +128,20 @@ function makeCtx(config: Partial<AgenteConfig> = {}) {
     return onMessageReceivedHandler({ parsed: parsed(contenido) }, deps);
   }
 
+  /**
+   * Un turno del lead sin intent donde el agente busca en el catálogo y contesta:
+   * la herramienta corre de verdad (catálogo del test) y queda auditada.
+   */
+  async function turnoConBusqueda(contenido: string, query: string) {
+    intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    agentLLM.enqueue(async (input) => {
+      const args = { query };
+      const result = await input.tools.buscar_repuesto(args);
+      return { text: "respuesta", toolCalls: [{ name: "buscar_repuesto", args, result }] };
+    });
+    return onMessageReceivedHandler({ parsed: parsed(contenido) }, deps);
+  }
+
   /** Lo que hace `auto-handoff` con el último evaluate que emitió el pipeline. */
   async function evaluarUltimo() {
     const evals = emitted.filter(
@@ -139,7 +159,18 @@ function makeCtx(config: Partial<AgenteConfig> = {}) {
     );
   }
 
-  return { deps, sessions, intents, rules, handoff, interceptados, turno, evaluarUltimo };
+  return {
+    deps,
+    sessions,
+    intents,
+    rules,
+    handoff,
+    interceptados,
+    productos,
+    turno,
+    turnoConBusqueda,
+    evaluarUltimo,
+  };
 }
 
 describe("auto-handoff por intents desconocidos, desde el pipeline", () => {
@@ -246,5 +277,86 @@ describe("auto-handoff por intents desconocidos, desde el pipeline", () => {
 
     expect((await ctx.evaluarUltimo()).paused).toBe(false);
     expect((await ctx.sessions.findById(out.sessionId))!.ia_pausada).toBe(false);
+  });
+});
+
+describe("auto-handoff: un turno que el agente atendió con una búsqueda no es desconocido", () => {
+  // Incidente real: con un solo intent activo, 5 mensajes seguidos de una
+  // cotización normal quedaron con `turn_classifications.intent_id = null` y la
+  // IA se pausó con «5 intents desconocidos consecutivos» a media cotización.
+  const bomba = {
+    codigo_interno: "B-1",
+    sku_proveedor: null,
+    nombre: "BOMBA DE AGUA KIA RIO 18-",
+    descripcion: "MOBIS",
+    categoria: "BOMBA DE AGUA",
+    compatibilidad: [],
+    precio: 96.66,
+    stock: 2,
+    imagen_url: null,
+    activo: true,
+  };
+
+  test("la secuencia real: 5 mensajes sin intent, todos con búsqueda y cotización, no pausan (umbral 5)", async () => {
+    const ctx = makeCtx({ escalar_umbral_intents: 5 });
+    await ctx.productos.create(bomba);
+
+    let sessionId = "";
+    for (const m of ["bomba de agua rio 18", "la completa", "2018", "si", "cuanto sale"]) {
+      const out = await ctx.turnoConBusqueda(m, "bomba de agua");
+      sessionId = out.sessionId;
+      expect((await ctx.evaluarUltimo()).paused).toBe(false);
+    }
+    expect((await ctx.sessions.findById(sessionId))!.ia_pausada).toBe(false);
+  });
+
+  test("umbral 2: dos turnos sin intent con búsqueda y resultados no pausan", async () => {
+    const ctx = makeCtx({ escalar_umbral_intents: 2 });
+    await ctx.productos.create(bomba);
+
+    await ctx.turnoConBusqueda("bomba de agua rio 18", "bomba de agua");
+    await ctx.turnoConBusqueda("la completa", "bomba de agua");
+
+    expect((await ctx.evaluarUltimo()).paused).toBe(false);
+  });
+
+  test("un turno atendido corta la racha: después, un solo turno sin intent y sin búsqueda no pausa", async () => {
+    const ctx = makeCtx({ escalar_umbral_intents: 2 });
+    await ctx.productos.create(bomba);
+
+    await ctx.turnoConBusqueda("bomba de agua rio 18", "bomba de agua");
+    await ctx.turno("gracias", null);
+
+    expect((await ctx.evaluarUltimo()).paused).toBe(false);
+  });
+
+  test("un turno atendido al final tampoco pausa aunque el anterior fuera desconocido", async () => {
+    const ctx = makeCtx({ escalar_umbral_intents: 2 });
+    await ctx.productos.create(bomba);
+
+    await ctx.turno("asdf", null);
+    await ctx.turnoConBusqueda("bomba de agua rio 18", "bomba de agua");
+
+    expect((await ctx.evaluarUltimo()).paused).toBe(false);
+  });
+
+  test("una búsqueda sin resultados no cuenta como atendida: dos seguidas siguen pausando", async () => {
+    const ctx = makeCtx({ escalar_umbral_intents: 2 });
+
+    await ctx.turnoConBusqueda("algo raro", "pieza inexistente");
+    const out = await ctx.turnoConBusqueda("otra cosa rara", "pieza inexistente");
+
+    expect((await ctx.evaluarUltimo()).paused).toBe(true);
+    expect((await ctx.sessions.findById(out.sessionId))!.ia_pausada).toBe(true);
+  });
+
+  test("sin búsqueda el escalado sigue igual: dos turnos sin intent pausan", async () => {
+    const ctx = makeCtx({ escalar_umbral_intents: 2 });
+    await ctx.productos.create(bomba);
+
+    await ctx.turno("asdf", null);
+    await ctx.turno("qwer", null);
+
+    expect((await ctx.evaluarUltimo()).paused).toBe(true);
   });
 });
