@@ -13,6 +13,7 @@ import {
   normalizarCilindrada,
 } from "@/lib/catalogo/compatibilidad";
 import { filtrarPorCategoria, piezaPedida, type ConsultaDePieza } from "@/lib/catalogo/categoria";
+import { encabezadoCotizacion, textoRelacionadas } from "@/lib/catalogo/formato-cotizacion";
 import { indexarMarcas, resolverOrigen, type MarcaCatalogo } from "@/lib/catalogo/procedencia";
 import { avisoSobremedida } from "@/lib/catalogo/sobremedida";
 import type { Logger } from "@/lib/observability/logger";
@@ -197,6 +198,22 @@ export function armarSalida(
 
   const aviso = avisoSobremedida(visibles);
 
+  // La cotización ya escrita (encabezado y cierre, de usted): el modelo solo la copia.
+  // Solo con precios a la vista y una única pieza; con algo por preguntar no hay nada que cotizar.
+  const piezasVisibles = [...new Set(matches.map((m) => m.pieza ?? ""))];
+  const piezaUnica = piezasVisibles.length === 1 ? piezasVisibles[0] : undefined;
+  const encabezado =
+    !hayQuePreguntar && matches.length > 0 && piezaUnica
+      ? encabezadoCotizacion(piezaUnica, {
+          marca: consulta?.marca,
+          modelo: consulta?.modelo,
+          anio: dado.anio,
+          cilindrada: dado.cilindrada,
+        })
+      : undefined;
+  const relacionadasTexto =
+    !hayQuePreguntar && relacionadas.length > 0 ? textoRelacionadas(relacionadas, consulta) : null;
+
   // El aviso va primero a propósito: es lo que el modelo tiene que leer antes
   // de mirar precios.
   return {
@@ -205,5 +222,7 @@ export function armarSalida(
     count: matches.length,
     ...(diferencias ? { diferencias } : {}),
     ...(!hayQuePreguntar && relacionadas.length > 0 ? { relacionadas } : {}),
+    ...(encabezado ? { encabezado } : {}),
+    ...(relacionadasTexto ? { relacionadas_texto: relacionadasTexto } : {}),
   };
 }

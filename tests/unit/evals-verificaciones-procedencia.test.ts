@@ -4,11 +4,14 @@ import type { ResultadoTurno } from "../evals/agente/casos";
 import {
   citaOpcion,
   citaProcedenciaConPrecio,
+  cotizaConFormato,
   noCitaPrecios,
   noDiceOriginal,
+  noRepregunta,
   preguntaPieza,
   sinCodigosDeProducto,
   sinRangoDePrecios,
+  tratoDeUsted,
 } from "../evals/agente/verificaciones";
 
 // Las verificaciones del eval son regex sobre texto: un falso positivo cuesta una
@@ -88,6 +91,59 @@ describe("noCitaPrecios, sinCodigosDeProducto, noDiceOriginal", () => {
   test("noDiceOriginal", () => {
     expect(noDiceOriginal()(turno("MOBIS (original) $12,96"))).not.toBeNull();
     expect(noDiceOriginal()(turno("MOBIS $12,96"))).toBeNull();
+  });
+});
+
+const COTIZACION = [
+  "Bomba de agua Accent 2006 (IVA incluido):",
+  "JUNGWOO (Korea) $22,01",
+  "MOBIS (Original) $66,18",
+  "Si necesita la polea o el empaque, también dispongo. ¿Desea que le cotice?",
+].join("\n");
+
+describe("cotizaConFormato: encabezado, una opción por línea, IVA una sola vez", () => {
+  test("pasa con la cotización del dueño, con o sin la línea de relacionadas", () => {
+    expect(cotizaConFormato()(turno(COTIZACION))).toBeNull();
+    expect(cotizaConFormato()(turno(COTIZACION.split("\n").slice(0, 3).join("\n")))).toBeNull();
+  });
+
+  test.each([
+    ["la primera línea no es el encabezado", "JUNGWOO (Korea) $22,01\nMOBIS (Original) $66,18"],
+    [
+      "repite el IVA en cada opción",
+      "Bomba de agua Accent 2006 (IVA incluido):\nJUNGWOO (Korea) $22,01 (IVA incluido)",
+    ],
+    [
+      "junta las opciones en una línea",
+      "Bomba de agua Accent 2006 (IVA incluido):\nJUNGWOO (Korea) $22,01 · MOBIS (Original) $66,18",
+    ],
+  ])("falla si %s", (_n, t) => {
+    expect(cotizaConFormato()(turno(t))).not.toBeNull();
+  });
+});
+
+describe("tratoDeUsted", () => {
+  test("pasa con la cotización y con formas de usted", () => {
+    expect(tratoDeUsted()(turno(COTIZACION))).toBeNull();
+    expect(tratoDeUsted()(turno("¿Desea que le confirme el año de su Accent?"))).toBeNull();
+  });
+
+  test.each([
+    "¿Querés que te la cotice?",
+    "Confirmame el año",
+    "¿Necesitás la bomba?",
+    "¿De qué año es tu Accent?",
+    "¿Te lo cotizo?",
+    "Contame el modelo",
+  ])("falla con %j", (t) => {
+    expect(tratoDeUsted()(turno(t))).not.toBeNull();
+  });
+});
+
+describe("noRepregunta: la línea de piezas relacionadas no es una repregunta", () => {
+  test("pasa con el cierre «Si necesita la polea…» y falla con una repregunta de verdad", () => {
+    expect(noRepregunta()(turno(COTIZACION))).toBeNull();
+    expect(noRepregunta()(turno("¿Necesita la bomba o la polea?"))).not.toBeNull();
   });
 });
 

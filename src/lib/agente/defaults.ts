@@ -65,5 +65,5 @@ export const CONFIG_DE_FABRICA: AgenteConfigValores = {
   horario_equipo: horarioSinRangos(),
   plantilla_fuera_horario: "",
   plantilla_escalado:
-    "Necesito que revisemos tu caso antes de continuar. Dejé la conversación marcada para revisión administrativa y no voy a confirmar precios ni condiciones hasta que sea revisada.",
+    "Necesito que revisemos su caso antes de continuar. Dejé la conversación marcada para revisión administrativa y no voy a confirmar precios ni condiciones hasta que sea revisada.",
 };

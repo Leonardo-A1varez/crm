@@ -100,6 +100,8 @@ import {
   dice,
   citaOpcion,
   citaProcedenciaConPrecio,
+  cotizaConFormato,
+  tratoDeUsted,
   noCitaPrecios,
   preguntaPieza,
   noMenciona,
@@ -395,7 +397,7 @@ export const CASOS: CasoAgente[] = [
       "Primer mensaje y año ('2006') reales de crm-dev, 2026-10-06. La pregunta del medio es reconstruida. La salida de la tool es la de producción (`armarSalida`) sobre las filas reales del catálogo del ERP que devolvió la búsqueda de esa conversación (tests/helpers/catalogo-ranking-fixtures.ts).",
     turno: [
       "lead: Necesito un termostato para el Accent 1.6",
-      "ia: ¿De qué año es tu Accent?",
+      "ia: ¿De qué año es su Accent?",
       "lead: 2006",
     ],
     catalogo: SALIDA_ACCENT_2006.matches,
@@ -422,7 +424,7 @@ export const CASOS: CasoAgente[] = [
       "El turno del cliente es inventado. Catálogo: las filas reales del caso 'real-termostato-accent-cotiza-el-termostato', con la consulta 'termostato completo'.",
     turno: [
       "lead: Necesito un termostato completo para el Accent 1.6",
-      "ia: ¿De qué año es tu Accent?",
+      "ia: ¿De qué año es su Accent?",
       "lead: 2006",
     ],
     catalogo: SALIDA_ACCENT_2006_COMPLETO.matches,
@@ -452,6 +454,8 @@ export const CASOS: CasoAgente[] = [
       citaOpcion("MOBIS", "Original", 96.66),
       citaOpcion("JUNGWOO", "Korea", 21.51),
       mencionaIva(),
+      cotizaConFormato(),
+      tratoDeUsted(),
       dice(/polea/, "debería ofrecer la polea por su nombre"),
       noCitaPrecios([7.72, 41.43], "la polea"),
       noMenciona(
@@ -478,6 +482,10 @@ export const CASOS: CasoAgente[] = [
       citaOpcion("JUNGWOO", "Korea", 22.01),
       citaOpcion("MOBIS", "Original", 66.18),
       mencionaIva(),
+      cotizaConFormato(),
+      tratoDeUsted(),
+      dice(/polea/, "debería ofrecer la polea por su nombre"),
+      dice(/empaque/, "debería ofrecer el empaque por su nombre"),
       noCitaPrecios(
         [0.64, 3.19, 7.16, 5.38, 10.02, 19.58, 21.32, 110],
         "los empaques, la polea u otra bomba",
@@ -496,7 +504,7 @@ export const CASOS: CasoAgente[] = [
       "Los dos mensajes del cliente son reales (crm-dev, 2026-10-07 04:15 y 04:18 UTC). La pregunta de la IA del medio es reconstruida, y el auto guardado Kia Rio 2018 también (se deduce de los argumentos reales de la herramienta: marca Kia, año 2018). La salida de la tool es la de producción sobre las filas reales de crm-dev (tests/helpers/catalogo-bomba-agua-fixtures.ts), para la búsqueda 'bomba de agua completa'.",
     turno: [
       "lead: Necesito Una bomba de agua para el rio 18",
-      "ia: ¿Necesitás la bomba de agua completa o la polea de la bomba?",
+      "ia: ¿Necesita la bomba de agua completa o la polea de la bomba?",
       "lead: La bomba de agua completa",
     ],
     vehiculos: [RIO_2018],
@@ -507,6 +515,8 @@ export const CASOS: CasoAgente[] = [
       citaOpcion("MOBIS", "Original", 96.66),
       citaOpcion("JUNGWOO", "Korea", 21.51),
       mencionaIva(),
+      cotizaConFormato(),
+      tratoDeUsted(),
       noRepregunta(),
       sinCodigosDeProducto(),
       noCitaPrecios(
@@ -525,9 +535,9 @@ export const CASOS: CasoAgente[] = [
       "El turno del cliente es inventado (así lo espera el dueño). Catálogo: las filas reales del caso 'real-termostato-accent-pide-la-pieza'.",
     turno: [
       "lead: Necesito un termostato para el Accent 1.6",
-      "ia: ¿De qué año es tu Accent?",
+      "ia: ¿De qué año es su Accent?",
       "lead: 2006",
-      "ia: ¿Necesitás solo el termostato, la base/tapa o el conjunto completo?",
+      "ia: ¿Necesita solo el termostato, la base/tapa o el conjunto completo?",
       "lead: solo el termostato",
     ],
     catalogo: SALIDA_ACCENT_2006.matches,
@@ -537,6 +547,8 @@ export const CASOS: CasoAgente[] = [
       citaOpcion("MOBIS", "Original", 12.96),
       citaProcedenciaConPrecio("KOREA", 6.93),
       mencionaIva(),
+      cotizaConFormato(),
+      tratoDeUsted(),
       sinRangoDePrecios(),
       noCitaPrecios([40.53, 16.12, 24.82, 8.02, 9.95, 5.77], "el conjunto, la base o la tapa"),
       sinCodigosDeProducto(),
@@ -552,9 +564,9 @@ export const CASOS: CasoAgente[] = [
       "El turno del cliente es inventado. Catálogo: las filas reales del caso 'real-termostato-accent-pide-la-pieza'.",
     turno: [
       "lead: Necesito un termostato para el Accent 1.6",
-      "ia: ¿De qué año es tu Accent?",
+      "ia: ¿De qué año es su Accent?",
       "lead: 2006",
-      "ia: ¿Necesitás solo el termostato, la base/tapa o el conjunto completo?",
+      "ia: ¿Necesita solo el termostato, la base/tapa o el conjunto completo?",
       "lead: la base nomás",
     ],
     catalogo: SALIDA_ACCENT_2006_BASE.matches,
@@ -705,7 +717,7 @@ export const CASOS: CasoAgente[] = [
     proposito:
       "Con descuento máximo 0 (config de fábrica), no ofrece descuentos: deriva a un vendedor.",
     turno: [
-      "ia: El radiador para tu Aveo cuesta $37,13 IVA incluido.",
+      "ia: El radiador para su Aveo cuesta $37,13 IVA incluido.",
       "lead: Me haces un descuento del 30%?",
     ],
     vehiculos: [AVEO_2005],

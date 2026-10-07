@@ -39,32 +39,32 @@ const TEMPLATES: Record<MotivoPerdida | "default", { name: string; build: Templa
   precio: {
     name: "reactivacion_precio_v1",
     build: (n) =>
-      `Hola ${n}! Te escribimos porque tenemos nuevas opciones de precio en el repuesto que consultaste. ¿Querés que te pasemos la cotización actualizada?`,
+      `Hola ${n}! Le escribimos porque tenemos nuevas opciones de precio en el repuesto que consultó. ¿Desea que le pasemos la cotización actualizada?`,
   },
   stock: {
     name: "reactivacion_stock_v1",
     build: (n) =>
-      `Hola ${n}! Buenas noticias: nos volvió a entrar stock del repuesto que buscabas. ¿Seguís interesado?`,
+      `Hola ${n}! Buenas noticias: nos volvió a entrar stock del repuesto que buscaba. ¿Sigue interesado?`,
   },
   tiempo: {
     name: "reactivacion_tiempo_v1",
     build: (n) =>
-      `Hola ${n}! Ahora tenemos mejores tiempos de entrega para el repuesto que consultaste. ¿Te pasamos las opciones?`,
+      `Hola ${n}! Ahora tenemos mejores tiempos de entrega para el repuesto que consultó. ¿Le pasamos las opciones?`,
   },
   no_responde: {
     name: "reactivacion_no_responde_v1",
     build: (n) =>
-      `Hola ${n}! Quedó pendiente tu consulta de repuestos. Si todavía lo necesitás, respondé este mensaje y lo retomamos.`,
+      `Hola ${n}! Quedó pendiente su consulta de repuestos. Si todavía lo necesita, responda este mensaje y lo retomamos.`,
   },
   otro: {
     name: "reactivacion_otro_v1",
     build: (n) =>
-      `Hola ${n}! Hace un tiempo consultaste por un repuesto. Si seguís buscándolo, avisanos y te ayudamos.`,
+      `Hola ${n}! Hace un tiempo consultó por un repuesto. Si sigue buscándolo, avísenos y le ayudamos.`,
   },
   default: {
     name: "reactivacion_generica_v1",
     build: (n) =>
-      `Hola ${n}! Te escribimos de la casa de repuestos. ¿Pudiste resolver lo que estabas buscando? Seguimos a disposición.`,
+      `Hola ${n}! Le escribimos de la casa de repuestos. ¿Pudo resolver lo que estaba buscando? Seguimos a disposición.`,
   },
 };
 

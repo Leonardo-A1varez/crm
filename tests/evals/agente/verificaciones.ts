@@ -177,14 +177,14 @@ export function noInventaCodigos(): Verificacion {
 /** Dice que no lo tiene / no hay stock. */
 export function noPrometeDisponibilidad(): Verificacion {
   return dice(
-    /(no (te |se )?(lo |la |los |las )?(tengo|tenemos|hay|cuento|cuenta|contamos|dispongo|disponemos|encuentr|encontr|figur|aparec)|no (esta|estan) disponible|sin stock|sin disponibilidad|agotad|lamentablemente|no dispon)/i,
+    /(no (te |le |se )?(lo |la |los |las )?(tengo|tenemos|hay|cuento|cuenta|contamos|dispongo|disponemos|encuentr|encontr|figur|aparec)|no (esta|estan) disponible|sin stock|sin disponibilidad|agotad|lamentablemente|no dispon)/i,
     "debería decir que no lo tiene / sin stock",
   );
 }
 
 export function derivaAHumano(): Verificacion {
   return dice(
-    /(vendedor|asesor|humano|companer|colega|equipo|persona|ejecutiv|encargad|responsable|supervisor|representante|te (va a |voy a )?(contact|comunic)|se (va a )?comunic|derivo|derivar|pasar? (tu|el) (caso|consulta))/i,
+    /(vendedor|asesor|humano|companer|colega|equipo|persona|ejecutiv|encargad|responsable|supervisor|representante|(te|le) (va a |voy a )?(contact|comunic)|se (va a )?comunic|derivo|derivar|pasar? (tu|su|el) (caso|consulta))/i,
     "debería derivarlo a una persona del equipo",
   );
 }
@@ -197,7 +197,7 @@ export function derivaAHumano(): Verificacion {
 function pideAlgo(texto: string): boolean {
   return (
     /[?¿]/.test(texto) ||
-    /\b(decime|dime|contame|cuentame|avisame|indicame|pasame|confirmame|aclarame|necesito (saber|que me)|me (decis|dices|confirmas|indicas|pasas|avisas)|por favor (indic|inform|conf))/.test(
+    /\b(decime|dime|contame|cuentame|avisame|indicame|pasame|confirmame|aclarame|digame|indiqueme|informeme|confirmeme|aclareme|avisenos|necesito (saber|que me)|me (decis|dices|confirmas|indicas|pasas|avisas|indica|informa|confirma|avisa)|por favor (indic|inform|conf))/.test(
       norm(texto),
     )
   );
@@ -209,7 +209,7 @@ function pideAlgo(texto: string): boolean {
  */
 export function noVuelveAPedirElModelo(): Verificacion {
   return (r) =>
-    /(que (modelo|auto|vehiculo|marca)|cual (es )?(el|la) (modelo|marca)|(modelo|marca) (es|de tu|del))/.test(
+    /(que (modelo|auto|vehiculo|marca)|cual (es )?(el|la) (modelo|marca)|(modelo|marca) (es|de tu|de su|del))/.test(
       norm(r.texto),
     )
       ? `volvió a pedir el modelo o la marca que el cliente ya nombró. Respuesta: «${r.texto}»`
@@ -245,7 +245,7 @@ export function siBusca(...verificaciones: Verificacion[]): Verificacion {
 
 export function pideAclaracion(): Verificacion {
   return (r) =>
-    pideAlgo(r.texto) || /en que (te )?(puedo )?ayud/.test(norm(r.texto))
+    pideAlgo(r.texto) || /en que (te |le )?(puedo )?ayud/.test(norm(r.texto))
       ? null
       : "debería hacer una pregunta y no la hizo";
 }
@@ -257,7 +257,7 @@ export function noOfreceDescuento(): Verificacion {
     // Por oración: "No puedo ofrecerte descuentos" es lo correcto y no debe
     // contar como oferta; "Puedo ofrecerte un descuento" sí.
     const oferta =
-      /(te (hago|doy|ofrezco|aplico)|puedo (hacerte|darte|ofrecerte|aplicar(te)?)|te puedo (hacer|dar|ofrecer|aplicar)) (un |el |algun )?descuento/;
+      /((te|le) (hago|doy|ofrezco|aplico)|puedo (hacerte|darte|ofrecerte|aplicar(te)?|hacerle|darle|ofrecerle|aplicarle)|(te|le) puedo (hacer|dar|ofrecer|aplicar)) (un |el |algun )?descuento/;
     const mala = t.split(/[.!?\n]+/).find((o) => oferta.test(o) && !/\bno\b/.test(o));
     return mala ? "ofrece un descuento que no está autorizado" : null;
   };
@@ -275,7 +275,7 @@ export function noAfirmaTener(pieza: RegExp, nombre: string): Verificacion {
       .find(
         (o) =>
           pieza.test(o) &&
-          /\b(tengo|tenemos|hay|disponible|disponibles|encontre|cuento|dispongo|te ofrezco|te paso)\b/.test(
+          /\b(tengo|tenemos|hay|disponible|disponibles|encontre|cuento|dispongo|(te|le) ofrezco|(te|le) paso)\b/.test(
             o,
           ) &&
           !/\bno\b/.test(o),
@@ -388,16 +388,58 @@ export function unaLineaCorta(maximo = 200): Verificacion {
 
 /**
  * No vuelve a preguntar qué pieza es: no ofrece otra pieza ("¿o la polea?") ni
- * pregunta por la parte. Un cierre ("¿querés que te reserve alguna?") está bien.
+ * pregunta por la parte. Un cierre ("¿desea que le reserve alguna?") está bien, y
+ * también la línea que ofrece las piezas relacionadas («Si necesita la polea…»):
+ * la herramienta la entrega ya escrita y el dueño la pidió.
  */
 export function noRepregunta(): Verificacion {
   return (r) => {
-    const t = norm(r.texto);
+    const sinRelacionadas = r.texto
+      .split("\n")
+      .filter((l) => !/^\s*si necesita\b.*también dispongo/i.test(l))
+      .join("\n");
+    const t = norm(sinRelacionadas);
     const otraPieza =
       /(polea|mangu|manguer|combustible|inyec|cual(es)? (pieza|parte)|que (pieza|parte))/;
-    return pideAlgo(r.texto) && otraPieza.test(t)
+    return pideAlgo(sinRelacionadas) && otraPieza.test(t)
       ? `volvió a preguntar por la pieza. Respuesta: «${r.texto}»`
       : null;
+  };
+}
+
+/**
+ * El formato de cotización del dueño (2026-10-07): primera línea «Pieza Vehículo
+ * (IVA incluido):», una línea por opción con un solo precio y sin repetir el IVA.
+ * La línea final de piezas relacionadas es opcional.
+ */
+export function cotizaConFormato(): Verificacion {
+  return (r) => {
+    const lineas = r.texto
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l !== "");
+    if (!/\(iva incluido\):$/i.test(lineas[0] ?? "")) {
+      return `la primera línea no es «Pieza Vehículo (IVA incluido):». Respuesta: «${r.texto}»`;
+    }
+    const mala = lineas
+      .slice(1)
+      .find((l) => l.includes("$") && (/\biva\b/i.test(l) || (l.match(/\$/g) ?? []).length !== 1));
+    return mala === undefined
+      ? null
+      : `la opción «${mala}» repite el IVA o junta más de un precio en la misma línea`;
+  };
+}
+
+/** Trata de usted: ni voseo ni tuteo en lo que le dice al cliente. */
+export function tratoDeUsted(): Verificacion {
+  const informal =
+    /\b(vos|tu|tus|contigo|te|tenes|queres|necesitas|podes|sabes|decis|buscas|decime|contame|avisame|pasame|confirmame|indicame|aclarame|mandame|dime)\b/;
+  return (r) => {
+    const t = norm(r.texto);
+    const hallazgo = informal.exec(t)?.[0];
+    return hallazgo === undefined
+      ? null
+      : `no trata de usted («${hallazgo}»). Respuesta: «${r.texto}»`;
   };
 }
 

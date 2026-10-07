@@ -21,12 +21,17 @@
 
 - **Si lo que pide es una pieza exacta, se cotiza directo esa pieza, y las relacionadas solo se nombran.** ✅
   Las relacionadas se cotizan recién si el cliente las pide.
-  - Pide "termostato":
-    > Termostato Accent 1.6 2006: MOBIS (Original) $12,96 · KOREA $6,93 (IVA incluido)
-    > También tengo la base y el termostato completo, ¿te los cotizo?
+  - **Formato de la cotización** ✅ _(2026-10-07)_: primera línea con la pieza y el vehículo y "(IVA incluido):" **una sola vez**; después **una línea por opción**; al final, una línea con las relacionadas, con nombres cortos.
   - Pide "bomba de agua":
-    > JUNGWOO (Korea) $22,01 · MOBIS (Original) $66,18 (IVA incluido)
-    > También tengo la polea sola, ¿te la cotizo?
+    > Bomba de agua Accent 2006 (IVA incluido):
+    > JUNGWOO (Korea) $22,01
+    > MOBIS (Original) $66,18
+    > Si necesita la polea o el empaque, también dispongo. ¿Desea que le cotice?
+  - Pide "termostato":
+    > Termostato Accent 2006 1.6 (IVA incluido):
+    > MOBIS (Original) $12,96
+    > KOREA $6,93
+    > Si necesita la tapa, la base o el termostato completo, también dispongo. ¿Desea que le cotice?
 - **Si no está claro qué pieza es,** se pregunta solo eso, en una línea: "¿Solo el termostato, la base o el conjunto completo?" ✅
 - **Por cada opción, solo:** marca, procedencia y precio con IVA. ✅
   - Formato: `MARCA (Procedencia) $precio`. Si no hay marca, `PROCEDENCIA $precio`.
@@ -43,7 +48,8 @@
 
 - **Cortas.** Si falta un dato: solo la pregunta, en una línea. Al cotizar: solo las opciones (y la línea de lo relacionado). ✅
 - Sin saludos largos, sin cierres, sin preguntas de más (factura, envío) salvo que el cliente las pida. ✅
-- Tono cercano, sin emojis. ✅
+- **Al cliente siempre se lo trata de usted** ("¿Desea…?", "Si necesita…", "Indíqueme…"), nunca de tú ni de vos, aunque el cliente lo tutee. ✅ _(2026-10-07)_
+- Tono cercano y cálido, pero de usted; sin emojis. ✅
 
 ## 4. Procedencia por marca ✅
 
