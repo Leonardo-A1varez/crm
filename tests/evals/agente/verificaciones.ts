@@ -347,6 +347,48 @@ export function sinCodigosDeProducto(): Verificacion {
   };
 }
 
+/** Pregunta qué pieza quiere y nombra TODAS las opciones (cada una, una expresión). */
+export function preguntaEntre(...opciones: RegExp[]): Verificacion {
+  return (r) => {
+    if (!pideAlgo(r.texto)) return "debería preguntar qué pieza quiere y no preguntó";
+    const t = norm(r.texto);
+    const falta = opciones.find((re) => !re.test(t));
+    return falta === undefined
+      ? null
+      : `preguntó pero no ofreció la opción ${falta}. Respuesta: «${r.texto}»`;
+  };
+}
+
+/** La respuesta no menciona esto (es una pieza que el cliente no pidió ni tiene sentido ofrecer). */
+export function noMenciona(re: RegExp, motivo: string): Verificacion {
+  return (r) => (re.test(norm(r.texto)) ? `${motivo}. Respuesta: «${r.texto}»` : null);
+}
+
+/** Una sola línea y corta: la regla de respuestas mínimas. */
+export function unaLineaCorta(maximo = 200): Verificacion {
+  return (r) => {
+    const t = r.texto.trim();
+    return t.length <= maximo && !t.includes("\n")
+      ? null
+      : `no es una línea corta (${t.length} caracteres, ${t.split("\n").length} líneas). Respuesta: «${r.texto}»`;
+  };
+}
+
+/**
+ * No vuelve a preguntar qué pieza es: no ofrece otra pieza ("¿o la polea?") ni
+ * pregunta por la parte. Un cierre ("¿querés que te reserve alguna?") está bien.
+ */
+export function noRepregunta(): Verificacion {
+  return (r) => {
+    const t = norm(r.texto);
+    const otraPieza =
+      /(polea|mangu|manguer|combustible|inyec|cual(es)? (pieza|parte)|que (pieza|parte))/;
+    return pideAlgo(r.texto) && otraPieza.test(t)
+      ? `volvió a preguntar por la pieza. Respuesta: «${r.texto}»`
+      : null;
+  };
+}
+
 /** No inventa la etiqueta «original»: la procedencia se dice con su nombre (MOBIS, KOREA…). */
 export function noDiceOriginal(): Verificacion {
   return (r) =>

@@ -16,6 +16,7 @@ import {
   type ElementoCompatibilidad,
   type ModeloCatalogo,
 } from "@/lib/catalogo/compatibilidad";
+import { nivelDeCategoria } from "@/lib/catalogo/categoria";
 import { blobDeBusqueda, puntaje, puntajeDeCodigo } from "@/lib/catalogo/puntaje";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import {
@@ -293,6 +294,8 @@ export class InMemoryProductsRepository implements ProductsRepository {
     const hits: ProductoSearchHit[] = [];
     // Quien dicta un código exacto lo encuentra primero, sea cual sea su vehículo.
     const porCodigo = new Map<UUID, boolean>();
+    // Cuánto se parece la categoría a la pieza pedida (0..2; 2 si no hay con qué comparar).
+    const nivelCat = new Map<UUID, number>();
     const resueltos = resolverModelos(this.modelos, input.marca, input.modelo);
 
     for (const p of this.store.values()) {
@@ -315,6 +318,12 @@ export class InMemoryProductsRepository implements ProductsRepository {
         compatibilidad: compat.elementos.map((e) => ({ ...e })),
       });
       porCodigo.set(p.id, puntajeDeCodigo(p, input.q) > 0);
+      const nc = nivelDeCategoria(p.categoria, {
+        query: input.q,
+        marca: input.marca,
+        modelo: input.modelo,
+      });
+      nivelCat.set(p.id, nc === null ? 2 : Math.min(2, nc));
     }
 
     // Mismo orden que el `order by` de `buscar_productos`: primero el código
@@ -323,6 +332,7 @@ export class InMemoryProductsRepository implements ProductsRepository {
     hits.sort(
       (a, b) =>
         Number(porCodigo.get(b.id)) - Number(porCodigo.get(a.id)) ||
+        (nivelCat.get(b.id) ?? 2) - (nivelCat.get(a.id) ?? 2) ||
         b.nivel_vehiculo - a.nivel_vehiculo ||
         b.puntaje - a.puntaje ||
         b.stock - a.stock ||
