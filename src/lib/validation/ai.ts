@@ -81,6 +81,12 @@ export const BuscarRepuestoMatchSchema = z.object({
   // null = a consultar: ninguno de los precios del ERP es mayor que cero.
   precio: z.number().nonnegative().nullable(),
   stock: z.number().int().nonnegative(),
+  // De dónde viene la pieza (MOBIS, KOREA, CHINA, GM…). Ausente si el catálogo no la
+  // tiene o trae basura en ese campo.
+  procedencia: z.string().optional(),
+  // Qué pieza es (su grupo y, si es un conjunto armado, qué parte). Solo cuando los
+  // candidatos son de piezas distintas (ver `diferencias`).
+  pieza: z.string().optional(),
   // Solo los atributos en los que los candidatos se diferencian (ver `diferencias`).
   anios: z.array(z.string()).optional(),
   cilindradas: z.array(z.string()).optional(),
@@ -89,12 +95,15 @@ export const BuscarRepuestoMatchSchema = z.object({
 export type BuscarRepuestoMatch = z.infer<typeof BuscarRepuestoMatchSchema>;
 
 export const DiferenciasCandidatosSchema = z.object({
-  atributos: z.array(z.enum(["anio", "cilindrada", "combustible"])),
+  atributos: z.array(z.enum(["pieza", "anio", "cilindrada", "combustible"])),
   valores: z.object({
+    pieza: z.array(z.string()).optional(),
     anio: z.array(z.string()).optional(),
     cilindrada: z.array(z.string()).optional(),
     combustible: z.array(z.string()).optional(),
   }),
+  // Procedencias de una misma pieza: se ofrecen con su precio, no se preguntan.
+  procedencias: z.array(z.string()).optional(),
   instruccion: z.string(),
 });
 

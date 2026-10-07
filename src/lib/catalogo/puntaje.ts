@@ -126,7 +126,7 @@ export function blobDeBusqueda(p: ProductoPuntuable): string {
 }
 
 /** El componente por código: 0 si la consulta no es ninguno de los tres. */
-function puntajeDeCodigo(p: ProductoPuntuable, consulta: string): number {
+export function puntajeDeCodigo(p: ProductoPuntuable, consulta: string): number {
   const cod = plegarCodigo(consulta);
   if (cod === "") return 0;
   if (plegarCodigo(p.codigo_fabrica ?? "") === cod) return PESO_CODIGO.fabrica;

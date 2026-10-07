@@ -5,11 +5,13 @@ import type {
 } from "@/lib/validation/ai";
 import {
   diferenciasEntre,
+  etiquetaDePieza,
   etiquetasDeCompatibilidad,
   normalizarCilindrada,
 } from "@/lib/catalogo/compatibilidad";
+import { procedenciaDe } from "@/lib/catalogo/procedencia";
 import { avisoSobremedida } from "@/lib/catalogo/sobremedida";
-import type { ProductsRepository } from "@/server/repositories/productos.repo";
+import type { ProductoSearchHit, ProductsRepository } from "@/server/repositories/productos.repo";
 
 /**
  * La herramienta `buscar_repuesto` que usa el agente.
@@ -64,43 +66,59 @@ export class DefaultCatalogMatcherService implements CatalogMatcherService {
       tope: TOPE_PARA_EL_AGENTE,
     });
 
-    // En qué se diferencian los mejores candidatos: lo único que el agente tiene
-    // que preguntar. Lo que el cliente ya dijo (año, cilindrada) no entra.
-    const diferencias = diferenciasEntre(hits, { anio, cilindrada });
-
-    const matches: BuscarRepuestoMatch[] = hits.map((h) => {
-      const base: BuscarRepuestoMatch = {
-        id: h.id,
-        codigo_interno: h.codigo_interno,
-        nombre: h.nombre,
-        precio: h.precio,
-        stock: h.stock,
-      };
-      if (!diferencias) return base;
-      // A cada candidato, solo los atributos que lo distinguen de los otros.
-      const e = etiquetasDeCompatibilidad(h.compatibilidad);
-      const dif = diferencias.atributos;
-      return {
-        ...base,
-        ...(dif.includes("anio") && e.anio.length > 0 ? { anios: e.anio } : {}),
-        ...(dif.includes("cilindrada") && e.cilindrada.length > 0
-          ? { cilindradas: e.cilindrada }
-          : {}),
-        ...(dif.includes("combustible") && e.combustible.length > 0
-          ? { combustibles: e.combustible }
-          : {}),
-      };
-    });
-
-    const aviso = avisoSobremedida(hits);
-
-    // El aviso va primero a propósito: es lo que el modelo tiene que leer antes
-    // de mirar precios.
-    return {
-      ...(aviso ? { aviso } : {}),
-      matches,
-      count: matches.length,
-      ...(diferencias ? { diferencias } : {}),
-    };
+    return armarSalida(hits, { anio, cilindrada });
   }
+}
+
+/**
+ * Lo que la herramienta le devuelve al agente a partir de los candidatos ya
+ * ordenados por `buscar_productos`. Pura y exportada para que el eval del agente
+ * le dé al modelo exactamente la salida de producción.
+ */
+export function armarSalida(
+  hits: readonly ProductoSearchHit[],
+  dado: { anio?: number | undefined; cilindrada?: string | undefined },
+): BuscarRepuestoOutput {
+  // En qué se diferencian los mejores candidatos: lo único que el agente tiene
+  // que preguntar. Lo que el cliente ya dijo (año, cilindrada) no entra.
+  const diferencias = diferenciasEntre(hits, dado);
+
+  const matches: BuscarRepuestoMatch[] = hits.map((h) => {
+    const procedencia = procedenciaDe(h.descripcion);
+    const base: BuscarRepuestoMatch = {
+      id: h.id,
+      codigo_interno: h.codigo_interno,
+      nombre: h.nombre,
+      precio: h.precio,
+      stock: h.stock,
+      ...(procedencia !== null ? { procedencia } : {}),
+    };
+    if (!diferencias) return base;
+    // A cada candidato, solo los atributos que lo distinguen de los otros.
+    const e = etiquetasDeCompatibilidad(h.compatibilidad);
+    const dif = diferencias.atributos;
+    const pieza = dif.includes("pieza") ? etiquetaDePieza(h.categoria, h.nombre) : null;
+    return {
+      ...base,
+      ...(pieza !== null ? { pieza } : {}),
+      ...(dif.includes("anio") && e.anio.length > 0 ? { anios: e.anio } : {}),
+      ...(dif.includes("cilindrada") && e.cilindrada.length > 0
+        ? { cilindradas: e.cilindrada }
+        : {}),
+      ...(dif.includes("combustible") && e.combustible.length > 0
+        ? { combustibles: e.combustible }
+        : {}),
+    };
+  });
+
+  const aviso = avisoSobremedida(hits);
+
+  // El aviso va primero a propósito: es lo que el modelo tiene que leer antes
+  // de mirar precios.
+  return {
+    ...(aviso ? { aviso } : {}),
+    matches,
+    count: matches.length,
+    ...(diferencias ? { diferencias } : {}),
+  };
 }

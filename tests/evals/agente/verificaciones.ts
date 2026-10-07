@@ -287,3 +287,70 @@ export function dice(re: RegExp, motivo: string): Verificacion {
   return (r: ResultadoTurno) =>
     re.test(norm(r.texto)) ? null : `${motivo}. Respuesta: «${r.texto}»`;
 }
+
+// ─────────── Regla del dueño 2026-10-07: confirmar la pieza y cotizar con procedencia ───────────
+
+/** Pregunta qué pieza quiere: nombra el conjunto completo y la base o la tapa. */
+export function preguntaPieza(): Verificacion {
+  return (r) => {
+    if (!pideAlgo(r.texto)) return "debería preguntar qué pieza quiere y no preguntó";
+    const t = norm(r.texto);
+    return /(conjunto|completo)/.test(t) && /(base|tapa)/.test(t)
+      ? null
+      : `preguntó pero no ofreció las piezas (suelta, base/tapa, conjunto completo). Respuesta: «${r.texto}»`;
+  };
+}
+
+/** Ningún precio presentado como rango: "entre $a y $b", "desde $a hasta $b", "$a a $b", "rango". */
+export function sinRangoDePrecios(): Verificacion {
+  const monto = String.raw`\$?\s*\d+(?:[.,]\d+)?`;
+  const rangos = [
+    new RegExp(String.raw`entre\s*${monto}\s*(?:y|a)\s*\$?\s*\d`),
+    new RegExp(String.raw`desde\s*${monto}\s*(?:hasta|a)\s*\$?\s*\d`),
+    new RegExp(String.raw`\$\s*\d+(?:[.,]\d+)?\s*(?:a|-|–)\s*\$\s*\d`),
+    /\brango\b/,
+  ];
+  return (r) => {
+    const t = norm(r.texto);
+    return rangos.some((re) => re.test(t))
+      ? `presentó un rango de precios en vez de un precio por opción. Respuesta: «${r.texto}»`
+      : null;
+  };
+}
+
+/** La procedencia y su precio van juntos: "MOBIS $12,96" (o "$12,96 MOBIS"). */
+export function citaProcedenciaConPrecio(procedencia: string, precio: number): Verificacion {
+  const num = precio.toFixed(2).replace(".", "[.,]");
+  const delante = new RegExp(String.raw`${procedencia}[^0-9]{0,20}${num}`, "i");
+  const detras = new RegExp(String.raw`${num}[^0-9]{0,20}${procedencia}`, "i");
+  return (r) =>
+    delante.test(r.texto) || detras.test(r.texto)
+      ? null
+      : `no presenta «${procedencia} $${precio}» junto. Respuesta: «${r.texto}»`;
+}
+
+/** Ninguno de estos precios aparece (son de otras piezas que el cliente no pidió). */
+export function noCitaPrecios(precios: readonly number[], de: string): Verificacion {
+  return (r) => {
+    const citados = numerosDe(r.texto);
+    const malo = precios.find((p) => citados.some((n) => mismaCifra(n, p)));
+    return malo === undefined ? null : `cita el precio ${malo} de ${de}, que el cliente no pidió`;
+  };
+}
+
+/** No cita ningún código interno del catálogo del stub (el dueño no los quiere salvo que los pida). */
+export function sinCodigosDeProducto(): Verificacion {
+  return (r) => {
+    const citados = new Set(tokens(r.texto).map((t) => norm(t)));
+    const malo = r.catalogo.find((p) => citados.has(norm(p.codigo_interno)));
+    return malo ? `cita el código ${malo.codigo_interno}, que nadie pidió` : null;
+  };
+}
+
+/** No inventa la etiqueta «original»: la procedencia se dice con su nombre (MOBIS, KOREA…). */
+export function noDiceOriginal(): Verificacion {
+  return (r) =>
+    /\boriginal(?:es)?\b/.test(norm(r.texto))
+      ? `usó la etiqueta «original», que el dueño no usa. Respuesta: «${r.texto}»`
+      : null;
+}

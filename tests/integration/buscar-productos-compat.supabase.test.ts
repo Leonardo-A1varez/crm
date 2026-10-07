@@ -2,8 +2,14 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { resolverModelos } from "@/lib/catalogo/compatibilidad";
 import type { Database, Json } from "@/server/db/types.gen";
+import { InMemoryProductsRepository } from "@/server/repositories/productos.repo";
 import { SupabaseProductsRepository } from "@/server/repositories/productos.supabase.repo";
 import { CONSULTAS, MODELOS, PRODUCTOS } from "../helpers/catalogo-compat-fixtures";
+import {
+  CONSULTA_ACCENT_2006,
+  ESCALONES_ESPERADOS,
+  TERMOSTATOS_REALES,
+} from "../helpers/catalogo-ranking-fixtures";
 import { cleanupTestDb, makeTestSupabaseClient, type TestClient } from "./setup";
 
 // `buscar_productos` con filtro de vehículo contra Postgres real. Los casos son
@@ -159,7 +165,7 @@ describe("buscar_productos con vehículo (SQL)", () => {
     try {
       const despues = await service.rpc("resolver_modelos", { p_marca: "", p_modelo: "Corsa" });
       expect(despues.data).toEqual([
-        { marca: "chevrolet", sigla: "cor", nombre: "chevrolet corsa" },
+        { marca: "chevrolet", sigla: "cor", nombre: "chevrolet corsa", exacto: true },
       ]);
 
       const repo = new SupabaseProductsRepository(service);
@@ -201,8 +207,8 @@ describe("resolver_modelos == resolverModelos (paridad SQL / TypeScript)", () =>
       p_modelo: modelo,
     });
     expect(error).toBeNull();
-    const clave = (r: { marca: string; sigla: string; nombre: string }) =>
-      `${r.marca}|${r.sigla}|${r.nombre}`;
+    const clave = (r: { marca: string; sigla: string; nombre: string; exacto: boolean }) =>
+      `${r.marca}|${r.sigla}|${r.nombre}|${r.exacto}`;
     expect((data ?? []).map(clave).sort()).toEqual(
       resolverModelos(MODELOS, marca, modelo).map(clave).sort(),
     );
@@ -275,5 +281,114 @@ describe("catalogo_modelos: permisos", () => {
       .from("catalogo_modelos")
       .insert({ marca: "Hyundai", sigla_modelo: "ACC", nombre_real: "Otro", confianza: "alta" });
     expect(dup.error).not.toBeNull();
+  });
+});
+
+// Va al final: reemplaza los productos de arriba por las filas reales del
+// termostato del Accent, y los demás describe leen `productos`.
+describe("buscar_productos ordena por cuánto confirma el vehículo (filas reales)", () => {
+  beforeAll(async () => {
+    const { error: del } = await service
+      .from("productos")
+      .delete()
+      .neq("id", "00000000-0000-0000-0000-000000000000");
+    if (del) throw new Error(`limpiar productos: ${del.message}`);
+    const { error } = await service.from("productos").insert(
+      TERMOSTATOS_REALES.map((p) => ({
+        codigo_interno: p.codigo,
+        nombre: p.nombre,
+        categoria: p.categoria,
+        descripcion: p.descripcion,
+        precio: p.precio,
+        stock: p.stock,
+        compatibilidad: p.compatibilidad as unknown as Json,
+      })),
+    );
+    if (error) throw new Error(`sembrar termostatos reales: ${error.message}`);
+  });
+
+  test("la consulta exacta de la conversación real: los escalones salen en el orden correcto", async () => {
+    const repo = new SupabaseProductsRepository(service);
+    const hits = await repo.search({ ...CONSULTA_ACCENT_2006 });
+    expect(hits).toHaveLength(TERMOSTATOS_REALES.length);
+
+    const orden = hits.map((h) => h.codigo_interno);
+    let desde = 0;
+    for (const escalon of ESCALONES_ESPERADOS) {
+      const tramo = orden.slice(desde, desde + escalon.length);
+      expect([...tramo].sort()).toEqual([...escalon].sort());
+      desde += escalon.length;
+    }
+  });
+
+  test.each([
+    ["19309", 7],
+    ["9028", 5],
+    ["24570", 4],
+    ["12088", 0],
+    ["25530", -1],
+    ["12249", -2],
+  ])("nivel_vehiculo de %s = %i", async (codigo, nivel) => {
+    const repo = new SupabaseProductsRepository(service);
+    const hits = await repo.search({ ...CONSULTA_ACCENT_2006 });
+    expect(hits.find((h) => h.codigo_interno === codigo)?.nivel_vehiculo).toBe(nivel);
+  });
+
+  test("sin año ni cilindrada pedidos lo declarado de más no suma (modelo exacto 4, Verna 0, sin dato -1)", async () => {
+    const repo = new SupabaseProductsRepository(service);
+    const hits = await repo.search({
+      q: "termostato",
+      marca: "Hyundai",
+      modelo: "Accent",
+      tope: 50,
+    });
+    const nivel = (c: string) => hits.find((h) => h.codigo_interno === c)?.nivel_vehiculo;
+    expect(nivel("19309")).toBe(4);
+    expect(nivel("9028")).toBe(4);
+    expect(nivel("12088")).toBe(0);
+    expect(nivel("25530")).toBe(-1);
+  });
+
+  test("sin vehículo todos valen 0", async () => {
+    const repo = new SupabaseProductsRepository(service);
+    const hits = await repo.search({ q: "termostato", tope: 50 });
+    expect(new Set(hits.map((h) => h.nivel_vehiculo))).toEqual(new Set([0]));
+  });
+
+  test("el repo in-memory y Postgres dan el mismo nivel a cada producto, para varias consultas", async () => {
+    const memoria = new InMemoryProductsRepository({ modelos: MODELOS });
+    for (const p of TERMOSTATOS_REALES) {
+      await memoria.create({
+        codigo_interno: p.codigo,
+        sku_proveedor: null,
+        nombre: p.nombre,
+        descripcion: p.descripcion,
+        categoria: p.categoria,
+        compatibilidad: p.compatibilidad as never,
+        precio: p.precio,
+        stock: p.stock,
+        imagen_url: null,
+        activo: true,
+      });
+    }
+    const sql = new SupabaseProductsRepository(service);
+    const consultas = [
+      { ...CONSULTA_ACCENT_2006 },
+      { q: "termostato", marca: "Hyundai", modelo: "Accent", tope: 50 },
+      { q: "termostato", modelo: "Accent", anio: 2006, tope: 50 },
+      { q: "termostato", marca: "Hyundai", modelo: "Accent", cilindrada: "1.4", tope: 50 },
+      { q: "termostato", marca: "Hyundai", modelo: "Accent", anio: 2002, tope: 50 },
+      { q: "termostato", marca: "Hyundai", tope: 50 },
+      { q: "termostato", tope: 50 },
+    ];
+    for (const c of consultas) {
+      const nivelesSql = new Map(
+        (await sql.search(c)).map((h) => [h.codigo_interno, h.nivel_vehiculo]),
+      );
+      const nivelesMem = new Map(
+        (await memoria.search(c)).map((h) => [h.codigo_interno, h.nivel_vehiculo]),
+      );
+      expect(nivelesSql, JSON.stringify(c)).toEqual(nivelesMem);
+    }
   });
 });

@@ -2327,6 +2327,7 @@ export type Database = {
           compatibilidad: Json
           descripcion: string
           id: string
+          nivel_vehiculo: number
           nombre: string
           precio: number
           puntaje: number
@@ -2668,6 +2669,7 @@ export type Database = {
       resolver_modelos: {
         Args: { p_marca: string; p_modelo: string }
         Returns: {
+          exacto: boolean
           marca: string
           nombre: string
           sigla: string

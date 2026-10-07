@@ -84,8 +84,20 @@ describe("leerCompatibilidad", () => {
 describe("resolverModelos", () => {
   test("devuelve también el nombre real plegado, para comparar con modelo_nombre", () => {
     expect(resolverModelos(MODELOS, "Hyundai", "STA FE")).toEqual([
-      { marca: "hyundai", sigla: "sta fe", nombre: "hyundai santa fe" },
+      { marca: "hyundai", sigla: "sta fe", nombre: "hyundai santa fe", exacto: true },
     ]);
+  });
+
+  test("Accent es exacto en ACC y ACCENT; la variante Verna entró por prefijo y no lo es", () => {
+    const porSigla = Object.fromEntries(
+      resolverModelos(MODELOS, "Hyundai", "Accent").map((r) => [r.sigla, r.exacto]),
+    );
+    expect(porSigla).toEqual({ acc: true, accent: true, ver: false });
+  });
+
+  test("si nadie coincide por igualdad, las generaciones que entran por prefijo valen como exactas", () => {
+    const exactos = resolverModelos(MODELOS, "Hyundai", "Tucson").map((r) => r.exacto);
+    expect(exactos).toEqual([true, true]);
   });
 
   test("un modelo con varias siglas devuelve todas", () => {

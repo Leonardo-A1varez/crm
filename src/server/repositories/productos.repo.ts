@@ -11,12 +11,12 @@ import {
 import { normalizarValor } from "@/lib/catalogo/normalizar-valor";
 import { plegarTexto } from "@/lib/catalogo/plegar-texto";
 import {
-  compatibilidadParaVehiculo,
+  evaluarCompatibilidad,
   resolverModelos,
   type ElementoCompatibilidad,
   type ModeloCatalogo,
 } from "@/lib/catalogo/compatibilidad";
-import { blobDeBusqueda, puntaje } from "@/lib/catalogo/puntaje";
+import { blobDeBusqueda, puntaje, puntajeDeCodigo } from "@/lib/catalogo/puntaje";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import {
   LOTE_TAMANO,
@@ -83,6 +83,12 @@ export interface ProductoSearchHit {
   precio: number | null;
   stock: number;
   puntaje: number;
+  /**
+   * Qué tan bien confirma el vehículo pedido (de 7 a -2, ver
+   * `evaluarCompatibilidad`); 0 si no se pidió ninguno. La búsqueda ordena por esto
+   * antes que por `puntaje`.
+   */
+  nivel_vehiculo: number;
   /**
    * Los elementos de `compatibilidad` que justifican el match para el vehículo
    * pedido (todos si no se pidió ninguno). Vacío si el producto no tiene
@@ -285,17 +291,14 @@ export class InMemoryProductsRepository implements ProductsRepository {
   async search(input: ProductoSearchInput): Promise<ProductoSearchHit[]> {
     const tope = Math.max(1, Math.min(input.tope ?? 20, 50));
     const hits: ProductoSearchHit[] = [];
+    // Quien dicta un código exacto lo encuentra primero, sea cual sea su vehículo.
+    const porCodigo = new Map<UUID, boolean>();
     const resueltos = resolverModelos(this.modelos, input.marca, input.modelo);
 
     for (const p of this.store.values()) {
       if (!p.activo) continue;
-      const elementos = compatibilidadParaVehiculo(
-        p.compatibilidad,
-        input,
-        resueltos,
-        blobDeBusqueda(p),
-      );
-      if (elementos === null) continue;
+      const compat = evaluarCompatibilidad(p.compatibilidad, input, resueltos, blobDeBusqueda(p));
+      if (compat === null) continue;
       const score = puntaje(p, input.q);
       if (score <= 0) continue;
       hits.push({
@@ -308,15 +311,22 @@ export class InMemoryProductsRepository implements ProductsRepository {
         precio: p.precio,
         stock: p.stock,
         puntaje: score,
-        compatibilidad: elementos.map((e) => ({ ...e })),
+        nivel_vehiculo: compat.nivel,
+        compatibilidad: compat.elementos.map((e) => ({ ...e })),
       });
+      porCodigo.set(p.id, puntajeDeCodigo(p, input.q) > 0);
     }
 
-    // Mismo desempate que el `order by` de `buscar_productos`: puntaje, después
-    // stock —lo que se puede despachar hoy va arriba— y al final el nombre para
-    // que el orden sea estable.
+    // Mismo orden que el `order by` de `buscar_productos`: primero el código
+    // exacto, después el nivel de vehículo, el puntaje, el stock —lo que se puede
+    // despachar hoy va arriba— y al final el nombre para que el orden sea estable.
     hits.sort(
-      (a, b) => b.puntaje - a.puntaje || b.stock - a.stock || a.nombre.localeCompare(b.nombre),
+      (a, b) =>
+        Number(porCodigo.get(b.id)) - Number(porCodigo.get(a.id)) ||
+        b.nivel_vehiculo - a.nivel_vehiculo ||
+        b.puntaje - a.puntaje ||
+        b.stock - a.stock ||
+        a.nombre.localeCompare(b.nombre),
     );
     return hits.slice(0, tope);
   }
