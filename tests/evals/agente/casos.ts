@@ -1,10 +1,13 @@
 import { construirDiferencias } from "@/lib/catalogo/compatibilidad";
+import type { ProductoSearchHit } from "@/server/repositories/productos.repo";
+import { armarSalida } from "@/server/services/catalog-matcher.service";
 import type { AgentVehiculo } from "@/server/services/ai-agent.service";
 import type {
   BuscarRepuestoInput,
   BuscarRepuestoMatch,
   BuscarRepuestoOutput,
 } from "@/lib/validation/ai";
+import { ESCALONES_ESPERADOS, TERMOSTATOS_REALES } from "../../helpers/catalogo-ranking-fixtures";
 
 /**
  * Casos del eval del agente vendedor. Para agregar uno: un objeto más en
@@ -61,6 +64,12 @@ export interface CasoAgente {
    * esto el agente nunca ve en qué se diferencian y el caso no mide la regla.
    */
   diferencias?: BuscarRepuestoOutput["diferencias"];
+  /**
+   * La salida completa de la herramienta, armada con la función de producción
+   * (`armarSalida`) sobre filas reales. Si está, el stub la devuelve tal cual y
+   * `catalogo` / `diferencias` se ignoran para armar la respuesta.
+   */
+  salida?: BuscarRepuestoOutput;
   verificaciones: Verificacion[];
 }
 
@@ -86,6 +95,12 @@ import {
   sinCotizar,
   citaPrecio,
   dice,
+  citaProcedenciaConPrecio,
+  noCitaPrecios,
+  noDiceOriginal,
+  preguntaPieza,
+  sinCodigosDeProducto,
+  sinRangoDePrecios,
 } from "./verificaciones";
 
 let n = 0;
@@ -119,6 +134,37 @@ const AVEO_2005: AgentVehiculo = {
 // Los datos de este radiador (código, nombre, precio) salen de la respuesta
 // real que dio el agente el 2026-10-01 en crm-dev.
 const RADIADOR_AVEO = prod("96817344/CH", "RADIADOR CH AVEO 1.6 (05-09)", 37.13, 3);
+
+/**
+ * Los candidatos de 'termostato para el Accent 1.6, 2006' en el orden y con el
+ * nivel de vehículo que devolvió `buscar_productos` (tests/helpers/
+ * catalogo-ranking-fixtures.ts), pasados por la función de producción que arma
+ * lo que ve el agente.
+ */
+const NIVELES_ESCALONES = [7, 5, 4, 0, -1, -2];
+const HITS_ACCENT_2006: ProductoSearchHit[] = ESCALONES_ESPERADOS.flatMap((codigos, i) =>
+  codigos.map((codigo, j): ProductoSearchHit => {
+    const p = TERMOSTATOS_REALES.find((x) => x.codigo === codigo);
+    if (!p) throw new Error(`falta el producto real ${codigo} en los fixtures`);
+    return {
+      id: `00000000-0000-4000-9000-${String(i * 10 + j + 1).padStart(12, "0")}`,
+      codigo_interno: p.codigo,
+      codigo_fabrica: null,
+      nombre: p.nombre,
+      categoria: p.categoria,
+      descripcion: p.descripcion,
+      precio: p.precio,
+      stock: p.stock,
+      puntaje: 12,
+      nivel_vehiculo: NIVELES_ESCALONES[i] ?? 0,
+      compatibilidad: p.compatibilidad,
+    };
+  }),
+);
+const SALIDA_ACCENT_2006: BuscarRepuestoOutput = armarSalida(HITS_ACCENT_2006, {
+  anio: 2006,
+  cilindrada: "1.6",
+});
 
 export const CASOS: CasoAgente[] = [
   // ───────────────────────── Derivados de mensajes reales ─────────────────────────
@@ -233,6 +279,85 @@ export const CASOS: CasoAgente[] = [
     turno: ["lead: Hola"],
     catalogo: [RADIADOR_AVEO],
     verificaciones: [noBusca(), sinCotizar(), pideAclaracion()],
+  },
+  {
+    id: "real-termostato-accent-pide-la-pieza",
+    origen: "real",
+    proposito:
+      "Regla del dueño 2026-10-07: 'termostato para el Accent 1.6' + año devuelve piezas distintas (termostato suelto, base, tapa, conjunto): pregunta cuál quiere y NO cotiza un rango (regresión: cotizó el rango del conjunto armado y nunca ofreció el termostato suelto).",
+    notaOrigen:
+      "Primer mensaje y año ('2006') reales de crm-dev, 2026-10-06. La pregunta del medio es reconstruida. La salida de la tool es la de producción (`armarSalida`) sobre las filas reales del catálogo del ERP que devolvió la búsqueda de esa conversación (tests/helpers/catalogo-ranking-fixtures.ts).",
+    turno: [
+      "lead: Necesito un termostato para el Accent 1.6",
+      "ia: ¿De qué año es tu Accent?",
+      "lead: 2006",
+    ],
+    catalogo: SALIDA_ACCENT_2006.matches,
+    salida: SALIDA_ACCENT_2006,
+    verificaciones: [
+      buscaAlgunaVez(),
+      argumento("modelo", "accent"),
+      preguntaPieza(),
+      sinCotizar(),
+      sinRangoDePrecios(),
+      noInventaCodigos(),
+    ],
+  },
+  {
+    id: "inv-termostato-accent-solo-el-termostato",
+    origen: "inventado",
+    proposito:
+      "Después de preguntar la pieza, el cliente dice 'solo el termostato': cotiza el termostato suelto, uno por procedencia con su precio (MOBIS $12,96 · KOREA $6,93), con IVA, sin rangos, sin códigos, sin la etiqueta 'original' y sin precios del conjunto, la base ni la tapa.",
+    notaOrigen:
+      "El turno del cliente es inventado (así lo espera el dueño). Catálogo: las filas reales del caso 'real-termostato-accent-pide-la-pieza'.",
+    turno: [
+      "lead: Necesito un termostato para el Accent 1.6",
+      "ia: ¿De qué año es tu Accent?",
+      "lead: 2006",
+      "ia: ¿Necesitás solo el termostato, la base/tapa o el conjunto completo?",
+      "lead: solo el termostato",
+    ],
+    catalogo: SALIDA_ACCENT_2006.matches,
+    salida: SALIDA_ACCENT_2006,
+    verificaciones: [
+      buscaAlgunaVez(),
+      citaProcedenciaConPrecio("MOBIS", 12.96),
+      citaProcedenciaConPrecio("KOREA", 6.93),
+      mencionaIva(),
+      sinRangoDePrecios(),
+      noCitaPrecios([40.53, 16.12, 24.82, 8.02, 9.95, 5.77], "el conjunto, la base o la tapa"),
+      sinCodigosDeProducto(),
+      noDiceOriginal(),
+      noInventaPrecios(),
+    ],
+  },
+  {
+    id: "inv-termostato-accent-solo-la-base",
+    origen: "inventado",
+    proposito:
+      "El cliente elige la base: presenta la diferencia de procedencia de esa pieza (MOBIS $24,82 · KOREA $8,02), sin rangos ni códigos ni 'original' y sin los precios de otras piezas.",
+    notaOrigen:
+      "El turno del cliente es inventado. Catálogo: las filas reales del caso 'real-termostato-accent-pide-la-pieza'.",
+    turno: [
+      "lead: Necesito un termostato para el Accent 1.6",
+      "ia: ¿De qué año es tu Accent?",
+      "lead: 2006",
+      "ia: ¿Necesitás solo el termostato, la base/tapa o el conjunto completo?",
+      "lead: la base nomás",
+    ],
+    catalogo: SALIDA_ACCENT_2006.matches,
+    salida: SALIDA_ACCENT_2006,
+    verificaciones: [
+      buscaAlgunaVez(),
+      citaProcedenciaConPrecio("MOBIS", 24.82),
+      citaProcedenciaConPrecio("KOREA", 8.02),
+      mencionaIva(),
+      sinRangoDePrecios(),
+      noCitaPrecios([40.53, 16.12, 12.96, 6.93, 9.95, 5.77], "otra pieza"),
+      sinCodigosDeProducto(),
+      noDiceOriginal(),
+      noInventaPrecios(),
+    ],
   },
 
   // ───────────────────────────── Inventados ─────────────────────────────

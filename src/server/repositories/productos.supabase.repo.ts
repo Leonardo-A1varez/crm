@@ -203,6 +203,7 @@ export class SupabaseProductsRepository implements ProductsRepository {
       precio: row.precio,
       stock: row.stock,
       puntaje: row.puntaje,
+      nivel_vehiculo: row.nivel_vehiculo,
       compatibilidad: leerCompatibilidad(row.compatibilidad),
     }));
   }

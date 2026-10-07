@@ -139,6 +139,8 @@ async function correr(caso: CasoAgente): Promise<Corrida> {
       buscar_repuesto: async (args): Promise<BuscarRepuestoOutput> => {
         const matches = caso.catalogo;
         busquedas.push({ args, matches });
+        // Salida armada con la función de producción sobre filas reales: va tal cual.
+        if (caso.salida) return caso.salida;
         // El aviso lo calcula la misma función de producción sobre el catálogo del caso.
         const aviso = avisoSobremedida(matches);
         // Mismo orden de claves que `DefaultCatalogMatcherService`: el aviso primero.

@@ -36,8 +36,8 @@ describe("orden de los bloques", () => {
 });
 
 describe("reglas inviolables", () => {
-  test("son las 4 del handoff, la del vehiculo guardado y las 5 de conducta del catalogo", () => {
-    expect(REGLAS_INVIOLABLES).toHaveLength(10);
+  test("son las 4 del handoff, la del vehiculo guardado y las 6 de conducta del catalogo", () => {
+    expect(REGLAS_INVIOLABLES).toHaveLength(11);
   });
 
   describe("conducta del catalogo (como-leer-el-catalogo.md §12)", () => {
@@ -90,6 +90,23 @@ describe("reglas inviolables", () => {
       expect(p).toMatch(/combustible/i);
       expect(p).toMatch(/delantero o posterior/i);
       expect(p).toMatch(/solo (ese|lo que difiere)/i);
+    });
+
+    test("antes de cotizar confirma la pieza exacta y no cotiza con la pieza ambigua", () => {
+      const p = prompt();
+      expect(p).toMatch(/confirma que pieza exacta quiere/i);
+      expect(p).toMatch(/`pieza`/);
+      expect(p).toMatch(/solo la pieza, la base\/tapa o el conjunto completo/i);
+      expect(p).toMatch(/nunca cotices con la pieza ambigua/i);
+    });
+
+    test("al cotizar da solo precio y procedencia por opcion, sin rangos ni codigos ni 'original'", () => {
+      const p = prompt();
+      expect(p).toMatch(/SOLO el precio \(IVA incluido\) y la `procedencia`/);
+      expect(p).toMatch(/MOBIS, KOREA, CHINA, GM/);
+      expect(p).toMatch(/sin rangos de precio/i);
+      expect(p).toMatch(/sin codigos ni especificaciones salvo que los pida/i);
+      expect(p).toMatch(/«original»/);
     });
 
     test("precio vacio o cero es 'a consultar', nunca $0; stock 0 se dice", () => {

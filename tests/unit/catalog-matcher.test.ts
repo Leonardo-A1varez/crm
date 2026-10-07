@@ -137,7 +137,7 @@ describe("CatalogMatcherService.buscar", () => {
       productoFixture({
         codigo_interno: "P-1",
         nombre: "Pastilla",
-        descripcion: "interno desc",
+        descripcion: "54*82C",
         precio: 99.5,
         stock: 5,
       }),
@@ -155,6 +155,21 @@ describe("CatalogMatcherService.buscar", () => {
     ]);
     expect(match.precio).toBe(99.5);
     expect(match.stock).toBe(5);
+  });
+
+  test("expone la procedencia cuando la descripcion es una", async () => {
+    await repo.create(
+      productoFixture({
+        codigo_interno: "P-2",
+        nombre: "Pastilla",
+        descripcion: "mobis",
+        precio: 10,
+      }),
+    );
+
+    const result = await svc.buscar({ query: "pastilla" });
+
+    expect(result.matches[0]?.procedencia).toBe("MOBIS");
   });
 
   test("scoring: codigo exacto > prefix nombre > contains nombre", async () => {
