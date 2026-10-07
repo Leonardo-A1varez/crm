@@ -56,11 +56,11 @@ function traducir(nombre: string, dic = ALTA): Esperado[] {
 }
 
 describe("cargarDiccionario", () => {
-  it("lee las 401 filas del CSV sugerido, con BOM, y conserva la confianza", () => {
-    expect(COMPLETO).toHaveLength(401);
+  it("lee las 545 filas del CSV sugerido, con BOM, y conserva la confianza", () => {
+    expect(COMPLETO).toHaveLength(545);
     const porConfianza = { alta: 0, media: 0, baja: 0 };
     for (const m of COMPLETO) porConfianza[m.confianza] += 1;
-    expect(porConfianza).toEqual({ alta: 316, media: 61, baja: 24 });
+    expect(porConfianza).toEqual({ alta: 400, media: 94, baja: 51 });
     expect(COMPLETO[0]).toMatchObject({
       marcaSigla: "HY",
       marca: "Hyundai",
@@ -72,7 +72,7 @@ describe("cargarDiccionario", () => {
   });
 
   it("soloConfianzaAlta descarta media y baja", () => {
-    expect(ALTA).toHaveLength(316);
+    expect(ALTA).toHaveLength(400);
     expect(ALTA.every((m) => m.confianza === "alta")).toBe(true);
   });
 
@@ -347,7 +347,7 @@ const FILAS: Array<[string, Esperado[]]> = [
     ],
   ],
   ["CH SPARK 06- DW MATIZ", [v("Chevrolet", "SPARK", 2006), v("Daewoo", "MATIZ")]],
-  ["DW MATIZ TICO DAMAS", [v("Daewoo", "MATIZ"), v("Daewoo", "TICO")]],
+  ["DW MATIZ TICO DAMAS", [v("Daewoo", "MATIZ"), v("Daewoo", "TICO"), v("Daewoo", "DAMAS")]],
   [
     "CH AVEO 4C 1.4 05-11 DMAX PLANO",
     [v("Chevrolet", "AVEO", 2005, 2011, "1.4"), v("Chevrolet", "DMAX")],
