@@ -1,0 +1,39 @@
+# Re-registra las funciones de Inngest tras cada deploy a producción. Sin esto,
+# las funciones nuevas no corren hasta que alguien hace el PUT a mano (devolvía
+# "modified":true después de cada deploy).
+#
+# Variable opcional del repo (Settings → Secrets and variables → Actions → Variables):
+#   PRODUCTION_URL  por defecto https://crm-wine-one-38.vercel.app
+name: inngest-sync
+
+on:
+  deployment_status:
+
+permissions: {}
+
+jobs:
+  sync:
+    # La integración de Vercel nombra el entorno "Production".
+    if: github.event.deployment_status.state == 'success' && github.event.deployment_status.environment == 'Production'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DEPLOY_URL: ${{ github.event.deployment_status.environment_url }}
+      FALLBACK_URL: ${{ vars.PRODUCTION_URL || 'https://crm-wine-one-38.vercel.app' }}
+    steps:
+      - name: PUT /api/webhooks/inngest
+        run: |
+          base="${DEPLOY_URL:-$FALLBACK_URL}"
+          url="${base%/}/api/webhooks/inngest"
+          for i in 1 2 3; do
+            echo "intento $i: PUT $url"
+            code=$(curl -sS -X PUT -o resp.txt -w '%{http_code}' "$url" || echo 000)
+            if [ "$code" = "200" ] && grep -q "Successfully registered" resp.txt; then
+              echo "registrado: $(cat resp.txt)"
+              exit 0
+            fi
+            echo "HTTP $code: $(head -c 300 resp.txt 2>/dev/null)"
+            [ "$i" -lt 3 ] && sleep 10
+          done
+          echo "No se pudo registrar Inngest tras 3 intentos" >&2
+          exit 1

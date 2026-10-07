@@ -650,3 +650,40 @@ describe("usuarios.empresa_erp", () => {
     expect(data?.rol).toBe("vendedor");
   });
 });
+
+describe("XELIM: los items marcados para eliminar quedan inactivos", () => {
+  test("una descripcion_auxiliar que empieza con XELIM carga inactiva", async () => {
+    const r = await cargar([
+      fila({ no_item: "1", descripcion_auxiliar: "XELIM" }),
+      fila({ no_item: "2", descripcion_auxiliar: "  xelim delphi" }),
+      fila({ no_item: "3", descripcion_auxiliar: "MOBIS" }),
+    ]);
+    expect(r.error).toBeNull();
+    expect((await producto("1"))?.activo).toBe(false);
+    expect((await producto("2"))?.activo).toBe(false);
+    expect((await producto("3"))?.activo).toBe(true);
+  });
+
+  test("recargar un XELIM lo mantiene inactivo", async () => {
+    await cargar([fila({ no_item: "1", descripcion_auxiliar: "XELIM" })]);
+    const r = await cargar([
+      fila({ no_item: "1", descripcion_auxiliar: "XELIM", existencias_total: 5 }),
+    ]);
+    expect(r.error).toBeNull();
+    expect(await producto("1")).toMatchObject({ activo: false, stock: 5 });
+  });
+
+  test("un item normal dado de baja se reactiva al recargar, como antes", async () => {
+    await cargar([fila({ no_item: "1" })]);
+    await borrar([{ no_item: "1" }]);
+    expect((await producto("1"))?.activo).toBe(false);
+    await cargar([fila({ no_item: "1" })]);
+    expect((await producto("1"))?.activo).toBe(true);
+  });
+
+  test("si el ERP le quita el XELIM, vuelve a activo", async () => {
+    await cargar([fila({ no_item: "1", descripcion_auxiliar: "XELIM" })]);
+    await cargar([fila({ no_item: "1", descripcion_auxiliar: "MOBIS" })]);
+    expect((await producto("1"))?.activo).toBe(true);
+  });
+});

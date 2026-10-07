@@ -199,3 +199,29 @@ describe("etiquetaDeOrigen: cómo se presenta al cliente", () => {
     expect(etiquetaDeOrigen(origen)).toBe(etiqueta);
   });
 });
+
+describe("procedencia de catalogo_marcas: cómo se escribe al cliente", () => {
+  const origenDe = (procedencia: string): string | null => {
+    const indice = indexarMarcas([
+      { nombre: "XMARCA", tipo: null, procedencia, activa: true, alias: [] },
+    ]);
+    return resolverOrigen("XMARCA", null, indice).procedencia;
+  };
+
+  test("un país conocido usa su nombre del mapa", () => {
+    expect(origenDe("KOREA")).toBe("Korea");
+  });
+
+  test("los conectores del español quedan en minúscula", () => {
+    expect(origenDe("CHINA DE CALIDAD")).toBe("China de Calidad");
+  });
+
+  test("las demás palabras llevan inicial mayúscula", () => {
+    expect(origenDe("EQUIPO ORIGINAL")).toBe("Equipo Original");
+    expect(origenDe("BRASIL")).toBe("Brasil");
+  });
+
+  test("un conector al inicio sí va en mayúscula", () => {
+    expect(origenDe("DE FABRICA")).toBe("De Fabrica");
+  });
+});

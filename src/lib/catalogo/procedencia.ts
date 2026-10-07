@@ -101,8 +101,30 @@ const SUFIJOS_DE_ORIGEN: ReadonlyMap<string, string> = new Map([
 /** Sobremedida del código: `STD`, `0`, `2`, `0.50`, `1.00`. */
 const MEDIDA = /^(std|\d{1,2}(\.\d{1,2})?)$/;
 
+/** Conectores del español que van en minúscula dentro de un nombre («China de Calidad»). */
+const CONECTORES = new Set([
+  "de",
+  "del",
+  "la",
+  "las",
+  "el",
+  "los",
+  "y",
+  "e",
+  "o",
+  "u",
+  "para",
+  "con",
+  "sin",
+  "en",
+]);
+
 const capitalizar = (t: string): string =>
-  t.replace(/(^|[\s-])(\p{L})/gu, (_, sep: string, c: string) => `${sep}${c.toUpperCase()}`);
+  t.replace(/(^|[\s-])(\p{L}[\p{L}]*)/gu, (_, sep: string, palabra: string, pos: number) =>
+    pos > 0 && CONECTORES.has(palabra)
+      ? `${sep}${palabra}`
+      : `${sep}${palabra.charAt(0).toUpperCase()}${palabra.slice(1)}`,
+  );
 
 /** `ORIGINAL`, `KOREA`, `JAPON` (como guarda la tabla) -> como se le dice al cliente. */
 function mostrarProcedencia(procedencia: string): string {
