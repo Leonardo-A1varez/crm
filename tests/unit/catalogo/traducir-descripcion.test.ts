@@ -56,11 +56,11 @@ function traducir(nombre: string, dic = ALTA): Esperado[] {
 }
 
 describe("cargarDiccionario", () => {
-  it("lee las 545 filas del CSV sugerido, con BOM, y conserva la confianza", () => {
-    expect(COMPLETO).toHaveLength(545);
+  it("lee las 546 filas del CSV sugerido, con BOM, y conserva la confianza", () => {
+    expect(COMPLETO).toHaveLength(546);
     const porConfianza = { alta: 0, media: 0, baja: 0 };
     for (const m of COMPLETO) porConfianza[m.confianza] += 1;
-    expect(porConfianza).toEqual({ alta: 400, media: 94, baja: 51 });
+    expect(porConfianza).toEqual({ alta: 401, media: 94, baja: 51 });
     expect(COMPLETO[0]).toMatchObject({
       marcaSigla: "HY",
       marca: "Hyundai",
@@ -72,7 +72,7 @@ describe("cargarDiccionario", () => {
   });
 
   it("soloConfianzaAlta descarta media y baja", () => {
-    expect(ALTA).toHaveLength(400);
+    expect(ALTA).toHaveLength(401);
     expect(ALTA.every((m) => m.confianza === "alta")).toBe(true);
   });
 

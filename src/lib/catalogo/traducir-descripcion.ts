@@ -168,6 +168,7 @@ const MARCAS_ADICIONALES: Readonly<Record<string, string>> = {
   VW: "Volkswagen",
   FORD: "Ford",
   MIT: "Mitsubishi",
+  DAI: "Daihatsu",
 };
 
 /** Siglas que son otra escritura de una sigla del diccionario (`MIT` es la `MT` explícita). */

@@ -201,7 +201,7 @@ STOPPER,tope (caucho tope),pieza,nombre,15,nombre: HY CRETA 1.6 1.5 17- CAUCHO S
 TERMOST,termostato,pieza,nombre,15,nombre: KIA PICANTO 18- TAPA TERMOST ; HY TUCS 05- MANG TOMA TERMOST LLEVA 2,alta,TERMOSTATO escrito completo en TERMOSTATO ARMADO Y TAPAS,
 B/AGUA,bomba de agua,pieza,nombre,14,nombre: HY ACC 06- XCITE VER GETZ B/AGUA ; HY H350 17- POLEA B/AGUA,alta,BOMBA DE AGUA es una categoría escrita completa; `POLEA B/AGUA`,
 ELEC/VENT,electroventilador,pieza,categoria,14,categoria: MOTOR ELEC/VENT,alta,ELECTRO VENTILADOR es una categoría escrita completa; `MOTOR ELEC/VENT`,
-TEMP,¿templador? ¿temperatura?,pieza,nombre,14,nombre: KIA SORENT 2.5 TEMP CAD PRINC ; HY VER TEMP TUBO POST HUEC/PEQ,baja,"`KIA SORENT 2.5 TEMP CAD PRINC` en TEMPLADOR CADENA DISTRIBUCION, pero SENSOR TEMPERATURA existe. Pregunta al dueño",
+TEMP,templador,pieza,nombre,14,nombre: KIA SORENT 2.5 TEMP CAD PRINC ; HY VER TEMP TUBO POST HUEC/PEQ,alta,Confirmado por el dueño 2026-10-08: TEMP es templador en general; en un trompo (TROM ... TEMP) es temperatura.,SI
 EMPAQ,empaque,pieza,nombre,13,nombre: CH AVEO EMPAQ BOMBA O-RING ; HY H1 TQ 07- EMPAQ UNION,alta,EMPAQUE escrito completo como categoría,
 GUARDAPOLV,guardapolvo,pieza,nombre,13,nombre: HY CRETA 1.6 17- GUARDAPOLV AMORTIGUADOR DELT ; HY TUCS NX 21- GUARDAPOLV POST,alta,`HY CRETA 1.6 17- GUARDAPOLV AMORTIGUADOR DELT`,
 C/COR,¿con corona? ¿con cordón?,atributo,nombre,12,nombre: TY 2.0 2F DY C/COR ; HY H100 C/COR PEQÑ,baja,"`TY 2.0 2F DY C/COR`, `HY H100 C/COR PEQÑ` en RULIM SERIE 3000/VARIOS. Pregunta al dueño",
