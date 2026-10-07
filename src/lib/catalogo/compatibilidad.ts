@@ -426,15 +426,16 @@ export function construirDiferencias(
   if (procedencias.length > 0) {
     partes.push(
       `La misma pieza viene en distintas opciones (${procedencias.join(", ")}): ` +
-        "no las preguntes, cotizá cada una como «MARCA (Procedencia) $precio» (IVA incluido), " +
+        "no las preguntes. Responde con el `encabezado` tal cual, luego una línea por candidato " +
+        "como «MARCA (Procedencia) $precio» (el IVA ya va en el encabezado, no lo repitas), " +
         "con la `marca` y la `procedencia` de cada candidato; si no trae `marca`, «PROCEDENCIA $precio»; " +
         "si no trae `procedencia`, «MARCA $precio». Sin rangos.",
     );
   }
   if (relacionadas.length > 0) {
     partes.push(
-      `Después de cotizar, UNA línea corta ofreciendo las piezas relacionadas por su nombre, sin precios ` +
-        `(${relacionadas.join(", ")}): «También tengo …, ¿te las cotizo?». Los precios solo si el cliente las pide.`,
+      "Termina con `relacionadas_texto` copiado tal cual, como última línea y sin precios " +
+        "(las piezas relacionadas solo se cotizan si el cliente las pide).",
     );
   }
   return {

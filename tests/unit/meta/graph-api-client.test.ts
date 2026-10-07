@@ -567,3 +567,41 @@ describe("GraphApiMetaClient — sendRico WA", () => {
     ).rejects.toBeInstanceOf(RateLimitError);
   });
 });
+
+describe("GraphApiMetaClient — typing indicator WA", () => {
+  // Cuerpo de la doc de Meta (developers.facebook.com/docs/whatsapp/cloud-api/typing-indicators,
+  // leída el 2026-10-07): marca el mensaje como leído y muestra «escribiendo…» hasta 25 s.
+  test("POST /{phone_number_id}/messages con status read y typing_indicator text", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(makeOkResponse({ success: true }));
+
+    await makeWaClient(fetchMock).sendTypingIndicator({ messageId: "wamid.IN-1" });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://graph.example.test/v21.0/12345/messages");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer wa-token");
+    expect(JSON.parse(init.body as string)).toEqual({
+      messaging_product: "whatsapp",
+      status: "read",
+      message_id: "wamid.IN-1",
+      typing_indicator: { type: "text" },
+    });
+  });
+
+  test("mapea los errores de Graph como el resto del cliente", async () => {
+    const pedir = (status: number) =>
+      makeWaClient(vi.fn().mockResolvedValue(makeErrorResponse({}, status))).sendTypingIndicator({
+        messageId: "wamid.IN-1",
+      });
+    await expect(pedir(400)).rejects.toBeInstanceOf(ValidationError);
+    await expect(pedir(429)).rejects.toBeInstanceOf(RateLimitError);
+    await expect(pedir(503)).rejects.toBeInstanceOf(InfraError);
+  });
+
+  test("un fallo de red es InfraError", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+    await expect(
+      makeWaClient(fetchMock).sendTypingIndicator({ messageId: "wamid.IN-1" }),
+    ).rejects.toBeInstanceOf(InfraError);
+  });
+});

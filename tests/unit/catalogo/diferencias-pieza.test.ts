@@ -129,8 +129,19 @@ describe("armarSalida: conversación real del termostato para el Accent 1.6 (200
       ]),
     );
     expect(salida.relacionadas).not.toContain("TERMOSTATOS");
-    expect(salida.diferencias?.instruccion).toMatch(/También tengo/);
+    expect(salida.encabezado).toBe("Termostato Accent 2006 1.6 (IVA incluido):");
+    expect(salida.relacionadas_texto).toBe(
+      "Si necesita la tapa, la base o el termostato completo, también dispongo. ¿Desea que le cotice?",
+    );
+    expect(salida.diferencias?.instruccion).toMatch(/`relacionadas_texto`/);
     expect(salida.diferencias?.instruccion).toMatch(/sin precios/i);
+  });
+
+  test("cuando hay que preguntar no hay encabezado ni línea de relacionadas", async () => {
+    const hits = await buscar(TERMOSTATOS_REALES, { ...CONSULTA_ACCENT_2006 });
+    const salida = armarSalida(hits, dadoReal, undefined, MARCAS);
+    expect(salida.encabezado).toBeUndefined();
+    expect(salida.relacionadas_texto).toBeUndefined();
   });
 
   test("al pedir 'base de termostato' la exacta es la base, y el termostato suelto queda relacionado", async () => {

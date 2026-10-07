@@ -1010,6 +1010,32 @@ export async function onMessageReceivedHandler(
       }
     };
 
+    // «Escribiendo…» de WhatsApp mientras el agente redacta (pasa por el LLM, que
+    // tarda). Meta pide mostrarlo solo si se va a responder: no se pide con la IA
+    // pausada o la sesión en manos de una persona, ni en Copiloto (el borrador no
+    // sale por la API). Mejor esfuerzo: un fallo del indicador no puede costarle la
+    // respuesta al cliente, así que se atrapa dentro del step y queda un warning
+    // sin texto ni teléfono. El step es idempotente: Inngest lo memoiza por nombre
+    // en este run, y repetir el POST a Meta no tiene efecto más allá de renovar los 25 s.
+    if (
+      debeMostrarEscribiendo({
+        canal: parsed.canal,
+        modo,
+        iaPausada: session.ia_pausada,
+        etapa: session.current_stage,
+      })
+    ) {
+      await step.run("mostrar-escribiendo", async () => {
+        try {
+          await deps.metaApi.mostrarEscribiendo({ messageId: parsed.meta_message_id });
+        } catch (error) {
+          logger.warn("typing-indicator-fallo", {
+            error: error instanceof Error ? error.name : "desconocido",
+          });
+        }
+      });
+    }
+
     // Lectura pura y determinística: el step devuelve el JSON ya armado (no
     // las filas con `Date`), que es lo que Inngest memoiza entre reintentos.
     const vehiculos = await conErrorDeBorrador(() =>
@@ -1330,6 +1356,27 @@ async function turnosPreviosSinIntent(
     racha.push({ intent_nombre: null, confidence: turno.confidence });
   }
   return racha.reverse();
+}
+
+/**
+ * ¿Se muestra «escribiendo…» en WhatsApp para este turno? Solo si el agente va a
+ * contestar por la API: canal WhatsApp, modo Automático y la sesión sin la IA
+ * pausada ni en `requiere_humano`. Lo que escala por palabra o por tope de
+ * cotización se decide dentro del agente y no se puede saber acá; ese caso
+ * (raro) deja el indicador hasta que vence a los 25 s.
+ */
+export function debeMostrarEscribiendo(turno: {
+  canal: ParsedMessage["canal"];
+  modo: ModoDecidido;
+  iaPausada: boolean;
+  etapa: string;
+}): boolean {
+  return (
+    turno.canal === "wa" &&
+    turno.modo === "automatico" &&
+    !turno.iaPausada &&
+    turno.etapa !== "requiere_humano"
+  );
 }
 
 /**

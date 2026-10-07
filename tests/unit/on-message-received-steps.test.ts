@@ -150,6 +150,7 @@ describe("onMessageReceivedHandler granular steps", () => {
       "emit-workflow-mensaje",
       "etiquetar-por-reglas",
       "build-turn",
+      "mostrar-escribiendo",
       "leer-vehiculos",
       "respond",
       // El turno lo resolvió el LLM (`source === "llm"`): se audita antes de
@@ -231,6 +232,7 @@ describe("onMessageReceivedHandler granular steps", () => {
       "emit-workflow-mensaje",
       "etiquetar-por-reglas",
       "build-turn",
+      "mostrar-escribiendo",
       "leer-vehiculos",
       "respond",
       // sin "send"

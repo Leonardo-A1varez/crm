@@ -36,14 +36,22 @@ describe("orden de los bloques", () => {
 });
 
 describe("reglas inviolables", () => {
-  test("son las 4 del handoff, la del vehiculo guardado, las 6 de conducta del catalogo y la de respuestas minimas", () => {
-    expect(REGLAS_INVIOLABLES).toHaveLength(12);
+  test("son las 4 del handoff, la del vehiculo guardado, las 6 de conducta del catalogo la de usted y la de respuestas minimas", () => {
+    expect(REGLAS_INVIOLABLES).toHaveLength(13);
+  });
+
+  test("trata siempre al cliente de usted, con cualquier tono configurado", () => {
+    for (const tono of ["formal", "neutro", "cercano"] as const) {
+      const prompt = componerSystemPrompt(config({ tono }));
+      expect(prompt).toMatch(/Trata SIEMPRE al cliente de usted, nunca de tu ni de vos/);
+    }
+    expect(directivasDeEstilo(config({ tono: "cercano" })).join(" ")).not.toMatch(/tutea al/i);
   });
 
   test("pide respuestas minimas: solo la pregunta, y al cotizar solo las opciones", () => {
     const prompt = componerSystemPrompt(config());
     expect(prompt).toMatch(/responde SOLO con la pregunta, en una linea/);
-    expect(prompt).toMatch(/Al cotizar, responde SOLO con las opciones/);
+    expect(prompt).toMatch(/Al cotizar, responde SOLO con el formato de cotizacion/);
   });
 
   describe("conducta del catalogo (como-leer-el-catalogo.md §12)", () => {
@@ -108,15 +116,17 @@ describe("reglas inviolables", () => {
 
     test("cotiza la pieza exacta y nombra las `relacionadas` sin precios", () => {
       const p = prompt();
-      expect(p).toMatch(/si trae `relacionadas`, cierra con UNA linea/i);
+      expect(p).toMatch(/si trae `relacionadas_texto`, esa linea copiada tal cual y sin precios/i);
       expect(p).toMatch(/sin precios/i);
     });
 
     test("al cotizar da marca, procedencia y precio por opcion, sin rangos ni codigos", () => {
       const p = prompt();
-      expect(p).toMatch(/SOLO la `marca`, la `procedencia` y el precio \(IVA incluido\)/);
+      expect(p).toMatch(
+        /primero el `encabezado` copiado tal cual, luego UNA linea por opcion con SOLO la `marca`, la `procedencia` y el precio/,
+      );
+      expect(p).toMatch(/sin repetir el IVA/);
       expect(p).toContain("«MARCA (Procedencia) $precio»");
-      expect(p).toContain("MOBIS (Original) $96,66 · JUNGWOO (Korea) $21,51");
       expect(p).toMatch(/no trae `marca`, «PROCEDENCIA \$precio»/);
       expect(p).toMatch(/no trae `procedencia`, «MARCA \$precio»/);
       expect(p).toMatch(/sin rangos de precio/i);
@@ -184,8 +194,10 @@ describe("directivas de estilo", () => {
     expect(directivasDeEstilo(config({ tono: "formal" })).join(" ")).toMatch(/usted/i);
   });
 
-  test("tono cercano tutea", () => {
-    expect(directivasDeEstilo(config({ tono: "cercano" })).join(" ")).toMatch(/tutea/i);
+  test("tono cercano sigue tratando de usted", () => {
+    const d = directivasDeEstilo(config({ tono: "cercano" })).join(" ");
+    expect(d).toMatch(/de usted/i);
+    expect(d).toMatch(/nunca lo tutees/i);
   });
 
   test("cada largo declara su cota de frases", () => {

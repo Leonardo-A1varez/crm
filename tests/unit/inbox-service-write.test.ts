@@ -101,6 +101,9 @@ describe("DefaultInboxService write path", () => {
       sendTemplate: async () => {
         throw new Error("el inbox no manda plantillas");
       },
+      sendTypingIndicator: async () => {
+        throw new Error("no se pide escribiendo acá");
+      },
       sendRico: async () => {
         throw new Error("el inbox no manda mensajes interactivos");
       },

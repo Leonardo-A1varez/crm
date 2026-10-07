@@ -123,6 +123,10 @@ export const BuscarRepuestoOutputSchema = z.object({
   aviso: z.string().optional(),
   /** Nombres de otras piezas (empaque, polea…) que también hay para este vehículo: se ofrecen sin precio. */
   relacionadas: z.array(z.string()).optional(),
+  /** Primera línea de la cotización, ya escrita: pieza + vehículo + «(IVA incluido):». Solo cuando hay precios. */
+  encabezado: z.string().optional(),
+  /** Última línea de la cotización, ya escrita (de usted), que ofrece las `relacionadas` sin precio. */
+  relacionadas_texto: z.string().optional(),
 });
 export type BuscarRepuestoOutput = z.infer<typeof BuscarRepuestoOutputSchema>;
 

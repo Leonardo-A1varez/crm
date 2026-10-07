@@ -42,6 +42,9 @@ function makeReadOnlyDeps(
       sendTemplate: async () => {
         throw new Error("sendTemplate no debe invocarse acá");
       },
+      sendTypingIndicator: async () => {
+        throw new Error("no se pide escribiendo acá");
+      },
       sendRico: async () => {
         throw new Error("sendRico no debe invocarse acá");
       },

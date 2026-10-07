@@ -130,6 +130,9 @@ function makeMockMetaClient(): { client: MetaApiClient; send: ReturnType<typeof 
       sendTemplate: async () => {
         throw new Error("el smoke no manda plantillas");
       },
+      sendTypingIndicator: async () => {
+        throw new Error("no se pide escribiendo acá");
+      },
       sendRico: async () => {
         throw new Error("el smoke no manda botones, listas, imágenes ni ubicaciones");
       },

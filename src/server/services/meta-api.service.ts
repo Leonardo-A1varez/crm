@@ -114,8 +114,20 @@ export interface MetaSendRicoInput {
   contenido: ContenidoRico;
 }
 
+/**
+ * El mensaje entrante de WhatsApp al que se le muestra «escribiendo…». Meta lo
+ * marca como leído y muestra el indicador hasta 25 s o hasta que salga la
+ * respuesta (developers.facebook.com/docs/whatsapp/cloud-api/typing-indicators,
+ * leída el 2026-10-07).
+ */
+export interface MetaTypingIndicatorInput {
+  messageId: string;
+}
+
 export interface MetaApiClient {
   sendText(input: MetaSendTextInput): Promise<MetaSendResult>;
+  /** Sólo WhatsApp: marca el entrante como leído y muestra «escribiendo…». */
+  sendTypingIndicator(input: MetaTypingIndicatorInput): Promise<void>;
   /** Sólo WhatsApp: Instagram y Messenger no tienen plantillas aprobadas. */
   sendTemplate(input: MetaSendTemplateInput): Promise<MetaSendResult>;
   /** Sólo WhatsApp: botones, lista, imagen o ubicación. */
@@ -244,6 +256,12 @@ export interface MetaApiService {
   sendTemplate(input: SendTemplateInput): Promise<Mensaje>;
   /** Botones, lista, imagen o ubicación por WhatsApp. Sólo dentro de la ventana de 24 h. */
   sendRico(input: SendRicoInput): Promise<Mensaje>;
+  /**
+   * «Escribiendo…» de WhatsApp para un entrante que el agente va a contestar. No
+   * deja nada en el hilo; quien llama decide si corresponde y trata el fallo como
+   * no crítico.
+   */
+  mostrarEscribiendo(input: MetaTypingIndicatorInput): Promise<void>;
   recordInbound(input: RecordInboundInput): Promise<Mensaje>;
 }
 
@@ -300,6 +318,10 @@ export class DefaultMetaApiService implements MetaApiService {
       },
       llamarAMeta: () => this.client.sendTemplate({ to: input.to, plantilla: input.plantilla }),
     });
+  }
+
+  async mostrarEscribiendo(input: MetaTypingIndicatorInput): Promise<void> {
+    await this.client.sendTypingIndicator(input);
   }
 
   async sendRico(input: SendRicoInput): Promise<Mensaje> {

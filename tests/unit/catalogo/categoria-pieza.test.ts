@@ -64,7 +64,12 @@ describe("conversación real: 'una bomba de agua para el Rio 18'", () => {
     );
     expect(out.diferencias?.atributos).toEqual([]);
     expect(out.relacionadas).toEqual(["POLEA BOMBA AGUA E HIDRAU"]);
-    expect(out.diferencias?.instruccion).toMatch(/También tengo/);
+    expect(out.encabezado).toBe("Bomba de agua Rio 2018 (IVA incluido):");
+    expect(out.relacionadas_texto).toBe(
+      "Si necesita la polea, también dispongo. ¿Desea que le cotice?",
+    );
+    expect(out.diferencias?.instruccion).toMatch(/`encabezado`/);
+    expect(out.diferencias?.instruccion).toMatch(/`relacionadas_texto`/);
     expect(out.diferencias?.instruccion).toMatch(/MARCA \(Procedencia\) \$precio/);
     expect(JSON.stringify(out.relacionadas)).not.toMatch(/\d\.\d\d/);
   });
@@ -76,7 +81,8 @@ describe("conversación real: 'una bomba de agua para el Rio 18'", () => {
     expect(out.matches.map((m) => m.codigo_interno).sort()).toEqual(["13973", "21688", "21693"]);
     expect(out.diferencias?.atributos ?? []).not.toContain("pieza");
     expect(out.diferencias?.procedencias).toEqual(["JUNGWOO", "MOBIS"]);
-    expect(out.diferencias?.instruccion).toMatch(/cotiz/i);
+    expect(out.encabezado).toBe("Bomba de agua Rio 2018 (IVA incluido):");
+    expect(out.diferencias?.instruccion).toMatch(/`encabezado`/);
     expect(out.diferencias?.instruccion).not.toMatch(/Preguntale/);
   });
 
