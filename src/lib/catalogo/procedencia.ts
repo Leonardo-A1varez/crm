@@ -26,6 +26,29 @@ export interface MarcaCatalogo {
   alias: readonly string[];
 }
 
+/**
+ * Una variante (ítem de proveedor) de Bodega Web: "el código X del proveedor P es
+ * nuestro ítem I". Solo lo que usa la resolución; la tabla guarda más.
+ */
+export interface VarianteBodega {
+  id: string;
+  /** = `productos.codigo_interno`. */
+  item_codigo_interno: string;
+  /** Nombre canónico de la marca (= `catalogo_marcas.nombre`). */
+  marca_canonica: string | null;
+  /** País u «ORIGINAL» de esa marca, como lo escribe Bodega Web. */
+  marca_procedencia: string | null;
+  /** `LEFT`, `RIGHT`, `BOTH` o `null`. */
+  lado: string | null;
+  /** `OBSERVED`, `CONFIRMED`, `TRUSTED` o `CONFLICT`. */
+  estado: string;
+  descartada: boolean;
+  activa: boolean;
+}
+
+/** Variantes agrupadas por `codigo_interno` del producto. */
+export type VariantesPorItem = ReadonlyMap<string, readonly VarianteBodega[]>;
+
 /** Lo que se sabe del origen de una pieza. `null` es «no sabemos», nunca un default. */
 export interface OrigenDeLaPieza {
   /** La marca por su nombre canónico (MOBIS, JUNGWOO…), o el texto de marca desconocida. */
@@ -158,7 +181,12 @@ function procedenciaDelCodigo(codigo: string | null | undefined): string | null 
 /** Arma el índice de marcas activas. El nombre canónico gana sobre el alias de otra marca. */
 export function indexarMarcas(marcas: readonly MarcaCatalogo[]): IndiceMarcas {
   const porClave = new Map<string, { nombre: string; procedencia: string | null }>();
-  const activas = marcas.filter((m) => m.activa && plegar(m.nombre) !== "");
+  // Las marcas de vehículo (KIA, CHEVROLET…) vienen en la misma tabla pero no son marcas
+  // de repuesto: darle procedencia a una pieza porque su texto dice «KIA» sería inventar.
+  const activas = marcas.filter(
+    (m) =>
+      m.activa && plegar(m.nombre) !== "" && (m.tipo ?? "").trim().toLowerCase() !== "vehiculo",
+  );
   const entrada = (m: MarcaCatalogo) => ({
     nombre: m.nombre.trim(),
     procedencia:
@@ -181,9 +209,60 @@ export function indexarMarcas(marcas: readonly MarcaCatalogo[]): IndiceMarcas {
 
 const SIN_MARCAS: IndiceMarcas = { porClave: new Map() };
 
+/** Una variante de la que el CRM se fía (contrato de Bodega Web, §5). */
+function esConfiable(v: VarianteBodega): boolean {
+  return v.activa && !v.descartada && (v.estado === "CONFIRMED" || v.estado === "TRUSTED");
+}
+
+/**
+ * La marca y la procedencia que dicen las variantes confiables del ítem, o `null`.
+ * Solo se afirma si todas las que traen marca coinciden: un mismo ítem comprado a dos
+ * proveedores de marcas distintas es ambiguo y se decide con el ERP.
+ */
+function origenDeVariantes(
+  variantes: readonly VarianteBodega[],
+  indice: IndiceMarcas,
+  codigoFabrica: string | null | undefined,
+): OrigenDeLaPieza | null {
+  const conMarca = variantes.filter(
+    (v) => esConfiable(v) && v.marca_canonica !== null && plegar(v.marca_canonica) !== "",
+  );
+  const marcas = new Set(conMarca.map((v) => plegar(v.marca_canonica ?? "")));
+  if (marcas.size !== 1) return null;
+
+  const primera = conMarca[0];
+  if (!primera?.marca_canonica) return null;
+  const marca = primera.marca_canonica.trim();
+  const dicha = conMarca.find(
+    (v) => v.marca_procedencia !== null && v.marca_procedencia.trim() !== "",
+  );
+  const procedencia = dicha?.marca_procedencia
+    ? mostrarProcedencia(dicha.marca_procedencia)
+    : (indice.porClave.get(plegar(marca))?.procedencia ?? procedenciaDelCodigo(codigoFabrica));
+  return { marca, procedencia };
+}
+
+/**
+ * El lado de la pieza que dicen las variantes confiables, si es uno solo (izquierdo o
+ * derecho). `BOTH`, lados distintos o ninguno: `null`.
+ */
+export function ladoDeVariantes(
+  variantes: readonly VarianteBodega[],
+): "izquierdo" | "derecho" | null {
+  const lados = new Set(variantes.filter(esConfiable).map((v) => v.lado));
+  if (lados.size !== 1) return null;
+  const [lado] = [...lados];
+  if (lado === "LEFT") return "izquierdo";
+  if (lado === "RIGHT") return "derecho";
+  return null;
+}
+
 /**
  * De dónde viene la pieza y de qué marca es, sin inventar nada:
  *
+ * 0. Una variante confiable de Bodega Web (`CONFIRMED`/`TRUSTED`, no descartada) dice la
+ *    marca; la procedencia es la de la variante, o la de la tabla de marcas, o el
+ *    sufijo del código. Si las variantes confiables se contradicen, no se usa ninguna.
  * 1. `descripcion` es un país (CHINA, KOREA, HY INDIA…): esa es la procedencia y
  *    no hay marca.
  * 2. `descripcion` es una marca del catálogo (por nombre o alias): la marca es su
@@ -198,7 +277,11 @@ export function resolverOrigen(
   descripcion: string | null | undefined,
   codigoFabrica: string | null | undefined,
   indice: IndiceMarcas = SIN_MARCAS,
+  variantes: readonly VarianteBodega[] = [],
 ): OrigenDeLaPieza {
+  const deVariante = origenDeVariantes(variantes, indice, codigoFabrica);
+  if (deVariante !== null) return deVariante;
+
   const t = plegar(descripcion ?? "");
   if (t !== "") {
     const pais = PROCEDENCIAS.get(t);
