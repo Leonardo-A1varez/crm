@@ -1,8 +1,8 @@
 # Contrato: catálogo del ERP (Oracle) → CRM
 
-Para el extractor de Bodega Web (`sync-oracle`), que agrega el CRM como **segundo destino**. El CRM nunca se conecta a Oracle: recibe filas JSON por tres funciones RPC de su Supabase.
+Para el extractor de Bodega Web (`sync-oracle`), que agrega el CRM como **segundo destino**. El CRM nunca se conecta a Oracle: recibe filas JSON por funciones RPC de su Supabase (cargar, dar de baja, fijar el estado) y le devuelve una sola cosa: la lista de claves activas del ERP para reconciliar bajas (§4.1).
 
-Fuente de verdad: `supabase/migrations/20261006130100_erp_sync.sql` (las RPC), `20261006130000_productos_erp.sql` (las columnas de `productos`) y `20261007160000_catalogo_marcas.sql` (la tabla `marcas`, §3.4). Probado en `tests/integration/erp-sync.supabase.test.ts` y `tests/integration/erp-sync-marcas.supabase.test.ts`. Ejemplo ejecutable: `scripts/erp/cargar-csv-local.mjs` + `scripts/erp/filas-desde-csv.mjs`.
+Fuente de verdad: `supabase/migrations/20261006130100_erp_sync.sql` (las RPC), `20261006130000_productos_erp.sql` (las columnas de `productos`) `20261007160000_catalogo_marcas.sql` (la tabla `marcas`, §3.4) y `20261008160000_erp_sync_claves.sql` (§4.1). Probado en `tests/integration/erp-sync.supabase.test.ts`, `tests/integration/erp-sync-marcas.supabase.test.ts` y `tests/integration/erp-sync-claves.supabase.test.ts`. Ejemplo ejecutable: `scripts/erp/cargar-csv-local.mjs` + `scripts/erp/filas-desde-csv.mjs`.
 
 ---
 
@@ -16,7 +16,7 @@ Fuente de verdad: `supabase/migrations/20261006130100_erp_sync.sql` (las RPC), `
 
 Con `supabase-js`: `createClient(url, anonKey).rpc("erp_sync_cargar", { p_clave, p_tabla, p_filas })`.
 
-**No se usa la service role en la PC.** La anon key solo puede ejecutar estas tres funciones, y las tres rechazan todo sin la clave.
+**No se usa la service role en la PC.** La anon key solo puede ejecutar `erp_sync_cargar`, `erp_sync_borrar`, `erp_sync_estado_fijar` y `erp_sync_claves`, y las cuatro rechazan todo sin la clave.
 
 ## 2. La clave
 
@@ -150,6 +150,58 @@ Da de baja lo que ya no está en el ERP: `activo = false`. **Nunca borra**, porq
 
 Mandá solo los `no_item` que el extractor **vio desaparecer** del ERP. El CRM tiene productos que no vinieron del ERP, y esos no se tocan si no se los nombra.
 
+### 4.1 `erp_sync_claves(p_clave text, p_tabla text, p_despues text default null, p_limite integer default 5000) → jsonb`
+
+Para reconciliar bajas: devuelve las claves (`codigo_interno` = `no_item`) de los productos que el CRM tiene **activos** y que **vinieron del ERP**. Lo que está en esta lista y ya no está en Oracle es candidato a `erp_sync_borrar`. Es solo lectura: no cambia nada.
+
+| Parámetro   | Tipo         | Regla                                                                                                                                              |
+| ----------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `p_clave`   | text         | La clave de sincronización. Se valida antes que todo lo demás (`42501`)                                                                            |
+| `p_tabla`   | text         | Solo `"productos"`, sensible a mayúsculas. Otro valor, `"marcas"` incluido → `22023`                                                               |
+| `p_despues` | text \| null | El `siguiente` de la página anterior. `null` u omitido = desde el principio. Hasta 256 caracteres (más → `22023`). No tiene que existir en la base |
+| `p_limite`  | integer      | De 1 a 5000; omitido = 5000. Menor que 1 o `null` → `22023`. Mayor que 5000 → `54000`                                                              |
+
+**Respuesta.** Un objeto JSON con exactamente dos campos:
+
+```json
+{ "claves": ["0001", "1", "10", "100", "7"], "siguiente": "7" }
+```
+
+(Ejemplo inventado para ilustrar la forma, con `p_limite = 5`.)
+
+- `claves`: arreglo de strings sin repetidos, en **orden de bytes** (`COLLATE "C"`: el texto en UTF-8 comparado byte a byte). Por eso `"100"` va antes que `"7"`, y `"B-2"` antes que `"a-1"` (las mayúsculas antes que las minúsculas). Del lado del extractor se compara igual: `Buffer.compare(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"))` en Node, o comparando `a.encode("utf-8")` en Python. **No** uses `localeCompare` ni un orden de idioma.
+- `siguiente`: si la página vino llena (`claves` tiene `p_limite` elementos), la última clave de la página; si no, `null`. Con `null` terminaste. Si la última página vino llena justo al final, la llamada siguiente devuelve `{"claves": [], "siguiente": null}`.
+- Paginación por clave (keyset): cada llamada devuelve las claves **estrictamente mayores** que `p_despues`. No hay `offset`, así que una carga que entra durante el recorrido no hace saltar ni repetir claves. Lo que se cargue o se dé de baja durante el recorrido puede aparecer o no, según caiga antes o después del cursor: no corras el recorrido en paralelo con `erp_sync_cargar`/`erp_sync_borrar` del mismo ciclo.
+
+**Qué entra.** Solo filas de `productos` con `activo = true` y `erp_actualizado_at` no nulo, es decir, filas que alguna vez escribió `erp_sync_cargar`. **No** entran:
+
+- los dados de baja (por `erp_sync_borrar`, por `XELIM` o por un grupo excluido);
+- los productos cargados a mano en el CRM (formulario o import CSV), aunque después se editen. Si el ERP carga más tarde un `no_item` igual al `codigo_interno` de uno manual, ese producto pasa a ser del ERP y entra.
+
+Caso borde, del lado seguro: un producto creado a mano antes de la primera carga del ERP cuya fila del ERP llegó idéntica a la guardada no se reescribe (§3), queda sin `erp_actualizado_at` y no aparece. La consecuencia es que la reconciliación no lo da de baja; nunca que dé de baja algo ajeno al ERP.
+
+**Ejemplo.** Recorrido completo con `supabase-js`:
+
+```js
+let despues = null;
+const enCrm = [];
+do {
+  const { data, error } = await anon.rpc("erp_sync_claves", {
+    p_clave: clave,
+    p_tabla: "productos",
+    p_despues: despues,
+    p_limite: 5000,
+  });
+  if (error) throw error; // 42501 / 22023 / 54000: no reintentar; 57014: reintentar
+  enCrm.push(...data.claves);
+  despues = data.siguiente;
+} while (despues !== null);
+```
+
+**Umbral de seguridad del extractor.** El CRM no limita cuántas bajas acepta: el freno está en el extractor, que no manda bajas si son más del ~10 % de lo que devolvió `erp_sync_claves` (una consulta a Oracle que vuelve vacía o a medias no puede dejar inactivo el catálogo). Qué hace el extractor cuando se pasa del umbral lo define Bodega Web; lo esperable es que no llame a `erp_sync_borrar` y cierre el ciclo con `p_ok => false` y el motivo en `p_error`.
+
+Misma clave y mismo `statement_timeout` de 60 s que `erp_sync_cargar`/`erp_sync_borrar`. `authenticated` (admin o vendedor) no la ejecuta, ni con la clave.
+
 ## 5. `erp_sync_estado_fijar(p_clave, p_fase, p_ok?, p_error?, p_filas_cargadas?) → void`
 
 | Parámetro          | Tipo                  | Uso                                                                       |
@@ -165,19 +217,19 @@ Las horas las pone la base. La pantalla del CRM lee `public.erp_sync_estado`, un
 
 1. `erp_sync_estado_fijar(clave, 'inicio')`.
 2. `erp_sync_cargar` con todo el catálogo en lotes de **hasta 5000**, en serie. Se puede mandar todo cada vez: lo que no cambió no se escribe.
-3. `erp_sync_borrar` con los `no_item` que desaparecieron del ERP, si hay.
+3. `erp_sync_borrar` con los `no_item` que desaparecieron del ERP, si hay. Para saber cuáles: recorrer `erp_sync_claves` (§4.1) y restarle lo que hay en Oracle, respetando el umbral del ~10 %.
    Las marcas (`p_tabla = "marcas"`, §3.4) se cargan igual, en el mismo ciclo, antes del paso 4. No cuentan en `p_filas_cargadas`, que es solo de `productos`.
 4. `erp_sync_estado_fijar(clave, 'fin', p_ok => true, p_filas_cargadas => <suma>)`. Si algo falló: `p_ok => false, p_error => <mensaje sin la clave>`.
 
 ## 7. Errores
 
-| SQLSTATE   | Cuándo                                                                                                                                 | Qué hacer                                                                              |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `42501`    | Clave nula, de menos de 32 caracteres, equivocada, o el hash no está configurado. Se valida **antes** que todo lo demás                | No reintentar. Revisar la clave                                                        |
-| `22023`    | Tabla distinta de `productos`/`marcas`, lote que no es arreglo, fila o clave mal formada, `no_item` o `nombre` repetido, fase inválida | No reintentar. El mensaje dice qué fila y qué campo. El lote entero quedó sin escribir |
-| `54000`    | Más de 5000 filas o claves en un lote                                                                                                  | Partir el lote                                                                         |
-| `57014`    | El lote superó el `statement_timeout` (60 s, propio de `erp_sync_cargar`/`erp_sync_borrar`)                                            | Reintentar con lotes más chicos (2000)                                                 |
-| `PGRST202` | La función no existe                                                                                                                   | Las migraciones del CRM no están aplicadas en ese proyecto                             |
+| SQLSTATE   | Cuándo                                                                                                                                                                                                                                                      | Qué hacer                                                                              |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `42501`    | Clave nula, de menos de 32 caracteres, equivocada, o el hash no está configurado. Se valida **antes** que todo lo demás                                                                                                                                     | No reintentar. Revisar la clave. El error no trae datos                                |
+| `22023`    | Tabla distinta de `productos`/`marcas` (en `erp_sync_claves`: distinta de `productos`), `p_limite` menor que 1 o nulo, `p_despues` de más de 256 caracteres, lote que no es arreglo, fila o clave mal formada, `no_item` o `nombre` repetido, fase inválida | No reintentar. El mensaje dice qué fila y qué campo. El lote entero quedó sin escribir |
+| `54000`    | Más de 5000 filas o claves en un lote, o `p_limite` mayor que 5000 en `erp_sync_claves`                                                                                                                                                                     | Partir el lote o bajar el límite                                                       |
+| `57014`    | El lote superó el `statement_timeout` (60 s, propio de `erp_sync_cargar`/`erp_sync_borrar`/`erp_sync_claves`)                                                                                                                                               | Reintentar con lotes más chicos (2000)                                                 |
+| `PGRST202` | La función no existe                                                                                                                                                                                                                                        | Las migraciones del CRM no están aplicadas en ese proyecto                             |
 
 Ningún mensaje de error incluye la clave.
 

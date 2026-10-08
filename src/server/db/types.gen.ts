@@ -2713,6 +2713,15 @@ export type Database = {
         Args: { p_clave: string; p_filas: Json; p_tabla: string }
         Returns: number
       }
+      erp_sync_claves: {
+        Args: {
+          p_clave: string
+          p_despues?: string
+          p_limite?: number
+          p_tabla: string
+        }
+        Returns: Json
+      }
       erp_sync_clave_fijar: {
         Args: { p_clave_hash: string }
         Returns: undefined
