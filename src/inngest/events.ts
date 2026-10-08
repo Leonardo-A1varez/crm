@@ -98,6 +98,12 @@ export const compatibilidadRecalculoRequested = eventType("catalogo/compatibilid
   schema: staticSchema<Record<string, never>>(),
 });
 
+// Pedido manual de sincronizar la copia del catálogo de Bodega Web (además del cron de
+// cada 5 minutos).
+export const bodegaSincronizacionRequested = eventType("catalogo/bodega.sync.requested", {
+  schema: staticSchema<Record<string, never>>(),
+});
+
 export const leadsReactivationRequested = eventType("leads/reactivation.requested", {
   schema: staticSchema<Record<string, never>>(),
 });
