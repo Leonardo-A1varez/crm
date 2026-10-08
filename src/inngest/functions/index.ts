@@ -18,6 +18,8 @@ import { makeDrenarDifusionesFn } from "@/inngest/functions/drenar-difusiones";
 import { makeDispatchOutboxEventsFn } from "@/inngest/functions/dispatch-outbox-events.cron";
 import type { RecalcularCompatibilidadDeps } from "@/inngest/functions/recalcular-compatibilidad.cron";
 import { makeRecalcularCompatibilidadFn } from "@/inngest/functions/recalcular-compatibilidad.cron";
+import type { SincronizarBodegaDeps } from "@/inngest/functions/sincronizar-bodega.cron";
+import { makeSincronizarBodegaFn } from "@/inngest/functions/sincronizar-bodega.cron";
 import type { OnMessageReceivedDeps } from "@/inngest/functions/on-message-received";
 import { makeOnMessageReceivedFn } from "@/inngest/functions/on-message-received";
 import type { OnOperationalReceivedDeps } from "@/inngest/functions/on-operational-received";
@@ -64,6 +66,7 @@ export interface CrmInngestDeps {
   drenarDifusiones: DrenarDifusionesDeps;
   copilotoBorrador: CopilotoBorradorDeps;
   recalcularCompatibilidad: RecalcularCompatibilidadDeps;
+  sincronizarBodega: SincronizarBodegaDeps;
 }
 
 export function makeCrmInngestFunctions(deps: CrmInngestDeps) {
@@ -88,5 +91,6 @@ export function makeCrmInngestFunctions(deps: CrmInngestDeps) {
     makeDrenarDifusionesFn(deps.drenarDifusiones),
     makeCopilotoBorradorFn(deps.copilotoBorrador),
     makeRecalcularCompatibilidadFn(deps.recalcularCompatibilidad),
+    makeSincronizarBodegaFn(deps.sincronizarBodega),
   ];
 }
