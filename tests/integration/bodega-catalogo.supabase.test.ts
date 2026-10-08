@@ -220,6 +220,13 @@ describe("bodega_aplicar_pagina: todo o nada", () => {
     expect((await aplicar("variantes", [{ ...v, estado: "" }])).error?.code).toBe("22023");
     expect((await aplicar("variantes", [{ ...v, id: "no-es-uuid" }])).error?.code).toBe("22023");
     expect((await aplicar("variantes", [{ ...v, descartada: "no" }])).error?.code).toBe("22023");
+    // La marca llega al texto que cotiza el agente: tope de 100 y 50 caracteres.
+    expect(
+      (await aplicar("variantes", [{ ...v, marca_canonica: "M".repeat(101) }])).error?.code,
+    ).toBe("22023");
+    expect(
+      (await aplicar("variantes", [{ ...v, marca_procedencia: "P".repeat(51) }])).error?.code,
+    ).toBe("22023");
     expect((await aplicar("variantes", [v])).error).toBeNull();
   });
 

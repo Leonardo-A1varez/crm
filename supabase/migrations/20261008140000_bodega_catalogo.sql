@@ -281,12 +281,20 @@ begin
     end if;
     foreach v_campo in array array[
       'supplier_code_raw', 'supplier_code_norm', 'descripcion_raw', 'descripcion_limpia',
-      'descripcion_auxiliar', 'marca_raw', 'marca_canonica', 'marca_procedencia', 'categoria'
+      'descripcion_auxiliar', 'marca_raw', 'categoria'
     ] loop
       if not private.bodega_texto_ok(f, v_campo, 2000) then
         return format('%s tiene que ser texto (hasta 2000 caracteres) o null', v_campo);
       end if;
     end loop;
+    -- La marca y su procedencia llegan al texto que cotiza el agente: mismos topes que
+    -- `catalogo_marcas` (nombre 100, procedencia 50).
+    if not private.bodega_texto_ok(f, 'marca_canonica', 100) then
+      return 'marca_canonica tiene que ser texto (hasta 100 caracteres) o null';
+    end if;
+    if not private.bodega_texto_ok(f, 'marca_procedencia', 50) then
+      return 'marca_procedencia tiene que ser texto (hasta 50 caracteres) o null';
+    end if;
     if coalesce(jsonb_typeof(f -> 'marca_id'), 'null') not in ('string', 'null')
        or (jsonb_typeof(f -> 'marca_id') = 'string'
            and not private.bodega_uuid_valido(f ->> 'marca_id')) then
