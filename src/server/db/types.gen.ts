@@ -160,6 +160,135 @@ export type Database = {
           },
         ]
       }
+      bodega_existencias: {
+        Row: {
+          activa: boolean
+          bodega_actualizado_en: string
+          grupo_numero: number | null
+          no_item: string
+          origen: string | null
+        }
+        Insert: {
+          activa?: boolean
+          bodega_actualizado_en: string
+          grupo_numero?: number | null
+          no_item: string
+          origen?: string | null
+        }
+        Update: {
+          activa?: boolean
+          bodega_actualizado_en?: string
+          grupo_numero?: number | null
+          no_item?: string
+          origen?: string | null
+        }
+        Relationships: []
+      }
+      bodega_sync_cursor: {
+        Row: {
+          actualizado_at: string
+          desde: string
+          despues: string | null
+          tabla: string
+        }
+        Insert: {
+          actualizado_at?: string
+          desde?: string
+          despues?: string | null
+          tabla: string
+        }
+        Update: {
+          actualizado_at?: string
+          desde?: string
+          despues?: string | null
+          tabla?: string
+        }
+        Relationships: []
+      }
+      bodega_variantes: {
+        Row: {
+          activa: boolean
+          bodega_actualizado_en: string
+          categoria: string | null
+          codigos_auxiliares: string[]
+          descartada: boolean
+          descripcion_auxiliar: string | null
+          descripcion_limpia: string | null
+          descripcion_raw: string | null
+          estado: string
+          id: string
+          item_codigo_interno: string
+          lado: string | null
+          marca_canonica: string | null
+          marca_id: string | null
+          marca_procedencia: string | null
+          marca_raw: string | null
+          primera_vez: string | null
+          promovida: boolean
+          promovida_en: string | null
+          proveedor_abreviatura: string | null
+          proveedor_id: string | null
+          proveedor_nombre: string | null
+          supplier_code_norm: string | null
+          supplier_code_raw: string | null
+          ultima_vez: string | null
+        }
+        Insert: {
+          activa?: boolean
+          bodega_actualizado_en: string
+          categoria?: string | null
+          codigos_auxiliares?: string[]
+          descartada?: boolean
+          descripcion_auxiliar?: string | null
+          descripcion_limpia?: string | null
+          descripcion_raw?: string | null
+          estado: string
+          id: string
+          item_codigo_interno: string
+          lado?: string | null
+          marca_canonica?: string | null
+          marca_id?: string | null
+          marca_procedencia?: string | null
+          marca_raw?: string | null
+          primera_vez?: string | null
+          promovida?: boolean
+          promovida_en?: string | null
+          proveedor_abreviatura?: string | null
+          proveedor_id?: string | null
+          proveedor_nombre?: string | null
+          supplier_code_norm?: string | null
+          supplier_code_raw?: string | null
+          ultima_vez?: string | null
+        }
+        Update: {
+          activa?: boolean
+          bodega_actualizado_en?: string
+          categoria?: string | null
+          codigos_auxiliares?: string[]
+          descartada?: boolean
+          descripcion_auxiliar?: string | null
+          descripcion_limpia?: string | null
+          descripcion_raw?: string | null
+          estado?: string
+          id?: string
+          item_codigo_interno?: string
+          lado?: string | null
+          marca_canonica?: string | null
+          marca_id?: string | null
+          marca_procedencia?: string | null
+          marca_raw?: string | null
+          primera_vez?: string | null
+          promovida?: boolean
+          promovida_en?: string | null
+          proveedor_abreviatura?: string | null
+          proveedor_id?: string | null
+          proveedor_nombre?: string | null
+          supplier_code_norm?: string | null
+          supplier_code_raw?: string | null
+          ultima_vez?: string | null
+        }
+        Relationships: []
+      }
       borradores_ia: {
         Row: {
           contenido: string | null
@@ -352,6 +481,7 @@ export type Database = {
         Row: {
           activa: boolean
           alias: string[]
+          bodega_actualizada_en: string | null
           erp_actualizado_at: string | null
           nombre: string
           procedencia: string | null
@@ -360,6 +490,7 @@ export type Database = {
         Insert: {
           activa?: boolean
           alias?: string[]
+          bodega_actualizada_en?: string | null
           erp_actualizado_at?: string | null
           nombre: string
           procedencia?: string | null
@@ -368,6 +499,7 @@ export type Database = {
         Update: {
           activa?: boolean
           alias?: string[]
+          bodega_actualizada_en?: string | null
           erp_actualizado_at?: string | null
           nombre?: string
           procedencia?: string | null
@@ -2396,6 +2528,10 @@ export type Database = {
           error_code: string
           run_id: string
         }[]
+      }
+      bodega_aplicar_pagina: {
+        Args: { p_cursor: Json; p_filas: Json; p_tabla: string }
+        Returns: number
       }
       buscar_productos: {
         Args: {
