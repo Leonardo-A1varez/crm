@@ -17,6 +17,11 @@
 
 import { GraphApiMetaClient } from "@/server/services/meta/graph-api-client";
 import { DefaultAiAgentService } from "@/server/services/ai-agent.service";
+import { HttpBodegaCatalogoClient } from "@/server/services/catalog/bodega/bodega-client";
+import {
+  DefaultSincronizarBodegaService,
+  type SincronizarBodegaService,
+} from "@/server/services/catalog/bodega/sincronizar-bodega.service";
 import { DefaultRecalcularCompatibilidadService } from "@/server/services/catalog/recalcular-compatibilidad.service";
 import { DefaultCatalogMatcherService } from "@/server/services/catalog-matcher.service";
 import { DefaultHandoffService } from "@/server/services/handoff.service";
@@ -39,6 +44,7 @@ import { SupabaseReglasEtiquetaRepository } from "@/server/repositories/reglas-e
 import { SupabaseTagsRepository } from "@/server/repositories/tags.supabase.repo";
 import { SupabaseMergeCandidatesRepository } from "@/server/repositories/merge-candidates.supabase.repo";
 import { SupabaseMessagesRepository } from "@/server/repositories/messages.supabase.repo";
+import { SupabaseBodegaCatalogoRepository } from "@/server/repositories/bodega-catalogo.supabase.repo";
 import { SupabaseCatalogoAbreviaturasRepository } from "@/server/repositories/catalogo-abreviaturas.supabase.repo";
 import { SupabaseCatalogoMarcasRepository } from "@/server/repositories/catalogo-marcas.supabase.repo";
 import { SupabaseCatalogoModelosRepository } from "@/server/repositories/catalogo-modelos.supabase.repo";
@@ -222,11 +228,13 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   });
 
   // ===== Services Default impls (DI repos + LLMs) =====
+  const bodegaRepo = new SupabaseBodegaCatalogoRepository(db);
   const catalog = new DefaultCatalogMatcherService(
     productos,
     new SupabaseCatalogoMarcasRepository(db),
     logger,
     new SupabaseCatalogoAbreviaturasRepository(db),
+    bodegaRepo,
   );
   const ruleEngine = new DefaultRuleEngineService(intents, rules, reglasEtiqueta);
   const intentClassifier = new DefaultIntentClassifierService(intents, llmBundle.intentClassifier);
@@ -626,7 +634,41 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       }),
       logger,
     },
+    sincronizarBodega: {
+      servicio: makeSincronizarBodega(env, bodegaRepo, logger),
+      logger,
+    },
   };
 
   return { deps, llmBundle, logger };
+}
+
+/**
+ * La sincronización con Bodega Web, o `null` si falta alguna de las tres variables
+ * (la corrida entonces no hace nada y lo deja en el log). Si están pero mal formadas
+ * (p. ej. una URL http remota) el cliente lanza `ValidationError`; se atrapa acá para
+ * que no tumbe el arranque de todas las demás funciones, y se avisa por el logger.
+ */
+function makeSincronizarBodega(
+  env: AppEnv,
+  repo: SupabaseBodegaCatalogoRepository,
+  logger: Logger,
+): SincronizarBodegaService | null {
+  const {
+    BODEGA_SUPABASE_URL: url,
+    BODEGA_SUPABASE_ANON_KEY: anonKey,
+    BODEGA_CATALOGO_CLAVE: clave,
+  } = env;
+  if (!url || !anonKey || !clave) return null;
+  try {
+    return new DefaultSincronizarBodegaService({
+      client: new HttpBodegaCatalogoClient({ url, anonKey, clave }),
+      repo,
+    });
+  } catch (err) {
+    logger.error("bodega-sync-configuracion-invalida", {
+      error: err instanceof Error ? err.message : "desconocido",
+    });
+    return null;
+  }
 }

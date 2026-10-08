@@ -413,6 +413,7 @@ export function makeSmokeBundle(): SmokeBundle {
       },
       logger,
     },
+    sincronizarBodega: { servicio: null, logger },
   };
 
   return {

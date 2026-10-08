@@ -121,6 +121,19 @@ const envSchema = z.object({
   // Si vienen, se validan en forma estricta (`envSchemaEstricto`).
   DIFUSION_BAJAS_HMAC_CLAVES: z.string().min(1).optional(),
   DIFUSION_BAJAS_HMAC_VERSION_ACTIVA: z.coerce.number().int().positive().optional(),
+
+  // Copia de solo lectura del catálogo de Bodega Web (otro proyecto de Supabase), cada
+  // 5 minutos (`sincronizar-bodega`). Solo servidor. Las tres juntas o ninguna: si falta
+  // alguna, la sincronización no hace nada y lo deja en el log (no es un error).
+  //   BODEGA_SUPABASE_URL       Project URL del Supabase de Bodega Web (https).
+  //   BODEGA_SUPABASE_ANON_KEY  su clave anon/publishable (sola no lee nada).
+  //   BODEGA_CATALOGO_CLAVE     clave de lectura del CRM (`p_clave`, ≥32 caracteres).
+  // Opcionales y sin validar la forma ACÁ a propósito: una mala configuración de esta
+  // integración no puede tumbar el panel. `HttpBodegaCatalogoClient` exige https (salvo
+  // loopback, la clave viaja en cada pedido) y falla solo en la sincronización.
+  BODEGA_SUPABASE_URL: z.string().min(1).optional(),
+  BODEGA_SUPABASE_ANON_KEY: z.string().min(1).optional(),
+  BODEGA_CATALOGO_CLAVE: z.string().min(1).optional(),
 });
 
 /**
@@ -199,6 +212,9 @@ const testEnvSchema = envSchema.partial().transform(
     NEXT_PUBLIC_SENTRY_DSN: partial.NEXT_PUBLIC_SENTRY_DSN,
     DIFUSION_BAJAS_HMAC_CLAVES: partial.DIFUSION_BAJAS_HMAC_CLAVES,
     DIFUSION_BAJAS_HMAC_VERSION_ACTIVA: partial.DIFUSION_BAJAS_HMAC_VERSION_ACTIVA,
+    BODEGA_SUPABASE_URL: partial.BODEGA_SUPABASE_URL,
+    BODEGA_SUPABASE_ANON_KEY: partial.BODEGA_SUPABASE_ANON_KEY,
+    BODEGA_CATALOGO_CLAVE: partial.BODEGA_CATALOGO_CLAVE,
   }),
 );
 

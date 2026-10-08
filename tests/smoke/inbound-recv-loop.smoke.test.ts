@@ -52,7 +52,7 @@ describe("E2E smoke — bootstrap wireup with InMemory repos", () => {
     expect(bundle.repos.leads.constructor.name).toBe("InMemoryLeadsRepository");
   });
 
-  test("makeCrmInngestFunctions(smokeDeps) registra las 20 functions, una por una", () => {
+  test("makeCrmInngestFunctions(smokeDeps) registra las 21 functions, una por una", () => {
     const bundle = makeSmokeBundle();
     const functions = makeCrmInngestFunctions(bundle.deps);
     // La lista entera y no la cantidad: una function que se cae del registro
@@ -77,6 +77,8 @@ describe("E2E smoke — bootstrap wireup with InMemory repos", () => {
         // Recalcula la compatibilidad de los productos cuyo nombre cambió (cron cada 5 minutos).
         "recalcular-compatibilidad",
         "recordatorio-seguimiento",
+        // Copia incremental del catálogo de Bodega Web (cron cada 5 minutos).
+        "sincronizar-bodega",
         "update-lead-twin",
         "workflow-disparar",
         // Emisor del trigger "Inactividad" (escaneo cada 10 minutos).

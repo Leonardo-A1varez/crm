@@ -1,5 +1,10 @@
 import { plegarTexto } from "@/lib/catalogo/plegar-texto";
-import { etiquetaDeOrigen, resolverOrigen, type IndiceMarcas } from "@/lib/catalogo/procedencia";
+import {
+  etiquetaDeOrigen,
+  resolverOrigen,
+  type IndiceMarcas,
+  type VariantesPorItem,
+} from "@/lib/catalogo/procedencia";
 import type { CompatibilidadEntry } from "@/types/entities";
 
 /**
@@ -556,6 +561,8 @@ export interface CandidatoParaDiferencias {
   descripcion?: string | null | undefined;
   /** Su sufijo (`/K`, `/JP`…) da la procedencia cuando la marca no la dice. */
   codigo_fabrica?: string | null | undefined;
+  /** Con él se buscan las variantes de Bodega Web del ítem. */
+  codigo_interno?: string | undefined;
 }
 
 const nivelDe = (h: CandidatoParaDiferencias): number => h.nivel_vehiculo ?? 0;
@@ -583,13 +590,14 @@ export function diferenciasEntre(
   hits: readonly CandidatoParaDiferencias[],
   dado: { anio?: number | undefined; cilindrada?: string | undefined },
   marcas?: IndiceMarcas,
+  variantes?: VariantesPorItem,
 ): Diferencias | null {
   if (hits.length < 2) return null;
 
   const atributos: AtributoQueDifiere[] = [];
   const valores: Partial<Record<AtributoQueDifiere, string[]>> = {};
 
-  const { piezas, procedencias } = piezasYProcedencias(hits, marcas);
+  const { piezas, procedencias } = piezasYProcedencias(hits, marcas, variantes);
   if (piezas.length > 1) {
     atributos.push("pieza");
     valores.pieza = piezas;
@@ -633,6 +641,7 @@ export function diferenciasEntre(
 function piezasYProcedencias(
   hits: readonly CandidatoParaDiferencias[],
   marcas: IndiceMarcas | undefined,
+  variantes: VariantesPorItem | undefined,
 ): {
   piezas: string[];
   procedencias: string[];
@@ -650,7 +659,14 @@ function piezasYProcedencias(
   for (const h of relevantes) {
     const pieza = etiquetaDePieza(h.categoria, h.nombre);
     if (pieza !== null && !piezas.includes(pieza)) piezas.push(pieza);
-    const procedencia = etiquetaDeOrigen(resolverOrigen(h.descripcion, h.codigo_fabrica, marcas));
+    const procedencia = etiquetaDeOrigen(
+      resolverOrigen(
+        h.descripcion,
+        h.codigo_fabrica,
+        marcas,
+        variantes?.get(h.codigo_interno ?? ""),
+      ),
+    );
     if (procedencia === null) continue;
     const clave = pieza ?? "";
     const vistas = porPieza.get(clave) ?? [];

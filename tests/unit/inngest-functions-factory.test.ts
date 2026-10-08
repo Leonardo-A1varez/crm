@@ -163,9 +163,10 @@ describe("makeCrmInngestFunctions", () => {
           recalcular: async () => ({ leidos: 0, actualizados: 0, sinVehiculo: 0, descartados: 0 }),
         },
       },
+      sincronizarBodega: { servicio: null },
     });
 
-    expect(fns).toHaveLength(20);
+    expect(fns).toHaveLength(21);
     const ids = fns.map((f) => f.id());
     expect(ids).toEqual(
       expect.arrayContaining([
@@ -189,6 +190,7 @@ describe("makeCrmInngestFunctions", () => {
         expect.stringContaining("drenar-difusiones"),
         expect.stringContaining("copiloto-borrador"),
         expect.stringContaining("recalcular-compatibilidad"),
+        expect.stringContaining("sincronizar-bodega"),
       ]),
     );
   });

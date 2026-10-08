@@ -33,10 +33,18 @@ import {
   textoCotizacion,
   textoRelacionadas,
 } from "@/lib/catalogo/formato-cotizacion";
-import { indexarMarcas, resolverOrigen, type MarcaCatalogo } from "@/lib/catalogo/procedencia";
+import {
+  indexarMarcas,
+  ladoDeVariantes,
+  resolverOrigen,
+  type MarcaCatalogo,
+  type VarianteBodega,
+  type VariantesPorItem,
+} from "@/lib/catalogo/procedencia";
 import { avisoSobremedida } from "@/lib/catalogo/sobremedida";
 import type { Logger } from "@/lib/observability/logger";
 import type { CatalogoAbreviaturasRepository } from "@/server/repositories/catalogo-abreviaturas.repo";
+import type { BodegaCatalogoRepository } from "@/server/repositories/bodega-catalogo.repo";
 import type { CatalogoMarcasRepository } from "@/server/repositories/catalogo-marcas.repo";
 import type { ProductoSearchHit, ProductsRepository } from "@/server/repositories/productos.repo";
 
@@ -72,6 +80,8 @@ const TOPE_PARA_EL_AGENTE = 20;
 const INSTRUCCION_COPIAR_COTIZACION =
   "Responde copiando `cotizacion_texto` tal cual, sin agregar nada.";
 
+const SIN_VARIANTES: VariantesPorItem = new Map();
+
 /** Un texto vacío o en blanco es "no lo dijo". */
 const textoUtil = (s: string | undefined): string | undefined => {
   const t = s?.trim();
@@ -84,6 +94,7 @@ export class DefaultCatalogMatcherService implements CatalogMatcherService {
     private readonly marcas?: CatalogoMarcasRepository,
     private readonly logger?: Logger,
     private readonly abreviaturas?: CatalogoAbreviaturasRepository,
+    private readonly bodega?: Pick<BodegaCatalogoRepository, "variantesDeItems">,
   ) {}
 
   /**
@@ -121,6 +132,30 @@ export class DefaultCatalogMatcherService implements CatalogMatcherService {
     }
   }
 
+  /**
+   * Las variantes de Bodega Web de los candidatos, en UNA consulta. Si no se pueden leer
+   * (la tabla todavía no está, un corte) el agente sigue cotizando con el ERP: sin
+   * variantes cada pieza se resuelve como antes, que no inventa nada.
+   */
+  private async leerVariantes(hits: readonly ProductoSearchHit[]): Promise<VariantesPorItem> {
+    if (!this.bodega || hits.length === 0) return SIN_VARIANTES;
+    try {
+      const variantes = await this.bodega.variantesDeItems(hits.map((h) => h.codigo_interno));
+      const porItem = new Map<string, VarianteBodega[]>();
+      for (const v of variantes) {
+        const lista = porItem.get(v.item_codigo_interno) ?? [];
+        lista.push(v);
+        porItem.set(v.item_codigo_interno, lista);
+      }
+      return porItem;
+    } catch (err) {
+      this.logger?.warn("catalog-matcher: no se pudieron leer las variantes de Bodega Web", {
+        error: err instanceof Error ? err.message : "desconocido",
+      });
+      return SIN_VARIANTES;
+    }
+  }
+
   async buscar(input: BuscarRepuestoInput): Promise<BuscarRepuestoOutput> {
     // Los modelos de lenguaje mandan `0` cuando no saben el año aunque el schema
     // les diga que lo omitan. El año 0 no existe: es "desconocido", y buscarlo
@@ -141,12 +176,15 @@ export class DefaultCatalogMatcherService implements CatalogMatcherService {
       this.leerAbreviaturas(),
     ]);
 
+    const variantes = await this.leerVariantes(hits);
+
     return armarSalida(
       hits,
       { anio, cilindrada },
       { query: input.query, marca: textoUtil(input.marca), modelo: textoUtil(input.modelo) },
       marcas,
       indice,
+      variantes,
     );
   }
 }
@@ -162,6 +200,7 @@ export function armarSalida(
   consultaDada?: ConsultaDePieza,
   marcas: readonly MarcaCatalogo[] = [],
   abreviaturas: IndiceAbreviaturas = INDICE_VACIO,
+  variantes: VariantesPorItem = SIN_VARIANTES,
 ): BuscarRepuestoOutput {
   const indice = indexarMarcas(marcas);
   // La consulta con las abreviaturas del inventario: «amortiguadores delanteros» se
@@ -177,7 +216,7 @@ export function armarSalida(
 
   // En qué se diferencian los mejores candidatos: lo único que el agente tiene
   // que preguntar. Lo que el cliente ya dijo (año, cilindrada) no entra.
-  const dif0 = diferenciasEntre(hits, dado, indice);
+  const dif0 = diferenciasEntre(hits, dado, indice, variantes);
 
   // La pieza pedida EXACTA (la categoría es lo que dijo el cliente, y el nombre no
   // la declara empaque, oring, base…): se cotiza sola y las demás piezas del
@@ -195,7 +234,7 @@ export function armarSalida(
   if (hayExacta) {
     const delExacto = new Set(exactos.map((h) => etiquetaDePieza(h.categoria, h.nombre)));
     relacionadas = (dif0?.valores.pieza ?? []).filter((p) => !delExacto.has(p));
-    diferencias = diferenciasEntre(exactos, dado, indice);
+    diferencias = diferenciasEntre(exactos, dado, indice, variantes);
   } else if (dif0 && acotado && dif0.atributos.length > 0 && !dif0.atributos.includes("pieza")) {
     diferencias = {
       ...dif0,
@@ -215,10 +254,14 @@ export function armarSalida(
   }
 
   const matches: BuscarRepuestoMatch[] = visibles.map((h) => {
-    const { marca, procedencia } = resolverOrigen(h.descripcion, h.codigo_fabrica, indice);
+    const delItem = variantes.get(h.codigo_interno) ?? [];
+    const { marca, procedencia } = resolverOrigen(h.descripcion, h.codigo_fabrica, indice, delItem);
     const pieza = etiquetaDePieza(h.categoria, h.nombre);
+    // El lado que confirman las variantes de Bodega Web manda; si no hay, el de las abreviaturas.
     const lados = ladosDeFila(h, abreviaturas).filter((l) => l === "izquierdo" || l === "derecho");
-    const lado = lados.length === 1 ? (lados[0] as "izquierdo" | "derecho") : undefined;
+    const lado =
+      ladoDeVariantes(delItem) ??
+      (lados.length === 1 ? (lados[0] as "izquierdo" | "derecho") : undefined);
     const base: BuscarRepuestoMatch = {
       id: h.id,
       codigo_interno: h.codigo_interno,
