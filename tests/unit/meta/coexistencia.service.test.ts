@@ -239,6 +239,95 @@ describe("importarHistorial", () => {
     expect(await messages.listByConversacion(conv!.id)).toHaveLength(2);
   });
 
+  test("va a una sesión CERRADA e importada: no queda ninguna sesión activa en el Inbox", async () => {
+    await svc.importarHistorial(lote);
+
+    const lead = await leads.findByTelefono(CLIENTE);
+    expect(await sessions.findActiveByLeadId(lead!.id)).toBeNull();
+    expect(await sessions.listActive()).toEqual([]);
+    const todas = await sessions.listByLeadId(lead!.id);
+    expect(todas).toHaveLength(1);
+    expect(todas[0]).toMatchObject({
+      resultado: "perdido",
+      motivo_perdida: null,
+      current_stage: "perdido",
+      ia_pausada: false,
+      extras: { importado_historial: true },
+    });
+    // Se cierra a la hora del último mensaje importado, no al momento de importar.
+    expect(todas[0]?.closed_at?.toISOString()).toBe("2025-02-10T23:42:50.000Z");
+    const m1 = await messages.findByMetaMessageId("wamid.H1");
+    expect(m1?.lead_session_id).toBe(todas[0]?.id);
+  });
+
+  test("reentrega y lotes siguientes del mismo cliente reusan la misma sesión importada", async () => {
+    await svc.importarHistorial(lote);
+    await svc.importarHistorial(lote);
+    await svc.importarHistorial({
+      ...lote,
+      fase: 1,
+      chunk: 2,
+      hilos: [
+        {
+          telefono_cliente: CLIENTE,
+          mensajes: [
+            {
+              meta_message_id: "wamid.H0",
+              direction: "in" as const,
+              tipo: "text" as const,
+              contenido: "Hola, precio?",
+              at: new Date("2025-01-05T12:00:00Z"),
+            },
+          ],
+        },
+      ],
+    });
+
+    const lead = await leads.findByTelefono(CLIENTE);
+    const todas = await sessions.listByLeadId(lead!.id);
+    expect(todas).toHaveLength(1);
+    expect(await messages.listBySessionId(todas[0]!.id)).toHaveLength(3);
+    expect(await sessions.listActive()).toEqual([]);
+  });
+
+  test("un cliente con sesión activa (escribió hace poco): el historial no la toca", async () => {
+    const lead = await leads.create({
+      nombre: "",
+      telefono: CLIENTE,
+      email: null,
+      direccion: null,
+      vehiculo_marca: null,
+      vehiculo_modelo: null,
+      vehiculo_anio: null,
+      vehiculo_motor: null,
+      empresa_id: null,
+      canal_origen: "wa",
+      meta_user_ids: { wa: CLIENTE },
+    });
+    const activa = await sessions.create({
+      lead_id: lead.id,
+      current_stage: "cotizado",
+      urgencia: "media",
+      consulta: "pastillas",
+      producto_cotizado_id: null,
+      codigo_interno: null,
+      precio_cotizado: null,
+      cantidad: null,
+      bloqueador: null,
+      comprobante_pago_url: null,
+      metodo_pago: null,
+      resultado: null,
+      motivo_perdida: null,
+      ia_pausada: false,
+    });
+
+    await svc.importarHistorial(lote);
+
+    expect((await sessions.findActiveByLeadId(lead.id))?.id).toBe(activa.id);
+    expect(await messages.listBySessionId(activa.id)).toEqual([]);
+    expect(await sessions.listByLeadId(lead.id)).toHaveLength(2);
+  });
+
   test("progreso 100 deja el historial completo y un lote tardío no lo pisa", async () => {
     await svc.importarHistorial({ ...lote, progreso: 100 });
     await svc.importarHistorial({ ...lote, fase: 1, progreso: 40 });

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "vitest";
+import { CLAVE_SESION_IMPORTADA } from "@/lib/coexistencia/sesion-importada";
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import { InMemoryReactivationDispatchesRepository } from "@/server/repositories/reactivation-dispatches.repo";
 import {
@@ -88,6 +89,35 @@ describe("reactivationPredictorHandler", () => {
     const result = await reactivationPredictorHandler({}, deps);
 
     expect(result.dispatched).toBe(0);
+  });
+
+  test("la sesión del historial importado (cerrada como perdida) NO dispara reactivación", async () => {
+    // Si entrara, el cron semanal le mandaría una plantilla a cada contacto viejo
+    // de la app Business, como si hubiera perdido una venta.
+    await sessions.create({
+      lead_id: crypto.randomUUID(),
+      current_stage: "perdido",
+      urgencia: "media",
+      consulta: "",
+      producto_cotizado_id: null,
+      codigo_interno: null,
+      precio_cotizado: null,
+      cantidad: null,
+      bloqueador: null,
+      comprobante_pago_url: null,
+      metodo_pago: null,
+      resultado: "perdido",
+      motivo_perdida: null,
+      ia_pausada: false,
+      extras: { [CLAVE_SESION_IMPORTADA]: true },
+      started_at: daysAgo(40),
+      closed_at: daysAgo(20),
+    });
+
+    const result = await reactivationPredictorHandler({}, deps);
+
+    expect(sent).toEqual([]);
+    expect(result).toEqual({ scanned: 0, dispatched: 0, skippedCooldown: 0 });
   });
 
   test("exito hace 20d no dispara", async () => {

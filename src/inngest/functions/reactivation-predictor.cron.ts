@@ -1,6 +1,7 @@
 import { NonRetriableError } from "inngest";
 import { inngest } from "@/inngest/client";
 import { leadsReactivationRequested } from "@/inngest/events";
+import { esSesionImportada } from "@/lib/coexistencia/sesion-importada";
 import { isNonRetriable } from "@/lib/errors";
 import { AllEnabledFeatureFlags, FLAGS, type FeatureFlags } from "@/lib/feature-flags";
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
@@ -68,6 +69,9 @@ export async function reactivationPredictorHandler(
   const lost = allClosed.filter(
     (s) =>
       s.resultado === "perdido" &&
+      // El historial importado se cierra como "perdido" por una limitación del
+      // esquema, no porque se haya perdido una venta: no se le reactiva a nadie.
+      !esSesionImportada(s) &&
       s.closed_at !== null &&
       s.closed_at >= lowerBound &&
       s.closed_at < upperBound,

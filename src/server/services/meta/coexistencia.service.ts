@@ -1,4 +1,5 @@
 import { ConflictError, IllegalStateError, InfraError, RateLimitError } from "@/lib/errors";
+import { CLAVE_SESION_IMPORTADA, esSesionImportada } from "@/lib/coexistencia/sesion-importada";
 import { NoopLogger, type Logger } from "@/lib/observability/logger";
 import type {
   ContactoCoexistencia,
@@ -64,7 +65,7 @@ export interface CoexistenciaDeps {
     ConversationsRepository,
     "findByCanalThread" | "upsertByCanalThread" | "update" | "touch"
   >;
-  sessions: Pick<LeadSessionRepository, "findActiveByLeadId" | "create">;
+  sessions: Pick<LeadSessionRepository, "findActiveByLeadId" | "listByLeadId" | "create">;
   messages: Pick<MessagesRepository, "findByMetaMessageId" | "registrarSalienteYaEnviado">;
   ahora?: () => Date;
   logger?: Logger;
@@ -232,6 +233,7 @@ export class DefaultCoexistenciaService implements CoexistenciaService {
         hilo.telefono_cliente,
         hilo.mensajes,
         "historial_app_business",
+        "importada",
       );
       importados += r.importados;
       repetidos += r.repetidos;
@@ -271,6 +273,7 @@ export class DefaultCoexistenciaService implements CoexistenciaService {
       eco.telefono_cliente,
       [eco.mensaje],
       "eco_app_business",
+      "activa",
     );
     return r.importados === 1 ? "registrado" : "repetido";
   }
@@ -284,6 +287,12 @@ export class DefaultCoexistenciaService implements CoexistenciaService {
     telefono: string,
     mensajes: readonly MensajeCoexistencia[],
     origen: NonNullable<MensajeMetadata["origen"]>,
+    /**
+     * `activa`: un eco es actividad de hoy y vive en la sesión abierta del lead.
+     * `importada`: el historial es pasado; va a una sesión cerrada para que no
+     * aparezca como conversación en el Inbox (ver `sesionImportada`).
+     */
+    destino: "activa" | "importada",
   ): Promise<{ importados: number; repetidos: number }> {
     const nuevos: MensajeCoexistencia[] = [];
     let repetidos = 0;
@@ -303,7 +312,13 @@ export class DefaultCoexistenciaService implements CoexistenciaService {
         whatsapp_phone_number_id: phoneNumberId,
       });
     }
-    const sesion = await this.sesionActiva(lead);
+    const sesion =
+      destino === "importada"
+        ? await this.sesionImportada(
+            lead,
+            nuevos.map((m) => m.at ?? this.ahora()),
+          )
+        : await this.sesionActiva(lead);
 
     let importados = 0;
     let masReciente: Date | null = null;
@@ -365,6 +380,48 @@ export class DefaultCoexistenciaService implements CoexistenciaService {
       resultado: null,
       motivo_perdida: null,
       ia_pausada: false,
+    });
+    return nueva.id;
+  }
+
+  /**
+   * La sesión CERRADA donde cae el historial del lead: una por lead, que los
+   * lotes siguientes (otras fases y chunks) reusan.
+   *
+   * Por qué cerrada: el Inbox lista las sesiones abiertas, y con 180 días de
+   * chats cada contacto aparecería como una conversación en curso. Cerrada, el
+   * historial se ve en la ficha del lead y, si el cliente vuelve a escribir, el
+   * pipeline abre una sesión nueva como siempre.
+   *
+   * Nace cerrada en una sola escritura (con `resultado`): crearla abierta y
+   * cerrarla después dejaría, si falla entre las dos, una sesión activa fantasma.
+   * Se cierra como `perdido` sin motivo porque es lo único que el esquema
+   * admite junto a `exito`; la marca en `extras` es lo que distingue estas
+   * sesiones de una venta perdida de verdad (`esSesionImportada`). Las fechas son
+   * las del primer y el último mensaje del primer lote, no las de la importación.
+   */
+  private async sesionImportada(lead: Lead, horas: readonly Date[]): Promise<string> {
+    const existente = (await this.deps.sessions.listByLeadId(lead.id)).find(esSesionImportada);
+    if (existente) return existente.id;
+    const tiempos = horas.map((h) => h.getTime());
+    const nueva = await this.deps.sessions.create({
+      lead_id: lead.id,
+      current_stage: "perdido",
+      urgencia: "media",
+      consulta: "",
+      producto_cotizado_id: null,
+      codigo_interno: null,
+      precio_cotizado: null,
+      cantidad: null,
+      bloqueador: null,
+      comprobante_pago_url: null,
+      metodo_pago: null,
+      resultado: "perdido",
+      motivo_perdida: null,
+      ia_pausada: false,
+      extras: { [CLAVE_SESION_IMPORTADA]: true },
+      started_at: new Date(Math.min(...tiempos)),
+      closed_at: new Date(Math.max(...tiempos)),
     });
     return nueva.id;
   }
