@@ -13,6 +13,14 @@ import { NotFoundError } from "@/lib/errors";
 export interface MediaStorage {
   /** Crea o sobrescribe (`upsert`): reintentar una descarga no deja copias. */
   subir(path: string, bytes: Uint8Array, mime: string): Promise<void>;
+  /**
+   * Autoriza UNA subida a `path` sin sobrescribir lo que haya, y devuelve el token
+   * con el que el navegador sube directo a Storage (`uploadToSignedUrl`). Hace
+   * falta porque los archivos del composer pasan de lo que una función de Vercel
+   * acepta en el cuerpo del pedido (4,5 MB) y el panel no tiene permiso de escritura
+   * en el bucket.
+   */
+  crearSubida(path: string): Promise<{ token: string }>;
   /** `NotFoundError` si no existe. */
   descargar(path: string): Promise<Uint8Array>;
   /**
@@ -43,6 +51,13 @@ export class InMemoryMediaStorage implements MediaStorage {
       throw error;
     }
     this.objetos.set(path, { bytes: new Uint8Array(bytes), mime });
+  }
+
+  readonly subidasAutorizadas = new Set<string>();
+
+  async crearSubida(path: string): Promise<{ token: string }> {
+    this.subidasAutorizadas.add(path);
+    return { token: `token-de-subida-${this.subidasAutorizadas.size}` };
   }
 
   async descargar(path: string): Promise<Uint8Array> {

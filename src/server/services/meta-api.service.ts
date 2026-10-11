@@ -6,6 +6,7 @@ import type { ParsedMessage } from "@/lib/meta/parse-webhook";
 import type { Canal, Sender } from "@/types/domain";
 import type {
   Mensaje,
+  MensajeMedia,
   MensajeMetadata,
   MensajeRico,
   PlantillaSaliente,
@@ -125,6 +126,24 @@ export interface MetaSendRicoInput extends ConNumeroDeOrigen {
 }
 
 /**
+ * Un archivo ya subido a Meta (`POST /{phone_number_id}/media` -> `mediaId`) para
+ * mandar como mensaje. Imagen, video y documento admiten texto (`caption`, hasta
+ * 1024); el audio no (doc de Meta leída el 2026-10-11, docs/meta/media.md).
+ * `filename` es sólo de documentos: Meta lo usa para el ícono y el nombre.
+ */
+export interface ContenidoMedia {
+  tipo: "image" | "video" | "audio" | "doc";
+  mediaId: string;
+  caption: string | null;
+  filename: string | null;
+}
+
+export interface MetaSendMediaInput extends ConNumeroDeOrigen {
+  to: string;
+  media: ContenidoMedia;
+}
+
+/**
  * El mensaje entrante de WhatsApp al que se le muestra «escribiendo…». Meta lo
  * marca como leído y muestra el indicador hasta 25 s o hasta que salga la
  * respuesta (developers.facebook.com/docs/whatsapp/cloud-api/typing-indicators,
@@ -142,6 +161,8 @@ export interface MetaApiClient {
   sendTemplate(input: MetaSendTemplateInput): Promise<MetaSendResult>;
   /** Sólo WhatsApp: botones, lista, imagen o ubicación. */
   sendRico(input: MetaSendRicoInput): Promise<MetaSendResult>;
+  /** Sólo WhatsApp: un archivo ya subido a Meta (imagen, video, audio o documento). */
+  sendMedia(input: MetaSendMediaInput): Promise<MetaSendResult>;
 }
 
 export interface SendOutboundInput {
@@ -193,6 +214,22 @@ export interface SendRicoInput {
    * firmada, que viaja a Meta pero no se escribe en el hilo.
    */
   archivo?: string;
+  sender: Extract<Sender, "ia" | "humano" | "sistema">;
+  senderUserId?: UUID;
+  idempotencyKey?: string;
+}
+
+/**
+ * Un archivo que el vendedor mandó desde el composer. Mismo contrato de
+ * idempotencia y de reserva que `SendOutboundInput`. `archivo` es la copia propia
+ * (bucket `mensajes_media`): lo que el hilo muestra, no lo que se mandó a Meta.
+ */
+export interface SendMediaInput {
+  conversacionId: UUID;
+  leadSessionId: UUID;
+  to: string;
+  media: ContenidoMedia;
+  archivo: { path: string; mime: string; bytes: number; nombre: string | null };
   sender: Extract<Sender, "ia" | "humano" | "sistema">;
   senderUserId?: UUID;
   idempotencyKey?: string;
@@ -266,6 +303,8 @@ export interface MetaApiService {
   sendTemplate(input: SendTemplateInput): Promise<Mensaje>;
   /** Botones, lista, imagen o ubicación por WhatsApp. Sólo dentro de la ventana de 24 h. */
   sendRico(input: SendRicoInput): Promise<Mensaje>;
+  /** Un archivo del vendedor (imagen, video, audio, documento). Sólo dentro de la ventana de 24 h. */
+  sendMedia(input: SendMediaInput): Promise<Mensaje>;
   /**
    * «Escribiendo…» de WhatsApp para un entrante que el agente va a contestar. No
    * deja nada en el hilo; quien llama decide si corresponde y trata el fallo como
@@ -282,9 +321,10 @@ interface Saliente {
   sender: SendOutboundInput["sender"];
   senderUserId?: UUID;
   idempotencyKey?: string;
-  tipo: "text" | "template" | "interactive" | "image" | "location";
+  tipo: "text" | "template" | "interactive" | "image" | "location" | "video" | "audio" | "doc";
   contenido: string | null;
   media_url?: string | null;
+  media?: MensajeMedia;
   metadata: MensajeMetadata;
   llamarAMeta: () => Promise<MetaSendResult>;
 }
@@ -365,6 +405,32 @@ export class DefaultMetaApiService implements MetaApiService {
     });
   }
 
+  async sendMedia(input: SendMediaInput): Promise<Mensaje> {
+    const desde = await this.numeroDe(input.conversacionId);
+    const { archivo, media } = input;
+    return this.enviar({
+      conversacionId: input.conversacionId,
+      leadSessionId: input.leadSessionId,
+      sender: input.sender,
+      senderUserId: input.senderUserId,
+      idempotencyKey: input.idempotencyKey,
+      tipo: media.tipo,
+      contenido: media.caption,
+      media: {
+        estado: "descargado",
+        metaId: media.mediaId,
+        path: archivo.path,
+        mime: archivo.mime,
+        bytes: archivo.bytes,
+        nombre: archivo.nombre,
+        error: null,
+        descargadoAt: new Date(),
+      },
+      metadata: {},
+      llamarAMeta: () => this.client.sendMedia({ to: input.to, media, ...desde }),
+    });
+  }
+
   private async enviar(input: Saliente): Promise<Mensaje> {
     // Una reserva sin `meta_message_id` significa "ya se intentó, desenlace
     // desconocido". No se reenvía: un WhatsApp duplicado no se puede retirar,
@@ -386,6 +452,7 @@ export class DefaultMetaApiService implements MetaApiService {
       tipo: input.tipo,
       contenido: input.contenido,
       media_url: input.media_url ?? null,
+      ...(input.media ? { media: input.media } : {}),
       meta_message_id: null,
       idempotency_key: input.idempotencyKey ?? null,
       metadata: input.metadata,

@@ -26,9 +26,16 @@ describe("validarAdjuntoSaliente: limites de Meta por tipo", () => {
   const ok = (mime: string, bytes: number, nombre = "archivo") =>
     validarAdjuntoSaliente({ mime, bytes, nombre });
 
-  test("imagen JPEG/PNG hasta 5 MB", () => {
-    expect(ok("image/jpeg", 5 * MB)).toMatchObject({ ok: true, tipo: "image" });
-    expect(ok("image/png", 5 * MB + 1)).toMatchObject({ ok: false, motivo: "demasiado_grande" });
+  test("imagen JPEG/PNG: hasta 5 MB sale tal cual", () => {
+    expect(ok("image/jpeg", 5 * MB)).toMatchObject({ ok: true, tipo: "image", reducir: false });
+  });
+
+  test("imagen JPEG/PNG de 5 a 25 MB se acepta y se reduce antes de mandar; mas, no", () => {
+    expect(ok("image/png", 5 * MB + 1)).toMatchObject({ ok: true, tipo: "image", reducir: true });
+    expect(ok("image/jpeg", 25 * MB)).toMatchObject({ ok: true, reducir: true });
+    const r = ok("image/jpeg", 25 * MB + 1);
+    expect(r).toMatchObject({ ok: false, motivo: "demasiado_grande" });
+    if (!r.ok) expect(r.mensaje).toMatch(/25 MB/);
   });
 
   test("video MP4 y 3GP hasta 16 MB", () => {
@@ -92,9 +99,14 @@ describe("validarAdjuntoSaliente: limites de Meta por tipo", () => {
   });
 
   test("el mensaje de error es legible para el vendedor", () => {
-    const r = ok("image/png", 6 * MB);
+    const r = ok("video/mp4", 20 * MB);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.mensaje).toMatch(/5 MB/);
+    if (!r.ok) expect(r.mensaje).toMatch(/16 MB/);
+  });
+
+  test("lo que no es imagen nunca se reduce", () => {
+    expect(ok("video/mp4", MB)).toMatchObject({ ok: true, reducir: false });
+    expect(ok("application/pdf", MB)).toMatchObject({ ok: true, reducir: false });
   });
 });
 

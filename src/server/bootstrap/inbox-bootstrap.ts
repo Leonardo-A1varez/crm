@@ -81,15 +81,13 @@ const cancelarAvisoRecordatorio: CancelarAvisoRecordatorioFn = async (input) => 
   });
 };
 
-/** Composición pura del service sobre un client dado (authed o service-role en tests). */
-export function makeInboxService(db: AppClient): InboxService {
-  const convs = new SupabaseConversationsRepository(db);
-  const messages = new SupabaseMessagesRepository(db);
-  const sessions = new SupabaseLeadSessionRepository(db);
-  const handoffEvents = new SupabaseHandoffEventsRepository(db, sessions);
-
-  // Canal sin config → ValidationError fail-fast con envHint al primer send.
-  const metaClient = new GraphApiMetaClient({
+/**
+ * El cliente de la Graph API con el que el panel manda. Canal sin config →
+ * ValidationError fail-fast con envHint al primer send. La respuesta sale por el
+ * número de negocio de la conversación (con su token), no por el de env.
+ */
+export function crearMetaClientDelPanel(): GraphApiMetaClient {
+  return new GraphApiMetaClient({
     graphApiVersion: env.META_GRAPH_API_VERSION,
     whatsappPhoneNumberId: env.META_WHATSAPP_PHONE_NUMBER_ID,
     whatsappAccessToken: env.META_WHATSAPP_ACCESS_TOKEN,
@@ -97,9 +95,18 @@ export function makeInboxService(db: AppClient): InboxService {
     igAccessToken: env.META_IG_ACCESS_TOKEN,
     fbPageId: env.META_FB_PAGE_ID,
     fbAccessToken: env.META_FB_PAGE_ACCESS_TOKEN,
-    // La respuesta sale por el número de negocio de la conversación.
     credenciales: getResolverCredencialesWhatsApp(),
   });
+}
+
+/** Composición pura del service sobre un client dado (authed o service-role en tests). */
+export function makeInboxService(db: AppClient): InboxService {
+  const convs = new SupabaseConversationsRepository(db);
+  const messages = new SupabaseMessagesRepository(db);
+  const sessions = new SupabaseLeadSessionRepository(db);
+  const handoffEvents = new SupabaseHandoffEventsRepository(db, sessions);
+
+  const metaClient = crearMetaClientDelPanel();
 
   const workflows = new SupabaseWorkflowsRepository(db);
   return new DefaultInboxService({

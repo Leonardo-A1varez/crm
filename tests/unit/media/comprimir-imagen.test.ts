@@ -2,7 +2,7 @@
 import { randomBytes } from "node:crypto";
 import sharp from "sharp";
 import { describe, expect, test } from "vitest";
-import { comprimirImagen } from "@/server/services/media/comprimir-imagen";
+import { comprimirImagen, reducirImagenParaEnviar } from "@/server/services/media/comprimir-imagen";
 
 /** Una foto "realista": ruido, que es lo peor que le puede tocar a un compresor. */
 async function foto(ancho: number, alto: number, formato: "jpeg" | "png"): Promise<Uint8Array> {
@@ -88,4 +88,44 @@ describe("comprimirImagen", () => {
     );
     expect(await comprimirImagen(bomba, "image/png")).toBeNull();
   }, 60_000);
+});
+
+describe("reducirImagenParaEnviar (fotos de mas de 5 MB que Meta no acepta tal cual)", () => {
+  const CINCO_MB = 5 * 1024 * 1024;
+
+  test("una foto de teléfono de mas de 5 MB sale como JPEG de 5 MB o menos", async () => {
+    const original = new Uint8Array(
+      await sharp(randomBytes(3000 * 2400 * 3), { raw: { width: 3000, height: 2400, channels: 3 } })
+        .jpeg({ quality: 100 })
+        .toBuffer(),
+    );
+    expect(original.length).toBeGreaterThan(CINCO_MB);
+
+    const r = await reducirImagenParaEnviar(original, "image/jpeg");
+    expect(r).not.toBeNull();
+    expect(r!.mime).toBe("image/jpeg");
+    expect(r!.bytes.length).toBeLessThanOrEqual(CINCO_MB);
+    const meta = await sharp(r!.bytes).metadata();
+    expect(meta.format).toBe("jpeg");
+    expect(Math.max(meta.width ?? 0, meta.height ?? 0)).toBeLessThanOrEqual(2048);
+  }, 60_000);
+
+  test("un PNG grande tambien sale como JPEG", async () => {
+    const original = new Uint8Array(
+      await sharp(randomBytes(1800 * 1800 * 3), { raw: { width: 1800, height: 1800, channels: 3 } })
+        .png()
+        .toBuffer(),
+    );
+    expect(original.length).toBeGreaterThan(CINCO_MB);
+    const r = await reducirImagenParaEnviar(original, "image/png");
+    expect(r!.mime).toBe("image/jpeg");
+    expect(r!.bytes.length).toBeLessThanOrEqual(CINCO_MB);
+  }, 60_000);
+
+  test("lo que no se puede leer o no es JPEG/PNG da null", async () => {
+    expect(
+      await reducirImagenParaEnviar(new TextEncoder().encode("nada"), "image/jpeg"),
+    ).toBeNull();
+    expect(await reducirImagenParaEnviar(new Uint8Array([1, 2, 3]), "application/pdf")).toBeNull();
+  });
 });

@@ -25,6 +25,19 @@ export class SupabaseMediaStorage implements MediaStorage {
       throw new InfraError(`no se pudo subir el archivo: ${error.message}`, "storage", error);
   }
 
+  async crearSubida(path: string): Promise<{ token: string }> {
+    // Sin `upsert`: la URL firmada sirve para crear ese objeto, no para pisar uno.
+    const { data, error } = await this.db.storage.from(BUCKET).createSignedUploadUrl(path);
+    if (error || !data) {
+      throw new InfraError(
+        `no se pudo autorizar la subida: ${error?.message ?? "sin datos"}`,
+        "storage",
+        error,
+      );
+    }
+    return { token: data.token };
+  }
+
   async descargar(path: string): Promise<Uint8Array> {
     const { data, error } = await this.db.storage.from(BUCKET).download(path);
     if (error || !data) {

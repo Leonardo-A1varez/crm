@@ -4,6 +4,7 @@ import { withSpan } from "@/lib/observability/tracing";
 import type { ResolverCredencialesWhatsApp } from "@/server/services/meta/credenciales-whatsapp.service";
 import type {
   MetaApiClient,
+  MetaSendMediaInput,
   MetaSendResult,
   MetaSendRicoInput,
   MetaSendTemplateInput,
@@ -173,6 +174,29 @@ export class GraphApiMetaClient implements MetaApiClient {
   }
 
   /**
+   * Un archivo ya subido a Meta (`POST /{phone_number_id}/media`), al mismo
+   * endpoint que el texto, por su id. Formas de la referencia de mensajes de Meta
+   * leída el 2026-10-11 (image/video/audio/document messages): imagen y video
+   * `{ id, caption? }`, documento `{ id, filename?, caption? }`, audio `{ id }`
+   * (la doc de audio sólo documenta `id`, `link` y `voice`: no admite caption).
+   */
+  async sendMedia(input: MetaSendMediaInput): Promise<MetaSendResult> {
+    const { media } = input;
+    return withSpan("meta.sendMedia", { canal: "wa", tipo: media.tipo }, async () =>
+      this.postWa(
+        {
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: input.to,
+          ...cuerpoMedia(media),
+        },
+        `wa.send.${media.tipo}`,
+        input.desde,
+      ),
+    );
+  }
+
+  /**
    * «Escribiendo…» de WhatsApp: mismo endpoint que el texto, con `status: "read"`
    * y `typing_indicator`. Formato de la documentación de Meta
    * (developers.facebook.com/docs/whatsapp/cloud-api/typing-indicators, leída el
@@ -305,6 +329,33 @@ export class GraphApiMetaClient implements MetaApiClient {
       });
     }
     return { meta_message_id: id };
+  }
+}
+
+/** `type` y el objeto con el id de media. Un opcional en `null` no viaja. */
+function cuerpoMedia(m: MetaSendMediaInput["media"]): Record<string, unknown> {
+  switch (m.tipo) {
+    case "image":
+      return {
+        type: "image",
+        image: { id: m.mediaId, ...(m.caption ? { caption: m.caption } : {}) },
+      };
+    case "video":
+      return {
+        type: "video",
+        video: { id: m.mediaId, ...(m.caption ? { caption: m.caption } : {}) },
+      };
+    case "audio":
+      return { type: "audio", audio: { id: m.mediaId } };
+    case "doc":
+      return {
+        type: "document",
+        document: {
+          id: m.mediaId,
+          ...(m.filename ? { filename: m.filename } : {}),
+          ...(m.caption ? { caption: m.caption } : {}),
+        },
+      };
   }
 }
 

@@ -15,6 +15,44 @@ const MAX_PIXELES = 100_000_000;
 
 const COMPRIMIBLES = new Set(["image/jpeg", "image/png"]);
 
+/** Tope de Meta para una imagen (JPEG/PNG), con un poco de aire. */
+const MAX_BYTES_META_IMAGEN = 5 * 1024 * 1024 - 64 * 1024;
+const LADO_PARA_ENVIAR_PX = 2048;
+/** Del más fiel al más agresivo: el primero que entra bajo el tope gana. */
+const CALIDADES_JPEG = [85, 75, 65, 50, 40] as const;
+
+/**
+ * Deja una foto de más de 5 MB (el tope de Meta para imágenes) en un JPEG que
+ * Meta acepta: lado máximo 2048 px y calidad bajando hasta que entra. A
+ * diferencia de `comprimirImagen`, acá achicar no es opcional: si no se puede,
+ * `null` y quien llama le dice al vendedor que mande otra foto.
+ */
+export async function reducirImagenParaEnviar(
+  bytes: Uint8Array,
+  mime: string,
+): Promise<ImagenComprimida | null> {
+  if (!COMPRIMIBLES.has(mime) || bytes.length === 0) return null;
+  try {
+    for (const lado of [LADO_PARA_ENVIAR_PX, LADO_MAXIMO_PX]) {
+      for (const quality of CALIDADES_JPEG) {
+        const salida = await sharp(bytes, { limitInputPixels: MAX_PIXELES, failOn: "error" })
+          .rotate()
+          .resize({ width: lado, height: lado, fit: "inside", withoutEnlargement: true })
+          // El PNG con transparencia se aplana sobre blanco: JPEG no tiene alfa.
+          .flatten({ background: "#ffffff" })
+          .jpeg({ quality })
+          .toBuffer();
+        if (salida.length <= MAX_BYTES_META_IMAGEN) {
+          return { bytes: new Uint8Array(salida), mime: "image/jpeg" };
+        }
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export interface ImagenComprimida {
   bytes: Uint8Array;
   mime: string;

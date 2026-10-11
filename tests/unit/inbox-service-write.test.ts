@@ -107,6 +107,9 @@ describe("DefaultInboxService write path", () => {
       sendRico: async () => {
         throw new Error("el inbox no manda mensajes interactivos");
       },
+      sendMedia: async () => {
+        throw new Error("este test no manda archivos");
+      },
     };
     svc = new DefaultInboxService({
       leads,

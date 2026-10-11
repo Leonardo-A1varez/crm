@@ -113,6 +113,15 @@ export function tipoDeMime(mime: string): TipoMedia | null {
   return POR_MIME.get(normalizarMime(mime))?.tipo ?? null;
 }
 
+/**
+ * ¿Se puede mostrar en la página? Sólo imagen, audio y video de tipos
+ * reconocidos. SVG, HTML y lo que no esté en la tabla nunca.
+ */
+export function esMimeEnLinea(mime: string): boolean {
+  const tipo = tipoDeMime(mime);
+  return tipo === "image" || tipo === "audio" || tipo === "video";
+}
+
 export interface AdjuntoPorValidar {
   mime: string;
   bytes: number;
@@ -121,8 +130,23 @@ export interface AdjuntoPorValidar {
 
 export type MotivoRechazoAdjunto = "vacio" | "tipo_no_permitido" | "demasiado_grande";
 
+/**
+ * Una foto de teléfono pesa 5-12 MB y Meta acepta 5 MB: en vez de pedirle al
+ * vendedor que la achique, JPEG y PNG de hasta este tamaño se reducen en el
+ * servidor antes de mandar (`reducirImagenParaEnviar`).
+ */
+export const MAX_IMAGEN_A_REDUCIR = 25 * MB;
+
 export type ResultadoAdjunto =
-  | { ok: true; tipo: TipoMedia; mime: string; ext: string; maxBytes: number }
+  | {
+      ok: true;
+      tipo: TipoMedia;
+      mime: string;
+      ext: string;
+      maxBytes: number;
+      /** Imagen que pasa del tope de Meta pero entra en `MAX_IMAGEN_A_REDUCIR`. */
+      reducir: boolean;
+    }
   | { ok: false; motivo: MotivoRechazoAdjunto; mensaje: string };
 
 const NOMBRE_DE_TIPO: Record<TipoMedia, string> = {
@@ -154,7 +178,9 @@ export function validarAdjuntoSaliente(a: AdjuntoPorValidar): ResultadoAdjunto {
         "WhatsApp no acepta ese tipo de archivo. Podés mandar JPG, PNG, MP4, 3GP, audio (AAC, AMR, MP3, M4A, OGG), PDF, Word, Excel, PowerPoint o TXT.",
     };
   }
-  const maxBytes = Math.min(regla.maxMeta, MAX_BYTES_ALMACENABLE);
+  const maxMeta = Math.min(regla.maxMeta, MAX_BYTES_ALMACENABLE);
+  const seReduce = regla.tipo === "image" && a.bytes > maxMeta;
+  const maxBytes = regla.tipo === "image" ? MAX_IMAGEN_A_REDUCIR : maxMeta;
   if (a.bytes > maxBytes) {
     return {
       ok: false,
@@ -162,5 +188,5 @@ export function validarAdjuntoSaliente(a: AdjuntoPorValidar): ResultadoAdjunto {
       mensaje: `${NOMBRE_DE_TIPO[regla.tipo]} pesa ${legible(a.bytes)} y el máximo es ${legible(maxBytes)}.`,
     };
   }
-  return { ok: true, tipo: regla.tipo, mime, ext: regla.ext, maxBytes };
+  return { ok: true, tipo: regla.tipo, mime, ext: regla.ext, maxBytes, reducir: seReduce };
 }
