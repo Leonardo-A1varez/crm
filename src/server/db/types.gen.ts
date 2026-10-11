@@ -558,6 +558,7 @@ export type Database = {
           lead_id: string
           modo_respuesta_override: string | null
           ultima_actividad_at: string
+          whatsapp_phone_number_id: string | null
         }
         Insert: {
           canal: Database["public"]["Enums"]["canal_enum"]
@@ -567,6 +568,7 @@ export type Database = {
           lead_id: string
           modo_respuesta_override?: string | null
           ultima_actividad_at?: string
+          whatsapp_phone_number_id?: string | null
         }
         Update: {
           canal?: Database["public"]["Enums"]["canal_enum"]
@@ -576,6 +578,7 @@ export type Database = {
           lead_id?: string
           modo_respuesta_override?: string | null
           ultima_actividad_at?: string
+          whatsapp_phone_number_id?: string | null
         }
         Relationships: [
           {
@@ -2194,6 +2197,112 @@ export type Database = {
         }
         Relationships: []
       }
+      whatsapp_numeros: {
+        Row: {
+          conectado_at: string
+          conectado_por: string | null
+          contactos_pedido_at: string | null
+          contactos_request_id: string | null
+          contactos_sincronizados_at: string | null
+          display_phone_number: string | null
+          error: string | null
+          estado: string
+          historial_estado: string
+          historial_pedido_at: string | null
+          historial_progreso: number | null
+          historial_request_id: string | null
+          id: string
+          is_on_biz_app: boolean | null
+          modo: string
+          phone_number_id: string
+          platform_type: string | null
+          updated_at: string
+          verificado_at: string | null
+          verified_name: string | null
+          waba_id: string
+        }
+        Insert: {
+          conectado_at?: string
+          conectado_por?: string | null
+          contactos_pedido_at?: string | null
+          contactos_request_id?: string | null
+          contactos_sincronizados_at?: string | null
+          display_phone_number?: string | null
+          error?: string | null
+          estado?: string
+          historial_estado?: string
+          historial_pedido_at?: string | null
+          historial_progreso?: number | null
+          historial_request_id?: string | null
+          id?: string
+          is_on_biz_app?: boolean | null
+          modo: string
+          phone_number_id: string
+          platform_type?: string | null
+          updated_at?: string
+          verificado_at?: string | null
+          verified_name?: string | null
+          waba_id: string
+        }
+        Update: {
+          conectado_at?: string
+          conectado_por?: string | null
+          contactos_pedido_at?: string | null
+          contactos_request_id?: string | null
+          contactos_sincronizados_at?: string | null
+          display_phone_number?: string | null
+          error?: string | null
+          estado?: string
+          historial_estado?: string
+          historial_pedido_at?: string | null
+          historial_progreso?: number | null
+          historial_request_id?: string | null
+          id?: string
+          is_on_biz_app?: boolean | null
+          modo?: string
+          phone_number_id?: string
+          platform_type?: string | null
+          updated_at?: string
+          verificado_at?: string | null
+          verified_name?: string | null
+          waba_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_numeros_conectado_por_fkey"
+            columns: ["conectado_por"]
+            isOneToOne: false
+            referencedRelation: "usuarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      whatsapp_numeros_credenciales: {
+        Row: {
+          actualizado_at: string
+          phone_number_id: string
+          token_cifrado: string
+        }
+        Insert: {
+          actualizado_at?: string
+          phone_number_id: string
+          token_cifrado: string
+        }
+        Update: {
+          actualizado_at?: string
+          phone_number_id?: string
+          token_cifrado?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_numeros_credenciales_phone_number_id_fkey"
+            columns: ["phone_number_id"]
+            isOneToOne: true
+            referencedRelation: "whatsapp_numeros"
+            referencedColumns: ["phone_number_id"]
+          },
+        ]
+      }
       whatsapp_numeros_rol: {
         Row: {
           actualizado_por: string | null
@@ -2957,6 +3066,20 @@ export type Database = {
           destinatarios: number
           dia: string
           total_ventana: number
+        }[]
+      }
+      whatsapp_numero_conectar: {
+        Args: {
+          p_display_phone_number: string
+          p_modo: string
+          p_phone_number_id: string
+          p_token_cifrado: string
+          p_verified_name: string
+          p_waba_id: string
+        }
+        Returns: {
+          conectado_at: string
+          id: string
         }[]
       }
       workflow_condicion_coincidencias: {

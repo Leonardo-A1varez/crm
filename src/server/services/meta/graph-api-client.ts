@@ -341,7 +341,7 @@ function cuerpoRico(c: MetaSendRicoInput["contenido"]): Record<string, unknown> 
  * red y no de protocolo. Sin esto, un `TypeError` crudo escapa del cliente y
  * el llamador no puede distinguir "Meta rechazó" de "no llegamos a Meta".
  */
-async function fetchOrInfra(
+export async function fetchOrInfra(
   fetchImpl: typeof fetch,
   url: string,
   init: RequestInit,
@@ -355,7 +355,7 @@ async function fetchOrInfra(
   }
 }
 
-async function throwMappedGraphError(res: Response, operation: string): Promise<never> {
+export async function throwMappedGraphError(res: Response, operation: string): Promise<never> {
   let body: GraphErrorBody = {};
   try {
     body = (await res.json()) as GraphErrorBody;
