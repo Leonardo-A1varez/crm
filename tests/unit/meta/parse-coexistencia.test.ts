@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { CAMPOS_COEXISTENCIA, parseCoexistencia } from "@/lib/meta/parse-coexistencia";
+import {
+  CAMPOS_COEXISTENCIA,
+  deserializarLote,
+  parseCoexistencia,
+  partirLote,
+} from "@/lib/meta/parse-coexistencia";
 import { parseMetaOperationalEvents, parseMetaWebhook } from "@/lib/meta/parse-webhook";
 
 // Formas tomadas de los ejemplos de Meta (onboarding-business-app-users, leída
@@ -187,6 +192,58 @@ describe("parseCoexistencia — smb_message_echoes", () => {
         contenido: "Te lo mando mañana",
       },
     });
+  });
+});
+
+describe("partirLote", () => {
+  function mensajes(n: number, prefijo: string) {
+    return Array.from({ length: n }, (_, i) => ({
+      meta_message_id: `${prefijo}${i}`,
+      direction: "in" as const,
+      tipo: "text" as const,
+      contenido: "x",
+      at: new Date(1739230955000 + i),
+    }));
+  }
+
+  test("reparte en partes de a lo sumo 100 mensajes sin perder ni repetir ninguno", () => {
+    const lote = {
+      phone_number_id: "1",
+      fase: 1,
+      chunk: 3,
+      progreso: 70,
+      omitidos: 2,
+      hilos: [
+        { telefono_cliente: "11", mensajes: mensajes(150, "a") },
+        { telefono_cliente: "22", mensajes: mensajes(80, "b") },
+      ],
+    };
+    const partes = partirLote(lote);
+    expect(partes.map((p) => p.hilos.reduce((s, h) => s + h.mensajes.length, 0))).toEqual([
+      100, 100, 30,
+    ]);
+    const ids = partes.flatMap((p) =>
+      p.hilos.flatMap((h) => h.mensajes.map((m) => m.meta_message_id)),
+    );
+    expect(new Set(ids).size).toBe(230);
+    // El progreso sólo en la última: si no, la primera daría el historial por completo.
+    expect(partes.map((p) => p.progreso)).toEqual([null, null, 70]);
+    // Las fechas viajan en ISO y vuelven a Date.
+    expect(deserializarLote(partes[0]!).hilos[0]!.mensajes[0]!.at).toEqual(new Date(1739230955000));
+  });
+
+  test("un lote sin hilos (sólo progreso) sale en una parte con su progreso", () => {
+    const partes = partirLote({
+      phone_number_id: "1",
+      fase: 2,
+      chunk: 9,
+      progreso: 100,
+      omitidos: 0,
+      hilos: [],
+    });
+    expect(partes).toEqual([
+      { phone_number_id: "1", fase: 2, chunk: 9, progreso: 100, omitidos: 0, hilos: [] },
+    ]);
   });
 });
 

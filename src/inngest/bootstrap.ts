@@ -17,6 +17,8 @@
 
 import { GraphApiMetaClient } from "@/server/services/meta/graph-api-client";
 import { DefaultResolverCredencialesWhatsApp } from "@/server/services/meta/credenciales-whatsapp.service";
+import { DefaultCoexistenciaService } from "@/server/services/meta/coexistencia.service";
+import { GraphApiOnboardingClient } from "@/server/services/meta/graph-api-onboarding";
 import { SupabaseWhatsAppNumerosRepository } from "@/server/repositories/whatsapp-numeros.supabase.repo";
 import { llaveroDesdeEnv } from "@/lib/meta/token-cifrado";
 import { DefaultAiAgentService } from "@/server/services/ai-agent.service";
@@ -647,6 +649,26 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
     },
     sincronizarBodega: {
       servicio: makeSincronizarBodega(env, bodegaRepo, logger),
+      logger,
+    },
+    coexistencia: {
+      servicio: new DefaultCoexistenciaService({
+        numeros: whatsappNumeros,
+        // Sólo lectura del número y `smb_app_data`, con el token del negocio:
+        // el id y el secreto de la app no se usan acá (son del canje del código).
+        graph: new GraphApiOnboardingClient({
+          graphApiVersion: env.META_GRAPH_API_VERSION,
+          appId: env.META_APP_ID ?? "",
+          appSecret: env.META_APP_SECRET,
+        }),
+        credenciales: credencialesWhatsApp,
+        leads,
+        identificadores,
+        conversations,
+        sessions,
+        messages,
+        logger: logger.child({ scope: "coexistencia" }),
+      }),
       logger,
     },
   };

@@ -151,7 +151,14 @@ export interface MensajeMetadata {
    * copiloto. El CRM lo anota al tocar Insertar / Copiar / Abrir, no cuando el
    * mensaje realmente sale: por eso el hilo dice "sin confirmar".
    */
-  origen?: "whatsapp_web_sin_confirmar";
+  origen?:
+    | "whatsapp_web_sin_confirmar"
+    // Coexistencia (docs/meta/conectar-whatsapp.md): mensajes que no pasaron
+    // por el CRM. `historial_app_business` vino del historial de 180 días que
+    // comparte el negocio al conectar; `eco_app_business`, de algo que el
+    // negocio mandó desde la app del teléfono después de conectar.
+    | "historial_app_business"
+    | "eco_app_business";
   borrador_id?: string;
   [k: string]: unknown;
 }

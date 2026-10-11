@@ -81,6 +81,72 @@ export interface CoexistenciaParseada {
   ecos: EcoCoexistencia[];
 }
 
+// ===========================================================================
+// Serialización para los eventos de Inngest: una `Date` no sobrevive el JSON.
+// ===========================================================================
+
+export type MensajeSerializado = Omit<MensajeCoexistencia, "at"> & { at: string | null };
+export type LoteSerializado = Omit<LoteHistorial, "hilos"> & {
+  hilos: { telefono_cliente: string; mensajes: MensajeSerializado[] }[];
+};
+export type EcoSerializado = Omit<EcoCoexistencia, "mensaje"> & { mensaje: MensajeSerializado };
+
+export function serializarMensaje(m: MensajeCoexistencia): MensajeSerializado {
+  return { ...m, at: m.at ? m.at.toISOString() : null };
+}
+
+export function deserializarMensaje(m: MensajeSerializado): MensajeCoexistencia {
+  return { ...m, at: m.at ? new Date(m.at) : null };
+}
+
+export function deserializarLote(l: LoteSerializado): LoteHistorial {
+  return {
+    ...l,
+    hilos: l.hilos.map((h) => ({ ...h, mensajes: h.mensajes.map(deserializarMensaje) })),
+  };
+}
+
+/** Máximo de mensajes por evento: un lote de Meta puede ser grande. */
+export const MENSAJES_POR_EVENTO = 100;
+
+/**
+ * Parte un lote del historial en lotes de a lo sumo `MENSAJES_POR_EVENTO`
+ * mensajes (un hilo largo se reparte en varios), para que cada evento entre
+ * holgado en el tope de tamaño de Inngest. El progreso viaja sólo en la
+ * última parte: si viajara en todas, la primera podría dar el historial por
+ * completo antes de importar el resto.
+ */
+export function partirLote(lote: LoteHistorial): LoteSerializado[] {
+  const partes: LoteSerializado[] = [];
+  let actual: LoteSerializado["hilos"] = [];
+  let cuenta = 0;
+  const cerrar = () => {
+    if (actual.length === 0) return;
+    partes.push({ ...lote, progreso: null, omitidos: 0, hilos: actual });
+    actual = [];
+    cuenta = 0;
+  };
+  for (const hilo of lote.hilos) {
+    let i = 0;
+    while (i < hilo.mensajes.length) {
+      const espacio = MENSAJES_POR_EVENTO - cuenta;
+      const tramo = hilo.mensajes.slice(i, i + espacio).map(serializarMensaje);
+      actual.push({ telefono_cliente: hilo.telefono_cliente, mensajes: tramo });
+      cuenta += tramo.length;
+      i += tramo.length;
+      if (cuenta >= MENSAJES_POR_EVENTO) cerrar();
+    }
+  }
+  cerrar();
+  if (partes.length === 0) {
+    partes.push({ ...lote, hilos: [] });
+  } else {
+    const ultima = partes[partes.length - 1]!;
+    partes[partes.length - 1] = { ...ultima, progreso: lote.progreso, omitidos: lote.omitidos };
+  }
+  return partes;
+}
+
 export function parseCoexistencia(payload: unknown): CoexistenciaParseada {
   const out: CoexistenciaParseada = {
     historial: [],
