@@ -27,5 +27,7 @@ commit-msg:
 pre-push:
   jobs:
     - name: full-test
-      run: npm test
+      # Con todos los núcleos la máquina se satura y tests de pantalla pasan los
+      # 5 s al azar (2026-10-11: un archivo distinto en cada push). Mitad de núcleos.
+      run: npm test -- --maxWorkers=50%
       tags: quality
