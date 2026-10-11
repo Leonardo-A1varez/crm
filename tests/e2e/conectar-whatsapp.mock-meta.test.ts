@@ -31,12 +31,14 @@ import { llaveroDesdeEnv } from "@/lib/meta/token-cifrado";
 import { NoopLogger } from "@/lib/observability/logger";
 import { NoopRateLimiter } from "@/lib/rate-limit";
 import { InMemoryConversationsRepository } from "@/server/repositories/conversations.repo";
+import { InMemoryHandoffEventsRepository } from "@/server/repositories/handoff-events.repo";
 import { InMemoryLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
 import { InMemoryMessagesRepository } from "@/server/repositories/messages.repo";
 import { InMemoryWhatsAppNumerosRepository } from "@/server/repositories/whatsapp-numeros.repo";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
+import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultCoexistenciaService } from "@/server/services/meta/coexistencia.service";
 import { DefaultConectarWhatsAppService } from "@/server/services/meta/conectar-whatsapp.service";
 import { DefaultResolverCredencialesWhatsApp } from "@/server/services/meta/credenciales-whatsapp.service";
@@ -192,6 +194,7 @@ describe("Conectar WhatsApp — E2E contra el mock de Meta", () => {
     const leads = new InMemoryLeadsRepository();
     const conversations = new InMemoryConversationsRepository();
     const sessions = new InMemoryLeadSessionRepository();
+    const handoffEvents = new InMemoryHandoffEventsRepository(sessions);
     const messages = new InMemoryMessagesRepository();
     const credenciales = new DefaultResolverCredencialesWhatsApp({
       repo: numeros,
@@ -206,6 +209,8 @@ describe("Conectar WhatsApp — E2E contra el mock de Meta", () => {
       conversations,
       sessions,
       messages,
+      handoff: new DefaultHandoffService(sessions, undefined, handoffEvents),
+      handoffEvents,
     });
     expect(await coex.sincronizarAlConectar(PHONE_COEX)).toEqual({
       verificado: true,
@@ -255,12 +260,20 @@ describe("Conectar WhatsApp — E2E contra el mock de Meta", () => {
         expect(await coex.importarHistorial(lote)).toEqual({ importados: 0, repetidos: 2 });
       } else if (e.name === "meta/coexistencia.eco") {
         const eco = e.data.eco as EcoSerializado;
-        await coex.registrarEco({ ...eco, mensaje: deserializarMensaje(eco.mensaje) });
+        const completo = { ...eco, mensaje: deserializarMensaje(eco.mensaje) };
+        await coex.registrarEco(completo);
+        // El negocio contestó desde el teléfono: la IA de esa conversación se pausa.
+        expect(await coex.pausarPorRespuestaDelNegocio(completo)).not.toBeNull();
       }
     }
 
     const lead = await leads.findByTelefono(CLIENTE);
     expect(lead?.nombre).toBe("Rita Agenda");
+    // El historial quedó en una sesión cerrada; la única activa es la del eco, pausada.
+    const delLead = await sessions.listByLeadId(lead!.id);
+    expect(delLead.filter((s) => s.resultado === null)).toHaveLength(1);
+    expect(delLead.filter((s) => s.resultado !== null)).toHaveLength(1);
+    expect((await sessions.findActiveByLeadId(lead!.id))?.ia_pausada).toBe(true);
     const conv = await conversations.findByCanalThread("wa", CLIENTE);
     expect(conv?.whatsapp_phone_number_id).toBe(PHONE_COEX);
     // Por la hora real de cada mensaje (el historial es de ayer, el eco de ahora).

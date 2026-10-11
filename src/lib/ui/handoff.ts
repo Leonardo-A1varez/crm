@@ -8,6 +8,8 @@ const LABEL: Record<HandoffEvent["reason_code"], string> = {
   rule_handoff: "regla de revisión",
   manual_pause: "pausa manual",
   manual_resume: "reanudación manual",
+  respuesta_desde_telefono: "respondió el equipo desde el teléfono",
+  reanudacion_automatica: "reanudación automática",
   other: "otro motivo",
 };
 

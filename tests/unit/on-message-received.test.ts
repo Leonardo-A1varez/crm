@@ -17,6 +17,7 @@ import { DefaultIntentClassifierService } from "@/server/services/intent-classif
 import { DefaultRuleEngineService } from "@/server/services/rule-engine.service";
 import { DefaultCatalogMatcherService } from "@/server/services/catalog-matcher.service";
 import { DefaultAiAgentService } from "@/server/services/ai-agent.service";
+import { DefaultHandoffService } from "@/server/services/handoff.service";
 import {
   StaticAgentConfigProvider,
   type AgentConfigProvider,
@@ -504,6 +505,56 @@ describe("onMessageReceivedHandler", () => {
     await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
 
     expect(ctx.metaClient.calls).toHaveLength(0);
+  });
+
+  test("pausada porque el negocio contestó desde el teléfono: el entrante se guarda, el agente no contesta ni llama al LLM", async () => {
+    ctx.intentLLM.enqueue({ intent_nombre: null, confidence: 0 });
+    const lead = await ctx.leads.create({
+      nombre: "",
+      telefono: "549110",
+      email: null,
+      direccion: null,
+      vehiculo_marca: "",
+      vehiculo_modelo: "",
+      vehiculo_anio: 0,
+      vehiculo_motor: null,
+      empresa_id: null,
+      canal_origen: "wa",
+      meta_user_ids: { wa: "549110" },
+    });
+    const sesion = await ctx.sessions.create({
+      lead_id: lead.id,
+      current_stage: "nuevo",
+      urgencia: "media",
+      consulta: "",
+      producto_cotizado_id: null,
+      codigo_interno: null,
+      precio_cotizado: null,
+      cantidad: null,
+      bloqueador: null,
+      comprobante_pago_url: null,
+      metodo_pago: null,
+      resultado: null,
+      motivo_perdida: null,
+      ia_pausada: false,
+    });
+    await new DefaultHandoffService(ctx.sessions).pause({
+      sessionId: sesion.id,
+      reasonCode: "respuesta_desde_telefono",
+      source: "sistema",
+    });
+
+    const r = await onMessageReceivedHandler({ parsed: parsed() }, ctx.deps);
+
+    expect(r.sent).toBe(false);
+    expect(ctx.metaClient.calls).toHaveLength(0);
+    expect(ctx.agentLLM.calls).toHaveLength(0);
+    const conv = await ctx.conversations.findByCanalThread("wa", "549110");
+    const entrantes = (await ctx.messages.listByConversacion(conv!.id)).filter(
+      (m) => m.direction === "in",
+    );
+    expect(entrantes.map((m) => m.contenido)).toEqual(["hola"]);
+    expect((await ctx.sessions.findById(sesion.id))?.ia_pausada).toBe(true);
   });
 
   test("dedup webhook: mismo meta_message_id procesado 2x persiste 1 inbound", async () => {

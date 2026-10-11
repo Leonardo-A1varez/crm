@@ -40,6 +40,9 @@ export interface PauseHandoffInput {
 export interface ResumeHandoffInput {
   sessionId: UUID;
   sourceEventKey?: string;
+  /** Sin él, `manual_resume` por `admin`: la reanudación que hace una persona desde el Inbox. */
+  reasonCode?: HandoffReasonCode;
+  source?: HandoffSource;
 }
 
 export interface HandoffService {
@@ -119,8 +122,8 @@ export class DefaultHandoffService implements HandoffService {
     const result = await this.events.transition({
       sessionId,
       action: "resume",
-      reasonCode: "manual_resume",
-      source: "admin",
+      reasonCode: input.reasonCode ?? "manual_resume",
+      source: input.source ?? "admin",
       sourceEventKey,
       notifyCustomer: false,
     });

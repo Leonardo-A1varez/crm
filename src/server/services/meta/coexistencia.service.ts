@@ -1,4 +1,5 @@
 import { ConflictError, IllegalStateError, InfraError, RateLimitError } from "@/lib/errors";
+import { PAUSA_POR_RESPUESTA_HUMANA_MS } from "@/lib/coexistencia/pausa";
 import { CLAVE_SESION_IMPORTADA, esSesionImportada } from "@/lib/coexistencia/sesion-importada";
 import { NoopLogger, type Logger } from "@/lib/observability/logger";
 import type {
@@ -9,6 +10,7 @@ import type {
   MensajeCoexistencia,
 } from "@/lib/meta/parse-coexistencia";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
+import type { HandoffEventsRepository } from "@/server/repositories/handoff-events.repo";
 import {
   normalizarIdentificador,
   type LeadIdentificadoresRepository,
@@ -17,12 +19,13 @@ import type { LeadSessionRepository } from "@/server/repositories/lead-session.r
 import type { LeadsRepository } from "@/server/repositories/leads.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { WhatsAppNumerosRepository } from "@/server/repositories/whatsapp-numeros.repo";
+import type { HandoffService } from "@/server/services/handoff.service";
 import type { ResolverCredencialesWhatsApp } from "@/server/services/meta/credenciales-whatsapp.service";
 import type {
   GraphApiOnboarding,
   TipoSincronizacion,
 } from "@/server/services/meta/graph-api-onboarding";
-import type { Conversacion, Lead, MensajeMetadata } from "@/types/entities";
+import type { Conversacion, Lead, MensajeMetadata, UUID } from "@/types/entities";
 import type { Sincronizacion } from "@/types/whatsapp-numeros";
 
 /**
@@ -65,8 +68,21 @@ export interface CoexistenciaDeps {
     ConversationsRepository,
     "findByCanalThread" | "upsertByCanalThread" | "update" | "touch"
   >;
-  sessions: Pick<LeadSessionRepository, "findActiveByLeadId" | "listByLeadId" | "create">;
-  messages: Pick<MessagesRepository, "findByMetaMessageId" | "registrarSalienteYaEnviado">;
+  sessions: Pick<
+    LeadSessionRepository,
+    "findActiveByLeadId" | "findById" | "listByLeadId" | "create"
+  >;
+  messages: Pick<
+    MessagesRepository,
+    "findByMetaMessageId" | "registrarSalienteYaEnviado" | "listBySessionId"
+  >;
+  /**
+   * Pausa la IA cuando el negocio contesta desde el teléfono, y la reanuda al
+   * vencer la ventana. Obligatorios a propósito: con un default no-op, un caller
+   * que los olvide deja la IA contestándole a un cliente que ya atiende una persona.
+   */
+  handoff: Pick<HandoffService, "pause" | "resume">;
+  handoffEvents: Pick<HandoffEventsRepository, "listBySessionIds">;
   ahora?: () => Date;
   logger?: Logger;
 }
@@ -82,7 +98,37 @@ export interface CoexistenciaService {
   importarHistorial(lote: LoteHistorial): Promise<{ importados: number; repetidos: number }>;
   historialRechazado(error: ErrorHistorial): Promise<void>;
   registrarEco(eco: EcoCoexistencia): Promise<"registrado" | "repetido">;
+  /**
+   * El negocio contestó desde el teléfono: pausa la IA de la sesión activa del
+   * cliente por `PAUSA_POR_RESPUESTA_HUMANA_MIN`. Devuelve la pausa a programar
+   * (cuándo vence) o `null` si no hay nada que programar: el cliente o su sesión
+   * no existen, la ventana de ese eco ya pasó, o la sesión está pausada por otra
+   * causa (una pausa manual no la adopta ni la levanta este mecanismo).
+   * Idempotente por eco: reentregarlo no vuelve a pausar una sesión que una
+   * persona ya reactivó.
+   */
+  pausarPorRespuestaDelNegocio(eco: EcoCoexistencia): Promise<PausaPorRespuesta | null>;
+  /**
+   * Llegó el vencimiento de una pausa programada: reanuda la IA sólo si la sesión
+   * sigue pausada POR ESA causa y ningún eco posterior extendió la ventana.
+   */
+  reanudarTrasRespuestaDelNegocio(pausa: PausaPorRespuesta): Promise<ResultadoReanudacion>;
 }
+
+/** Una pausa por respuesta humana y cuándo vence (hay que programar la reanudación). */
+export interface PausaPorRespuesta {
+  sesionId: UUID;
+  ecoMetaMessageId: string;
+  ecoAt: Date;
+  venceAt: Date;
+}
+
+/**
+ * `reanudada`: la IA volvió. `extendida`: un eco posterior movió el vencimiento;
+ * lo reanuda el vencimiento de ese. `sin_cambio`: ya no era esta pausa (una
+ * persona la levantó, otra causa pausó, la sesión se cerró).
+ */
+export type ResultadoReanudacion = "reanudada" | "extendida" | "sin_cambio";
 
 const SYNC_DE: Record<Sincronizacion, TipoSincronizacion> = {
   contactos: "smb_app_state_sync",
@@ -276,6 +322,67 @@ export class DefaultCoexistenciaService implements CoexistenciaService {
       "activa",
     );
     return r.importados === 1 ? "registrado" : "repetido";
+  }
+
+  async pausarPorRespuestaDelNegocio(eco: EcoCoexistencia): Promise<PausaPorRespuesta | null> {
+    const lead = await this.deps.leads.findByTelefono(eco.telefono_cliente);
+    if (!lead) return null;
+    const sesion = await this.deps.sessions.findActiveByLeadId(lead.id);
+    if (!sesion) return null;
+
+    const wamid = eco.mensaje.meta_message_id;
+    // La hora con la que quedó guardado el eco: es la que compara el vencimiento.
+    const guardado = await this.deps.messages.findByMetaMessageId(wamid);
+    const ecoAt = guardado?.created_at ?? eco.mensaje.at ?? this.ahora();
+    const venceAt = new Date(ecoAt.getTime() + PAUSA_POR_RESPUESTA_HUMANA_MS);
+    // Un webhook que llega tarde ya no justifica callar a la IA.
+    if (venceAt.getTime() <= this.ahora().getTime()) return null;
+
+    if (sesion.ia_pausada) {
+      // Pausada por esta misma causa: este eco extiende la ventana. Por otra
+      // (pausa manual, descuento excedido, …): no es de este mecanismo.
+      if (!(await this.pausadaPorRespuestaHumana(sesion.id))) return null;
+    } else {
+      // Sin aviso al cliente, y con una clave por eco: la reentrega del mismo
+      // eco no vuelve a pausar una sesión que una persona reactivó.
+      await this.deps.handoff.pause({
+        sessionId: sesion.id,
+        reasonCode: "respuesta_desde_telefono",
+        source: "sistema",
+        sourceEventKey: `respuesta-telefono:${wamid}`,
+        notifyCustomer: false,
+      });
+    }
+    this.logger.info("coexistencia.ia_pausada", { sesion_id: sesion.id });
+    return { sesionId: sesion.id, ecoMetaMessageId: wamid, ecoAt, venceAt };
+  }
+
+  async reanudarTrasRespuestaDelNegocio(pausa: PausaPorRespuesta): Promise<ResultadoReanudacion> {
+    const sesion = await this.deps.sessions.findById(pausa.sesionId);
+    if (!sesion || sesion.resultado !== null || !sesion.ia_pausada) return "sin_cambio";
+    // Si la última transición no es esta pausa, alguien la levantó (o pausó por
+    // otra causa) después: este vencimiento ya no manda.
+    if (!(await this.pausadaPorRespuestaHumana(sesion.id))) return "sin_cambio";
+
+    const ecos = (
+      await this.deps.messages.listBySessionId(sesion.id, { direction: "out", limit: 100 })
+    ).filter((m) => m.metadata.origen === "eco_app_business");
+    if (ecos.some((m) => m.created_at.getTime() > pausa.ecoAt.getTime())) return "extendida";
+
+    await this.deps.handoff.resume({
+      sessionId: sesion.id,
+      reasonCode: "reanudacion_automatica",
+      source: "sistema",
+      sourceEventKey: `respuesta-telefono-reanudar:${pausa.ecoMetaMessageId}`,
+    });
+    this.logger.info("coexistencia.ia_reanudada", { sesion_id: sesion.id });
+    return "reanudada";
+  }
+
+  /** ¿La última transición de la sesión es una pausa por respuesta desde el teléfono? */
+  private async pausadaPorRespuestaHumana(sesionId: UUID): Promise<boolean> {
+    const ultimo = (await this.deps.handoffEvents.listBySessionIds([sesionId])).at(-1);
+    return ultimo?.action === "pause" && ultimo.reason_code === "respuesta_desde_telefono";
   }
 
   // ===========================================================================

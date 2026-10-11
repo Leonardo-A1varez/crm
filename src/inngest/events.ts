@@ -92,6 +92,21 @@ export const coexistenciaEco = eventType("meta/coexistencia.eco", {
   schema: staticSchema<{ eco: EcoSerializado }>(),
 });
 
+/**
+ * Vence la pausa de la IA que dejó un eco (el negocio contestó desde el teléfono).
+ * Un evento por eco: cada uno duerme hasta su `venceAt` y reanuda sólo si ningún
+ * eco posterior extendió la ventana. Las fechas viajan en ISO por lo mismo que el
+ * `at` de los estados de entrega.
+ */
+export const coexistenciaReanudarIa = eventType("meta/coexistencia.reanudar-ia", {
+  schema: staticSchema<{
+    sesionId: UUID;
+    ecoMetaMessageId: string;
+    ecoAt: string;
+    venceAt: string;
+  }>(),
+});
+
 export const turnCompleted = eventType("lead-session/turn.completed", {
   schema: staticSchema<{
     leadSessionId: UUID;

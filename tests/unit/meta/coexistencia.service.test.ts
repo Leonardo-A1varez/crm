@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { InfraError, RateLimitError, ValidationError } from "@/lib/errors";
 import { cifrarToken, llaveroDesdeEnv } from "@/lib/meta/token-cifrado";
 import { InMemoryConversationsRepository } from "@/server/repositories/conversations.repo";
+import { InMemoryHandoffEventsRepository } from "@/server/repositories/handoff-events.repo";
 import { InMemoryLeadIdentificadoresRepository } from "@/server/repositories/lead-identificadores.repo";
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import { InMemoryLeadsRepository } from "@/server/repositories/leads.repo";
 import { InMemoryMessagesRepository } from "@/server/repositories/messages.repo";
 import { InMemoryWhatsAppNumerosRepository } from "@/server/repositories/whatsapp-numeros.repo";
+import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultCoexistenciaService } from "@/server/services/meta/coexistencia.service";
 import { DefaultResolverCredencialesWhatsApp } from "@/server/services/meta/credenciales-whatsapp.service";
 import type { GraphApiOnboarding } from "@/server/services/meta/graph-api-onboarding";
@@ -32,6 +34,7 @@ let numeros: InMemoryWhatsAppNumerosRepository;
 let leads: InMemoryLeadsRepository;
 let conversations: InMemoryConversationsRepository;
 let sessions: InMemoryLeadSessionRepository;
+let handoffEvents: InMemoryHandoffEventsRepository;
 let messages: InMemoryMessagesRepository;
 let graph: ReturnType<typeof graphFalso>;
 let ahora: Date;
@@ -42,6 +45,7 @@ beforeEach(async () => {
   leads = new InMemoryLeadsRepository();
   conversations = new InMemoryConversationsRepository();
   sessions = new InMemoryLeadSessionRepository();
+  handoffEvents = new InMemoryHandoffEventsRepository(sessions);
   messages = new InMemoryMessagesRepository();
   graph = graphFalso();
   const llavero = llaveroDesdeEnv({ META_TOKENS_CLAVE: randomBytes(32).toString("base64") });
@@ -67,6 +71,8 @@ beforeEach(async () => {
     conversations,
     sessions,
     messages,
+    handoff: new DefaultHandoffService(sessions, undefined, handoffEvents),
+    handoffEvents,
     ahora: () => ahora,
   });
 });

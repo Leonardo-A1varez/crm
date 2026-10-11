@@ -180,11 +180,13 @@ describe("makeCrmInngestFunctions", () => {
           importarHistorial: async () => ({ importados: 0, repetidos: 0 }),
           historialRechazado: async () => {},
           registrarEco: async () => "registrado",
+          pausarPorRespuestaDelNegocio: async () => null,
+          reanudarTrasRespuestaDelNegocio: async () => "sin_cambio",
         },
       },
     });
 
-    expect(fns).toHaveLength(26);
+    expect(fns).toHaveLength(27);
     const ids = fns.map((f) => f.id());
     expect(ids).toEqual(
       expect.arrayContaining([
@@ -214,6 +216,7 @@ describe("makeCrmInngestFunctions", () => {
         expect.stringContaining("on-coexistencia-historial-error"),
         expect.stringContaining("on-coexistencia-contactos"),
         expect.stringContaining("on-coexistencia-eco"),
+        expect.stringContaining("coexistencia-reanudar-ia"),
       ]),
     );
   });
