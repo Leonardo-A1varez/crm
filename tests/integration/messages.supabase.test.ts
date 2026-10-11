@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe } from "vitest";
 import { SupabaseMessagesRepository } from "@/server/repositories/messages.supabase.repo";
 import type { MessagesContractFixtures } from "../repositories/messages.contract";
 import { runMessagesContract } from "../repositories/messages.contract";
+import { runMessagesMediaContract } from "../repositories/messages-media.contract";
 import { cleanupTestDb, makeTestSupabaseClient, type TestClient } from "./setup";
 
 let client: TestClient;
@@ -28,6 +29,10 @@ afterAll(async () => {
 
 describe("SupabaseMessagesRepository (integration)", () => {
   runMessagesContract(
+    () => new SupabaseMessagesRepository(client),
+    () => fixtures,
+  );
+  runMessagesMediaContract(
     () => new SupabaseMessagesRepository(client),
     () => fixtures,
   );

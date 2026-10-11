@@ -1450,6 +1450,14 @@ export type Database = {
           id: string
           idempotency_key: string | null
           lead_session_id: string
+          media_bytes: number | null
+          media_descargado_at: string | null
+          media_error: string | null
+          media_estado: string | null
+          media_meta_id: string | null
+          media_mime: string | null
+          media_nombre: string | null
+          media_path: string | null
           media_url: string | null
           meta_message_id: string | null
           metadata: Json
@@ -1471,6 +1479,14 @@ export type Database = {
           id?: string
           idempotency_key?: string | null
           lead_session_id: string
+          media_bytes?: number | null
+          media_descargado_at?: string | null
+          media_error?: string | null
+          media_estado?: string | null
+          media_meta_id?: string | null
+          media_mime?: string | null
+          media_nombre?: string | null
+          media_path?: string | null
           media_url?: string | null
           meta_message_id?: string | null
           metadata?: Json
@@ -1492,6 +1508,14 @@ export type Database = {
           id?: string
           idempotency_key?: string | null
           lead_session_id?: string
+          media_bytes?: number | null
+          media_descargado_at?: string | null
+          media_error?: string | null
+          media_estado?: string | null
+          media_meta_id?: string | null
+          media_mime?: string | null
+          media_nombre?: string | null
+          media_path?: string | null
           media_url?: string | null
           meta_message_id?: string | null
           metadata?: Json

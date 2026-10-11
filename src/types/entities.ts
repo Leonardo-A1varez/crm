@@ -6,6 +6,7 @@ import type {
   EstadoRecordatorio,
   EtapaEmbudo,
   IdentificadorTipo,
+  MediaEstado,
   MergeCandidateStatus,
   MetodoPago,
   MotivoCancelacionRecordatorio,
@@ -308,6 +309,26 @@ export interface Conversacion {
   whatsapp_phone_number_id?: string | null;
 }
 
+/**
+ * La copia propia del archivo de un mensaje (imagen, video, audio, documento,
+ * sticker). La ruta es del bucket privado `mensajes_media`; nunca se manda al
+ * navegador: el hilo pide una URL firmada de pocos segundos (`/api/media/<id>`).
+ */
+export interface MensajeMedia {
+  estado: MediaEstado;
+  /** Id de media de Meta (entrantes); clave de idempotencia de la descarga. */
+  metaId: string | null;
+  /** `sesiones/<sesion>/<mensaje>.<ext>` dentro del bucket. `null` hasta descargar. */
+  path: string | null;
+  mime: string | null;
+  bytes: number | null;
+  /** Nombre original (documentos). Dato del cliente: sólo se muestra como texto. */
+  nombre: string | null;
+  /** Por qué falló o se omitió. Nunca incluye el contenido del archivo. */
+  error: string | null;
+  descargadoAt: Date | null;
+}
+
 export interface Mensaje {
   id: UUID;
   conversacion_id: UUID;
@@ -318,6 +339,8 @@ export interface Mensaje {
   tipo: TipoMensaje;
   contenido: string | null;
   media_url: string | null;
+  /** Archivo del mensaje. Ausente o `null` = el mensaje no lleva archivo. */
+  media?: MensajeMedia | null;
   meta_message_id: string | null;
   idempotency_key: string | null;
   metadata: MensajeMetadata;
