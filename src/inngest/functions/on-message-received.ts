@@ -113,6 +113,13 @@ export type EmittedEvent =
       data: TurnoDelegacion & { leadId: UUID };
       /** Deduplicación de Inngest: `delegacion-<tipo>:<entrante>`. */
       id: string;
+    }
+  | {
+      /** Baja el archivo del entrante a la copia propia (docs/meta/media.md). */
+      name: "meta/media.descargar";
+      data: { mensajeId: UUID; phoneNumberId: string | null; fecha: string };
+      /** Deduplicación de Inngest: `media-descargar:<mensaje>`. */
+      id: string;
     };
 
 export interface OnMessageReceivedDeps {
@@ -357,6 +364,24 @@ export async function onMessageReceivedHandler(
         parsed,
       }),
     );
+
+    // El entrante trae un archivo: se encola su descarga ya, antes de cualquier
+    // salida temprana (baja, fuera de horario, descuento excedido). La URL que da
+    // Meta vive 5 minutos y el id 7 días: un archivo que no se baja a tiempo se
+    // pierde aunque el agente no conteste el turno. Step propio para que, si el
+    // `send` falla, el reintento no repita `record-inbound`; el `id` hace que la
+    // reentrega de Meta no la encole dos veces.
+    if (parsed.media && inbound.media?.estado === "pendiente") {
+      const mensajeId = inbound.id;
+      const fecha = (parsed.platform_created_at ?? new Date()).toISOString().slice(0, 10);
+      await step.run("emit-descarga-media", () =>
+        deps.emit({
+          name: "meta/media.descargar",
+          id: `media-descargar:${mensajeId}`,
+          data: { mensajeId, phoneNumberId: parsed.numero_negocio_id ?? null, fecha },
+        }),
+      );
+    }
 
     // El cliente escribió: el seguimiento que alguien se puso sobre esta
     // conversación deja de tener sentido. Un recordatorio es "se quedó

@@ -2,6 +2,8 @@ import type { AutoHandoffDeps } from "@/inngest/functions/auto-handoff";
 import { makeAutoHandoffFn } from "@/inngest/functions/auto-handoff";
 import type { CoexistenciaFnDeps } from "@/inngest/functions/coexistencia";
 import { makeCoexistenciaFns } from "@/inngest/functions/coexistencia";
+import type { DescargarMediaFnDeps } from "@/inngest/functions/descargar-media";
+import { makeDescargarMediaFn } from "@/inngest/functions/descargar-media";
 import type { CopilotoBorradorDeps } from "@/inngest/functions/copiloto-borrador";
 import { makeCopilotoBorradorFn } from "@/inngest/functions/copiloto-borrador";
 import type { DetectIntentsBatchDeps } from "@/inngest/functions/detect-intents.batch";
@@ -71,6 +73,8 @@ export interface CrmInngestDeps {
   sincronizarBodega: SincronizarBodegaDeps;
   /** Conectar WhatsApp en coexistencia: sincronización, historial, contactos y ecos. */
   coexistencia: CoexistenciaFnDeps;
+  /** Baja el archivo de los mensajes de WhatsApp a la copia propia (docs/meta/media.md). */
+  descargarMedia: DescargarMediaFnDeps;
 }
 
 export function makeCrmInngestFunctions(deps: CrmInngestDeps) {
@@ -97,5 +101,6 @@ export function makeCrmInngestFunctions(deps: CrmInngestDeps) {
     makeRecalcularCompatibilidadFn(deps.recalcularCompatibilidad),
     makeSincronizarBodegaFn(deps.sincronizarBodega),
     ...makeCoexistenciaFns(deps.coexistencia),
+    makeDescargarMediaFn(deps.descargarMedia),
   ];
 }

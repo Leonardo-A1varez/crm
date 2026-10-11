@@ -1,4 +1,5 @@
 import { ConflictError, IllegalStateError, InfraError, RateLimitError } from "@/lib/errors";
+import { marcasDeMedia, mediaPendienteDe } from "@/lib/media/entrante";
 import { PAUSA_POR_RESPUESTA_HUMANA_MS } from "@/lib/coexistencia/pausa";
 import { CLAVE_SESION_IMPORTADA, esSesionImportada } from "@/lib/coexistencia/sesion-importada";
 import { NoopLogger, type Logger } from "@/lib/observability/logger";
@@ -25,7 +26,7 @@ import type {
   GraphApiOnboarding,
   TipoSincronizacion,
 } from "@/server/services/meta/graph-api-onboarding";
-import type { Conversacion, Lead, MensajeMetadata, UUID } from "@/types/entities";
+import type { Conversacion, Lead, Mensaje, MensajeMetadata, UUID } from "@/types/entities";
 import type { Sincronizacion } from "@/types/whatsapp-numeros";
 
 /**
@@ -58,6 +59,14 @@ export interface ResumenSincronizacion {
   historial: ResultadoSincronizacion;
 }
 
+/** Lo que lleva el evento `meta/media.descargar`. */
+export interface DescargaMediaPorEncolar {
+  mensajeId: UUID;
+  phoneNumberId: string;
+  /** YYYY-MM-DD del mensaje: entra en la clave de idempotencia del paso. */
+  fecha: string;
+}
+
 export interface CoexistenciaDeps {
   numeros: WhatsAppNumerosRepository;
   graph: Pick<GraphApiOnboarding, "leerNumero" | "pedirSincronizacion">;
@@ -83,6 +92,13 @@ export interface CoexistenciaDeps {
    */
   handoff: Pick<HandoffService, "pause" | "resume">;
   handoffEvents: Pick<HandoffEventsRepository, "listBySessionIds">;
+  /**
+   * Encola la descarga del archivo de un mensaje (`meta/media.descargar`). La URL
+   * de Meta vive 5 minutos y el id 7 días: hay que bajarlo en segundo plano.
+   * Obligatoria a propósito: con un default no-op, un caller que la olvide deja
+   * los archivos de ecos e historial en `pendiente` para siempre.
+   */
+  encolarDescargaMedia: (descarga: DescargaMediaPorEncolar) => Promise<void>;
   ahora?: () => Date;
   logger?: Logger;
 }
@@ -404,8 +420,17 @@ export class DefaultCoexistenciaService implements CoexistenciaService {
     const nuevos: MensajeCoexistencia[] = [];
     let repetidos = 0;
     for (const m of mensajes) {
-      if (await this.deps.messages.findByMetaMessageId(m.meta_message_id)) repetidos += 1;
-      else nuevos.push(m);
+      const existente = await this.deps.messages.findByMetaMessageId(m.meta_message_id);
+      if (!existente) {
+        nuevos.push(m);
+        continue;
+      }
+      repetidos += 1;
+      // Reentrega (o reintento tras un fallo al encolar): el mensaje ya está,
+      // pero su archivo puede no haberse pedido nunca. Encolar es idempotente.
+      if (existente.media?.estado === "pendiente") {
+        await this.encolarDescarga(existente.id, phoneNumberId, m.at ?? this.ahora());
+      }
     }
     if (nuevos.length === 0) return { importados: 0, repetidos };
 
@@ -431,8 +456,9 @@ export class DefaultCoexistenciaService implements CoexistenciaService {
     let masReciente: Date | null = null;
     for (const m of nuevos) {
       const at = m.at ?? this.ahora();
+      let escrito: Mensaje;
       try {
-        await this.deps.messages.registrarSalienteYaEnviado({
+        escrito = await this.deps.messages.registrarSalienteYaEnviado({
           conversacion_id: conv.id,
           lead_session_id: sesion,
           direction: m.direction,
@@ -443,21 +469,26 @@ export class DefaultCoexistenciaService implements CoexistenciaService {
           tipo: m.tipo,
           contenido: m.contenido,
           media_url: null,
+          ...(m.media ? { media: mediaPendienteDe(m.media) } : {}),
           meta_message_id: m.meta_message_id,
           idempotency_key: null,
-          metadata: { origen },
+          metadata: { origen, ...marcasDeMedia(m.media) },
           platform_created_at: at,
           created_at: at,
           estado_entrega: null,
           estado_entrega_at: null,
         });
-        importados += 1;
-        if (masReciente === null || at > masReciente) masReciente = at;
       } catch (error) {
         // Otro lote o una reentrega lo escribió entre la consulta y el insert.
-        if (error instanceof ConflictError) repetidos += 1;
-        else throw error;
+        if (error instanceof ConflictError) {
+          repetidos += 1;
+          continue;
+        }
+        throw error;
       }
+      importados += 1;
+      if (masReciente === null || at > masReciente) masReciente = at;
+      if (m.media) await this.encolarDescarga(escrito.id, phoneNumberId, at);
     }
 
     // La actividad del hilo es la del último mensaje real. Un hilo que nace del
@@ -467,6 +498,14 @@ export class DefaultCoexistenciaService implements CoexistenciaService {
       await this.deps.conversations.touch(conv.id, masReciente);
     }
     return { importados, repetidos };
+  }
+
+  private async encolarDescarga(mensajeId: UUID, phoneNumberId: string, at: Date): Promise<void> {
+    await this.deps.encolarDescargaMedia({
+      mensajeId,
+      phoneNumberId,
+      fecha: at.toISOString().slice(0, 10),
+    });
   }
 
   private async sesionActiva(lead: Lead): Promise<string> {

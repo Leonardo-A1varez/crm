@@ -184,9 +184,12 @@ describe("makeCrmInngestFunctions", () => {
           reanudarTrasRespuestaDelNegocio: async () => "sin_cambio",
         },
       },
+      descargarMedia: {
+        servicio: { descargar: async () => "ya_resuelto", marcarFallida: async () => {} },
+      },
     });
 
-    expect(fns).toHaveLength(27);
+    expect(fns).toHaveLength(28);
     const ids = fns.map((f) => f.id());
     expect(ids).toEqual(
       expect.arrayContaining([
@@ -217,6 +220,7 @@ describe("makeCrmInngestFunctions", () => {
         expect.stringContaining("on-coexistencia-contactos"),
         expect.stringContaining("on-coexistencia-eco"),
         expect.stringContaining("coexistencia-reanudar-ia"),
+        expect.stringContaining("descargar-media-mensaje"),
       ]),
     );
   });

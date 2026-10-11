@@ -75,6 +75,7 @@ beforeEach(async () => {
     messages: new InMemoryMessagesRepository(),
     handoff,
     handoffEvents,
+    encolarDescargaMedia: async () => {},
     ahora: () => ahora,
   });
 });

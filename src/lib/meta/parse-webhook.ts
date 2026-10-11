@@ -45,6 +45,27 @@ export interface RespuestaInteractiva {
   responde_a: string | null;
 }
 
+/**
+ * El archivo que acompaña a un mensaje de WhatsApp (imagen, video, audio,
+ * documento, sticker), tal como lo anuncia el webhook. Es todo lo que hace falta
+ * para bajarlo: con `id` se pide la URL a Meta (`GET /{media-id}`), que expira a
+ * los 5 minutos. La `url` que algunos webhooks traen NO se guarda ni se usa.
+ * docs/meta/media.md.
+ */
+export interface MediaEntrante {
+  /** `image.id`, `audio.id`, etc.: el id de media de Meta (vence a los 7 días). */
+  id: string;
+  /** Tal cual lo dice Meta, con parámetros (`audio/ogg; codecs=opus`). Dato ajeno. */
+  mime: string | null;
+  /** Sólo documentos: el nombre original. Dato ajeno: se sanea antes de usarlo. */
+  nombre: string | null;
+  /** Llegó como sticker (se guarda como imagen). */
+  sticker?: boolean;
+  animado?: boolean;
+  /** Nota de voz grabada con el micrófono de WhatsApp. */
+  voz?: boolean;
+}
+
 export interface ParsedMessage {
   canal: Canal;
   canal_thread_id: string;
@@ -53,6 +74,8 @@ export interface ParsedMessage {
   tipo: TipoMensaje;
   contenido: string | null;
   media_url: string | null;
+  /** Sólo WhatsApp, y sólo si el mensaje lleva un archivo con id. */
+  media?: MediaEntrante;
   /**
    * Cómo se llama a sí mismo el contacto en la plataforma.
    *
@@ -217,6 +240,7 @@ function waMessage(
   if (!tipo) return null;
 
   const contenido = respuesta ? respuesta.titulo : extractWaContenido(tipo, m);
+  const media = waMedia(type, m);
 
   // Se cruza por `wa_id`. Cuando el `value` trae un solo contacto se usa ese
   // aunque no matchee: México y Argentina devuelven a veces un `wa_id`
@@ -233,6 +257,7 @@ function waMessage(
     tipo,
     contenido,
     media_url: null,
+    ...(media ? { media } : {}),
     nombre_perfil: nombrePerfil,
     platform_created_at: timestampDe(m.timestamp, "segundos"),
     ...(respuesta ? { respuesta_interactiva: respuesta } : {}),
@@ -273,11 +298,37 @@ export function waTipo(type: string): TipoMensaje | null {
       return "video";
     case "document":
       return "doc";
+    // Un sticker es una imagen WebP: se guarda y se muestra como imagen, con la
+    // marca `sticker` en su media. Hasta 2026-10-11 se descartaba.
+    case "sticker":
+      return "image";
     case "location":
       return "location";
     default:
       return null;
   }
+}
+
+/** El `type` de Meta es también la clave del objeto con los datos del archivo. */
+const CLAVES_MEDIA = new Set(["image", "video", "audio", "document", "sticker"]);
+
+/**
+ * El archivo de un mensaje de media (`messages[].image`, `.audio`, …). `null`
+ * si el tipo no lleva archivo o si no trae `id`: sin id no hay nada que pedirle
+ * a Meta, y inventarlo sería peor que no tener el archivo.
+ */
+export function waMedia(type: string, m: Record<string, unknown>): MediaEntrante | null {
+  if (!CLAVES_MEDIA.has(type)) return null;
+  const obj = isObject(m[type]) ? (m[type] as Record<string, unknown>) : null;
+  const id = obj ? asString(obj.id) : null;
+  if (!obj || !id) return null;
+  return {
+    id,
+    mime: asString(obj.mime_type),
+    nombre: type === "document" ? asString(obj.filename) : null,
+    ...(type === "sticker" ? { sticker: true, animado: obj.animated === true } : {}),
+    ...(type === "audio" && obj.voice === true ? { voz: true } : {}),
+  };
 }
 
 export function extractWaContenido(tipo: TipoMensaje, m: Record<string, unknown>): string | null {

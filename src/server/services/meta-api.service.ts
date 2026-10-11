@@ -1,4 +1,5 @@
 import { RateLimitError } from "@/lib/errors";
+import { marcasDeMedia, mediaPendienteDe } from "@/lib/media/entrante";
 import type { ConversationsRepository } from "@/server/repositories/conversations.repo";
 import type { MessagesRepository } from "@/server/repositories/messages.repo";
 import type { ParsedMessage } from "@/lib/meta/parse-webhook";
@@ -428,10 +429,12 @@ export class DefaultMetaApiService implements MetaApiService {
       tipo: parsed.tipo,
       contenido: parsed.contenido,
       media_url: parsed.media_url,
+      ...(parsed.media ? { media: mediaPendienteDe(parsed.media) } : {}),
       meta_message_id: parsed.meta_message_id,
       idempotency_key: null,
       metadata: {
         raw: parsed.raw,
+        ...marcasDeMedia(parsed.media),
         ...(parsed.respuesta_interactiva
           ? { respuesta_interactiva: parsed.respuesta_interactiva }
           : {}),

@@ -5,8 +5,10 @@ import {
   isObject,
   numeroNegocioDe,
   timestampDe,
+  waMedia,
   waTipo,
 } from "@/lib/meta/parse-webhook";
+import type { MediaEntrante } from "@/lib/meta/parse-webhook";
 import type { Direction, TipoMensaje } from "@/types/domain";
 
 export { CAMPOS_COEXISTENCIA } from "@/lib/meta/campos-coexistencia";
@@ -29,6 +31,8 @@ export interface MensajeCoexistencia {
   direction: Direction;
   tipo: TipoMensaje;
   contenido: string | null;
+  /** El archivo, si lo trae y tiene id (ver `MediaEntrante`). */
+  media?: MediaEntrante;
   /** `timestamp` de Meta (segundos). null si vino roto. */
   at: Date | null;
 }
@@ -167,6 +171,7 @@ export function parseCoexistencia(payload: unknown): CoexistenciaParseada {
       switch (change.field) {
         case "history":
           leerHistorial(value, phoneNumberId, out);
+          leerHistorialConMedia(value, phoneNumberId, out);
           break;
         case "smb_app_state_sync":
           leerContactos(value, phoneNumberId, out);
@@ -231,6 +236,51 @@ function leerHistorial(
   }
 }
 
+/**
+ * El follow-up de `history` con los ids de media: los mensajes de media del
+ * historial llegan primero como `media_placeholder` (sin contenido, se omiten) y
+ * después, en OTRO webhook `history`, como `messages[]` directo en el `value`
+ * (no dentro de `history[]`) con su `image`/`video`/... y el id para bajarlos.
+ * Sólo para los de los últimos 14 días (docs/meta/media.md §1).
+ *
+ * La doc no muestra `to` en ese follow-up. Si lo mandó el cliente, el cliente es
+ * `from`; si lo mandó el negocio hace falta `to`, y sin él no se sabe a qué hilo
+ * pertenece: se descarta en vez de adivinar.
+ */
+function leerHistorialConMedia(
+  value: Record<string, unknown>,
+  phoneNumberId: string,
+  out: CoexistenciaParseada,
+): void {
+  const metadata = isObject(value.metadata) ? value.metadata : {};
+  const propio = soloDigitos(asString(metadata.display_phone_number));
+  const porCliente = new Map<string, MensajeCoexistencia[]>();
+  let omitidos = 0;
+
+  for (const m of asArray(value.messages)) {
+    if (!isObject(m)) continue;
+    const desde = soloDigitos(asString(m.from));
+    const esDelNegocio = propio !== null && desde === propio;
+    const cliente = esDelNegocio ? soloDigitos(asString(m.to)) : desde;
+    const parsed = cliente ? mensajeDe(m, esDelNegocio ? "out" : "in") : null;
+    if (!cliente || !parsed) {
+      omitidos += 1;
+      continue;
+    }
+    porCliente.set(cliente, [...(porCliente.get(cliente) ?? []), parsed]);
+  }
+
+  if (porCliente.size === 0 && omitidos === 0) return;
+  out.historial.push({
+    phone_number_id: phoneNumberId,
+    fase: null,
+    chunk: null,
+    progreso: null,
+    hilos: [...porCliente].map(([telefono_cliente, mensajes]) => ({ telefono_cliente, mensajes })),
+    omitidos,
+  });
+}
+
 function leerContactos(
   value: Record<string, unknown>,
   phoneNumberId: string,
@@ -276,11 +326,13 @@ function mensajeDe(m: Record<string, unknown>, direction: Direction): MensajeCoe
   if (!id || !type) return null;
   const tipo = waTipo(type);
   if (!tipo) return null;
+  const media = waMedia(type, m);
   return {
     meta_message_id: id,
     direction,
     tipo,
     contenido: extractWaContenido(tipo, m),
+    ...(media ? { media } : {}),
     at: timestampDe(m.timestamp, "segundos"),
   };
 }

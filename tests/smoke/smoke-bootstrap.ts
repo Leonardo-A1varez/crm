@@ -431,7 +431,12 @@ export function makeSmokeBundle(): SmokeBundle {
         messages,
         handoff,
         handoffEvents,
+        encolarDescargaMedia: async () => {},
       }),
+      logger,
+    },
+    descargarMedia: {
+      servicio: { descargar: async () => "ya_resuelto", marcarFallida: async () => {} },
       logger,
     },
   };

@@ -62,6 +62,17 @@ export const operationalReceived = eventType("meta/operational.received", {
   }>(),
 });
 
+/**
+ * Un mensaje de WhatsApp trajo un archivo (imagen, video, audio, documento,
+ * sticker) y hay que bajarlo a la copia propia: la URL de Meta vive 5 minutos y
+ * el id de media 7 días (docs/meta/media.md). El mensaje ya está en el hilo con
+ * `media_estado = 'pendiente'`. `fecha` (YYYY-MM-DD, la del mensaje) entra en la
+ * clave de idempotencia del paso, como piden las reglas de Inngest del proyecto.
+ */
+export const mediaPorDescargar = eventType("meta/media.descargar", {
+  schema: staticSchema<{ mensajeId: UUID; phoneNumberId: string | null; fecha: string }>(),
+});
+
 // ===== Conectar WhatsApp / coexistencia (docs/meta/conectar-whatsapp.md) =====
 
 /**

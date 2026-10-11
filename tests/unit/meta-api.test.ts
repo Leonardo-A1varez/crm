@@ -270,6 +270,64 @@ describe("MetaApiService", () => {
       expect(msg.contenido).toBeNull();
     });
 
+    test("un entrante con archivo queda con el archivo pendiente de bajar", async () => {
+      const conv = await seedConv(conversations);
+      const msg = await svc.recordInbound({
+        conversacionId: conv.id,
+        leadSessionId: crypto.randomUUID(),
+        parsed: parsedFixture({
+          tipo: "doc",
+          contenido: "la lista",
+          meta_message_id: "wamid.doc",
+          media: { id: "MEDIA-9", mime: "application/pdf", nombre: "C:\\x\\lista.pdf" },
+        }),
+      });
+      expect(msg.media).toEqual({
+        estado: "pendiente",
+        metaId: "MEDIA-9",
+        path: null,
+        mime: "application/pdf",
+        bytes: null,
+        nombre: "lista.pdf",
+        error: null,
+        descargadoAt: null,
+      });
+    });
+
+    test("un sticker o una nota de voz dejan su marca en la metadata", async () => {
+      const conv = await seedConv(conversations);
+      const sticker = await svc.recordInbound({
+        conversacionId: conv.id,
+        leadSessionId: crypto.randomUUID(),
+        parsed: parsedFixture({
+          tipo: "image",
+          meta_message_id: "wamid.stk",
+          media: { id: "S", mime: "image/webp", nombre: null, sticker: true, animado: true },
+        }),
+      });
+      expect(sticker.metadata).toMatchObject({ sticker: true, animado: true });
+      const voz = await svc.recordInbound({
+        conversacionId: conv.id,
+        leadSessionId: crypto.randomUUID(),
+        parsed: parsedFixture({
+          tipo: "audio",
+          meta_message_id: "wamid.voz",
+          media: { id: "V", mime: "audio/ogg; codecs=opus", nombre: null, voz: true },
+        }),
+      });
+      expect(voz.metadata).toMatchObject({ voz: true });
+    });
+
+    test("un texto no lleva archivo", async () => {
+      const conv = await seedConv(conversations);
+      const msg = await svc.recordInbound({
+        conversacionId: conv.id,
+        leadSessionId: crypto.randomUUID(),
+        parsed: parsedFixture({ meta_message_id: "wamid.txt" }),
+      });
+      expect(msg.media ?? null).toBeNull();
+    });
+
     test("metadata incluye raw del parsed", async () => {
       const conv = await seedConv(conversations);
       const rawData = { type: "text", text: { body: "x" }, custom: "z" };

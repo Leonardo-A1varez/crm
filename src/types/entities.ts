@@ -161,6 +161,11 @@ export interface MensajeMetadata {
     | "historial_app_business"
     | "eco_app_business";
   borrador_id?: string;
+  /** El archivo llegó como sticker de WhatsApp (se guarda como imagen WebP). */
+  sticker?: boolean;
+  animado?: boolean;
+  /** Nota de voz grabada con el micrófono de WhatsApp. */
+  voz?: boolean;
   [k: string]: unknown;
 }
 
