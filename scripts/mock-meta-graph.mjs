@@ -25,6 +25,25 @@
  *                         (`type: "interactive"`, `button_reply`/`list_reply`, `context.id`
  *                         = `responde_a`), con la forma del ejemplo de Meta. Firmado igual.
  *
+ * Conectar WhatsApp (registro insertado, coexistencia — docs/meta/conectar-whatsapp.md):
+ *   GET  /:version/oauth/access_token?client_id&client_secret&code
+ *                         canje del código. Exige client_secret = META_APP_SECRET; cada
+ *                         código sirve una sola vez. Devuelve el token de negocio del mock.
+ *   POST /:version/:wabaId/subscribed_apps    → { success: true }
+ *   GET  /:version/:phoneId?fields=is_on_biz_app,platform_type
+ *                         el número de coexistencia responde true / CLOUD_API
+ *   POST /:version/:phoneId/smb_app_data {messaging_product, sync_type}
+ *                         smb_app_state_sync o history; cada uno UNA vez (la segunda, 400)
+ *   POST /__mock/coex/contactos  {contactos: [{telefono, nombre?, accion?}]}   webhook smb_app_state_sync
+ *   POST /__mock/coex/historial  {hilos: [{telefono, mensajes: [{de: "cliente"|"negocio", texto}]}],
+ *                                 fase?, chunk?, progreso?}                         webhook history
+ *   POST /__mock/coex/historial-rechazado                                          history con 2593109
+ *   POST /__mock/coex/eco        {to, texto}                                       webhook smb_message_echoes
+ *   POST /__mock/coex/entrante   {from, texto, nombre?}   entrante al número de coexistencia
+ *   Variables: MOCK_META_COEX_WABA_ID (300000000000009), MOCK_META_COEX_PHONE_ID
+ *   (100000000000009). El token de negocio que entrega el canje es fijo por
+ *   META_APP_SECRET, así que sigue valiendo si el mock se reinicia.
+ *
  * El indicador «escribiendo…» (`status: "read"` + `typing_indicator`) entra por la
  * misma ruta y queda en el log como `graph.escribiendo`.
  *
@@ -68,6 +87,15 @@ const RECHAZAR = new Set(
     .filter(Boolean),
 );
 const AUTO_ESTADOS = process.env.MOCK_META_AUTO_ESTADOS === "1";
+const COEX_WABA_ID = process.env.MOCK_META_COEX_WABA_ID ?? "300000000000009";
+const COEX_PHONE_ID = process.env.MOCK_META_COEX_PHONE_ID ?? "100000000000009";
+const COEX_DISPLAY = "15550000009";
+// Fijo por secreto: el token de negocio del mock sigue valiendo tras reiniciar.
+const TOKEN_NEGOCIO = APP_SECRET
+  ? `MOCKBIZ${createHmac("sha256", APP_SECRET).update("token-de-negocio").digest("hex").slice(0, 40)}`
+  : "";
+const codigosUsados = new Set();
+const sincronizacionesPedidas = new Set();
 
 const webhookUrl = new URL(WEBHOOK);
 if (!["127.0.0.1", "localhost", "[::1]"].includes(webhookUrl.hostname)) {
@@ -197,21 +225,82 @@ const NUMERO = {
   quality_rating: "GREEN",
 };
 
+const NUMERO_COEX = {
+  id: COEX_PHONE_ID,
+  display_phone_number: "+1 555-000-0009",
+  verified_name: "Repuestos Coexistencia (mock)",
+  quality_rating: "GREEN",
+};
+
 function autorizado(req) {
   const h = req.headers.authorization ?? "";
   const vino = h.startsWith("Bearer ") && h.length > 7;
-  const coincide = TOKEN ? h === `Bearer ${TOKEN}` : vino;
-  return { vino, coincide };
+  const deNegocio = TOKEN_NEGOCIO !== "" && h === `Bearer ${TOKEN_NEGOCIO}`;
+  const coincide = (TOKEN ? h === `Bearer ${TOKEN}` : vino) || deNegocio;
+  // `token` dice CUÁL vino, sin el valor: "env" o "negocio".
+  return { vino, coincide, token: deNegocio ? "negocio" : vino ? "env" : null };
+}
+
+/** Canje del código del registro insertado. Sin Bearer: va con el secreto de la app. */
+function canjearCodigo(res, url) {
+  const secreto = url.searchParams.get("client_secret");
+  const code = url.searchParams.get("code") ?? "";
+  const base = { ruta: url.pathname, client_id: url.searchParams.get("client_id") };
+  if (!APP_SECRET || secreto !== APP_SECRET) {
+    registrar({ tipo: "graph.canje.rechazado", ...base, motivo: "secreto" });
+    return errorGraph(res, 400, 101, "Error validating client secret (mock)");
+  }
+  if (!code || codigosUsados.has(code)) {
+    registrar({ tipo: "graph.canje.rechazado", ...base, motivo: "codigo" });
+    return errorGraph(res, 400, 100, "This authorization code has been used (mock)");
+  }
+  codigosUsados.add(code);
+  registrar({ tipo: "graph.canje", ...base });
+  return responder(res, 200, { access_token: TOKEN_NEGOCIO, token_type: "bearer" });
 }
 
 async function manejarGraph(req, res, segmentos, url) {
+  if (req.method === "GET" && segmentos[1] === "oauth" && segmentos[2] === "access_token") {
+    return canjearCodigo(res, url);
+  }
   const auth = autorizado(req);
-  const base = { metodo: req.method, ruta: url.pathname, token_presente: auth.vino };
+  const base = {
+    metodo: req.method,
+    ruta: url.pathname,
+    token_presente: auth.vino,
+    token: auth.token,
+  };
   if (!auth.coincide) {
     registrar({ tipo: "graph.rechazado", ...base, motivo: "token" });
     return errorGraph(res, 401, 190, "Invalid OAuth access token (mock)");
   }
   const [, id, recurso] = segmentos;
+
+  if (req.method === "POST" && recurso === "subscribed_apps") {
+    registrar({ tipo: "graph.suscripcion", ...base, id });
+    return responder(res, 200, { success: true });
+  }
+
+  if (req.method === "POST" && recurso === "smb_app_data") {
+    const cuerpo = JSON.parse((await leerCuerpo(req)) || "{}");
+    const tipo = cuerpo.sync_type;
+    if (
+      cuerpo.messaging_product !== "whatsapp" ||
+      !["smb_app_state_sync", "history"].includes(tipo)
+    ) {
+      registrar({ tipo: "graph.smb_app_data.rechazado", ...base, cuerpo });
+      return errorGraph(res, 400, 100, "Invalid sync_type (mock)");
+    }
+    const clave = `${id}:${tipo}`;
+    if (sincronizacionesPedidas.has(clave)) {
+      registrar({ tipo: "graph.smb_app_data.repetido", ...base, cuerpo });
+      return errorGraph(res, 400, 100, "Sync already requested (mock)");
+    }
+    sincronizacionesPedidas.add(clave);
+    const requestId = `MOCKREQ-${randomUUID()}`;
+    registrar({ tipo: "graph.smb_app_data", ...base, id, sync_type: tipo, request_id: requestId });
+    return responder(res, 200, { messaging_product: "whatsapp", request_id: requestId });
+  }
 
   if (req.method === "POST" && recurso === "messages") {
     const texto = await leerCuerpo(req);
@@ -286,12 +375,22 @@ async function manejarGraph(req, res, segmentos, url) {
     if (campos.includes("whatsapp_business_manager_messaging_limit")) {
       return responder(res, 200, { id, whatsapp_business_manager_messaging_limit: "TIER_2K" });
     }
-    return responder(res, 200, { ...NUMERO, id });
+    if (campos.includes("is_on_biz_app")) {
+      // Formato del ejemplo de Meta (onboarding-business-app-users).
+      const coex = id === COEX_PHONE_ID;
+      return responder(res, 200, {
+        ...(coex ? NUMERO_COEX : NUMERO),
+        id,
+        is_on_biz_app: coex,
+        platform_type: "CLOUD_API",
+      });
+    }
+    return responder(res, 200, { ...(id === COEX_PHONE_ID ? NUMERO_COEX : NUMERO), id });
   }
 
   if (req.method === "GET" && recurso === "phone_numbers") {
     registrar({ tipo: "graph.lectura", ...base });
-    return responder(res, 200, { data: [NUMERO], paging: {} });
+    return responder(res, 200, { data: [id === COEX_WABA_ID ? NUMERO_COEX : NUMERO], paging: {} });
   }
 
   if (req.method === "GET" && recurso === "message_templates") {
@@ -373,7 +472,174 @@ async function manejarControl(req, res, url) {
     );
     return responder(res, 200, { ...r, meta_message_id: wamid });
   }
+  if (req.method === "POST" && url.pathname.startsWith("/__mock/coex/")) {
+    return manejarCoex(req, res, url.pathname.slice("/__mock/coex/".length));
+  }
   return responder(res, 404, { error: "ruta de control desconocida" });
+}
+
+// ===== Coexistencia: webhooks con la forma de los ejemplos de Meta =====
+
+function valueCoex(extra) {
+  return {
+    messaging_product: "whatsapp",
+    metadata: { display_phone_number: COEX_DISPLAY, phone_number_id: COEX_PHONE_ID },
+    ...extra,
+  };
+}
+
+function payloadCoex(field, value) {
+  return {
+    object: "whatsapp_business_account",
+    entry: [{ id: COEX_WABA_ID, changes: [{ value, field }] }],
+  };
+}
+
+const ahoraSeg = () => String(Math.floor(Date.now() / 1000));
+const digitos = (v) => String(v ?? "").replace(/\D/g, "");
+
+async function manejarCoex(req, res, accion) {
+  const d = JSON.parse((await leerCuerpo(req)) || "{}");
+
+  if (accion === "contactos") {
+    const contactos = Array.isArray(d.contactos) ? d.contactos : [];
+    const state_sync = contactos.map((c) => ({
+      type: "contact",
+      contact: {
+        full_name: c.nombre ?? undefined,
+        first_name: c.nombre ? String(c.nombre).split(" ")[0] : undefined,
+        phone_number: digitos(c.telefono),
+      },
+      action: c.accion ?? "add",
+      metadata: { timestamp: ahoraSeg() },
+    }));
+    const r = await postWebhook(
+      payloadCoex("smb_app_state_sync", valueCoex({ state_sync })),
+      "webhook.coex.contactos",
+    );
+    return responder(res, 200, r);
+  }
+
+  if (accion === "historial") {
+    const hilos = Array.isArray(d.hilos) ? d.hilos : [];
+    const ids = [];
+    const threads = hilos.map((h) => {
+      const cliente = digitos(h.telefono);
+      return {
+        id: cliente,
+        messages: (h.mensajes ?? []).map((m, i) => {
+          const id = m.id ?? `wamid.MOCK-HIST-${randomUUID()}`;
+          ids.push(id);
+          return {
+            from: m.de === "negocio" ? COEX_DISPLAY : cliente,
+            ...(m.de === "negocio" ? { to: cliente } : {}),
+            id,
+            timestamp: String(Math.floor(Date.now() / 1000) - 86400 + i),
+            type: "text",
+            text: { body: String(m.texto ?? "") },
+            history_context: { status: "READ" },
+          };
+        }),
+      };
+    });
+    const r = await postWebhook(
+      payloadCoex(
+        "history",
+        valueCoex({
+          history: [
+            {
+              metadata: {
+                phase: d.fase ?? 0,
+                chunk_order: d.chunk ?? 1,
+                progress: d.progreso ?? 100,
+              },
+              threads,
+            },
+          ],
+        }),
+      ),
+      "webhook.coex.historial",
+    );
+    return responder(res, 200, { ...r, meta_message_ids: ids });
+  }
+
+  if (accion === "historial-rechazado") {
+    const r = await postWebhook(
+      payloadCoex(
+        "history",
+        valueCoex({
+          history: [
+            {
+              errors: [
+                {
+                  code: 2593109,
+                  title:
+                    "History sync is turned off by the business from the WhatsApp Business App",
+                  message:
+                    "History sync is turned off by the business from the WhatsApp Business App",
+                  error_data: { details: "History sharing is turned off by the business" },
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+      "webhook.coex.historial_rechazado",
+    );
+    return responder(res, 200, r);
+  }
+
+  if (accion === "eco") {
+    const to = digitos(d.to);
+    if (!to || !d.texto) return responder(res, 400, { error: "to y texto" });
+    const wamid = `wamid.MOCK-ECO-${randomUUID()}`;
+    const r = await postWebhook(
+      payloadCoex(
+        "smb_message_echoes",
+        valueCoex({
+          message_echoes: [
+            {
+              from: COEX_DISPLAY,
+              to,
+              id: wamid,
+              timestamp: ahoraSeg(),
+              type: "text",
+              text: { body: String(d.texto) },
+            },
+          ],
+        }),
+      ),
+      "webhook.coex.eco",
+    );
+    return responder(res, 200, { ...r, meta_message_id: wamid });
+  }
+
+  if (accion === "entrante") {
+    const from = digitos(d.from);
+    if (!from || !d.texto) return responder(res, 400, { error: "from y texto" });
+    const wamid = `wamid.MOCK-IN-${randomUUID()}`;
+    const r = await postWebhook(
+      payloadCoex(
+        "messages",
+        valueCoex({
+          contacts: [{ profile: { name: d.nombre ?? "Cliente Prueba" }, wa_id: from }],
+          messages: [
+            {
+              from,
+              id: wamid,
+              timestamp: ahoraSeg(),
+              type: "text",
+              text: { body: String(d.texto) },
+            },
+          ],
+        }),
+      ),
+      "webhook.coex.entrante",
+    );
+    return responder(res, 200, { ...r, meta_message_id: wamid });
+  }
+
+  return responder(res, 404, { error: "ruta de coexistencia desconocida" });
 }
 
 const servidor = createServer(async (req, res) => {
