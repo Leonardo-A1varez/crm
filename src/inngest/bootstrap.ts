@@ -667,6 +667,8 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
         conversations,
         sessions,
         messages,
+        handoff,
+        handoffEvents,
         logger: logger.child({ scope: "coexistencia" }),
       }),
       logger,

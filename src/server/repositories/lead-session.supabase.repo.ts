@@ -104,6 +104,9 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
         ia_pausada: input.ia_pausada,
         extras: (input.extras ?? {}) as never,
         context_summary: input.context_summary ?? null,
+        // Sólo si vienen: sin ellos la columna usa su DEFAULT (`now()`).
+        ...(input.started_at ? { started_at: input.started_at.toISOString() } : {}),
+        ...(input.closed_at ? { closed_at: input.closed_at.toISOString() } : {}),
       })
       .select()
       .single();

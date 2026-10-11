@@ -272,6 +272,8 @@ export class DefaultMetricsService implements MetricsService {
       rule_handoff: "Regla de revisión",
       manual_pause: "Pausa manual",
       manual_resume: "Reanudación manual",
+      respuesta_desde_telefono: "Respondió el equipo desde el teléfono",
+      reanudacion_automatica: "Reanudación automática",
       other: "Otro",
     };
     const razonConteo = new Map<string, number>();

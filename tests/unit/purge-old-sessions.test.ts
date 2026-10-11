@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "vitest";
+import { CLAVE_SESION_IMPORTADA } from "@/lib/coexistencia/sesion-importada";
 import { InMemoryLeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import {
   purgeOldSessionsHandler,
@@ -94,6 +95,37 @@ describe("purgeOldSessionsHandler", () => {
 
     const result = await purgeOldSessionsHandler({}, deps);
     expect(result.purgedCount).toBe(0);
+  });
+
+  test("la sesión del historial importado de la app Business NO se purga aunque tenga más de 29 días", async () => {
+    // Sin esta excepción el cron de las 04:00 borraría (con CASCADE) el historial
+    // recién importado: sus mensajes tienen hasta 180 días.
+    const importada = await sessions.create({
+      lead_id: crypto.randomUUID(),
+      current_stage: "perdido",
+      urgencia: "media",
+      consulta: "",
+      producto_cotizado_id: null,
+      codigo_interno: null,
+      precio_cotizado: null,
+      cantidad: null,
+      bloqueador: null,
+      comprobante_pago_url: null,
+      metodo_pago: null,
+      resultado: "perdido",
+      motivo_perdida: null,
+      ia_pausada: false,
+      extras: { [CLAVE_SESION_IMPORTADA]: true },
+      started_at: cutoffDate(120),
+      closed_at: cutoffDate(100),
+    });
+    const comun = await seedClosed(sessions, cutoffDate(100));
+
+    const result = await purgeOldSessionsHandler({}, deps);
+
+    expect(purged).toEqual([comun]);
+    expect(purged).not.toContain(importada.id);
+    expect(result.purgedCount).toBe(1);
   });
 
   test("multiples candidates: purgeSession llamado por cada", async () => {

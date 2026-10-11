@@ -429,6 +429,8 @@ export function makeSmokeBundle(): SmokeBundle {
         conversations,
         sessions,
         messages,
+        handoff,
+        handoffEvents,
       }),
       logger,
     },

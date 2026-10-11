@@ -1,6 +1,7 @@
 import { NonRetriableError } from "inngest";
 import { inngest } from "@/inngest/client";
 import { sessionsPurgeRequested } from "@/inngest/events";
+import { esSesionImportada } from "@/lib/coexistencia/sesion-importada";
 import { isNonRetriable } from "@/lib/errors";
 import type { LeadSessionRepository } from "@/server/repositories/lead-session.repo";
 import type { UUID } from "@/types/entities";
@@ -26,7 +27,14 @@ export async function purgeOldSessionsHandler(
   const now = (deps.now ?? (() => new Date()))();
   const cutoff = new Date(now.getTime() - PURGE_AGE_DAYS * DAY_MS);
 
-  const candidates = await deps.sessions.listClosedBefore(cutoff);
+  // El historial importado de la app Business llega con mensajes de hasta 180
+  // días y su sesión se cierra a la hora del último: sin esta excepción esta
+  // misma corrida lo borraría (CASCADE) la noche de la importación. Es una
+  // decisión pendiente del dueño (retención de 29 días vs. conservar el
+  // historial, docs/data-retention.md): hasta que decida, no se purga.
+  const candidates = (await deps.sessions.listClosedBefore(cutoff)).filter(
+    (s) => !esSesionImportada(s),
+  );
   for (const s of candidates) {
     await deps.purgeSession(s.id);
   }

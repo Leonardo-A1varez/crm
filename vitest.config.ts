@@ -4,6 +4,11 @@ import path from "node:path";
 export default defineConfig({
   test: {
     environment: "jsdom",
+    // Tests de pantalla del editor tardan casi 5 s SOLOS (2026-10-11, --reporter=verbose:
+    // select-opciones > trigger_cron 4886 ms, config-nodos-contrato > msg_lista 3565 ms),
+    // así que con la suite completa pasaban el límite de 5 s al azar. 15 s sigue
+    // cortando un cuelgue real.
+    testTimeout: 15_000,
     setupFiles: ["./tests/setup.ts"],
     globals: true,
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx", "src/**/*.test.ts"],

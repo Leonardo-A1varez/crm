@@ -30,6 +30,13 @@ export type LeadSessionInsert = Omit<
 > & {
   extras?: Record<string, unknown>;
   context_summary?: string | null;
+  /**
+   * Sólo para sesiones que nacen ya cerradas con fechas del pasado (el historial
+   * importado de la app Business): junto con `resultado`, dejan la sesión
+   * cerrada en una sola escritura. Sin ellos, el DEFAULT de la base (`now()`).
+   */
+  started_at?: Date;
+  closed_at?: Date;
 };
 // `updated_at` fuera del patch: lo escribe el trigger de la DB. Dejarlo pasar
 // permitiría anotar una edición con una fecha que no es la de la edición.
@@ -251,7 +258,9 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
 
   async create(input: LeadSessionInsert): Promise<LeadSession> {
     for (const s of this.store.values()) {
-      if (s.lead_id === input.lead_id && s.resultado === null) {
+      // Espeja el índice parcial `lead_session_unique_activa_idx`: sólo cuenta
+      // una fila nueva que también nace abierta (`resultado is null`).
+      if (input.resultado === null && s.lead_id === input.lead_id && s.resultado === null) {
         throw new ConflictError(
           `ya existe sesión activa para lead ${input.lead_id}`,
           "active_session_exists",
@@ -268,9 +277,9 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
       vendedor_asignado_id: null,
       asignado_at: null,
       id: crypto.randomUUID(),
-      started_at: new Date(),
-      updated_at: new Date(),
-      closed_at: null,
+      started_at: input.started_at ?? new Date(),
+      updated_at: input.closed_at ?? new Date(),
+      closed_at: input.closed_at ?? null,
     };
     this.store.set(session.id, session);
     return cloneSession(session);

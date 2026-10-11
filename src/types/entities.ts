@@ -342,8 +342,11 @@ export interface HandoffEvent {
     | "rule_handoff"
     | "manual_pause"
     | "manual_resume"
+    // El negocio contestó desde la app del teléfono (coexistencia) y su vencimiento.
+    | "respuesta_desde_telefono"
+    | "reanudacion_automatica"
     | "other";
-  source: "auto_handoff" | "agent_guard" | "rule" | "pipeline_guard" | "admin";
+  source: "auto_handoff" | "agent_guard" | "rule" | "pipeline_guard" | "admin" | "sistema";
   previous_stage: CurrentStage | null;
   actor_user_id: UUID | null;
   source_event_key: string;

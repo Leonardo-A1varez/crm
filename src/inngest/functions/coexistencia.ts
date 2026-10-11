@@ -4,6 +4,7 @@ import { inngest } from "@/inngest/client";
 import {
   coexistenciaContactos,
   coexistenciaEco,
+  coexistenciaReanudarIa,
   coexistenciaHistorial,
   coexistenciaHistorialError,
   whatsappNumeroConectado,
@@ -19,7 +20,9 @@ import type { CoexistenciaService } from "@/server/services/meta/coexistencia.se
  * (reserva en la base para `smb_app_data`, dedup por wamid para los mensajes).
  *
  * Ninguna toca el agente ni el pipeline de entrantes: un mensaje del
- * historial o un eco de la app no es un turno y no se contesta.
+ * historial o un eco de la app no es un turno y no se contesta. Un eco sí pausa
+ * la IA de la conversación un rato (`PAUSA_POR_RESPUESTA_HUMANA_MIN`) y otra
+ * función la reanuda al vencer.
  */
 export interface CoexistenciaFnDeps {
   servicio: CoexistenciaService;
@@ -124,9 +127,60 @@ export function makeOnCoexistenciaEcoFn(deps: CoexistenciaFnDeps) {
     },
     async ({ event, step }) => {
       const { eco } = event.data;
-      return step.run(`coexistencia-eco-${eco.mensaje.meta_message_id}`, () =>
+      const wamid = eco.mensaje.meta_message_id;
+      const ecoCompleto = () => ({ ...eco, mensaje: deserializarMensaje(eco.mensaje) });
+
+      const estado = await step.run(`coexistencia-eco-${wamid}`, () =>
+        sinReintentoInutil(() => deps.servicio.registrarEco(ecoCompleto())),
+      );
+
+      // Corre también con "repetido": si el reintento llega después de que el
+      // eco se guardó pero antes de pausar, esta es la única oportunidad. Es
+      // idempotente (la pausa lleva la clave del eco), y un eco reentregado
+      // después de "Reactivar IA" no vuelve a pausar.
+      const pausa = await step.run(`coexistencia-eco-pausa-${wamid}`, () =>
+        sinReintentoInutil(() => deps.servicio.pausarPorRespuestaDelNegocio(ecoCompleto())),
+      );
+      if (pausa) {
+        // El vencimiento es otra función: dormir acá dos horas ocuparía la
+        // concurrencia por cliente y demoraría el siguiente eco.
+        await step.sendEvent(`coexistencia-eco-reanudar-${wamid}`, {
+          name: coexistenciaReanudarIa.name,
+          // Un evento por eco: la reentrega del mismo eco no programa dos.
+          id: `coexistencia-reanudar-ia:${wamid}`,
+          data: {
+            sesionId: pausa.sesionId,
+            ecoMetaMessageId: pausa.ecoMetaMessageId,
+            ecoAt: new Date(pausa.ecoAt).toISOString(),
+            venceAt: new Date(pausa.venceAt).toISOString(),
+          },
+        });
+      }
+      return estado;
+    },
+  );
+}
+
+export function makeCoexistenciaReanudarIaFn(deps: CoexistenciaFnDeps) {
+  return inngest.createFunction(
+    {
+      id: "coexistencia-reanudar-ia",
+      triggers: [{ event: coexistenciaReanudarIa }],
+    },
+    async ({ event, step }) => {
+      const d = event.data;
+      // `sleepUntil` y no un cron que barre sesiones pausadas: la hora exacta
+      // sale del eco. El sleep es un step aparte del que reanuda (un sleep no
+      // se puede anidar en un `step.run`).
+      await step.sleepUntil(`esperar-${d.ecoMetaMessageId}`, new Date(d.venceAt));
+      return step.run(`coexistencia-reanudar-ia-${d.ecoMetaMessageId}`, () =>
         sinReintentoInutil(() =>
-          deps.servicio.registrarEco({ ...eco, mensaje: deserializarMensaje(eco.mensaje) }),
+          deps.servicio.reanudarTrasRespuestaDelNegocio({
+            sesionId: d.sesionId,
+            ecoMetaMessageId: d.ecoMetaMessageId,
+            ecoAt: new Date(d.ecoAt),
+            venceAt: new Date(d.venceAt),
+          }),
         ),
       );
     },
@@ -140,5 +194,6 @@ export function makeCoexistenciaFns(deps: CoexistenciaFnDeps) {
     makeOnCoexistenciaHistorialErrorFn(deps),
     makeOnCoexistenciaContactosFn(deps),
     makeOnCoexistenciaEcoFn(deps),
+    makeCoexistenciaReanudarIaFn(deps),
   ];
 }
