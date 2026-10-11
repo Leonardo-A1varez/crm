@@ -88,6 +88,8 @@ import {
   DefaultEnvioPlantillaSinSesion,
 } from "@/server/services/workflows/plantilla-sin-sesion.service";
 import { InMemorySessionLock } from "@/server/lock/session-lock";
+import { InMemoryWhatsAppNumerosRepository } from "@/server/repositories/whatsapp-numeros.repo";
+import { DefaultCoexistenciaService } from "@/server/services/meta/coexistencia.service";
 import { DefaultAsignacionService } from "@/server/services/asignacion/asignacion.service";
 import { DefaultUsuariosService } from "@/server/services/usuarios/usuarios.service";
 import { InMemoryMetaOperationalEventsRepository } from "@/server/repositories/meta-operational-events.repo";
@@ -414,6 +416,22 @@ export function makeSmokeBundle(): SmokeBundle {
       logger,
     },
     sincronizarBodega: { servicio: null, logger },
+    coexistencia: {
+      servicio: new DefaultCoexistenciaService({
+        numeros: new InMemoryWhatsAppNumerosRepository(),
+        graph: {
+          leerNumero: vi.fn(),
+          pedirSincronizacion: vi.fn(),
+        },
+        credenciales: { para: async () => null },
+        leads,
+        identificadores,
+        conversations,
+        sessions,
+        messages,
+      }),
+      logger,
+    },
   };
 
   return {

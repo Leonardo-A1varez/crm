@@ -85,6 +85,39 @@ describe("next.config — CSP", () => {
   });
 });
 
+describe("next.config — CSP de /ajustes (SDK de Facebook para Conectar WhatsApp)", () => {
+  async function cspDe(config: NextConfig, source: string): Promise<string | undefined> {
+    const reglas = await config.headers!();
+    return reglas
+      .find((r) => r.source === source)
+      ?.headers.find((h) => h.key === "Content-Security-Policy")?.value;
+  }
+
+  test("sólo /ajustes suma el SDK y los frames de Facebook; va después de la global para ganarle", async () => {
+    const config = await cargarConfig({
+      NEXT_PUBLIC_SUPABASE_URL: "https://abcdefghijklmnop.supabase.co",
+    });
+    const reglas = await config.headers!();
+    expect(reglas.map((r) => r.source)).toEqual(["/(.*)", "/ajustes"]);
+    expect(await csp(config)).toBe(CSP_PRODUCCION);
+
+    const ajustes = (await cspDe(config, "/ajustes"))!.split("; ");
+    expect(ajustes).toContain(
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://connect.facebook.net",
+    );
+    expect(ajustes).toContain(
+      "frame-src https://www.facebook.com https://web.facebook.com https://staticxx.facebook.com",
+    );
+    expect(ajustes.find((d) => d.startsWith("connect-src "))).toBe(
+      "connect-src 'self' https://*.supabase.co https://api.openai.com https://graph.facebook.com wss://*.supabase.co https://www.facebook.com https://connect.facebook.net",
+    );
+    // El resto, igual que la global: frame-ancestors sigue en 'none'.
+    const otras = (s: string[]) =>
+      s.filter((d) => !/^(script-src|connect-src|frame-src) /.test(d)).join("; ");
+    expect(otras(ajustes)).toBe(otras(CSP_PRODUCCION.split("; ")));
+  });
+});
+
 describe("next.config — distDir", () => {
   test("sin NEXT_DIST_DIR queda el default de Next", async () => {
     const config = await cargarConfig({ NEXT_DIST_DIR: undefined });

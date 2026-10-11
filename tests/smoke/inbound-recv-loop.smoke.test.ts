@@ -52,7 +52,7 @@ describe("E2E smoke — bootstrap wireup with InMemory repos", () => {
     expect(bundle.repos.leads.constructor.name).toBe("InMemoryLeadsRepository");
   });
 
-  test("makeCrmInngestFunctions(smokeDeps) registra las 21 functions, una por una", () => {
+  test("makeCrmInngestFunctions(smokeDeps) registra las 26 functions, una por una", () => {
     const bundle = makeSmokeBundle();
     const functions = makeCrmInngestFunctions(bundle.deps);
     // La lista entera y no la cantidad: una function que se cae del registro
@@ -79,6 +79,13 @@ describe("E2E smoke — bootstrap wireup with InMemory repos", () => {
         "recordatorio-seguimiento",
         // Copia incremental del catálogo de Bodega Web (cron cada 5 minutos).
         "sincronizar-bodega",
+        // Conectar WhatsApp en coexistencia: contactos + historial al conectar,
+        // y los webhooks history / smb_app_state_sync / smb_message_echoes.
+        "sincronizar-coexistencia",
+        "on-coexistencia-historial",
+        "on-coexistencia-historial-error",
+        "on-coexistencia-contactos",
+        "on-coexistencia-eco",
         "update-lead-twin",
         "workflow-disparar",
         // Emisor del trigger "Inactividad" (escaneo cada 10 minutos).

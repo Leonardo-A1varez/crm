@@ -82,6 +82,32 @@ const envSchema = z.object({
     .refine(esBaseGraphSegura, "https obligatorio salvo localhost / 127.0.0.1 / [::1]")
     .optional(),
 
+  // "Conectar WhatsApp" en Ajustes (registro insertado de Meta, coexistencia).
+  // docs/meta/conectar-whatsapp.md. Opcionales: sin las dos primeras el botón
+  // se muestra deshabilitado con la explicación, y el resto del CRM sigue con
+  // el número de env.
+  //   META_APP_ID                     id de la app de Meta. Público (va al SDK de
+  //                                   Facebook en el navegador), no es secreto.
+  //   META_EMBEDDED_SIGNUP_CONFIG_ID  id de la configuración de Facebook Login
+  //                                   for Business (v4). Público igual.
+  //   META_TOKENS_CLAVE               32 bytes en base64 (`openssl rand -base64 32`):
+  //                                   cifra el token de cada número conectado.
+  //                                   Secreta. Rota cada 90 días.
+  //   META_TOKENS_CLAVE_ANTERIOR      la clave de antes durante una rotación:
+  //                                   sólo descifra.
+  // Se pasan al cliente como props desde el servidor, sin `NEXT_PUBLIC_`: así
+  // no quedan horneadas en el bundle de un build.
+  META_APP_ID: z
+    .string()
+    .regex(/^\d{1,30}$/, "esperado el id numérico de la app")
+    .optional(),
+  META_EMBEDDED_SIGNUP_CONFIG_ID: z
+    .string()
+    .regex(/^\d{1,30}$/, "esperado el id numérico de la configuración")
+    .optional(),
+  META_TOKENS_CLAVE: z.string().min(1).optional(),
+  META_TOKENS_CLAVE_ANTERIOR: z.string().min(1).optional(),
+
   // Meta IG + FB Messenger (opcionales pilot — WA-only puede arrancar sin estos).
   // Si missing, GraphApiMetaClient.sendText({canal:"ig"|"fb"}) throws ValidationError.
   // Activar cuando empresa cliente conecte cuentas IG Business + FB Page.
@@ -200,6 +226,10 @@ const testEnvSchema = envSchema.partial().transform(
     // ese apuro nunca existio: era higiene, no incendio.
     META_GRAPH_API_VERSION: partial.META_GRAPH_API_VERSION ?? "v26.0",
     META_GRAPH_API_BASE_URL: partial.META_GRAPH_API_BASE_URL,
+    META_APP_ID: partial.META_APP_ID,
+    META_EMBEDDED_SIGNUP_CONFIG_ID: partial.META_EMBEDDED_SIGNUP_CONFIG_ID,
+    META_TOKENS_CLAVE: partial.META_TOKENS_CLAVE,
+    META_TOKENS_CLAVE_ANTERIOR: partial.META_TOKENS_CLAVE_ANTERIOR,
     META_IG_PAGE_ID: partial.META_IG_PAGE_ID,
     META_IG_ACCESS_TOKEN: partial.META_IG_ACCESS_TOKEN,
     META_FB_PAGE_ID: partial.META_FB_PAGE_ID,

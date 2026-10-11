@@ -38,7 +38,16 @@ export function entranteDeClave(idempotencyKey: string | null): string | null {
   return id.length > 0 ? id : null;
 }
 
-export interface MetaSendTextInput {
+/**
+ * Sólo WhatsApp: por qué número de negocio sale (`phone_number_id`). Ausente =
+ * el de env. Lo resuelve el cliente con el token de ese número
+ * (`ResolverCredencialesWhatsApp`); ver docs/meta/conectar-whatsapp.md.
+ */
+interface ConNumeroDeOrigen {
+  desde?: string;
+}
+
+export interface MetaSendTextInput extends ConNumeroDeOrigen {
   canal: Canal;
   to: string;
   text: string;
@@ -67,7 +76,7 @@ export interface PlantillaMeta {
   parametrosCuerpo: readonly string[];
 }
 
-export interface MetaSendTemplateInput {
+export interface MetaSendTemplateInput extends ConNumeroDeOrigen {
   to: string;
   plantilla: PlantillaMeta;
 }
@@ -109,7 +118,7 @@ export type ContenidoRico =
       direccion: string | null;
     };
 
-export interface MetaSendRicoInput {
+export interface MetaSendRicoInput extends ConNumeroDeOrigen {
   to: string;
   contenido: ContenidoRico;
 }
@@ -120,7 +129,7 @@ export interface MetaSendRicoInput {
  * respuesta (developers.facebook.com/docs/whatsapp/cloud-api/typing-indicators,
  * leída el 2026-10-07).
  */
-export interface MetaTypingIndicatorInput {
+export interface MetaTypingIndicatorInput extends ConNumeroDeOrigen {
   messageId: string;
 }
 
@@ -287,6 +296,7 @@ export class DefaultMetaApiService implements MetaApiService {
   ) {}
 
   async sendOutbound(input: SendOutboundInput): Promise<Mensaje> {
+    const desde = input.canal === "wa" ? await this.numeroDe(input.conversacionId) : {};
     return this.enviar({
       conversacionId: input.conversacionId,
       leadSessionId: input.leadSessionId,
@@ -297,12 +307,23 @@ export class DefaultMetaApiService implements MetaApiService {
       contenido: input.contenido,
       metadata: metadataDelSaliente(input.plantilla),
       llamarAMeta: () =>
-        this.client.sendText({ canal: input.canal, to: input.to, text: input.contenido }),
+        this.client.sendText({ canal: input.canal, to: input.to, text: input.contenido, ...desde }),
     });
+  }
+
+  /**
+   * El número de negocio por el que escribió el cliente, para responder por el
+   * mismo. Vacío si la conversación no lo tiene (sale por el de env).
+   */
+  private async numeroDe(conversacionId: UUID): Promise<{ desde?: string }> {
+    const conv = await this.conversations.findById(conversacionId);
+    const numero = conv?.whatsapp_phone_number_id;
+    return numero ? { desde: numero } : {};
   }
 
   async sendTemplate(input: SendTemplateInput): Promise<Mensaje> {
     const { nombre, idioma, parametrosCuerpo } = input.plantilla;
+    const desde = await this.numeroDe(input.conversacionId);
     return this.enviar({
       conversacionId: input.conversacionId,
       leadSessionId: input.leadSessionId,
@@ -316,7 +337,8 @@ export class DefaultMetaApiService implements MetaApiService {
       metadata: {
         plantilla_meta: { nombre, idioma, parametros_cuerpo: [...parametrosCuerpo] },
       },
-      llamarAMeta: () => this.client.sendTemplate({ to: input.to, plantilla: input.plantilla }),
+      llamarAMeta: () =>
+        this.client.sendTemplate({ to: input.to, plantilla: input.plantilla, ...desde }),
     });
   }
 
@@ -326,6 +348,7 @@ export class DefaultMetaApiService implements MetaApiService {
 
   async sendRico(input: SendRicoInput): Promise<Mensaje> {
     const registro = registroDeRico(input.contenido, input.archivo);
+    const desde = await this.numeroDe(input.conversacionId);
     return this.enviar({
       conversacionId: input.conversacionId,
       leadSessionId: input.leadSessionId,
@@ -336,7 +359,8 @@ export class DefaultMetaApiService implements MetaApiService {
       contenido: registro.texto,
       media_url: registro.media_url,
       metadata: { rico: registro.rico },
-      llamarAMeta: () => this.client.sendRico({ to: input.to, contenido: input.contenido }),
+      llamarAMeta: () =>
+        this.client.sendRico({ to: input.to, contenido: input.contenido, ...desde }),
     });
   }
 

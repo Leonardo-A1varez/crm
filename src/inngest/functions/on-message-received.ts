@@ -307,6 +307,16 @@ export async function onMessageReceivedHandler(
       deps.conversations.upsertByCanalThread(parsed.canal, parsed.canal_thread_id, lead.id),
     );
 
+    // Con más de un número de negocio, la respuesta sale por el número al que
+    // escribió el cliente (`MetaApiService` lo lee de la conversación). Sólo
+    // se escribe cuando cambia: un UPDATE por mensaje movería filas de más.
+    const numeroNegocio = parsed.canal === "wa" ? (parsed.numero_negocio_id ?? null) : null;
+    if (numeroNegocio && conv.whatsapp_phone_number_id !== numeroNegocio) {
+      await step.run("anotar-numero-negocio", () =>
+        deps.conversations.update(conv.id, { whatsapp_phone_number_id: numeroNegocio }),
+      );
+    }
+
     const { session, created: sessionCreated } = await step.run("resolve-session", () =>
       resolveActiveSession(lead.id, deps.sessions),
     );
@@ -1027,7 +1037,10 @@ export async function onMessageReceivedHandler(
     ) {
       await step.run("mostrar-escribiendo", async () => {
         try {
-          await deps.metaApi.mostrarEscribiendo({ messageId: parsed.meta_message_id });
+          await deps.metaApi.mostrarEscribiendo({
+            messageId: parsed.meta_message_id,
+            ...(parsed.numero_negocio_id ? { desde: parsed.numero_negocio_id } : {}),
+          });
         } catch (error) {
           logger.warn("typing-indicator-fallo", {
             error: error instanceof Error ? error.name : "desconocido",

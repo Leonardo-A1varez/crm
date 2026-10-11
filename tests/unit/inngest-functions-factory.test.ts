@@ -164,9 +164,27 @@ describe("makeCrmInngestFunctions", () => {
         },
       },
       sincronizarBodega: { servicio: null },
+      coexistencia: {
+        servicio: {
+          sincronizarAlConectar: async () => ({
+            verificado: true,
+            contactos: "pedido",
+            historial: "pedido",
+          }),
+          importarContactos: async () => ({
+            creados: 0,
+            nombrados: 0,
+            sinCambios: 0,
+            ignorados: 0,
+          }),
+          importarHistorial: async () => ({ importados: 0, repetidos: 0 }),
+          historialRechazado: async () => {},
+          registrarEco: async () => "registrado",
+        },
+      },
     });
 
-    expect(fns).toHaveLength(21);
+    expect(fns).toHaveLength(26);
     const ids = fns.map((f) => f.id());
     expect(ids).toEqual(
       expect.arrayContaining([
@@ -191,6 +209,11 @@ describe("makeCrmInngestFunctions", () => {
         expect.stringContaining("copiloto-borrador"),
         expect.stringContaining("recalcular-compatibilidad"),
         expect.stringContaining("sincronizar-bodega"),
+        expect.stringContaining("sincronizar-coexistencia"),
+        expect.stringContaining("on-coexistencia-historial"),
+        expect.stringContaining("on-coexistencia-historial-error"),
+        expect.stringContaining("on-coexistencia-contactos"),
+        expect.stringContaining("on-coexistencia-eco"),
       ]),
     );
   });

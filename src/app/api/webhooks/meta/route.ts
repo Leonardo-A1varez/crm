@@ -24,6 +24,7 @@ import {
   parseMetaStatuses,
   parseMetaWebhook,
 } from "@/lib/meta/parse-webhook";
+import { parseCoexistencia, partirLote, serializarMensaje } from "@/lib/meta/parse-coexistencia";
 import { verifyMetaSignature } from "@/lib/meta/verify-signature";
 import { getLogger } from "@/lib/observability/get-logger";
 import { withSpan } from "@/lib/observability/tracing";
@@ -137,10 +138,63 @@ export function makeMetaWebhookHandlers(deps: MetaWebhookHandlersDeps) {
         });
       }
 
+      // 9. Coexistencia (número que sigue en la app WhatsApp Business): el
+      //    historial de 180 días, los contactos y lo que el negocio manda desde
+      //    el teléfono. Van por su propio camino y NUNCA por
+      //    `meta/message.received`: no son turnos y el agente no los contesta.
+      //    Solo cantidades en el log: traen teléfonos y textos.
+      const coex = parseCoexistencia(payload);
+      const totalCoex =
+        coex.historial.length +
+        coex.historialErrores.length +
+        coex.contactos.length +
+        coex.ecos.length;
+      if (totalCoex > 0) {
+        deps.logger.info("meta.webhook.coexistencia", {
+          ip,
+          historial: coex.historial.length,
+          historial_errores: coex.historialErrores.length,
+          contactos: coex.contactos.length,
+          ecos: coex.ecos.length,
+        });
+      }
+      for (const lote of coex.historial) {
+        for (const parte of partirLote(lote)) {
+          const primero = parte.hilos[0]?.mensajes[0]?.meta_message_id ?? "vacio";
+          await deps.inngest.send({
+            name: "meta/coexistencia.historial",
+            data: { lote: parte },
+            // Reentrega de Meta: la misma parte no se encola dos veces (además
+            // de la dedup por wamid al importar).
+            id: `coexistencia-historial:${parte.phone_number_id}:${parte.fase ?? "x"}:${parte.chunk ?? "x"}:${primero}`,
+          });
+        }
+      }
+      for (const error of coex.historialErrores) {
+        await deps.inngest.send({ name: "meta/coexistencia.historial-error", data: error });
+      }
+      for (let i = 0; i < coex.contactos.length; i += CONTACTOS_POR_EVENTO) {
+        await deps.inngest.send({
+          name: "meta/coexistencia.contactos",
+          data: { contactos: coex.contactos.slice(i, i + CONTACTOS_POR_EVENTO) },
+        });
+      }
+      for (const eco of coex.ecos) {
+        await deps.inngest.send({
+          name: "meta/coexistencia.eco",
+          data: { eco: { ...eco, mensaje: serializarMensaje(eco.mensaje) } },
+          // Meta reentrega: el mismo eco no se encola dos veces.
+          id: `coexistencia-eco:${eco.mensaje.meta_message_id}`,
+        });
+      }
+
       return new Response("OK", { status: 200 });
     },
   };
 }
+
+/** Contactos por evento: entra holgado en el tope de tamaño de Inngest. */
+const CONTACTOS_POR_EVENTO = 200;
 
 // ============================================================================
 // Default singleton — runtime real deps from env

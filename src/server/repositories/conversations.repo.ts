@@ -51,6 +51,7 @@ export class InMemoryConversationsRepository implements ConversationsRepository 
       id: crypto.randomUUID(),
       ultima_actividad_at: new Date(),
       modo_respuesta_override: null,
+      whatsapp_phone_number_id: input.whatsapp_phone_number_id ?? null,
     };
     this.store.set(conv.id, conv);
     return { ...conv };

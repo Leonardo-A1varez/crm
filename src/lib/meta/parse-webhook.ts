@@ -1,3 +1,4 @@
+import { CAMPOS_COEXISTENCIA } from "@/lib/meta/campos-coexistencia";
 import type { Canal, EstadoEntrega, TipoMensaje } from "@/types/domain";
 
 export interface ParsedStatus {
@@ -63,6 +64,12 @@ export interface ParsedMessage {
   nombre_perfil: string | null;
   /** Hora original de Meta; ausente o inválida queda en null. */
   platform_created_at?: Date | null;
+  /**
+   * Sólo WhatsApp: `value.metadata.phone_number_id`, el número de negocio al
+   * que escribió el cliente. La respuesta tiene que salir por ese mismo número.
+   * Ausente en IG/FB y en eventos viejos.
+   */
+  numero_negocio_id?: string | null;
   /** Sólo si el mensaje es la respuesta a un mensaje con botones o de lista. */
   respuesta_interactiva?: RespuestaInteractiva;
   raw: Record<string, unknown>;
@@ -160,11 +167,12 @@ function parseWA(payload: Record<string, unknown>): ParsedMessage[] {
       if (change.field !== "messages") continue;
       const value = isObject(change.value) ? change.value : {};
       const perfiles = waPerfiles(value.contacts);
+      const numeroNegocio = numeroNegocioDe(value);
       const messages = asArray(value.messages);
       for (const m of messages) {
         if (!isObject(m)) continue;
         const parsed = waMessage(m, perfiles);
-        if (parsed) out.push(parsed);
+        if (parsed) out.push({ ...parsed, numero_negocio_id: numeroNegocio });
       }
     }
   }
@@ -253,7 +261,7 @@ function waRespuestaInteractiva(m: Record<string, unknown>): RespuestaInteractiv
   return { id, titulo, responde_a: context ? asString(context.id) : null };
 }
 
-function waTipo(type: string): TipoMensaje | null {
+export function waTipo(type: string): TipoMensaje | null {
   switch (type) {
     case "text":
       return "text";
@@ -272,7 +280,7 @@ function waTipo(type: string): TipoMensaje | null {
   }
 }
 
-function extractWaContenido(tipo: TipoMensaje, m: Record<string, unknown>): string | null {
+export function extractWaContenido(tipo: TipoMensaje, m: Record<string, unknown>): string | null {
   if (tipo === "text") {
     const text = isObject(m.text) ? asString(m.text.body) : null;
     return text;
@@ -332,22 +340,28 @@ function messengerEvent(ev: Record<string, unknown>, canal: "ig" | "fb"): Parsed
   };
 }
 
-function timestampDe(value: unknown, unidad: "segundos" | "milisegundos"): Date | null {
+export function timestampDe(value: unknown, unidad: "segundos" | "milisegundos"): Date | null {
   const numeric = typeof value === "number" ? value : Number(asString(value) ?? Number.NaN);
   if (!Number.isFinite(numeric) || numeric <= 0) return null;
   const date = new Date(unidad === "segundos" ? numeric * 1000 : numeric);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function isObject(v: unknown): v is Record<string, unknown> {
+/** `value.metadata.phone_number_id` de un change de WhatsApp, o null. */
+export function numeroNegocioDe(value: Record<string, unknown>): string | null {
+  const metadata = isObject(value.metadata) ? value.metadata : null;
+  return metadata ? asString(metadata.phone_number_id) : null;
+}
+
+export function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function asArray(v: unknown): unknown[] {
+export function asArray(v: unknown): unknown[] {
   return Array.isArray(v) ? v : [];
 }
 
-function asString(v: unknown): string | null {
+export function asString(v: unknown): string | null {
   return typeof v === "string" && v.length > 0 ? v : null;
 }
 
@@ -382,6 +396,10 @@ export function parseMetaOperationalEvents(payload: unknown): ParsedOperationalE
       // `messages` trae mensajes y estados de entrega, que tienen sus propios
       // parsers y su propio destino. Acá sería duplicarlos.
       if (typeof campo !== "string" || campo === "messages") continue;
+      // Los de coexistencia traen mensajes y contactos del negocio: tienen su
+      // propio parser (`parse-coexistencia.ts`) y su propio destino. Guardarlos
+      // acá dejaría teléfonos y textos crudos en `meta_operational_events`.
+      if ((CAMPOS_COEXISTENCIA as readonly string[]).includes(campo)) continue;
 
       const value = isObject(change.value) ? change.value : {};
       out.push({

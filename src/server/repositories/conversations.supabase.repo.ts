@@ -157,6 +157,10 @@ export class SupabaseConversationsRepository implements ConversationsRepository 
     if (patch.modo_respuesta_override !== undefined) {
       updatePayload.modo_respuesta_override = patch.modo_respuesta_override;
     }
+    // Sólo el pipeline (service role) la escribe: un trigger rechaza al panel.
+    if (patch.whatsapp_phone_number_id !== undefined) {
+      updatePayload.whatsapp_phone_number_id = patch.whatsapp_phone_number_id;
+    }
 
     const { data, error } = await this.db
       .from("conversaciones")
@@ -180,6 +184,7 @@ interface ConversacionRow {
   canal_thread_id: string;
   ultima_actividad_at: string;
   modo_respuesta_override: string | null;
+  whatsapp_phone_number_id?: string | null;
   created_at: string;
 }
 
@@ -194,5 +199,6 @@ function mapRow(row: ConversacionRow): Conversacion {
       row.modo_respuesta_override === "copiloto" || row.modo_respuesta_override === "automatico"
         ? row.modo_respuesta_override
         : null,
+    whatsapp_phone_number_id: row.whatsapp_phone_number_id ?? null,
   };
 }

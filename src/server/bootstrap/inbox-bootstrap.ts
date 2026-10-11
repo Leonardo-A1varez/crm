@@ -25,6 +25,7 @@ import { DefaultHandoffService } from "@/server/services/handoff.service";
 import { DefaultInboxService } from "@/server/services/inbox/default-inbox.service";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
 import { GraphApiMetaClient } from "@/server/services/meta/graph-api-client";
+import { getResolverCredencialesWhatsApp } from "./whatsapp-credenciales-bootstrap";
 import type { AppClient } from "@/server/db/client";
 import type {
   InboxService,
@@ -96,6 +97,8 @@ export function makeInboxService(db: AppClient): InboxService {
     igAccessToken: env.META_IG_ACCESS_TOKEN,
     fbPageId: env.META_FB_PAGE_ID,
     fbAccessToken: env.META_FB_PAGE_ACCESS_TOKEN,
+    // La respuesta sale por el número de negocio de la conversación.
+    credenciales: getResolverCredencialesWhatsApp(),
   });
 
   const workflows = new SupabaseWorkflowsRepository(db);

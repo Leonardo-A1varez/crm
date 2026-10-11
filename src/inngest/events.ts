@@ -5,6 +5,12 @@ import {
   type DifusionProgramada,
   type DifusionReanudada,
 } from "@/lib/difusion/eventos";
+import type {
+  ContactoCoexistencia,
+  EcoSerializado,
+  ErrorHistorial,
+  LoteSerializado,
+} from "@/lib/meta/parse-coexistencia";
 import type { ParsedMessage } from "@/lib/meta/parse-webhook";
 import type { IntentClassification } from "@/lib/validation/ai";
 import type { DelegacionDelTurno, TurnoDelegacion } from "@/lib/workflows/delegacion";
@@ -54,6 +60,36 @@ export const operationalReceived = eventType("meta/operational.received", {
     payload: Record<string, unknown>;
     ocurrido_at: string | null;
   }>(),
+});
+
+// ===== Conectar WhatsApp / coexistencia (docs/meta/conectar-whatsapp.md) =====
+
+/**
+ * Un admin conectó un número desde Ajustes. Arranca la verificación y el
+ * pedido de contactos e historial. Sin el token: lo lee el backend.
+ */
+export const whatsappNumeroConectado = eventType("whatsapp/numero.conectado", {
+  schema: staticSchema<{ phoneNumberId: string; conectadoAt: string }>(),
+});
+
+/** Una parte de un lote del webhook `history` (`partirLote`). */
+export const coexistenciaHistorial = eventType("meta/coexistencia.historial", {
+  schema: staticSchema<{ lote: LoteSerializado }>(),
+});
+
+/** `history` con `errors[]`: p. ej. 2593109, el negocio no compartió el historial. */
+export const coexistenciaHistorialError = eventType("meta/coexistencia.historial-error", {
+  schema: staticSchema<{ phone_number_id: string; codigo: ErrorHistorial["codigo"] }>(),
+});
+
+/** Contactos de la app (`smb_app_state_sync`). */
+export const coexistenciaContactos = eventType("meta/coexistencia.contactos", {
+  schema: staticSchema<{ contactos: ContactoCoexistencia[] }>(),
+});
+
+/** Lo que el negocio mandó desde la app del teléfono (`smb_message_echoes`). */
+export const coexistenciaEco = eventType("meta/coexistencia.eco", {
+  schema: staticSchema<{ eco: EcoSerializado }>(),
 });
 
 export const turnCompleted = eventType("lead-session/turn.completed", {

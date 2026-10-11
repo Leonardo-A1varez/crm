@@ -1,5 +1,7 @@
 import type { AutoHandoffDeps } from "@/inngest/functions/auto-handoff";
 import { makeAutoHandoffFn } from "@/inngest/functions/auto-handoff";
+import type { CoexistenciaFnDeps } from "@/inngest/functions/coexistencia";
+import { makeCoexistenciaFns } from "@/inngest/functions/coexistencia";
 import type { CopilotoBorradorDeps } from "@/inngest/functions/copiloto-borrador";
 import { makeCopilotoBorradorFn } from "@/inngest/functions/copiloto-borrador";
 import type { DetectIntentsBatchDeps } from "@/inngest/functions/detect-intents.batch";
@@ -67,6 +69,8 @@ export interface CrmInngestDeps {
   copilotoBorrador: CopilotoBorradorDeps;
   recalcularCompatibilidad: RecalcularCompatibilidadDeps;
   sincronizarBodega: SincronizarBodegaDeps;
+  /** Conectar WhatsApp en coexistencia: sincronización, historial, contactos y ecos. */
+  coexistencia: CoexistenciaFnDeps;
 }
 
 export function makeCrmInngestFunctions(deps: CrmInngestDeps) {
@@ -92,5 +96,6 @@ export function makeCrmInngestFunctions(deps: CrmInngestDeps) {
     makeCopilotoBorradorFn(deps.copilotoBorrador),
     makeRecalcularCompatibilidadFn(deps.recalcularCompatibilidad),
     makeSincronizarBodegaFn(deps.sincronizarBodega),
+    ...makeCoexistenciaFns(deps.coexistencia),
   ];
 }
