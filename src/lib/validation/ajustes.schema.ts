@@ -44,3 +44,26 @@ export const AsignarEmpresaErpSchema = z
   .strict();
 
 export type AsignarEmpresaErpInput = z.infer<typeof AsignarEmpresaErpSchema>;
+
+const ID_META = /^\d{1,30}$/;
+
+/**
+ * "Conectar WhatsApp": lo que devuelve el popup del registro insertado.
+ * `code` se canjea del lado del servidor (vive 30 s); la doc de Meta no fija
+ * su forma, así que sólo se exige que no tenga espacios ni sea enorme. `strict`:
+ * quién conecta sale de la sesión, nunca del cliente.
+ */
+export const ConectarWhatsAppSchema = z
+  .object({
+    code: z
+      .string()
+      .min(10, "código de Meta inválido")
+      .max(4096, "código de Meta inválido")
+      .regex(/^[A-Za-z0-9._\-#|]+$/, "código de Meta inválido"),
+    wabaId: z.string().regex(ID_META, "cuenta de WhatsApp Business inválida"),
+    phoneNumberId: z.string().regex(ID_META, "id de número inválido").nullable(),
+    evento: z.enum(["FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING", "FINISH"]),
+  })
+  .strict();
+
+export type ConectarWhatsAppInput = z.infer<typeof ConectarWhatsAppSchema>;

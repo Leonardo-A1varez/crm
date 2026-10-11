@@ -46,6 +46,45 @@ const CONNECT_SRC = [
   ...origenesSupabaseLocal(process.env.NEXT_PUBLIC_SUPABASE_URL),
 ];
 
+/**
+ * Directivas de la CSP. Se arma desde acá para que la de `/ajustes` sea la
+ * misma con tres agregados y no una copia que se desalinee.
+ */
+function directivasCsp(extra: { script?: string[]; connect?: string[]; frame?: string[] } = {}) {
+  return [
+    "default-src 'self'",
+    // Next.js requires unsafe-eval para RSC streaming + unsafe-inline para
+    // bootstrap script (con nonce sería ideal pero requiere refactor Layouts).
+    // Tracked en docs/security-threat-model.md como hardening futuro.
+    ["script-src 'self' 'unsafe-inline' 'unsafe-eval'", ...(extra.script ?? [])].join(" "),
+    "style-src 'self' 'unsafe-inline'",
+    // Imágenes: self + Supabase Storage (configurable env) + data: para inline.
+    "img-src 'self' data: blob: https://*.supabase.co https://scontent.whatsapp.net https://scontent.cdninstagram.com",
+    "media-src 'self' https://*.supabase.co https://scontent.whatsapp.net",
+    "font-src 'self' data:",
+    `connect-src ${[...CONNECT_SRC, ...(extra.connect ?? [])].join(" ")}`,
+    ...(extra.frame ? [`frame-src ${extra.frame.join(" ")}`] : []),
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+  ].join("; ");
+}
+
+/**
+ * Sólo `/ajustes`: el botón "Conectar WhatsApp" carga el SDK de Facebook
+ * (`connect.facebook.net/en_US/sdk.js`, doc de Embedded Signup) y el SDK abre
+ * el popup de Meta y usa iframes de facebook.com. Meta no publica la lista de
+ * orígenes que necesita su SDK: estos tres salen de los dominios que nombra la
+ * doc y del popup, y hay que confirmarlos en el navegador con la app real
+ * (docs/meta/conectar-whatsapp.md). El resto del panel no los permite.
+ */
+const CSP_AJUSTES = directivasCsp({
+  script: ["https://connect.facebook.net"],
+  connect: ["https://www.facebook.com", "https://connect.facebook.net"],
+  frame: ["https://www.facebook.com", "https://web.facebook.com", "https://staticxx.facebook.com"],
+});
+
 const SECURITY_HEADERS = [
   {
     key: "Strict-Transport-Security",
@@ -80,23 +119,7 @@ const SECURITY_HEADERS = [
   },
   {
     key: "Content-Security-Policy",
-    value: [
-      "default-src 'self'",
-      // Next.js requires unsafe-eval para RSC streaming + unsafe-inline para
-      // bootstrap script (con nonce sería ideal pero requiere refactor Layouts).
-      // Tracked en docs/security-threat-model.md como hardening futuro.
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-      "style-src 'self' 'unsafe-inline'",
-      // Imágenes: self + Supabase Storage (configurable env) + data: para inline.
-      "img-src 'self' data: blob: https://*.supabase.co https://scontent.whatsapp.net https://scontent.cdninstagram.com",
-      "media-src 'self' https://*.supabase.co https://scontent.whatsapp.net",
-      "font-src 'self' data:",
-      `connect-src ${CONNECT_SRC.join(" ")}`,
-      "frame-ancestors 'none'",
-      "form-action 'self'",
-      "base-uri 'self'",
-      "object-src 'none'",
-    ].join("; "),
+    value: directivasCsp(),
   },
 ];
 
@@ -135,6 +158,12 @@ const nextConfig: NextConfig = {
         // Apply security headers to all routes
         source: "/(.*)",
         headers: SECURITY_HEADERS,
+      },
+      {
+        // Va después: con dos reglas que ponen la misma clave, Next aplica la
+        // última. Sólo cambia la CSP; el resto de los headers sigue igual.
+        source: "/ajustes",
+        headers: [{ key: "Content-Security-Policy", value: CSP_AJUSTES }],
       },
     ];
   },

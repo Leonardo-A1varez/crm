@@ -8,17 +8,22 @@ import {
   TopesSeguridad,
   UsuariosYRoles,
 } from "@/components/ajustes";
+import { ConectarWhatsApp } from "@/components/ajustes/ConectarWhatsApp";
+import { vistaNumeroConectado } from "@/components/ajustes/conectados";
 import { getLogger } from "@/lib/observability/get-logger";
 import { getCurrentRol } from "@/server/auth/guards";
 import { getAgenteConfigServiceForRequest } from "@/server/bootstrap/agente-bootstrap";
 import {
+  configuracionConectarWhatsApp,
   getEmpresaServiceForRequest,
+  listarNumerosConectadosForRequest,
   getRegistrosWhatsAppServiceForRequest,
   getSaludWhatsAppService,
 } from "@/server/bootstrap/ajustes-bootstrap";
 import { getUsuariosServiceForRequest } from "@/server/bootstrap/usuarios-bootstrap";
 import { getWorkflowsAdminServiceForRequest } from "@/server/bootstrap/workflows-bootstrap";
 import { asignarEmpresaErpAction } from "./_actions/empresa-erp.action";
+import { conectarWhatsAppAction } from "./_actions/conectar-whatsapp.action";
 import { guardarRolNumeroAction } from "./_actions/rol-numero.action";
 import { leerSeccion } from "./_lib/leer-seccion";
 import { NOTA_SANCIONES } from "./_lib/politica-meta";
@@ -103,22 +108,47 @@ async function contenidoDe(
   const { salud, agente, esAdmin, logger } = ctx;
 
   switch (pestana) {
-    case "salud":
+    case "salud": {
+      // "Conectar WhatsApp" es sólo del admin: el vendedor no ve la sección.
+      const conectados = esAdmin
+        ? await leerSeccion(
+            "whatsapp-conectados",
+            async () => {
+              const ahora = new Date();
+              return (await listarNumerosConectadosForRequest()).map((n) =>
+                vistaNumeroConectado(n, ahora),
+              );
+            },
+            logger,
+          )
+        : null;
       return (
-        <PanelSalud
-          cupo={salud.cupo}
-          escalones={salud.escalones}
-          posicion={salud.posicion}
-          historial={salud.historial}
-          notaHistorial={salud.notaHistorial}
-          envio={salud.envio}
-          notaSanciones={NOTA_SANCIONES}
-          numeros={salud.numeros}
-          guardarRol={esAdmin ? guardarRolNumeroAction : null}
-          plantillas={salud.plantillas}
-          fuente={salud.fuente}
-        />
+        <div className="flex max-w-[1120px] flex-col gap-3.5">
+          <PanelSalud
+            cupo={salud.cupo}
+            escalones={salud.escalones}
+            posicion={salud.posicion}
+            historial={salud.historial}
+            notaHistorial={salud.notaHistorial}
+            envio={salud.envio}
+            notaSanciones={NOTA_SANCIONES}
+            numeros={salud.numeros}
+            guardarRol={esAdmin ? guardarRolNumeroAction : null}
+            plantillas={salud.plantillas}
+            fuente={salud.fuente}
+          />
+          {conectados === null ? null : conectados.estado === "ok" ? (
+            <ConectarWhatsApp
+              configuracion={configuracionConectarWhatsApp()}
+              numeros={conectados.datos}
+              conectar={conectarWhatsAppAction}
+            />
+          ) : (
+            <AvisoLectura titulo="Conectar WhatsApp" lectura={conectados} />
+          )}
+        </div>
       );
+    }
 
     case "empresa": {
       const empresa = await leerSeccion(
