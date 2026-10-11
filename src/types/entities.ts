@@ -293,6 +293,12 @@ export interface Conversacion {
    * atender un chat a mano tiene que sobrevivir a una sesión nueva del hilo.
    */
   modo_respuesta_override: ModoOverride | null;
+  /**
+   * Sólo WhatsApp: el `phone_number_id` del número de negocio por el que
+   * escribió el cliente la última vez. La respuesta sale por ese número.
+   * `null`/ausente = el número de env (`META_WHATSAPP_PHONE_NUMBER_ID`).
+   */
+  whatsapp_phone_number_id?: string | null;
 }
 
 export interface Mensaje {

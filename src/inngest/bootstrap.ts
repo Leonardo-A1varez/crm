@@ -16,6 +16,9 @@
  */
 
 import { GraphApiMetaClient } from "@/server/services/meta/graph-api-client";
+import { DefaultResolverCredencialesWhatsApp } from "@/server/services/meta/credenciales-whatsapp.service";
+import { SupabaseWhatsAppNumerosRepository } from "@/server/repositories/whatsapp-numeros.supabase.repo";
+import { llaveroDesdeEnv } from "@/lib/meta/token-cifrado";
 import { DefaultAiAgentService } from "@/server/services/ai-agent.service";
 import { HttpBodegaCatalogoClient } from "@/server/services/catalog/bodega/bodega-client";
 import {
@@ -217,7 +220,15 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   });
 
   // ===== Meta client (Graph API real) =====
+  // Los números conectados desde Ajustes: un envío por una conversación de
+  // ese número sale con su token. Sin filas, todo sale por el número de env.
+  const whatsappNumeros = new SupabaseWhatsAppNumerosRepository(db);
+  const credencialesWhatsApp = new DefaultResolverCredencialesWhatsApp({
+    repo: whatsappNumeros,
+    llavero: () => llaveroDesdeEnv(env),
+  });
   const metaClient = new GraphApiMetaClient({
+    credenciales: credencialesWhatsApp,
     graphApiVersion: env.META_GRAPH_API_VERSION,
     whatsappPhoneNumberId: env.META_WHATSAPP_PHONE_NUMBER_ID,
     whatsappAccessToken: env.META_WHATSAPP_ACCESS_TOKEN,

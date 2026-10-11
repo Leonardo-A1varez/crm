@@ -1,6 +1,7 @@
 import { InfraError, RateLimitError, ValidationError } from "@/lib/errors";
 import { env, GRAPH_API_BASE_URL_REAL } from "@/lib/env";
 import { withSpan } from "@/lib/observability/tracing";
+import type { ResolverCredencialesWhatsApp } from "@/server/services/meta/credenciales-whatsapp.service";
 import type {
   MetaApiClient,
   MetaSendResult,
@@ -29,6 +30,11 @@ export interface GraphApiMetaClientConfig {
   baseUrl?: string;
   /** Inyectable para tests. Default global `fetch`. */
   fetchImpl?: typeof fetch;
+  /**
+   * Los números conectados desde Ajustes. Con él, un envío WA con `desde`
+   * sale por ese número y con su token; sin él (o sin fila), por el de env.
+   */
+  credenciales?: ResolverCredencialesWhatsApp;
 }
 
 interface WaSendTextResponse {
@@ -82,6 +88,19 @@ export class GraphApiMetaClient implements MetaApiClient {
     );
   }
 
+  /**
+   * El número y el token de un envío WA. Con `desde` de un número conectado,
+   * los suyos; si no, los de env. Un número conectado con el token ilegible
+   * hace fallar al resolver (no cae al de env: saldría desde otro WhatsApp).
+   */
+  private async origenWa(desde: string | undefined): Promise<{ phoneId: string; token: string }> {
+    if (desde && desde !== this.cfg.whatsappPhoneNumberId && this.cfg.credenciales) {
+      const c = await this.cfg.credenciales.para(desde);
+      if (c) return { phoneId: c.phoneNumberId, token: c.accessToken };
+    }
+    return { phoneId: this.cfg.whatsappPhoneNumberId, token: this.cfg.whatsappAccessToken };
+  }
+
   async sendText(input: MetaSendTextInput): Promise<MetaSendResult> {
     return withSpan("meta.sendText", { canal: input.canal }, async () => {
       if (input.canal === "wa") return this.sendWa(input);
@@ -125,6 +144,7 @@ export class GraphApiMetaClient implements MetaApiClient {
           },
         },
         "wa.sendTemplate",
+        input.desde,
       );
     });
   }
@@ -147,6 +167,7 @@ export class GraphApiMetaClient implements MetaApiClient {
           ...cuerpoRico(contenido),
         },
         `wa.send.${contenido.tipo}`,
+        input.desde,
       ),
     );
   }
@@ -160,14 +181,15 @@ export class GraphApiMetaClient implements MetaApiClient {
   async sendTypingIndicator(input: MetaTypingIndicatorInput): Promise<void> {
     return withSpan("meta.sendTypingIndicator", { canal: "wa" }, async () => {
       const operation = "wa.typingIndicator";
-      const url = `${this.baseUrl}/${this.cfg.graphApiVersion}/${this.cfg.whatsappPhoneNumberId}/messages`;
+      const origen = await this.origenWa(input.desde);
+      const url = `${this.baseUrl}/${this.cfg.graphApiVersion}/${origen.phoneId}/messages`;
       const res = await fetchOrInfra(
         this.fetchImpl,
         url,
         {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${this.cfg.whatsappAccessToken}`,
+            Authorization: `Bearer ${origen.token}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -193,11 +215,17 @@ export class GraphApiMetaClient implements MetaApiClient {
         text: { body: input.text, preview_url: false },
       },
       "wa.sendText",
+      input.desde,
     );
   }
 
-  private async postWa(body: Record<string, unknown>, operation: string): Promise<MetaSendResult> {
-    const url = `${this.baseUrl}/${this.cfg.graphApiVersion}/${this.cfg.whatsappPhoneNumberId}/messages`;
+  private async postWa(
+    body: Record<string, unknown>,
+    operation: string,
+    desde?: string,
+  ): Promise<MetaSendResult> {
+    const origen = await this.origenWa(desde);
+    const url = `${this.baseUrl}/${this.cfg.graphApiVersion}/${origen.phoneId}/messages`;
 
     const res = await fetchOrInfra(
       this.fetchImpl,
@@ -205,7 +233,7 @@ export class GraphApiMetaClient implements MetaApiClient {
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${this.cfg.whatsappAccessToken}`,
+          Authorization: `Bearer ${origen.token}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(body),
