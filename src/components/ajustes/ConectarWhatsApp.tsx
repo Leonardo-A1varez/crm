@@ -280,9 +280,12 @@ export function ConectarWhatsApp({
                   <span className="text-ink-primary truncate font-mono text-[12px] font-medium tabular-nums">
                     {n.numero}
                   </span>
-                  <span className="text-ink-faint truncate text-[11px]">
-                    {n.nombre ?? "Sin nombre verificado"} · {n.modo}
-                    {n.desconectado ? " · desconectado" : ""}
+                  <span className="text-ink-faint text-[11px] leading-snug break-words">
+                    {n.nombre ?? "Sin nombre verificado"}
+                  </span>
+                  <span className="text-ink-ghost text-[10.5px]">
+                    {n.modo}
+                    {n.desconectado ? ", desconectado" : ""}
                   </span>
                 </div>
                 <div className="flex min-w-0 flex-col gap-2">
