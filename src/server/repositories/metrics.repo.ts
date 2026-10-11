@@ -14,6 +14,12 @@ export interface FilaSesionMetrica {
   /** null mientras la sesión sigue abierta. */
   closed_at: Date | null;
   cantidad: number | null;
+  /**
+   * Sólo de fixture. La sesión agrupa el historial importado de la app Business
+   * (`extras.importado_historial`): ninguna lectura de Supabase la devuelve y la
+   * impl en memoria la descarta igual, para que los tests del service lo vean.
+   */
+  importada?: boolean;
 }
 
 /** Mensaje reducido a lo que las métricas necesitan contar. */
@@ -31,6 +37,8 @@ export interface FilaMensajeMetrica {
   sender_user_id: string | null;
   /** Solo entrantes; null en históricos o payload sin timestamp válido. */
   platform_created_at?: Date | null;
+  /** Sólo de fixture: el mensaje es de una sesión importada y la lectura lo descarta. */
+  sesion_importada?: boolean;
 }
 
 export interface FilaHandoffMetrica {
@@ -215,11 +223,13 @@ export class InMemoryMetricsRepository implements MetricsRepository {
   }
 
   async listSesionesDesde(desde: Date, hasta: Date): Promise<FilaSesionMetrica[]> {
-    return this.sesiones.filter((s) => enVentana(s.started_at, desde, hasta));
+    return this.sesiones.filter((s) => !s.importada && enVentana(s.started_at, desde, hasta));
   }
 
   async listMensajesDesde(desde: Date, hasta: Date): Promise<FilaMensajeMetrica[]> {
-    return this.mensajes.filter((m) => enVentana(m.created_at, desde, hasta));
+    return this.mensajes.filter(
+      (m) => !m.sesion_importada && enVentana(m.created_at, desde, hasta),
+    );
   }
 
   async listToolExecutionsDesde(desde: Date, hasta: Date): Promise<FilaToolExecutionMetrica[]> {

@@ -72,7 +72,28 @@ export function fakePostgrest(
       },
       eq: (col: string, v: unknown) => (filtros.push((f) => f[col] === v), q),
       is: (col: string, v: null) => (filtros.push((f) => (f[col] ?? null) === v), q),
-      not: (col: string, op: string, v: null) => {
+      not: (col: string, op: string, v: unknown) => {
+        if (op === "cs") {
+          // `not.cs.{json}` sobre una columna jsonb, o sobre la de una fila
+          // embebida (`lead_session.extras` -> `fila.lead_session.extras`). Una
+          // fila sin esa columna no la contiene, así que pasa el filtro.
+          const buscado = JSON.parse(String(v)) as Record<string, unknown>;
+          filtros.push((f) => {
+            const valor = col
+              .split(".")
+              .reduce<unknown>(
+                (acc, k) =>
+                  acc !== null && typeof acc === "object"
+                    ? (acc as Record<string, unknown>)[k]
+                    : null,
+                f,
+              );
+            if (valor === null || typeof valor !== "object") return true;
+            const obj = valor as Record<string, unknown>;
+            return !Object.entries(buscado).every(([k, x]) => obj[k] === x);
+          });
+          return q;
+        }
         if (op !== "is") throw new Error(`not.${op} sin soporte en el fake`);
         filtros.push((f) => (f[col] ?? null) !== v);
         return q;

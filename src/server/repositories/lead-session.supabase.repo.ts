@@ -1,3 +1,4 @@
+import { FILTRO_JSONB_SESION_IMPORTADA } from "@/lib/coexistencia/sesion-importada";
 import { ConflictError, IllegalStateError, NotFoundError, ValidationError } from "@/lib/errors";
 import type { HistorialVendedor } from "@/lib/round-robin";
 import { esEtapaEmbudo, etapaAlcanzada } from "@/lib/ui/stage";
@@ -413,7 +414,11 @@ export class SupabaseLeadSessionRepository implements LeadSessionRepository {
         .from("lead_session")
         .select("id, lead_id, resultado, motivo_perdida, closed_at")
         .not("resultado", "is", null)
-        .not("closed_at", "is", null);
+        .not("closed_at", "is", null)
+        // El historial importado de la app Business se cierra como `perdido` sin
+        // motivo, pero no es una venta perdida: ni la columna de resultado ni el
+        // filtro «Perdidos» de Leads lo cuentan (docs/meta/conectar-whatsapp.md §5).
+        .not("extras", "cs", FILTRO_JSONB_SESION_IMPORTADA);
       if (despuesDeId !== null) q = q.gt("id", despuesDeId);
       return q.order("id", { ascending: true }).limit(FILAS_POR_PAGINA);
     });
