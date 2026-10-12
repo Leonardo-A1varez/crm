@@ -52,20 +52,23 @@ describe("next.config — CSP", () => {
     expect(await csp(config)).toBe(CSP_PRODUCCION);
   });
 
-  test("con Supabase local suma su origen http y ws a connect-src, y nada más", async () => {
+  test("con Supabase local suma su origen a connect-src (http y ws) y a img-src/media-src (archivos de Storage), y nada más", async () => {
     const config = await cargarConfig({ NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:55321" });
     const valor = await csp(config);
-    const connect = valor.split("; ").find((d) => d.startsWith("connect-src "));
-    expect(connect).toBe(
+    const directiva = (nombre: string) => valor.split("; ").find((d) => d.startsWith(`${nombre} `));
+    expect(directiva("connect-src")).toBe(
       "connect-src 'self' https://*.supabase.co https://api.openai.com https://graph.facebook.com wss://*.supabase.co http://127.0.0.1:55321 ws://127.0.0.1:55321",
     );
+    // Las fotos y los audios del Inbox se sirven con URL firmada del Storage local.
+    expect(directiva("img-src")).toContain("http://127.0.0.1:55321");
+    expect(directiva("media-src")).toContain("http://127.0.0.1:55321");
     // El resto de las directivas no se toca.
-    const sinConnect = (s: string) =>
+    const sinLocales = (s: string) =>
       s
         .split("; ")
-        .filter((d) => !d.startsWith("connect-src "))
+        .filter((d) => !/^(connect|img|media)-src /.test(d))
         .join("; ");
-    expect(sinConnect(valor)).toBe(sinConnect(CSP_PRODUCCION));
+    expect(sinLocales(valor)).toBe(sinLocales(CSP_PRODUCCION));
   });
 
   test("localhost y [::1] también cuentan como loopback", async () => {
