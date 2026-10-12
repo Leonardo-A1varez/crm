@@ -255,6 +255,11 @@ export const passthroughStep: StepRunner = {
   run: (_name, fn) => fn(),
 };
 
+/** El entrante es un sticker sin texto (`parse-webhook` lo marca en `media.sticker`). */
+function esSoloSticker(parsed: ParsedMessage): boolean {
+  return parsed.media?.sticker === true && !parsed.contenido?.trim();
+}
+
 export async function onMessageReceivedHandler(
   input: OnMessageReceivedInput,
   deps: OnMessageReceivedDeps,
@@ -657,6 +662,28 @@ export async function onMessageReceivedHandler(
         conversacionId: conv.id,
         agentSource: "baja",
         sent,
+        duplicate: false,
+      };
+    }
+
+    // Un sticker solo no se contesta (decisión del dueño): ni clasificador, ni
+    // agente, ni plantilla de fuera de horario. Ya quedó guardado y su descarga
+    // encolada arriba, y los flujos se enteran como con cualquier mensaje. Cada
+    // entrante corre su propio turno, así que un texto que llegue junto al sticker
+    // tiene el suyo y sí se contesta. Tampoco hay `turn.completed`: sin respuesta
+    // no hay turno que extraer al Twin.
+    if (esSoloSticker(parsed)) {
+      await emitirMensajeRecibido(null);
+      await avisarTramo(await leerTramos("leer-delegaciones-sticker"), "turno", null, false);
+      logger.info("pipeline-complete", { duplicate: false, sent: false, skipped: "sticker" });
+      return {
+        leadId: lead.id,
+        leadCreated,
+        sessionId: session.id,
+        sessionCreated,
+        conversacionId: conv.id,
+        agentSource: "handoff",
+        sent: false,
         duplicate: false,
       };
     }

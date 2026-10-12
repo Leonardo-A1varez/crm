@@ -7,6 +7,7 @@ import type { LeadSessionRepository } from "@/server/repositories/lead-session.r
 import type { UUID } from "@/types/entities";
 
 const PURGE_AGE_DAYS = 29;
+const IMPORTED_RETENTION_MONTHS = 12;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface PurgeOldSessionsDeps {
@@ -28,12 +29,14 @@ export async function purgeOldSessionsHandler(
   const cutoff = new Date(now.getTime() - PURGE_AGE_DAYS * DAY_MS);
 
   // El historial importado de la app Business llega con mensajes de hasta 180
-  // días y su sesión se cierra a la hora del último: sin esta excepción esta
-  // misma corrida lo borraría (CASCADE) la noche de la importación. Es una
-  // decisión pendiente del dueño (retención de 29 días vs. conservar el
-  // historial, docs/data-retention.md): hasta que decida, no se purga.
+  // días y su sesión se cierra a la hora del último: con la regla de 29 días la
+  // misma corrida lo borraría (CASCADE) la noche de la importación. El dueño
+  // fijó 12 meses desde el cierre (docs/data-retention.md).
+  const cutoffImportada = new Date(now);
+  cutoffImportada.setUTCMonth(cutoffImportada.getUTCMonth() - IMPORTED_RETENTION_MONTHS);
+
   const candidates = (await deps.sessions.listClosedBefore(cutoff)).filter(
-    (s) => !esSesionImportada(s),
+    (s) => !esSesionImportada(s) || (s.closed_at !== null && s.closed_at < cutoffImportada),
   );
   for (const s of candidates) {
     await deps.purgeSession(s.id);
