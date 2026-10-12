@@ -107,18 +107,19 @@
 
 ### Default policy CRM (configurable por cliente)
 
-| Categoría                                      | Retention default             | Razón legal                                     | Configuración                           |
-| ---------------------------------------------- | ----------------------------- | ----------------------------------------------- | --------------------------------------- |
-| **Mensajes activos** (conversaciones abiertas) | Indefinido                    | Operacional ongoing                             | NA                                      |
-| **Sesiones cerradas + mensajes asociados**     | 29 días post-close            | Operacional (purge automática)                  | `closed_at < now() - 29d` (cron diario) |
-| **Leads (sin actividad)**                      | 5 años                        | Comercial + posibles consultas tax/fiscal Latam | Configurable per cliente                |
-| **Mensajes audit (admin_actions)**             | 5 años                        | Compliance audit trail                          | No purgable sin DPO authorization       |
-| **Tool executions audit (tool_executions)**    | 90 días                       | Debug + cost analysis                           | Configurable                            |
-| **Merge candidates rejected**                  | 1 año                         | Audit decisiones merge                          | Configurable                            |
-| **Reactivation dispatches (audit)**            | 2 años                        | Analytics cohort + audit reactivations          | Configurable                            |
-| **Cost records (LLM tracking)**                | 13 meses                      | Reporting anual                                 | Cron purge mensual                      |
-| **Logs operacionales**                         | 90 días                       | Debug + incident postmortem                     | Vercel Log Drains retention             |
-| **Backups DB**                                 | 30 días daily + 1 año monthly | Disaster recovery                               | Supabase Pro PITR + S3 monthly snapshot |
+| Categoría                                          | Retention default             | Razón legal                                       | Configuración                                                                    |
+| -------------------------------------------------- | ----------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------- |
+| **Mensajes activos** (conversaciones abiertas)     | Indefinido                    | Operacional ongoing                               | NA                                                                               |
+| **Sesiones cerradas + mensajes asociados**         | 29 días post-close            | Operacional (purge automática)                    | `closed_at < now() - 29d` (cron diario)                                          |
+| **Historial importado de WhatsApp (coexistencia)** | 12 meses post-close           | Decisión del dueño (2026-10-11); incluye su media | `extras.importado_historial` y `closed_at < now() - 12 meses`, mismo cron diario |
+| **Leads (sin actividad)**                          | 5 años                        | Comercial + posibles consultas tax/fiscal Latam   | Configurable per cliente                                                         |
+| **Mensajes audit (admin_actions)**                 | 5 años                        | Compliance audit trail                            | No purgable sin DPO authorization                                                |
+| **Tool executions audit (tool_executions)**        | 90 días                       | Debug + cost analysis                             | Configurable                                                                     |
+| **Merge candidates rejected**                      | 1 año                         | Audit decisiones merge                            | Configurable                                                                     |
+| **Reactivation dispatches (audit)**                | 2 años                        | Analytics cohort + audit reactivations            | Configurable                                                                     |
+| **Cost records (LLM tracking)**                    | 13 meses                      | Reporting anual                                   | Cron purge mensual                                                               |
+| **Logs operacionales**                             | 90 días                       | Debug + incident postmortem                       | Vercel Log Drains retention                                                      |
+| **Backups DB**                                     | 30 días daily + 1 año monthly | Disaster recovery                                 | Supabase Pro PITR + S3 monthly snapshot                                          |
 
 ### Casos especiales
 

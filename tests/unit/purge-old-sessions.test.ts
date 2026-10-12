@@ -97,9 +97,7 @@ describe("purgeOldSessionsHandler", () => {
     expect(result.purgedCount).toBe(0);
   });
 
-  test("la sesión del historial importado de la app Business NO se purga aunque tenga más de 29 días", async () => {
-    // Sin esta excepción el cron de las 04:00 borraría (con CASCADE) el historial
-    // recién importado: sus mensajes tienen hasta 180 días.
+  async function seedImportada(closedAt: Date) {
     const importada = await sessions.create({
       lead_id: crypto.randomUUID(),
       current_stage: "perdido",
@@ -116,15 +114,38 @@ describe("purgeOldSessionsHandler", () => {
       motivo_perdida: null,
       ia_pausada: false,
       extras: { [CLAVE_SESION_IMPORTADA]: true },
-      started_at: cutoffDate(120),
-      closed_at: cutoffDate(100),
+      started_at: new Date(closedAt.getTime() - 20 * 24 * 60 * 60 * 1000),
+      closed_at: closedAt,
     });
+    return importada.id;
+  }
+
+  test("la sesión importada NO se purga a los 29 días: se conserva 12 meses", async () => {
+    const importada = await seedImportada(cutoffDate(100));
     const comun = await seedClosed(sessions, cutoffDate(100));
 
     const result = await purgeOldSessionsHandler({}, deps);
 
     expect(purged).toEqual([comun]);
-    expect(purged).not.toContain(importada.id);
+    expect(purged).not.toContain(importada);
+    expect(result.purgedCount).toBe(1);
+  });
+
+  test("la sesión importada cerrada hace 11 meses sigue sin purgarse", async () => {
+    await seedImportada(new Date("2025-12-01T00:00:00Z"));
+
+    const result = await purgeOldSessionsHandler({}, deps);
+
+    expect(purged).toEqual([]);
+    expect(result.purgedCount).toBe(0);
+  });
+
+  test("la sesión importada cerrada hace más de 12 meses se purga", async () => {
+    const importada = await seedImportada(new Date("2025-05-11T00:00:00Z"));
+
+    const result = await purgeOldSessionsHandler({}, deps);
+
+    expect(purged).toEqual([importada]);
     expect(result.purgedCount).toBe(1);
   });
 

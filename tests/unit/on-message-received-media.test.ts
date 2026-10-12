@@ -62,6 +62,64 @@ describe("on-message-received: media entrante", () => {
     expect(ctx.emitted.some((e) => e.name === "meta/media.descargar")).toBe(false);
   });
 
+  test("un sticker solo se guarda y se descarga, pero el agente no contesta", async () => {
+    const ctx = makePipelineDeps();
+    const r = await turno(
+      ctx,
+      parsed({
+        tipo: "image",
+        contenido: null,
+        meta_message_id: "wamid.STK-1",
+        media: { id: "STK", mime: "image/webp", nombre: null, sticker: true, animado: false },
+      }),
+    );
+
+    expect(r.sent).toBe(false);
+    expect(ctx.agentLLM.calls).toHaveLength(0);
+    expect(ctx.metaClient.calls).toHaveLength(0);
+    const mensajes = await ctx.messages.listByConversacion(r.conversacionId);
+    expect(mensajes.filter((m) => m.direction === "out")).toHaveLength(0);
+    expect(mensajes.find((m) => m.direction === "in")?.media).toMatchObject({
+      estado: "pendiente",
+      metaId: "STK",
+    });
+    expect(ctx.emitted.some((e) => e.name === "meta/media.descargar")).toBe(true);
+    expect(ctx.emitted.some((e) => e.name === "lead-session/turn.completed")).toBe(false);
+  });
+
+  test("un sticker seguido de un texto: el texto sí recibe respuesta", async () => {
+    const ctx = makePipelineDeps();
+    await turno(
+      ctx,
+      parsed({
+        tipo: "image",
+        contenido: null,
+        meta_message_id: "wamid.STK-2",
+        media: { id: "STK2", mime: "image/webp", nombre: null, sticker: true },
+      }),
+    );
+    const r = await turno(ctx, parsed({ meta_message_id: "wamid.TXT-2", contenido: "hola" }));
+
+    expect(r.sent).toBe(true);
+    expect(ctx.agentLLM.calls).toHaveLength(1);
+  });
+
+  test("una foto normal (no sticker) sigue el camino de siempre", async () => {
+    const ctx = makePipelineDeps();
+    const r = await turno(
+      ctx,
+      parsed({
+        tipo: "image",
+        contenido: null,
+        meta_message_id: "wamid.IMG-9",
+        media: { id: "I9", mime: "image/jpeg", nombre: null },
+      }),
+    );
+
+    expect(r.sent).toBe(true);
+    expect(ctx.agentLLM.calls).toHaveLength(1);
+  });
+
   test("sin hora de Meta usa la fecha de hoy para la clave del paso", async () => {
     const ctx = makePipelineDeps();
     await turno(
