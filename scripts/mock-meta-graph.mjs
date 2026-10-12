@@ -44,6 +44,23 @@
  *   (100000000000009). El token de negocio que entrega el canje es fijo por
  *   META_APP_SECRET, así que sigue valiendo si el mock se reinicia.
  *
+ * Media (docs/meta/media.md). Formas de la referencia de Meta leída el 2026-10-11:
+ *   POST /:version/:phoneId/media   multipart messaging_product, type, file  -> { id }
+ *                         Rechaza (400) tipos y tamaños fuera de la tabla de Meta, un `type`
+ *                         que no coincide con el archivo y `messaging_product` ausente.
+ *   GET  /:version/:mediaId[?phone_number_id]   -> { url, mime_type, sha256, file_size, id }
+ *                         para un id que el mock anunció (entrante) o que se subió. La url
+ *                         vence a los 5 minutos (MOCK_META_URL_VENCE_MS), como la real.
+ *   GET  /__mock/media-bin/:token   la descarga: exige Bearer; vencida o desconocida, 404.
+ *   POST /__mock/media/entrante  {from, tipo: image|video|audio|document|sticker, mime?,
+ *                                 base64, caption?, nombre?, voz?, animado?, urlsVencidas?}
+ *                         guarda el archivo, anuncia el webhook `messages` con el id y, con
+ *                         `urlsVencidas: n`, hace que las primeras n URLs den 404.
+ *   POST /__mock/media/eco       {to, tipo, mime?, base64, caption?, nombre?}   smb_message_echoes
+ *   POST /__mock/media/historial {from, tipo, mime?, base64, caption?}          history con messages[]
+ *   GET  /__mock/media-subida/:id   los bytes que se subieron por POST /media (para verificar).
+ *   Un envío por `messages` con `image|video|audio|document|sticker.id` desconocido responde 400.
+ *
  * El indicador «escribiendo…» (`status: "read"` + `typing_indicator`) entra por la
  * misma ruta y queda en el log como `graph.escribiendo`.
  *
@@ -63,7 +80,7 @@
  *
  * El token nunca se escribe en el log: se registra solo si vino y si coincidió.
  */
-import { createHmac, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname, resolve } from "node:path";
@@ -96,6 +113,35 @@ const TOKEN_NEGOCIO = APP_SECRET
   : "";
 const codigosUsados = new Set();
 const sincronizacionesPedidas = new Set();
+
+// ===== Media =====
+const URL_VENCE_MS = Number(process.env.MOCK_META_URL_VENCE_MS ?? 5 * 60_000);
+const MB = 1024 * 1024;
+/** Tabla de la referencia de media de Meta: tipo -> tamaño máximo. */
+const LIMITES_MEDIA = {
+  "image/jpeg": 5 * MB,
+  "image/png": 5 * MB,
+  "video/mp4": 16 * MB,
+  "video/3gpp": 16 * MB,
+  "audio/aac": 16 * MB,
+  "audio/amr": 16 * MB,
+  "audio/mpeg": 16 * MB,
+  "audio/mp4": 16 * MB,
+  "audio/ogg": 16 * MB,
+  "application/pdf": 100 * MB,
+  "text/plain": 100 * MB,
+  "application/msword": 100 * MB,
+  "application/vnd.ms-excel": 100 * MB,
+  "application/vnd.ms-powerpoint": 100 * MB,
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": 100 * MB,
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": 100 * MB,
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": 100 * MB,
+};
+/** id de media -> { mime, bytes, nombre, urlsVencidas }. Entrantes anunciados y subidos. */
+const mediaGuardada = new Map();
+/** nonce de URL -> { mediaId, expira, vencida } */
+const urlsEmitidas = new Map();
+const TIPOS_CON_MEDIA = new Set(["image", "video", "audio", "document", "sticker"]);
 
 const webhookUrl = new URL(WEBHOOK);
 if (!["127.0.0.1", "localhost", "[::1]"].includes(webhookUrl.hostname)) {
@@ -259,6 +305,226 @@ function canjearCodigo(res, url) {
   return responder(res, 200, { access_token: TOKEN_NEGOCIO, token_type: "bearer" });
 }
 
+function sha256Base64(bytes) {
+  return createHash("sha256").update(bytes).digest("base64");
+}
+
+/** POST /:phoneId/media — multipart. Aplica la tabla de tipos y tamaños de Meta. */
+async function subirMedia(req, res, base, phoneId) {
+  const partes = [];
+  for await (const p of req) partes.push(p);
+  let form;
+  try {
+    form = await new Response(Buffer.concat(partes), {
+      headers: { "content-type": req.headers["content-type"] ?? "" },
+    }).formData();
+  } catch {
+    registrar({ tipo: "graph.media.rechazada", ...base, motivo: "multipart" });
+    return errorGraph(res, 400, 100, "Invalid multipart body (mock)");
+  }
+  const archivo = form.get("file");
+  const tipoDeclarado = String(form.get("type") ?? "");
+  if (form.get("messaging_product") !== "whatsapp") {
+    registrar({ tipo: "graph.media.rechazada", ...base, motivo: "messaging_product" });
+    return errorGraph(res, 400, 100, "messaging_product is required (mock)");
+  }
+  if (!archivo || typeof archivo === "string") {
+    registrar({ tipo: "graph.media.rechazada", ...base, motivo: "sin_file" });
+    return errorGraph(res, 400, 100, "Param file is required (mock)");
+  }
+  const mime = archivo.type.split(";")[0].trim().toLowerCase();
+  const limite = LIMITES_MEDIA[mime];
+  if (limite === undefined) {
+    registrar({ tipo: "graph.media.rechazada", ...base, motivo: "tipo", mime });
+    return errorGraph(
+      res,
+      400,
+      100,
+      `Param file must be a file with one of the supported types (mock): ${mime}`,
+    );
+  }
+  if (tipoDeclarado.split(";")[0].trim().toLowerCase() !== mime) {
+    registrar({ tipo: "graph.media.rechazada", ...base, motivo: "mime_distinto", mime });
+    return errorGraph(res, 400, 131053, "Media upload error: MIME type mismatch (mock)");
+  }
+  const bytes = Buffer.from(await archivo.arrayBuffer());
+  if (bytes.length > limite) {
+    registrar({
+      tipo: "graph.media.rechazada",
+      ...base,
+      motivo: "tamano",
+      mime,
+      bytes: bytes.length,
+    });
+    return errorGraph(res, 400, 131052, "Media file size too big (mock)");
+  }
+  const mediaId = `MOCKMEDIA-UP-${randomUUID()}`;
+  mediaGuardada.set(mediaId, { mime, bytes, nombre: archivo.name, urlsVencidas: 0 });
+  registrar({
+    tipo: "graph.media.subida",
+    ...base,
+    phone_id: phoneId,
+    media_id: mediaId,
+    mime,
+    bytes: bytes.length,
+    nombre: archivo.name,
+  });
+  return responder(res, 200, { id: mediaId });
+}
+
+/** GET /:mediaId — anuncia una URL que vence a los 5 minutos. */
+function anunciarUrl(res, base, mediaId) {
+  const m = mediaGuardada.get(mediaId);
+  const nonce = randomUUID();
+  const vencida = m.urlsVencidas > 0;
+  if (vencida) m.urlsVencidas -= 1;
+  urlsEmitidas.set(nonce, { mediaId, expira: Date.now() + URL_VENCE_MS, vencida });
+  registrar({ tipo: "graph.media.url", ...base, media_id: mediaId });
+  return responder(res, 200, {
+    messaging_product: "whatsapp",
+    url: `http://127.0.0.1:${PUERTO}/__mock/media-bin/${nonce}`,
+    mime_type: m.mime,
+    sha256: sha256Base64(m.bytes),
+    file_size: m.bytes.length,
+    id: mediaId,
+  });
+}
+
+async function descargarMedia(req, res, nonce) {
+  const auth = autorizado(req);
+  const u = urlsEmitidas.get(nonce);
+  if (!auth.coincide) {
+    registrar({
+      tipo: "graph.media.descarga_rechazada",
+      motivo: "token",
+      token_presente: auth.vino,
+    });
+    return errorGraph(res, 401, 190, "Invalid OAuth access token (mock)");
+  }
+  if (!u || u.vencida || Date.now() > u.expira) {
+    registrar({ tipo: "graph.media.descarga_rechazada", motivo: "url_vencida" });
+    res.writeHead(404);
+    return res.end();
+  }
+  const m = mediaGuardada.get(u.mediaId);
+  registrar({
+    tipo: "graph.media.descarga",
+    media_id: u.mediaId,
+    token: auth.token,
+    bytes: m.bytes.length,
+  });
+  res.writeHead(200, { "content-type": m.mime, "content-length": String(m.bytes.length) });
+  return res.end(m.bytes);
+}
+
+/** Datos del objeto de media que viaja en el webhook (`image`, `audio`, …). */
+function objetoMediaWebhook(d, mediaId, bytes, mime) {
+  const obj = { id: mediaId, mime_type: mime, sha256: sha256Base64(bytes) };
+  if (d.caption && ["image", "video", "document"].includes(d.tipo)) obj.caption = String(d.caption);
+  if (d.tipo === "document" && d.nombre) obj.filename = String(d.nombre);
+  if (d.tipo === "audio" && d.voz) obj.voice = true;
+  if (d.tipo === "sticker") obj.animated = Boolean(d.animado);
+  return obj;
+}
+
+function registrarMediaEntrante(d) {
+  const bytes = Buffer.from(String(d.base64 ?? ""), "base64");
+  const mime = String(d.mime ?? "application/octet-stream");
+  const mediaId = `MOCKMEDIA-IN-${randomUUID()}`;
+  mediaGuardada.set(mediaId, {
+    mime,
+    bytes,
+    nombre: d.nombre ?? null,
+    urlsVencidas: Number(d.urlsVencidas ?? 0),
+  });
+  return { mediaId, bytes, mime };
+}
+
+async function manejarMediaControl(req, res, accion) {
+  const d = JSON.parse((await leerCuerpo(req)) || "{}");
+  if (!TIPOS_CON_MEDIA.has(d.tipo) || !d.base64) {
+    return responder(res, 400, { error: "tipo (image|video|audio|document|sticker) y base64" });
+  }
+
+  if (accion === "entrante") {
+    const from = digitos(d.from);
+    if (!from) return responder(res, 400, { error: "from" });
+    const { mediaId, bytes, mime } = registrarMediaEntrante(d);
+    const wamid = `wamid.MOCK-IN-${randomUUID()}`;
+    const r = await postWebhook(
+      payloadWa({
+        ...valueBase(),
+        contacts: [{ profile: { name: d.nombre_perfil ?? "Cliente Prueba" }, wa_id: from }],
+        messages: [
+          {
+            from,
+            id: wamid,
+            timestamp: ahoraSeg(),
+            type: d.tipo,
+            [d.tipo]: objetoMediaWebhook(d, mediaId, bytes, mime),
+          },
+        ],
+      }),
+      "webhook.media.entrante",
+    );
+    return responder(res, 200, { ...r, meta_message_id: wamid, media_id: mediaId });
+  }
+
+  if (accion === "eco") {
+    const to = digitos(d.to);
+    if (!to) return responder(res, 400, { error: "to" });
+    const { mediaId, bytes, mime } = registrarMediaEntrante(d);
+    const wamid = `wamid.MOCK-ECO-${randomUUID()}`;
+    const r = await postWebhook(
+      payloadCoex(
+        "smb_message_echoes",
+        valueCoex({
+          message_echoes: [
+            {
+              from: COEX_DISPLAY,
+              to,
+              id: wamid,
+              timestamp: ahoraSeg(),
+              type: d.tipo,
+              [d.tipo]: objetoMediaWebhook(d, mediaId, bytes, mime),
+            },
+          ],
+        }),
+      ),
+      "webhook.media.eco",
+    );
+    return responder(res, 200, { ...r, meta_message_id: wamid, media_id: mediaId });
+  }
+
+  if (accion === "historial") {
+    // El follow-up de `history`: `messages[]` directo en el value, sin `to`.
+    const from = digitos(d.from);
+    if (!from) return responder(res, 400, { error: "from" });
+    const { mediaId, bytes, mime } = registrarMediaEntrante(d);
+    const wamid = d.id ?? `wamid.MOCK-HIST-${randomUUID()}`;
+    const r = await postWebhook(
+      payloadCoex(
+        "history",
+        valueCoex({
+          messages: [
+            {
+              from,
+              id: wamid,
+              timestamp: String(Math.floor(Date.now() / 1000) - 3600),
+              type: d.tipo,
+              [d.tipo]: objetoMediaWebhook(d, mediaId, bytes, mime),
+            },
+          ],
+        }),
+      ),
+      "webhook.media.historial",
+    );
+    return responder(res, 200, { ...r, meta_message_id: wamid, media_id: mediaId });
+  }
+
+  return responder(res, 404, { error: "accion de media desconocida" });
+}
+
 async function manejarGraph(req, res, segmentos, url) {
   if (req.method === "GET" && segmentos[1] === "oauth" && segmentos[2] === "access_token") {
     return canjearCodigo(res, url);
@@ -302,6 +568,14 @@ async function manejarGraph(req, res, segmentos, url) {
     return responder(res, 200, { messaging_product: "whatsapp", request_id: requestId });
   }
 
+  if (req.method === "POST" && recurso === "media") {
+    return subirMedia(req, res, base, id);
+  }
+
+  if (req.method === "GET" && !recurso && mediaGuardada.has(id)) {
+    return anunciarUrl(res, base, id);
+  }
+
   if (req.method === "POST" && recurso === "messages") {
     const texto = await leerCuerpo(req);
     let cuerpo;
@@ -319,6 +593,13 @@ async function manejarGraph(req, res, segmentos, url) {
     }
     if (cuerpo.messaging_product === "whatsapp") {
       const to = String(cuerpo.to ?? "").replace(/\D/g, "");
+      // Un envío de media por id: el id tiene que ser uno que se subió (los de
+      // los entrantes también valen, como en Meta mientras no venzan).
+      const mediaId = TIPOS_CON_MEDIA.has(cuerpo.type) ? cuerpo[cuerpo.type]?.id : undefined;
+      if (mediaId !== undefined && !mediaGuardada.has(String(mediaId))) {
+        registrar({ tipo: "graph.envio.rechazado", ...base, cuerpo, motivo: "media_id" });
+        return errorGraph(res, 400, 100, "Media ID not found or expired (mock)");
+      }
       if (RECHAZAR.has(to)) {
         registrar({ tipo: "graph.envio.rechazado", ...base, cuerpo });
         return errorGraph(res, 400, 131026, "Message undeliverable (mock)");
@@ -471,6 +752,18 @@ async function manejarControl(req, res, url) {
       "webhook.respuesta_interactiva",
     );
     return responder(res, 200, { ...r, meta_message_id: wamid });
+  }
+  if (req.method === "GET" && url.pathname.startsWith("/__mock/media-bin/")) {
+    return descargarMedia(req, res, url.pathname.slice("/__mock/media-bin/".length));
+  }
+  if (req.method === "GET" && url.pathname.startsWith("/__mock/media-subida/")) {
+    const m = mediaGuardada.get(url.pathname.slice("/__mock/media-subida/".length));
+    if (!m) return responder(res, 404, { error: "media desconocida" });
+    res.writeHead(200, { "content-type": m.mime });
+    return res.end(m.bytes);
+  }
+  if (req.method === "POST" && url.pathname.startsWith("/__mock/media/")) {
+    return manejarMediaControl(req, res, url.pathname.slice("/__mock/media/".length));
   }
   if (req.method === "POST" && url.pathname.startsWith("/__mock/coex/")) {
     return manejarCoex(req, res, url.pathname.slice("/__mock/coex/".length));

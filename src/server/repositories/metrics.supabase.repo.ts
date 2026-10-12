@@ -1,3 +1,4 @@
+import { FILTRO_JSONB_SESION_IMPORTADA } from "@/lib/coexistencia/sesion-importada";
 import { BuscarRepuestoInputSchema } from "@/lib/validation/ai";
 import type { AppClient } from "@/server/db/client";
 import { leerPorKeyset } from "@/server/db/paginar";
@@ -65,7 +66,10 @@ export class SupabaseMetricsRepository implements MetricsRepository {
             "id, current_stage, resultado, motivo_perdida, started_at, precio_cotizado, codigo_interno, closed_at, cantidad",
           )
           .gte("started_at", desde.toISOString())
-          .lt("started_at", hasta.toISOString());
+          .lt("started_at", hasta.toISOString())
+          // El historial importado de la app Business se cierra como `perdido`
+          // sin motivo: no es una venta perdida y no se cuenta.
+          .not("extras", "cs", FILTRO_JSONB_SESION_IMPORTADA);
         if (despuesDe !== null) q = q.gt("id", despuesDe);
         return q.order("id", { ascending: true }).limit(tamanio);
       },
@@ -98,11 +102,16 @@ export class SupabaseMetricsRepository implements MetricsRepository {
       pagina: (despuesDe, tamanio) => {
         let q = this.db
           .from("mensajes")
+          // `lead_session!inner(id)` existe sólo para poder filtrar por la sesión
+          // del mensaje sin traer su `extras`: los mensajes del historial
+          // importado (hasta 180 días, con su fecha original) llenarían la
+          // ventana y falsearían autoría, canal y tiempos de respuesta.
           .select(
-            "id, sender, created_at, platform_created_at, lead_session_id, sender_user_id, conversaciones!inner(canal)",
+            "id, sender, created_at, platform_created_at, lead_session_id, sender_user_id, conversaciones!inner(canal), lead_session!inner(id)",
           )
           .gte("created_at", desde.toISOString())
-          .lt("created_at", hasta.toISOString());
+          .lt("created_at", hasta.toISOString())
+          .not("lead_session.extras", "cs", FILTRO_JSONB_SESION_IMPORTADA);
         if (despuesDe !== null) q = q.gt("id", despuesDe);
         return q.order("id", { ascending: true }).limit(tamanio);
       },

@@ -73,6 +73,7 @@ beforeEach(async () => {
     messages,
     handoff: new DefaultHandoffService(sessions, undefined, handoffEvents),
     handoffEvents,
+    encolarDescargaMedia: async () => {},
     ahora: () => ahora,
   });
 });

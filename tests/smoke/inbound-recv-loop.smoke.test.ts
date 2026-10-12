@@ -52,7 +52,7 @@ describe("E2E smoke — bootstrap wireup with InMemory repos", () => {
     expect(bundle.repos.leads.constructor.name).toBe("InMemoryLeadsRepository");
   });
 
-  test("makeCrmInngestFunctions(smokeDeps) registra las 27 functions, una por una", () => {
+  test("makeCrmInngestFunctions(smokeDeps) registra las 28 functions, una por una", () => {
     const bundle = makeSmokeBundle();
     const functions = makeCrmInngestFunctions(bundle.deps);
     // La lista entera y no la cantidad: una function que se cae del registro
@@ -87,6 +87,8 @@ describe("E2E smoke — bootstrap wireup with InMemory repos", () => {
         "on-coexistencia-contactos",
         "on-coexistencia-eco",
         "coexistencia-reanudar-ia",
+        // Baja el archivo de los mensajes de WhatsApp a la copia propia.
+        "descargar-media-mensaje",
         "update-lead-twin",
         "workflow-disparar",
         // Emisor del trigger "Inactividad" (escaneo cada 10 minutos).

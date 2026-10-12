@@ -37,6 +37,16 @@ function origenesSupabaseLocal(url: string | undefined): string[] {
   return [`${u.protocol}//${u.host}`, `${ws}//${u.host}`];
 }
 
+/**
+ * Mismo origen local pero sólo el http(s): las imágenes, audios y videos del
+ * hilo se piden a `/api/media/<id>`, que redirige a una URL firmada del Storage
+ * (docs/meta/media.md). En producción ya entran por `https://*.supabase.co`.
+ */
+const MEDIA_SUPABASE_LOCAL = origenesSupabaseLocal(process.env.NEXT_PUBLIC_SUPABASE_URL).slice(
+  0,
+  1,
+);
+
 const CONNECT_SRC = [
   "'self'",
   "https://*.supabase.co",
@@ -59,8 +69,14 @@ function directivasCsp(extra: { script?: string[]; connect?: string[]; frame?: s
     ["script-src 'self' 'unsafe-inline' 'unsafe-eval'", ...(extra.script ?? [])].join(" "),
     "style-src 'self' 'unsafe-inline'",
     // Imágenes: self + Supabase Storage (configurable env) + data: para inline.
-    "img-src 'self' data: blob: https://*.supabase.co https://scontent.whatsapp.net https://scontent.cdninstagram.com",
-    "media-src 'self' https://*.supabase.co https://scontent.whatsapp.net",
+    [
+      "img-src 'self' data: blob: https://*.supabase.co https://scontent.whatsapp.net https://scontent.cdninstagram.com",
+      ...MEDIA_SUPABASE_LOCAL,
+    ].join(" "),
+    [
+      "media-src 'self' https://*.supabase.co https://scontent.whatsapp.net",
+      ...MEDIA_SUPABASE_LOCAL,
+    ].join(" "),
     "font-src 'self' data:",
     `connect-src ${[...CONNECT_SRC, ...(extra.connect ?? [])].join(" ")}`,
     ...(extra.frame ? [`frame-src ${extra.frame.join(" ")}`] : []),

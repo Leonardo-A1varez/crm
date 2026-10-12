@@ -1,5 +1,6 @@
 import { InMemoryMessagesRepository } from "@/server/repositories/messages.repo";
 import { DEFAULT_FIXTURES, runMessagesContract } from "../repositories/messages.contract";
+import { runMessagesMediaContract } from "../repositories/messages-media.contract";
 import type { UUID } from "@/types/entities";
 
 // Resolver `lead_session_id -> leadId`. Mismo idioma que `resolverWorkflowId`
@@ -15,3 +16,4 @@ function resolverLeadId(leadSessionId: UUID): UUID | undefined {
 }
 
 runMessagesContract(() => new InMemoryMessagesRepository(resolverLeadId));
+runMessagesMediaContract(() => new InMemoryMessagesRepository(resolverLeadId));

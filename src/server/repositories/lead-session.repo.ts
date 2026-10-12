@@ -1,3 +1,4 @@
+import { esSesionImportada } from "@/lib/coexistencia/sesion-importada";
 import { ConflictError, IllegalStateError, NotFoundError } from "@/lib/errors";
 import { etapaAlcanzada } from "@/lib/ui/stage";
 import type { HistorialVendedor } from "@/lib/round-robin";
@@ -427,6 +428,8 @@ export class InMemoryLeadSessionRepository implements LeadSessionRepository {
     const out: CierreSesion[] = [];
     for (const s of this.store.values()) {
       if (s.resultado === null || s.closed_at === null) continue;
+      // Historial importado: cerrado como `perdido` por el esquema, no es un cierre.
+      if (esSesionImportada(s)) continue;
       out.push({
         lead_id: s.lead_id,
         resultado: s.resultado,

@@ -11,6 +11,14 @@ import type { LeadSession } from "@/types/entities";
  */
 export const CLAVE_SESION_IMPORTADA = "importado_historial";
 
+/**
+ * El operando de `lead_session.extras @> …` / PostgREST `not.cs.…` que reconoce
+ * una sesión importada. Las lecturas que NO deben contarlas (Métricas, el
+ * resultado y el filtro «Perdidos» de Leads) lo piden en la base en vez de
+ * traerlas y descartarlas: el historial son miles de mensajes.
+ */
+export const FILTRO_JSONB_SESION_IMPORTADA = JSON.stringify({ [CLAVE_SESION_IMPORTADA]: true });
+
 export function esSesionImportada(sesion: Pick<LeadSession, "extras">): boolean {
   return sesion.extras[CLAVE_SESION_IMPORTADA] === true;
 }

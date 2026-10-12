@@ -101,6 +101,13 @@ export const TIPO_MENSAJE = [
 ] as const;
 export type TipoMensaje = (typeof TIPO_MENSAJE)[number];
 
+/**
+ * Estado de la copia propia del archivo de un mensaje (`mensajes.media_estado`,
+ * docs/meta/media.md). Ausente = el mensaje no lleva archivo.
+ */
+export const MEDIA_ESTADO = ["pendiente", "descargado", "fallido", "omitido"] as const;
+export type MediaEstado = (typeof MEDIA_ESTADO)[number];
+
 export const METODO_PAGO = ["transferencia", "efectivo", "tarjeta"] as const;
 export type MetodoPago = (typeof METODO_PAGO)[number];
 

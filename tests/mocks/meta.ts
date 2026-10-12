@@ -3,6 +3,7 @@ import type {
   MetaSendTemplateInput,
   MetaSendTextInput,
   MetaSendResult,
+  MetaSendMediaInput,
   MetaSendRicoInput,
   MetaTypingIndicatorInput,
 } from "@/server/services/meta-api.service";
@@ -51,6 +52,15 @@ export class FakeMetaApiClient implements MetaApiClient {
 
   async sendRico(input: MetaSendRicoInput): Promise<MetaSendResult> {
     this.ricoCalls.push(input);
+    if (this.failWith) throw this.failWith;
+    return { meta_message_id: `${this.nextMidPrefix}${this.nextId++}` };
+  }
+
+  /** Archivos (imagen, video, audio, documento) ya subidos a Meta. */
+  public readonly mediaCalls: MetaSendMediaInput[] = [];
+
+  async sendMedia(input: MetaSendMediaInput): Promise<MetaSendResult> {
+    this.mediaCalls.push(input);
     if (this.failWith) throw this.failWith;
     return { meta_message_id: `${this.nextMidPrefix}${this.nextId++}` };
   }

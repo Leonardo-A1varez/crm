@@ -43,6 +43,9 @@ describe("editarCampoTwin", () => {
         sendRico: async () => {
           throw new Error("sendRico no debe invocarse acá");
         },
+        sendMedia: async () => {
+          throw new Error("sendMedia no debe invocarse acá");
+        },
         sendText: async () => {
           throw new Error("no debe enviarse nada acá");
         },

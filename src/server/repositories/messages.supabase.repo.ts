@@ -5,15 +5,18 @@ import { mapPostgrestError } from "@/server/db/postgrest-errors";
 import { escaparLike } from "@/server/db/postgrest-like";
 import { isUuid } from "@/server/db/uuid";
 import { estadosQueAvanzanA } from "@/lib/entrega";
-import type { Direction, EstadoEntrega, Sender, TipoMensaje } from "@/types/domain";
-import type { Mensaje, MensajeMetadata, UUID } from "@/types/entities";
+import { MEDIA_ESTADO } from "@/types/domain";
+import type { Direction, EstadoEntrega, MediaEstado, Sender, TipoMensaje } from "@/types/domain";
+import type { Mensaje, MensajeMedia, MensajeMetadata, UUID } from "@/types/entities";
 import type {
   BuscarContenidoFilter,
   CoincidenciaContenido,
   EstadoEntregaPatch,
   ListByConversacionFilter,
   ListBySessionFilter,
+  ListMediaDescargadaFilter,
   InboxRecentMessage,
+  MediaDescargada,
   MensajeInsert,
   MensajeYaEnviadoInsert,
   MessagesRepository,
@@ -76,6 +79,7 @@ export class SupabaseMessagesRepository implements MessagesRepository {
         tipo: input.tipo,
         contenido: input.contenido,
         media_url: input.media_url,
+        ...columnasDeMedia(input.media),
         meta_message_id: input.meta_message_id,
         idempotency_key: input.idempotency_key,
         metadata: input.metadata as never,
@@ -107,6 +111,67 @@ export class SupabaseMessagesRepository implements MessagesRepository {
       throw mapPostgrestError(error, { resource: "mensaje" });
     }
     return mapRow(data);
+  }
+
+  async registrarMediaDescargada(
+    id: UUID,
+    datos: MediaDescargada,
+    at: Date,
+  ): Promise<Mensaje | null> {
+    if (!isUuid(id)) return null;
+    // El estado `pendiente` en el WHERE hace la escritura idempotente y evita
+    // que un reintento tardío pise un `fallido`/`omitido` que ya se decidió.
+    const { data, error } = await this.db
+      .from("mensajes")
+      .update({
+        media_estado: "descargado",
+        media_path: datos.path,
+        media_mime: datos.mime,
+        media_bytes: datos.bytes,
+        media_error: null,
+        media_descargado_at: at.toISOString(),
+      })
+      .eq("id", id)
+      .eq("media_estado", "pendiente")
+      .select()
+      .maybeSingle();
+    if (error) throw mapPostgrestError(error, { resource: "mensaje" });
+    return data ? mapRow(data) : null;
+  }
+
+  async marcarMediaSinCopia(
+    id: UUID,
+    estado: "fallido" | "omitido",
+    error: string,
+  ): Promise<Mensaje | null> {
+    if (!isUuid(id)) return null;
+    const { data, error: dbError } = await this.db
+      .from("mensajes")
+      .update({ media_estado: estado, media_error: error.slice(0, 300) })
+      .eq("id", id)
+      .eq("media_estado", "pendiente")
+      .select()
+      .maybeSingle();
+    if (dbError) throw mapPostgrestError(dbError, { resource: "mensaje" });
+    return data ? mapRow(data) : null;
+  }
+
+  async listMediaDescargada(filter: ListMediaDescargadaFilter): Promise<Mensaje[]> {
+    let q = this.db.from("mensajes").select().eq("media_estado", "descargado");
+    const despues = filter.despuesDe;
+    if (despues) {
+      const at = despues.at.toISOString();
+      // Cursor compuesto (at, id): dos descargas pueden compartir el instante.
+      q = q.or(
+        `media_descargado_at.gt.${at},and(media_descargado_at.eq.${at},id.gt.${despues.id})`,
+      );
+    }
+    const { data, error } = await q
+      .order("media_descargado_at", { ascending: true })
+      .order("id", { ascending: true })
+      .limit(filter.limit);
+    if (error) throw mapPostgrestError(error, { resource: "mensaje" });
+    return (data ?? []).map(mapRow);
   }
 
   async findById(id: UUID): Promise<Mensaje | null> {
@@ -408,6 +473,14 @@ interface MensajeRow {
   tipo: TipoMensaje;
   contenido: string | null;
   media_url: string | null;
+  media_estado?: string | null;
+  media_meta_id?: string | null;
+  media_path?: string | null;
+  media_mime?: string | null;
+  media_bytes?: number | null;
+  media_nombre?: string | null;
+  media_error?: string | null;
+  media_descargado_at?: string | null;
   meta_message_id: string | null;
   idempotency_key: string | null;
   metadata: unknown;
@@ -416,6 +489,38 @@ interface MensajeRow {
   estado_entrega: EstadoEntrega | null;
   estado_entrega_at: string | null;
   error_entrega: string | null;
+}
+
+/** Las 8 columnas `media_*` de un insert; sin archivo no se mandan. */
+function columnasDeMedia(media: MensajeMedia | null | undefined) {
+  if (!media) return {};
+  return {
+    media_estado: media.estado,
+    media_meta_id: media.metaId,
+    media_path: media.path,
+    media_mime: media.mime,
+    media_bytes: media.bytes,
+    media_nombre: media.nombre,
+    media_error: media.error,
+    media_descargado_at: media.descargadoAt ? media.descargadoAt.toISOString() : null,
+  };
+}
+
+function mediaDeRow(row: MensajeRow): MensajeMedia | null {
+  const estado = row.media_estado;
+  if (!estado || !(MEDIA_ESTADO as readonly string[]).includes(estado)) return null;
+  return {
+    estado: estado as MediaEstado,
+    metaId: row.media_meta_id ?? null,
+    path: row.media_path ?? null,
+    mime: row.media_mime ?? null,
+    // `bigint` puede viajar como string en el JSON de PostgREST.
+    bytes:
+      row.media_bytes === null || row.media_bytes === undefined ? null : Number(row.media_bytes),
+    nombre: row.media_nombre ?? null,
+    error: row.media_error ?? null,
+    descargadoAt: row.media_descargado_at ? new Date(row.media_descargado_at) : null,
+  };
 }
 
 /**
@@ -448,6 +553,7 @@ function mapRow(row: MensajeRow): Mensaje {
     tipo: row.tipo,
     contenido: row.contenido,
     media_url: row.media_url,
+    media: mediaDeRow(row),
     meta_message_id: row.meta_message_id,
     idempotency_key: row.idempotency_key,
     metadata: structuredClone(meta),

@@ -99,6 +99,89 @@ describe("makePurgeSession (real)", () => {
     expect(await sessions.findById(session.id)).toBeNull();
   });
 
+  describe("media propia (mensajes.media_path, docs/meta/media.md)", () => {
+    let removeFolder: Mock<(carpeta: string) => Promise<void>>;
+    let purgeConMedia: (sessionId: UUID) => Promise<void>;
+
+    beforeEach(() => {
+      removeFolder = vi.fn(async (_carpeta: string) => {});
+      purgeConMedia = makePurgeSession({
+        sessions,
+        messages,
+        removeMedia,
+        removeSessionFolder: removeFolder,
+        logger: new NoopLogger(),
+      });
+    });
+
+    async function conArchivo(sessionId: UUID, ext: string) {
+      const base = msg(crypto.randomUUID(), sessionId, null);
+      const m = await messages.create({
+        ...base,
+        tipo: "image",
+        meta_message_id: `wamid.${crypto.randomUUID()}`,
+        media: {
+          estado: "pendiente",
+          metaId: "M",
+          path: null,
+          mime: "image/jpeg",
+          bytes: null,
+          nombre: null,
+          error: null,
+          descargadoAt: null,
+        },
+      });
+      const path = `sesiones/${sessionId}/${m.id}.${ext}`;
+      await messages.registrarMediaDescargada(
+        m.id,
+        { path, mime: "image/jpeg", bytes: 3 },
+        new Date(),
+      );
+      return path;
+    }
+
+    test("borra los archivos de los mensajes y barre la carpeta de la sesion", async () => {
+      const session = await makeClosedSession(sessions);
+      const a = await conArchivo(session.id, "webp");
+      const b = await conArchivo(session.id, "ogg");
+
+      await purgeConMedia(session.id);
+
+      expect(removeMedia).toHaveBeenCalledOnce();
+      expect(removeMedia.mock.calls[0]![0].sort()).toEqual([a, b].sort());
+      expect(removeFolder).toHaveBeenCalledExactlyOnceWith(`sesiones/${session.id}`);
+      expect(await sessions.findById(session.id)).toBeNull();
+    });
+
+    test("un mensaje con archivo pendiente o fallido no tiene ruta: no se pide borrar nada", async () => {
+      const session = await makeClosedSession(sessions);
+      await messages.create({
+        ...msg(crypto.randomUUID(), session.id, null),
+        tipo: "image",
+        media: {
+          estado: "fallido",
+          metaId: "M",
+          path: null,
+          mime: null,
+          bytes: null,
+          nombre: null,
+          error: "x",
+          descargadoAt: null,
+        },
+      });
+      await purgeConMedia(session.id);
+      expect(removeMedia).not.toHaveBeenCalled();
+      expect(removeFolder).toHaveBeenCalledOnce();
+    });
+
+    test("si falla el barrido de la carpeta, igual se borra la sesion", async () => {
+      const session = await makeClosedSession(sessions);
+      removeFolder.mockRejectedValueOnce(new Error("storage caído"));
+      await expect(purgeConMedia(session.id)).resolves.toBeUndefined();
+      expect(await sessions.findById(session.id)).toBeNull();
+    });
+  });
+
   test("replay: segundo purge de la misma sesión es no-op sin throw", async () => {
     const session = await makeClosedSession(sessions);
 

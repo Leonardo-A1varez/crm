@@ -321,6 +321,14 @@ export type AuditoriaTurno =
     };
 
 /**
+ * Resultado de `prepararAdjuntoAction`: dónde y con qué token sube el navegador
+ * el archivo directo a Storage. No usa `ActionResult` porque devuelve datos.
+ */
+export type ResultadoPrepararAdjunto =
+  | { ok: true; ruta: string; token: string }
+  | { ok: false; error: string };
+
+/**
  * Resultado de la Server Action que lee la auditoría. No usa `ActionResult`
  * porque esta acción no escribe nada: lo que devuelve es el dato pedido.
  */

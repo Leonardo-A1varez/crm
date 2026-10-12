@@ -44,6 +44,19 @@ export interface ListBySessionFilter {
 
 const DEFAULT_LIMIT = 50;
 
+/** Lo que queda de una descarga lograda (`registrarMediaDescargada`). */
+export interface MediaDescargada {
+  path: string;
+  mime: string;
+  bytes: number;
+}
+
+export interface ListMediaDescargadaFilter {
+  /** Cursor compuesto: dos descargas pueden compartir el mismo instante. */
+  despuesDe?: { at: Date; id: UUID };
+  limit: number;
+}
+
 /**
  * Un mensaje cuyo texto coincidió con la búsqueda, con lo mínimo para mostrarlo.
  *
@@ -76,7 +89,11 @@ export interface InboxRecentMessage {
 
 // Deep clone defensivo de metadata (jsonb arbitrario). Garantiza parity con Supabase.
 function cloneMensaje(m: Mensaje): Mensaje {
-  return { ...m, metadata: structuredClone(m.metadata) };
+  return {
+    ...m,
+    metadata: structuredClone(m.metadata),
+    ...(m.media ? { media: { ...m.media } } : {}),
+  };
 }
 
 export interface MessagesRepository {
@@ -88,6 +105,23 @@ export interface MessagesRepository {
    */
   registrarSalienteYaEnviado(input: MensajeYaEnviadoInsert): Promise<Mensaje>;
   findById(id: UUID): Promise<Mensaje | null>;
+  /**
+   * Cierra la descarga de un archivo entrante: `pendiente` -> `descargado`.
+   * Idempotente: devuelve `null` (sin tocar nada) si el mensaje no existe o ya
+   * no está `pendiente`, para que un reintento tardío no pise lo ya decidido.
+   */
+  registrarMediaDescargada(id: UUID, datos: MediaDescargada, at: Date): Promise<Mensaje | null>;
+  /**
+   * `pendiente` -> `fallido` (se agotaron los reintentos) u `omitido` (a propósito
+   * no se guarda). Mismas reglas de idempotencia que `registrarMediaDescargada`.
+   */
+  marcarMediaSinCopia(
+    id: UUID,
+    estado: "fallido" | "omitido",
+    error: string,
+  ): Promise<Mensaje | null>;
+  /** Archivos ya guardados, del más viejo al más nuevo (cursor `(at, id)`). */
+  listMediaDescargada(filter: ListMediaDescargadaFilter): Promise<Mensaje[]>;
   // Dedup webhook Meta. Null cuando meta_message_id no fue persistido.
   findByMetaMessageId(metaMessageId: string): Promise<Mensaje | null>;
   // Dedup outbound retry. Espeja UNIQUE partial WHERE direction='out' AND idempotency_key IS NOT NULL.
@@ -267,6 +301,54 @@ export class InMemoryMessagesRepository implements MessagesRepository {
   async findById(id: UUID): Promise<Mensaje | null> {
     const m = this.store.get(id);
     return m ? cloneMensaje(m) : null;
+  }
+
+  async registrarMediaDescargada(
+    id: UUID,
+    datos: MediaDescargada,
+    at: Date,
+  ): Promise<Mensaje | null> {
+    const m = this.store.get(id);
+    if (!m || m.media?.estado !== "pendiente") return null;
+    m.media = {
+      ...m.media,
+      estado: "descargado",
+      path: datos.path,
+      mime: datos.mime,
+      bytes: datos.bytes,
+      error: null,
+      descargadoAt: at,
+    };
+    return cloneMensaje(m);
+  }
+
+  async marcarMediaSinCopia(
+    id: UUID,
+    estado: "fallido" | "omitido",
+    error: string,
+  ): Promise<Mensaje | null> {
+    const m = this.store.get(id);
+    if (!m || m.media?.estado !== "pendiente") return null;
+    m.media = { ...m.media, estado, error: error.slice(0, 300) };
+    return cloneMensaje(m);
+  }
+
+  async listMediaDescargada(filter: ListMediaDescargadaFilter): Promise<Mensaje[]> {
+    const despues = filter.despuesDe;
+    return [...this.store.values()]
+      .filter((m) => m.media?.estado === "descargado" && m.media.descargadoAt !== null)
+      .sort(
+        (a, b) =>
+          (a.media?.descargadoAt?.getTime() ?? 0) - (b.media?.descargadoAt?.getTime() ?? 0) ||
+          (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+      )
+      .filter((m) => {
+        if (!despues) return true;
+        const t = m.media?.descargadoAt?.getTime() ?? 0;
+        return t > despues.at.getTime() || (t === despues.at.getTime() && m.id > despues.id);
+      })
+      .slice(0, filter.limit)
+      .map(cloneMensaje);
   }
 
   async findByMetaMessageId(metaMessageId: string): Promise<Mensaje | null> {

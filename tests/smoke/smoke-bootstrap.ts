@@ -138,6 +138,9 @@ function makeMockMetaClient(): { client: MetaApiClient; send: ReturnType<typeof 
       sendRico: async () => {
         throw new Error("el smoke no manda botones, listas, imágenes ni ubicaciones");
       },
+      sendMedia: async () => {
+        throw new Error("el smoke no manda archivos");
+      },
     },
     send,
   };
@@ -431,7 +434,12 @@ export function makeSmokeBundle(): SmokeBundle {
         messages,
         handoff,
         handoffEvents,
+        encolarDescargaMedia: async () => {},
       }),
+      logger,
+    },
+    descargarMedia: {
+      servicio: { descargar: async () => "ya_resuelto", marcarFallida: async () => {} },
       logger,
     },
   };

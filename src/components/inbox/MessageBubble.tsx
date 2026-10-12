@@ -1,6 +1,7 @@
 import { format } from "date-fns";
 import { AccountTree, AutoAwesome, Done, DoneAll, ErrorIcon, Schedule } from "@/components/icons";
 import { ContenidoRico } from "@/components/inbox/ContenidoRico";
+import { MediaDelMensaje } from "@/components/inbox/MediaDelMensaje";
 import { MonoMeta } from "@/components/shared/MonoMeta";
 import { partirTexto } from "@/lib/ui/busqueda-hilo";
 import { cn } from "@/lib/utils";
@@ -210,7 +211,21 @@ export function MessageBubble({
             }
           />
         )}
-        {mediaLabel ? (
+        {message.media ? (
+          <MediaDelMensaje
+            mensajeId={message.id}
+            sticker={message.metadata.sticker === true}
+            voz={message.metadata.voz === true}
+            media={{
+              estado: message.media.estado,
+              mime: message.media.mime,
+              nombre: message.media.nombre,
+              bytes: message.media.bytes,
+              error: message.media.error,
+            }}
+          />
+        ) : null}
+        {mediaLabel && !message.media ? (
           <p className="italic">
             [{mediaLabel}]
             {message.media_url ? (

@@ -26,6 +26,8 @@ import { closeSessionAction } from "../_actions/close-session.action";
 import { cambiarModoRespuestaAction } from "../_actions/cambiar-modo-respuesta.action";
 import { crearEtiquetaAction } from "../_actions/crear-etiqueta.action";
 import { editarCampoTwinAction } from "../_actions/editar-campo-twin.action";
+import { enviarAdjuntoAction } from "../_actions/enviar-adjunto.action";
+import { prepararAdjuntoAction } from "../_actions/preparar-adjunto.action";
 import { moverEtapaAction } from "../_actions/mover-etapa.action";
 import { programarRecordatorioAction } from "../_actions/programar-recordatorio.action";
 import { quitarEtiquetaAction } from "../_actions/quitar-etiqueta.action";
@@ -162,6 +164,8 @@ export default async function InboxLeadPage({ params }: { params: Promise<{ lead
                   ventana={ventana}
                   ultimoEntranteIso={ultimoEntrante?.created_at.toISOString() ?? null}
                   onSend={sendMessageAction}
+                  onPrepararAdjunto={prepararAdjuntoAction}
+                  onEnviarAdjunto={enviarAdjuntoAction}
                 />
               </>
             ) : (

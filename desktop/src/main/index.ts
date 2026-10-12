@@ -18,6 +18,7 @@ import { CoordinadorWhatsapp, pathnameDe } from "./coordinador-whatsapp";
 import type { ConfigVistaWhatsapp, EstadoCoordinador } from "./coordinador-whatsapp";
 import { chequeosCalibracion } from "./autocheck-calibracion";
 import { chequeosRecorte } from "./autocheck-recorte";
+import { iniciarArchivoMedia } from "./archivo-media";
 import { crearVentana } from "./ventana";
 import { crearVistaCrm, resolverOrigenCrm } from "./vista-crm";
 import type { ModoUa } from "./vista-whatsapp";
@@ -153,7 +154,14 @@ app.whenReady().then(async () => {
     alCambiarVista: (estado) => avisarCambioVista(crm.webContents, estado),
   });
   ventana.on("resize", () => coordinador.recalcular());
+  // Copia permanente de los archivos del CRM en la PC. Sólo contra el CRM real
+  // (el spike local no tiene API).
+  const detenerArchivo =
+    origen.tipo === "remoto"
+      ? iniciarArchivoMedia({ origin: origen.origin, sesion: crm.webContents.session, log })
+      : () => undefined;
   ventana.on("closed", () => {
+    detenerArchivo();
     crm.webContents.close();
     coordinador.cerrar();
   });

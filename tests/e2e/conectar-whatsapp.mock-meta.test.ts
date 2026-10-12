@@ -211,6 +211,7 @@ describe("Conectar WhatsApp — E2E contra el mock de Meta", () => {
       messages,
       handoff: new DefaultHandoffService(sessions, undefined, handoffEvents),
       handoffEvents,
+      encolarDescargaMedia: async () => {},
     });
     expect(await coex.sincronizarAlConectar(PHONE_COEX)).toEqual({
       verificado: true,

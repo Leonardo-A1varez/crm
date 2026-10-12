@@ -16,6 +16,10 @@
  */
 
 import { GraphApiMetaClient } from "@/server/services/meta/graph-api-client";
+import { GraphApiMediaClient } from "@/server/services/meta/graph-api-media";
+import { SupabaseMediaStorage } from "@/server/repositories/media-storage.supabase.repo";
+import { comprimirImagen } from "@/server/services/media/comprimir-imagen";
+import { DefaultDescargarMediaService } from "@/server/services/media/descargar-media.service";
 import { DefaultResolverCredencialesWhatsApp } from "@/server/services/meta/credenciales-whatsapp.service";
 import { DefaultCoexistenciaService } from "@/server/services/meta/coexistencia.service";
 import { GraphApiOnboardingClient } from "@/server/services/meta/graph-api-onboarding";
@@ -92,6 +96,7 @@ import {
   makeInngestEmitForOutbox,
 } from "@/inngest/callbacks/emit";
 import {
+  mediaPorDescargar,
   recordatorioCancelado,
   workflowCorridaCancelada,
   workflowSegmentoPendiente,
@@ -350,6 +355,10 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
   // ===== Callbacks =====
   const emit = makeEmitForOnMessageReceived(inngest);
   const inngestEmit = makeInngestEmitForOutbox(inngest);
+  // Media de los mensajes (docs/meta/media.md): bucket privado `mensajes_media`
+  // con service role, y el cliente de media de la Graph API con el token del
+  // número de cada conversación.
+  const mediaStorage = new SupabaseMediaStorage(db);
   const purgeSession = makePurgeSession({
     sessions,
     messages,
@@ -357,7 +366,22 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
       const { error } = await db.storage.from("mensajes_media").remove(paths);
       if (error) throw new Error(error.message);
     },
+    removeSessionFolder: async (carpeta) => {
+      await mediaStorage.borrarCarpeta(carpeta);
+    },
     logger: logger.child({ scope: "purge-session" }),
+  });
+  const descargarMedia = new DefaultDescargarMediaService({
+    messages,
+    meta: new GraphApiMediaClient({
+      graphApiVersion: env.META_GRAPH_API_VERSION,
+      whatsappPhoneNumberId: env.META_WHATSAPP_PHONE_NUMBER_ID,
+      whatsappAccessToken: env.META_WHATSAPP_ACCESS_TOKEN,
+      credenciales: credencialesWhatsApp,
+    }),
+    storage: mediaStorage,
+    comprimir: comprimirImagen,
+    logger: logger.child({ scope: "descargar-media" }),
   });
   // ===== Motor de difusión =====
   // Manda por el cliente de Meta y no por `metaApi`: el destinatario típico de
@@ -669,10 +693,20 @@ export function makeInngestDeps(cfg: BootstrapConfig): BootstrapResult {
         messages,
         handoff,
         handoffEvents,
+        // Mismo evento y mismo `id` que el pipeline de entrantes: encolar dos
+        // veces el mismo archivo es una sola descarga.
+        encolarDescargaMedia: async (d) => {
+          await inngest.send({
+            name: mediaPorDescargar.name,
+            id: `media-descargar:${d.mensajeId}`,
+            data: { mensajeId: d.mensajeId, phoneNumberId: d.phoneNumberId, fecha: d.fecha },
+          });
+        },
         logger: logger.child({ scope: "coexistencia" }),
       }),
       logger,
     },
+    descargarMedia: { servicio: descargarMedia, logger },
   };
 
   return { deps, llmBundle, logger };

@@ -34,6 +34,8 @@ export {
   ContactRound as ContactEmergency,
   Copy as DuplicateIcon,
   DatabaseZap as DatabaseSearch,
+  Download as DownloadIcon,
+  FileText as Description,
   Ellipsis as MoreHoriz,
   ExternalLink as OpenInNew,
   Gauge as Speed,

@@ -18,6 +18,13 @@ export interface PurgeSessionDeps {
   messages: MessagesRepository;
   /** Borra objetos del bucket mensajes_media. Bootstrap la implementa con storage.remove. */
   removeMedia: (paths: string[]) => Promise<void>;
+  /**
+   * Borra todo lo que cuelga de `sesiones/<sesión>` en el bucket. Cubre lo que
+   * `removeMedia` no ve: archivos sin fila (un registro que falló después de
+   * subir), o más de los 1000 mensajes que se leen arriba. Opcional sólo para
+   * los tests viejos; el bootstrap lo pasa siempre.
+   */
+  removeSessionFolder?: (carpeta: string) => Promise<void>;
   logger: Logger;
 }
 
@@ -37,6 +44,8 @@ export function makePurgeSession(deps: PurgeSessionDeps): (sessionId: UUID) => P
 
     const paths: string[] = [];
     for (const m of msgs) {
+      // La copia propia del archivo (docs/meta/media.md): ruta dentro del bucket.
+      if (m.media?.path) paths.push(m.media.path);
       if (!m.media_url) continue;
       const path = toBucketPath(m.media_url);
       if (path) {
@@ -53,6 +62,17 @@ export function makePurgeSession(deps: PurgeSessionDeps): (sessionId: UUID) => P
         deps.logger.warn("purgeSession.storage.fallo", {
           sessionId,
           count: paths.length,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+
+    if (deps.removeSessionFolder) {
+      try {
+        await deps.removeSessionFolder(`sesiones/${sessionId}`);
+      } catch (e) {
+        deps.logger.warn("purgeSession.storage.carpeta_fallo", {
+          sessionId,
           error: e instanceof Error ? e.message : String(e),
         });
       }
