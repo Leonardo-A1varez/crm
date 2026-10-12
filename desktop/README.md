@@ -31,6 +31,23 @@ WhatsApp Web dibuja a la izquierda una barra de íconos y la lista de chats. Den
 - `completo`: solo en memoria, default `false`. Con `true` la vista ocupa exactamente el área (sin recorte) y el valor de `recorteIzquierdo` se conserva.
 - La documentación de Electron (`View`, `addChildView`, `setBounds`) no dice que el padre recorte a sus hijos; se **midió** (autocheck (k), abajo) en Electron 44.4.5.
 
+## Archivo de media (copia permanente en la PC)
+
+La app guarda en la PC una copia de **cada archivo** que pasa por el CRM (imagen, video, audio, nota de voz, documento, sticker; entrantes y salientes), para tenerlos aunque el CRM los purgue a los 29 días del cierre de la sesión. Código: `src/main/archivador-media.ts` (motor), `archivo-media-ruta.ts` (rutas y guarda de OneDrive) y `archivo-media.ts` (adaptador de Electron). Diseño de servidor y límites de Meta: `docs/meta/media.md` §4.
+
+**Dónde:** `<USERPROFILE>\CRM Genuino\Archivos\<cliente>\<YYYY-MM-DD>\<archivo>`, directo en la carpeta del usuario (no en Documentos ni Escritorio). `<cliente>` es el nombre cargado del lead (o su teléfono si no tiene) y el día es el del mensaje en la zona horaria **de esta PC**. Dos clientes con el mismo nombre comparten carpeta; dos archivos con el mismo nombre en el mismo día se distinguen con el id (`lista [3fa9c1d2].pdf`).
+
+**OneDrive: se niega.** Si la carpeta cae dentro de OneDrive —variables de entorno `OneDrive`, `OneDriveConsumer` u `OneDriveCommercial`, cualquier tramo de la ruta que diga «OneDrive», o una junction/enlace cuya ruta real apunte ahí— la app **no baja nada**, muestra un aviso una vez por arranque y lo deja en el log (`archivo de media bloqueado`). Hay que sacar la carpeta «CRM Genuino» de OneDrive y reiniciar. Lo prueba `tests/unit/desktop/archivo-media-ruta.test.ts`.
+
+**Cómo (la opción más segura, y por qué):** el proceso principal consulta cada 60 s `GET /api/escritorio/archivos?despues=<cursor>&limite=20` con la sesión del CRM (la cookie de su partición `persist:crm`; sin token aparte) y baja cada archivo nuevo por `GET /api/media/<mensajeId>?descargar=1` (redirige a una URL firmada del Storage de 5 minutos). **No hay IPC ni nada nuevo en `window.crmEscritorio`**: el renderer no pide guardar archivos ni elige rutas, así que no hay una entrada que validar ni forma de que una página del CRM escriba en disco. La alternativa (un IPC que el CRM llame al ver cada mensaje) guardaría sólo lo que alguien llegue a mirar, y le daría al renderer un canal para escribir archivos.
+
+- **Entradas validadas.** La respuesta del servidor no se cree a ciegas (`parsearListado`: id uuid, textos, fecha válida; lo demás se descarta). Cliente y nombre de archivo son de terceros: `sanearSegmento` los deja como **un solo segmento** (sin `/`, `\`, `..`, caracteres de control ni `<>:"|?*`, sin nombres reservados de Windows, sin punto o espacio al final, máx. 80 con extensión) y `rutaDestino` verifica que el resultado quede adentro de la carpeta base.
+- **Idempotente.** El cursor sólo avanza al terminar una página y el estado (`%APPDATA%\crm-escritorio\archivo-media.json`, escritura atómica) anota los ids ya guardados de la página en curso: reiniciar la app o repetir un ciclo no baja dos veces el mismo archivo. Se baja a `<archivo>.part` y se renombra al terminar.
+- **Reintentos.** Un archivo que falla corta el ciclo y se reintenta al minuto; tras 5 fallos seguidos se abandona (queda en el log, sin nombres) y sigue con los demás. Sin sesión en el CRM (401 o redirección al login) no hace nada y reintenta.
+- **Primer arranque:** baja todo lo que el CRM todavía tiene (hasta 29 días de archivos más el historial importado de los últimos 14), de a 20 por página y hasta 500 por ciclo.
+- **Tope por archivo:** 60 MB (el CRM guarda hasta 50 MiB). Sólo se archiva lo que el CRM tiene como `descargado`.
+- **Sin PII en el log:** nunca nombres de clientes ni de archivos; sólo ids de mensaje y cantidades.
+
 ## Instalar
 
 Requiere Node 22.12 o superior.

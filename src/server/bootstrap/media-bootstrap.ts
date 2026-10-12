@@ -3,6 +3,11 @@ import { createSupabaseServerClient } from "@/server/auth/supabase-ssr";
 import { defaultDbClientFactory } from "@/server/db/client";
 import { SupabaseConversationsRepository } from "@/server/repositories/conversations.supabase.repo";
 import { SupabaseLeadSessionRepository } from "@/server/repositories/lead-session.supabase.repo";
+import { SupabaseLeadsRepository } from "@/server/repositories/leads.supabase.repo";
+import {
+  DefaultArchivosEscritorioService,
+  type ArchivosEscritorioService,
+} from "@/server/services/media/archivos-escritorio.service";
 import { SupabaseMediaStorage } from "@/server/repositories/media-storage.supabase.repo";
 import { SupabaseMessagesRepository } from "@/server/repositories/messages.supabase.repo";
 import { DefaultMetaApiService } from "@/server/services/meta-api.service";
@@ -29,6 +34,16 @@ export async function getAccesoMediaServiceForRequest(): Promise<AccesoMediaServ
   return new DefaultAccesoMediaService({
     messages: new SupabaseMessagesRepository(db),
     storage: new SupabaseMediaStorage(db),
+  });
+}
+
+/** Los archivos nuevos que la app de escritorio guarda en la PC. Con la sesión de quien pregunta (RLS). */
+export async function getArchivosEscritorioServiceForRequest(): Promise<ArchivosEscritorioService> {
+  const db = await createSupabaseServerClient();
+  return new DefaultArchivosEscritorioService({
+    messages: new SupabaseMessagesRepository(db),
+    convs: new SupabaseConversationsRepository(db),
+    leads: new SupabaseLeadsRepository(db),
   });
 }
 
