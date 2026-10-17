@@ -11,6 +11,17 @@
     "sentry": {
       "type": "http",
       "url": "https://mcp.sentry.dev/mcp/genuino-crm-dev"
+    },
+    "supabase-pat": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "C:/Users/Tinki/Proyectos/supabase-mcp/server.mjs",
+        "--project",
+        "emubzkouwvuzlrtsgorx",
+        "--repo",
+        "."
+      ]
     }
   }
 }

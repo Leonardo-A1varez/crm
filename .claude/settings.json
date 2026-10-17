@@ -1,0 +1,22 @@
+{
+  "enabledMcpjsonServers": [
+    "supabase-pat"
+  ],
+  "permissions": {
+    "allow": [
+      "mcp__supabase-pat__proyectos_listar",
+      "mcp__supabase-pat__proyecto_info",
+      "mcp__supabase-pat__sql_lectura",
+      "mcp__supabase-pat__migraciones_estado",
+      "mcp__supabase-pat__avisos",
+      "mcp__supabase-pat__logs",
+      "mcp__supabase-pat__tablas"
+    ],
+    "ask": [
+      "mcp__supabase-pat__sql_ejecutar",
+      "mcp__supabase-pat__migracion_aplicar",
+      "mcp__supabase-pat__migracion_probar",
+      "mcp__supabase-pat__tipos_typescript"
+    ]
+  }
+}
